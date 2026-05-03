@@ -1,0 +1,177 @@
+{
+  "id": "amaks-basic-equipment",
+  "name": "АМАКС. Базовое оборудование",
+  "description": "Пользовательская библиотека элементов оборудования",
+  "version": "1.0.0",
+  "createdAt": "2026-05-03T00:00:00.000Z",
+  "updatedAt": "2026-05-03T00:00:00.000Z",
+  "assets": [
+    {
+      "id": "valve_closed_svg",
+      "name": "Клапан закрыт",
+      "type": "svg",
+      "mimeType": "image/svg+xml",
+      "fileName": "valve-closed.svg",
+      "size": 438,
+      "width": 80,
+      "height": 46,
+      "createdAt": "2026-05-03T00:00:00.000Z",
+      "updatedAt": "2026-05-03T00:00:00.000Z",
+      "storagePath": "assets/valve-closed.svg",
+      "previewUrl": "/api/libraries/amaks-basic-equipment/assets/valve_closed_svg/file"
+    },
+    {
+      "id": "valve_open_svg",
+      "name": "Клапан открыт",
+      "type": "svg",
+      "mimeType": "image/svg+xml",
+      "fileName": "valve-open.svg",
+      "size": 436,
+      "width": 80,
+      "height": 46,
+      "createdAt": "2026-05-03T00:00:00.000Z",
+      "updatedAt": "2026-05-03T00:00:00.000Z",
+      "storagePath": "assets/valve-open.svg",
+      "previewUrl": "/api/libraries/amaks-basic-equipment/assets/valve_open_svg/file"
+    }
+  ],
+  "elements": [
+    {
+      "id": "valve-cutoff",
+      "name": "Клапан отсечной",
+      "description": "Шаблон клапана с картинками состояний",
+      "category": "Арматура",
+      "width": 220,
+      "height": 120,
+      "previewAssetId": "valve_open_svg",
+      "objects": [
+        {
+          "id": "label",
+          "type": "text",
+          "x": 10,
+          "y": 0,
+          "width": 200,
+          "height": 22,
+          "text": "{{label}}",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 14,
+            "fontStyle": "bold",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 2
+          }
+        },
+        {
+          "id": "state_image",
+          "type": "image",
+          "x": 70,
+          "y": 24,
+          "width": 80,
+          "height": 46,
+          "assetId": "valve_closed_svg",
+          "fit": "contain",
+          "preserveAspectRatio": true,
+          "opacity": 1,
+          "stateTag": ".VisualState",
+          "stateImages": [
+            {
+              "state": 0,
+              "assetId": "valve_closed_svg"
+            },
+            {
+              "state": 1,
+              "assetId": "valve_open_svg"
+            }
+          ]
+        },
+        {
+          "id": "fault",
+          "type": "state-indicator",
+          "x": 8,
+          "y": 72,
+          "width": 204,
+          "height": 20,
+          "tag": ".Fault",
+          "trueText": "АВАРИЯ",
+          "falseText": "НОРМА",
+          "trueColor": "#f5222d",
+          "falseColor": "#2f7d32",
+          "badColor": "#8c8c8c",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 12,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 1
+          }
+        },
+        {
+          "id": "open",
+          "type": "button",
+          "x": 8,
+          "y": 94,
+          "width": 98,
+          "height": 22,
+          "text": "Открыть",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 11,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 1
+          },
+          "action": {
+            "type": "pulse",
+            "tag": ".OpenCmd",
+            "value": true,
+            "durationMs": 500,
+            "confirm": true,
+            "confirmText": "Открыть {{label}}?"
+          }
+        },
+        {
+          "id": "close",
+          "type": "button",
+          "x": 114,
+          "y": 94,
+          "width": 98,
+          "height": 22,
+          "text": "Закрыть",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 11,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 1
+          },
+          "action": {
+            "type": "pulse",
+            "tag": ".CloseCmd",
+            "value": true,
+            "durationMs": 500,
+            "confirm": true,
+            "confirmText": "Закрыть {{label}}?"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "name": "label",
+          "type": "string",
+          "defaultValue": "Клапан"
+        }
+      ],
+      "createdAt": "2026-05-03T00:00:00.000Z",
+      "updatedAt": "2026-05-03T00:00:00.000Z"
+    }
+  ]
+}
+

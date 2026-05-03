@@ -1,0 +1,136 @@
+﻿# Web SCADA Lite
+
+Web SCADA Lite - это расширяемая web-SCADA/HMI система на `Node.js + TypeScript + React`.
+
+## Что реализовано в текущем MVP
+
+- Monorepo: `apps/server`, `apps/client`, `packages/shared`
+- Backend: Fastify + WebSocket, tag store, simulated driver, runtime
+- Frontend: Runtime + Editor (react-konva), инженерная авторизация
+- Resize/drag/select объектов в Editor
+- Popup-окна и template/frame
+- Относительные теги с `tagPrefix` (`.Opened` -> `Pump_1.Opened`)
+- Внутренние переменные (`LW.*`) и макросы TypeScript
+- Новый графический подход:
+  - project assets (PNG/JPG/SVG)
+  - element libraries
+  - library element instances
+  - сохранение выбранных объектов в библиотечный элемент
+
+## Структура
+
+```text
+/apps
+  /server
+  /client
+/packages
+  /shared
+/projects
+  demo-project.json
+/libraries
+  /amaks-basic-equipment
+/docker
+  docker-compose.yml
+```
+
+## Быстрый запуск
+
+### Вариант 1 (pnpm, рекомендовано)
+
+```bash
+corepack enable
+pnpm install
+pnpm dev
+```
+
+### Вариант 2 (npm)
+
+```bash
+npm install
+npm run dev
+```
+
+Открыть:
+- UI: `http://localhost:3000`
+- API: `http://localhost:3001/api/project`
+
+Проверка:
+```bash
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+## Инженерный вход
+
+По умолчанию пароль инженера: `1234`.
+
+Настройка в `.env`:
+
+```env
+ENGINEER_PASSWORD=your_password
+PORT=3001
+PROJECT_FILE=../../projects/demo-project.json
+LIBRARIES_DIR=../../libraries
+```
+
+В Runtime нажмите `Engineer` (правый верхний угол), после входа станет доступен переход в `Editor`.
+
+## Работа с графикой (новый подход)
+
+- Встроенные «рисованные» насосы/клапаны не являются основным подходом.
+- Основной путь:
+  1. Загрузить PNG/JPG/SVG в Asset Panel.
+  2. Добавить изображения/базовые объекты на экран.
+  3. Выделить набор объектов и сохранить в библиотеку как reusable element.
+  4. Использовать `libraryElementInstance` на разных экранах/проектах.
+
+## Профессиональное редактирование (MVP)
+
+- Multi-select: клик, `Ctrl+Click`, `Shift+Click`, рамка выделения
+- Group / Ungroup
+- Lock / Unlock
+- Align: left/right/top/bottom/h-center/v-center
+- Same size: width/height/size
+- Distribute: horizontal/vertical
+- Space evenly: horizontal/vertical (+ configurable gap)
+
+### Горячие клавиши
+
+- `Ctrl+G`: Group
+- `Ctrl+Shift+G`: Ungroup
+- `Ctrl+L`: Lock selected
+- `Ctrl+Shift+L`: Unlock selected
+- `Delete`: удалить выбранные unlocked-объекты
+
+## Основные API
+
+### Проект и runtime
+- `GET /api/project`
+- `POST /api/project`
+- `GET /api/tags`
+- `POST /api/tags/:name/write`
+- `GET /api/drivers`
+- `POST /api/runtime/start`
+- `POST /api/runtime/stop`
+- `POST /api/auth/engineer`
+
+### Assets
+- `POST /api/assets/upload`
+- `GET /api/assets`
+- `GET /api/assets/:assetId`
+- `GET /api/assets/:assetId/file`
+- `DELETE /api/assets/:assetId`
+
+### Libraries
+- `GET /api/libraries`
+- `GET /api/libraries/:libraryId`
+- `GET /api/libraries/:libraryId/elements`
+- `POST /api/libraries`
+- `POST /api/libraries/:libraryId/assets/upload`
+- `GET /api/libraries/:libraryId/assets/:assetId/file`
+- `POST /api/libraries/:libraryId/elements`
+- `PUT /api/libraries/:libraryId/elements/:elementId`
+- `DELETE /api/libraries/:libraryId/elements/:elementId`
+- `POST /api/project/libraries/attach`
+- `POST /api/project/libraries/detach`

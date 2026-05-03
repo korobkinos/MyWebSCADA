@@ -1,0 +1,435 @@
+{
+  "version": 1,
+  "name": "Web SCADA Lite Demo",
+  "startScreenId": "main",
+  "assets": [],
+  "libraries": [
+    {
+      "libraryId": "amaks-basic-equipment",
+      "name": "АМАКС. Базовое оборудование",
+      "version": "1.0.0",
+      "path": "libraries/amaks-basic-equipment",
+      "enabled": true
+    }
+  ],
+  "drivers": [
+    {
+      "id": "sim_1",
+      "type": "simulated",
+      "enabled": true
+    }
+  ],
+  "variables": [
+    {
+      "name": "Counter",
+      "dataType": "DINT",
+      "initialValue": 0,
+      "writable": true
+    }
+  ],
+  "macros": [
+    {
+      "id": "inc_counter",
+      "name": "Increment Counter",
+      "language": "ts",
+      "code": "const current = Number(api.readVariable('Counter') ?? 0); api.writeVariable('Counter', current + 1);"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Boiler.Pressure",
+      "dataType": "REAL",
+      "driverId": "sim_1",
+      "scanRateMs": 500,
+      "address": {
+        "pattern": "sine",
+        "min": 8,
+        "max": 16,
+        "periodMs": 6000
+      }
+    },
+    {
+      "name": "Burner_1.Flame",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "scanRateMs": 700,
+      "address": {
+        "pattern": "toggle",
+        "periodMs": 1800
+      }
+    },
+    {
+      "name": "Burner_1.PZK_1.Opened",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "scanRateMs": 900,
+      "address": {
+        "pattern": "toggle",
+        "periodMs": 3100
+      }
+    },
+    {
+      "name": "Burner_1.PZK_1.Fault",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "scanRateMs": 1000,
+      "address": {
+        "pattern": "random",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "name": "Burner_1.PZK_1.VisualState",
+      "dataType": "INT",
+      "driverId": "sim_1",
+      "scanRateMs": 1000,
+      "address": {
+        "pattern": "random",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "name": "Burner_1.PZK_1.OpenCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "writable": true,
+      "scanRateMs": 500,
+      "address": {
+        "pattern": "static"
+      }
+    },
+    {
+      "name": "Burner_1.PZK_1.CloseCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "writable": true,
+      "scanRateMs": 500,
+      "address": {
+        "pattern": "static"
+      }
+    },
+    {
+      "name": "Burner_1.PZK_2.Opened",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "scanRateMs": 920,
+      "address": {
+        "pattern": "toggle",
+        "periodMs": 4300
+      }
+    },
+    {
+      "name": "Burner_1.PZK_2.Fault",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "scanRateMs": 980,
+      "address": {
+        "pattern": "random",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "name": "Burner_1.PZK_2.VisualState",
+      "dataType": "INT",
+      "driverId": "sim_1",
+      "scanRateMs": 1000,
+      "address": {
+        "pattern": "random",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "name": "Burner_1.PZK_2.OpenCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "writable": true,
+      "scanRateMs": 500,
+      "address": {
+        "pattern": "static"
+      }
+    },
+    {
+      "name": "Burner_1.PZK_2.CloseCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "writable": true,
+      "scanRateMs": 500,
+      "address": {
+        "pattern": "static"
+      }
+    }
+  ],
+  "screens": [
+    {
+      "id": "main",
+      "name": "Главный экран",
+      "kind": "screen",
+      "width": 1920,
+      "height": 1080,
+      "background": "#1e1e1e",
+      "objects": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 40,
+          "y": 24,
+          "width": 360,
+          "height": 52,
+          "text": "Котел К-11",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 34,
+            "fontStyle": "bold",
+            "color": "#ffd666",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 0
+          },
+          "wrap": "none",
+          "ellipsis": false
+        },
+        {
+          "id": "pressure_label",
+          "type": "text",
+          "x": 40,
+          "y": 95,
+          "width": 180,
+          "height": 30,
+          "text": "Давление",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 18,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 0
+          }
+        },
+        {
+          "id": "pressure_value",
+          "type": "value-display",
+          "x": 220,
+          "y": 95,
+          "width": 180,
+          "height": 30,
+          "tag": "Boiler.Pressure",
+          "suffix": " кПа",
+          "badQualityText": "BAD",
+          "textStyle": {
+            "fontFamily": "Consolas",
+            "fontSize": 18,
+            "fontStyle": "normal",
+            "color": "#91caff",
+            "horizontalAlign": "right",
+            "verticalAlign": "middle",
+            "padding": 2
+          }
+        },
+        {
+          "id": "flame",
+          "type": "state-indicator",
+          "x": 40,
+          "y": 140,
+          "width": 220,
+          "height": 46,
+          "tag": "Burner_1.Flame",
+          "trueText": "ПЛАМЯ ЕСТЬ",
+          "falseText": "ПЛАМЕНИ НЕТ",
+          "trueColor": "#52c41a",
+          "falseColor": "#595959",
+          "badColor": "#bfbfbf",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 14,
+            "fontStyle": "bold",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 2
+          }
+        },
+        {
+          "id": "counter",
+          "type": "value-display",
+          "x": 40,
+          "y": 204,
+          "width": 220,
+          "height": 36,
+          "tag": "LW.Counter",
+          "suffix": " cnt",
+          "textStyle": {
+            "fontFamily": "Consolas",
+            "fontSize": 16,
+            "fontStyle": "bold",
+            "color": "#ffec3d",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 2
+          }
+        },
+        {
+          "id": "btn_counter",
+          "type": "button",
+          "x": 40,
+          "y": 250,
+          "width": 220,
+          "height": 40,
+          "text": "Counter++",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 14,
+            "fontStyle": "bold",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 2
+          },
+          "action": {
+            "type": "runMacro",
+            "macroId": "inc_counter"
+          }
+        },
+        {
+          "id": "btn_popup",
+          "type": "button",
+          "x": 40,
+          "y": 300,
+          "width": 220,
+          "height": 40,
+          "text": "Управление ПЗК-1",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 14,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 2
+          },
+          "action": {
+            "type": "openPopup",
+            "popupScreenId": "valve_popup",
+            "title": "Управление ПЗК-1",
+            "tagPrefix": "Burner_1.PZK_1"
+          }
+        },
+        {
+          "id": "valve_inst_1",
+          "type": "libraryElementInstance",
+          "x": 340,
+          "y": 150,
+          "width": 230,
+          "height": 120,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "valve-cutoff",
+          "tagPrefix": "Burner_1.PZK_1",
+          "parameterValues": {
+            "label": "ПЗК-1"
+          },
+          "scaleMode": "fit"
+        },
+        {
+          "id": "valve_inst_2",
+          "type": "libraryElementInstance",
+          "x": 590,
+          "y": 150,
+          "width": 230,
+          "height": 120,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "valve-cutoff",
+          "tagPrefix": "Burner_1.PZK_2",
+          "parameterValues": {
+            "label": "ПЗК-2"
+          },
+          "scaleMode": "fit"
+        }
+      ]
+    },
+    {
+      "id": "valve_popup",
+      "name": "Окно управления клапаном",
+      "kind": "popup",
+      "width": 460,
+      "height": 240,
+      "background": "#102130",
+      "popupOptions": {
+        "title": "Управление клапаном",
+        "defaultX": 180,
+        "defaultY": 150,
+        "modal": false,
+        "draggable": true,
+        "closable": true,
+        "resizable": false,
+        "titleTextStyle": {
+          "fontFamily": "Arial",
+          "fontSize": 15,
+          "fontStyle": "bold",
+          "color": "#ffffff",
+          "horizontalAlign": "left",
+          "verticalAlign": "middle",
+          "padding": 2
+        }
+      },
+      "objects": [
+        {
+          "id": "popup_title",
+          "type": "text",
+          "x": 20,
+          "y": 20,
+          "width": 420,
+          "height": 30,
+          "text": "Окно управления",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 20,
+            "fontStyle": "bold",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 0
+          }
+        },
+        {
+          "id": "popup_valve_instance",
+          "type": "libraryElementInstance",
+          "x": 20,
+          "y": 70,
+          "width": 230,
+          "height": 120,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "valve-cutoff",
+          "parameterValues": {
+            "label": "Клапан"
+          },
+          "scaleMode": "fit"
+        },
+        {
+          "id": "popup_close_btn",
+          "type": "button",
+          "x": 270,
+          "y": 150,
+          "width": 160,
+          "height": 40,
+          "text": "Закрыть",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 14,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 2
+          },
+          "action": {
+            "type": "closePopup"
+          }
+        }
+      ]
+    }
+  ]
+}
