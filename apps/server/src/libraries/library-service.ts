@@ -143,6 +143,8 @@ export class LibraryService {
     const normalized = libraryElementSchema.parse({
       ...element,
       id: element.id?.trim() || safeId(element.name) || `element-${randomUUID().slice(0, 8)}`,
+      libraryId: library.id,
+      elementKey: element.elementKey?.trim() || safeId(element.name) || `element_${randomUUID().slice(0, 6)}`,
       createdAt: element.createdAt || now,
       updatedAt: now,
     });
@@ -168,6 +170,8 @@ export class LibraryService {
       ...existing,
       ...patch,
       id: existing.id,
+      libraryId: existing.libraryId ?? library.id,
+      elementKey: patch.elementKey?.trim() || existing.elementKey || safeId(existing.name),
       createdAt: existing.createdAt,
       updatedAt: nowIso(),
     });
@@ -269,4 +273,3 @@ export class LibraryService {
     await rm(absolute, { force: true });
   }
 }
-

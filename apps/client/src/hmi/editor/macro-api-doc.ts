@@ -1,0 +1,327 @@
+﻿export type MacroApiDocItem = {
+  name: string;
+  category: string;
+  signature: string;
+  description: string;
+  example: string;
+};
+
+export type MacroExample = {
+  id: string;
+  title: string;
+  description: string;
+  code: string;
+};
+
+export const macroApiDocumentation: MacroApiDocItem[] = [
+  {
+    name: "readTag",
+    category: "Работа с тегами",
+    signature: "readTag(tagName: string): unknown",
+    description: "Возвращает текущее значение тега.",
+    example: "const pressure = readTag(\"Boiler.Pressure\");",
+  },
+  {
+    name: "writeTag",
+    category: "Работа с тегами",
+    signature: "writeTag(tagName: string, value: unknown): void",
+    description: "Записывает значение в writable-тег.",
+    example: "writeTag(\"Burner_1.StartCmd\", true);",
+  },
+  {
+    name: "pulseTag",
+    category: "Работа с тегами",
+    signature: "pulseTag(tagName: string, value: unknown, durationMs: number, resetValue?: unknown): void",
+    description: "Пишет значение и затем через durationMs сбрасывает.",
+    example: "pulseTag(\"Burner_1.StartCmd\", true, 500);",
+  },
+  {
+    name: "toggleTag",
+    category: "Работа с тегами",
+    signature: "toggleTag(tagName: string): void",
+    description: "Переключает BOOL-тег.",
+    example: "toggleTag(\"Pump_1.Enable\");",
+  },
+  {
+    name: "getTagQuality",
+    category: "Работа с тегами",
+    signature: "getTagQuality(tagName: string): \"Good\" | \"Bad\" | \"Uncertain\"",
+    description: "Возвращает качество тега.",
+    example: "if (getTagQuality(\"Boiler.Pressure\") !== \"Good\") { warn(\"Bad quality\"); }",
+  },
+  {
+    name: "tagExists",
+    category: "Работа с тегами",
+    signature: "tagExists(tagName: string): boolean",
+    description: "Проверяет существование тега.",
+    example: "if (tagExists(\"Pump_1.Run\")) { log(\"exists\"); }",
+  },
+  {
+    name: "getLW",
+    category: "Работа с LW/internal variables",
+    signature: "getLW(address: number): number",
+    description: "Читает внутренний LW-регистр.",
+    example: "const selectedValve = getLW(10);",
+  },
+  {
+    name: "setLW",
+    category: "Работа с LW/internal variables",
+    signature: "setLW(address: number, value: number): void",
+    description: "Записывает значение в LW-регистр.",
+    example: "setLW(9200, 123);",
+  },
+  {
+    name: "getVar",
+    category: "Работа с LW/internal variables",
+    signature: "getVar(name: string): unknown",
+    description: "Читает именованную внутреннюю переменную.",
+    example: "const mode = getVar(\"Mode\");",
+  },
+  {
+    name: "setVar",
+    category: "Работа с LW/internal variables",
+    signature: "setVar(name: string, value: unknown): void",
+    description: "Записывает именованную внутреннюю переменную.",
+    example: "setVar(\"SelectedValveName\", \"ПЗК-1\");",
+  },
+  {
+    name: "openScreen",
+    category: "Работа с экранами",
+    signature: "openScreen(screenKey: string): void",
+    description: "Открывает обычный экран runtime.",
+    example: "openScreen(\"main\");",
+  },
+  {
+    name: "getCurrentScreen",
+    category: "Работа с экранами",
+    signature: "getCurrentScreen(): string",
+    description: "Возвращает ключ текущего экрана.",
+    example: "log(getCurrentScreen());",
+  },
+  {
+    name: "screenExists",
+    category: "Работа с экранами",
+    signature: "screenExists(screenKey: string): boolean",
+    description: "Проверяет существование экрана.",
+    example: "if (screenExists(\"burner_1\")) openScreen(\"burner_1\");",
+  },
+  {
+    name: "openPopup",
+    category: "Работа с popup-окнами",
+    signature: "openPopup(popupScreenKey: string, options?: PopupOpenOptions): string",
+    description: "Открывает popup-screen внутри runtime.",
+    example: "openPopup(\"valve_control_popup\", { title: \"ПЗК-1\", tagPrefix: \"Burner_1.PZK_1\" });",
+  },
+  {
+    name: "closePopup",
+    category: "Работа с popup-окнами",
+    signature: "closePopup(popupInstanceId?: string): void",
+    description: "Закрывает popup по instance id или текущий.",
+    example: "closePopup();",
+  },
+  {
+    name: "closeAllPopups",
+    category: "Работа с popup-окнами",
+    signature: "closeAllPopups(): void",
+    description: "Закрывает все popup-окна.",
+    example: "closeAllPopups();",
+  },
+  {
+    name: "getObject",
+    category: "Работа с объектами мнемосхемы",
+    signature: "getObject(objectId: string): HmiObject | null",
+    description: "Возвращает runtime-объект по id.",
+    example: "const obj = getObject(\"status_label\");",
+  },
+  {
+    name: "setObjectVisible",
+    category: "Работа с объектами мнемосхемы",
+    signature: "setObjectVisible(objectId: string, visible: boolean): void",
+    description: "Показывает или скрывает объект.",
+    example: "setObjectVisible(\"alarm_banner\", true);",
+  },
+  {
+    name: "setObjectText",
+    category: "Работа с объектами мнемосхемы",
+    signature: "setObjectText(objectId: string, text: string): void",
+    description: "Меняет текст объекта.",
+    example: "setObjectText(\"pressure_status\", \"Давление: OK\");",
+  },
+  {
+    name: "setObjectPosition",
+    category: "Работа с объектами мнемосхемы",
+    signature: "setObjectPosition(objectId: string, x: number, y: number): void",
+    description: "Ставит объект в указанную позицию.",
+    example: "setObjectPosition(\"popup_marker\", 100, 200);",
+  },
+  {
+    name: "setObjectProperty",
+    category: "Работа с объектами мнемосхемы",
+    signature: "setObjectProperty(objectId: string, propertyPath: string, value: unknown): void",
+    description: "Меняет произвольное runtime-свойство объекта.",
+    example: "setObjectProperty(\"pressure_display\", \"textStyle.color\", \"#ff0000\");",
+  },
+  {
+    name: "getObjectProperty",
+    category: "Работа с объектами мнемосхемы",
+    signature: "getObjectProperty(objectId: string, propertyPath: string): unknown",
+    description: "Читает runtime-свойство объекта.",
+    example: "const text = getObjectProperty(\"status_label\", \"text\");",
+  },
+  {
+    name: "resolveTag",
+    category: "Работа с библиотечными элементами и frame",
+    signature: "resolveTag(relativeOrAbsoluteTag: string, tagPrefix?: string): string",
+    description: "Разворачивает относительный тег с учетом префикса.",
+    example: "const openedTag = resolveTag(\".Opened\", getCurrentTagPrefix());",
+  },
+  {
+    name: "getCurrentTagPrefix",
+    category: "Работа с библиотечными элементами и frame",
+    signature: "getCurrentTagPrefix(): string | undefined",
+    description: "Возвращает текущий runtime tagPrefix контекста.",
+    example: "const prefix = getCurrentTagPrefix();",
+  },
+  {
+    name: "log",
+    category: "Ошибки и отладка",
+    signature: "log(message: unknown): void",
+    description: "Пишет информационный лог макроса.",
+    example: "log(\"Macro started\");",
+  },
+  {
+    name: "warn",
+    category: "Ошибки и отладка",
+    signature: "warn(message: unknown): void",
+    description: "Пишет warning лог макроса.",
+    example: "warn(\"Tag quality is Bad\");",
+  },
+  {
+    name: "error",
+    category: "Ошибки и отладка",
+    signature: "error(message: unknown): void",
+    description: "Пишет error лог макроса.",
+    example: "error(\"Cannot write tag\");",
+  },
+  {
+    name: "AND",
+    category: "Стандартные функции",
+    signature: "AND(a: boolean, b: boolean): boolean",
+    description: "Логическое И.",
+    example: "const ready = AND(readTag(\"A\") === true, readTag(\"B\") === true);",
+  },
+  {
+    name: "OR",
+    category: "Стандартные функции",
+    signature: "OR(a: boolean, b: boolean): boolean",
+    description: "Логическое ИЛИ.",
+    example: "const alarm = OR(readTag(\"A\") === true, readTag(\"B\") === true);",
+  },
+  {
+    name: "NOT",
+    category: "Стандартные функции",
+    signature: "NOT(a: boolean): boolean",
+    description: "Логическое НЕ.",
+    example: "const stop = NOT(readTag(\"Run\") === true);",
+  },
+  {
+    name: "risingEdge",
+    category: "Стандартные функции",
+    signature: "risingEdge(name: string, value: boolean): boolean",
+    description: "Положительный фронт сигнала.",
+    example: "if (risingEdge(\"start_edge\", readTag(\"Start\") === true)) { pulseTag(\"Cmd\", true, 500); }",
+  },
+  {
+    name: "fallingEdge",
+    category: "Стандартные функции",
+    signature: "fallingEdge(name: string, value: boolean): boolean",
+    description: "Отрицательный фронт сигнала.",
+    example: "if (fallingEdge(\"stop_edge\", readTag(\"Start\") === true)) { log(\"Stopped\"); }",
+  },
+  {
+    name: "timerOn",
+    category: "Стандартные функции",
+    signature: "timerOn(name: string, condition: boolean, delayMs: number): boolean",
+    description: "TON таймер, true после задержки при condition=true.",
+    example: "if (timerOn(\"HighPressureDelay\", readTag(\"P\") > 10, 3000)) writeTag(\"Alarm\", true);",
+  },
+  {
+    name: "timerOff",
+    category: "Стандартные функции",
+    signature: "timerOff(name: string, condition: boolean, delayMs: number): boolean",
+    description: "TOF таймер, удержание true после спада.",
+    example: "const hold = timerOff(\"hold\", readTag(\"Run\") === true, 1000);",
+  },
+  {
+    name: "resetTimer",
+    category: "Стандартные функции",
+    signature: "resetTimer(name: string): void",
+    description: "Сбрасывает внутреннее состояние таймера.",
+    example: "resetTimer(\"HighPressureDelay\");",
+  },
+  {
+    name: "clamp",
+    category: "Стандартные функции",
+    signature: "clamp(value: number, min: number, max: number): number",
+    description: "Ограничивает значение диапазоном.",
+    example: "const cmd = clamp(readTag(\"Setpoint\") as number, 0, 100);",
+  },
+  {
+    name: "scale",
+    category: "Стандартные функции",
+    signature: "scale(value: number, inMin: number, inMax: number, outMin: number, outMax: number): number",
+    description: "Линейное масштабирование диапазона.",
+    example: "const percent = scale(readTag(\"P\") as number, 0, 16, 0, 100);",
+  },
+];
+
+export const macroExamples: MacroExample[] = [
+  {
+    id: "read-and-write",
+    title: "Чтение тега и запись результата",
+    description: "Сравнение давления с уставкой.",
+    code: `const pressure = readTag("Boiler.Pressure");\n\nif (pressure > 10.0) {\n  writeTag("Boiler.HighPressure", true);\n} else {\n  writeTag("Boiler.HighPressure", false);\n}`,
+  },
+  {
+    id: "pulse-start",
+    title: "Импульс команды пуска",
+    description: "Пусковая команда на 500 мс.",
+    code: `pulseTag("Burner_1.StartCmd", true, 500);`,
+  },
+  {
+    id: "lw-index",
+    title: "Расчет индекса арматуры по LW10 и LW20",
+    description: "Расчет условного индекса выбора.",
+    code: `const selectedValve = getLW(10);\nconst selectedBurner = getLW(20);\n\nlet index = 0;\n\nif (selectedBurner <= 1) {\n  index = selectedValve;\n} else {\n  index = (selectedBurner - 1) * 32 + selectedValve;\n}\n\nsetLW(9200, index);`,
+  },
+  {
+    id: "popup-prefix",
+    title: "Открытие popup с tagPrefix",
+    description: "Динамический префикс из LW.",
+    code: `const selectedBurner = getLW(20);\nconst selectedValve = getLW(10);\n\nconst prefix = "Burner_" + selectedBurner + ".Valve_" + selectedValve;\n\nopenPopup("valve_control_popup", {\n  title: "Управление арматурой",\n  x: 300,\n  y: 200,\n  tagPrefix: prefix\n});`,
+  },
+  {
+    id: "set-object-text",
+    title: "Изменение текста объекта",
+    description: "Показывает текущее давление в тексте.",
+    code: `const pressure = readTag("Boiler.Pressure");\nsetObjectText("pressure_status", "Давление: " + pressure);`,
+  },
+  {
+    id: "show-hide-object",
+    title: "Скрыть/показать объект",
+    description: "Баннер тревоги по тегу аларма.",
+    code: `const alarm = readTag("Boiler.Alarm");\nsetObjectVisible("alarm_banner", alarm === true);`,
+  },
+  {
+    id: "interval-counter",
+    title: "Макрос по интервалу",
+    description: "Инкремент named var и LW.",
+    code: `const counter = getVar("Counter") || 0;\nsetVar("Counter", counter + 1);\nsetLW(100, counter + 1);`,
+  },
+  {
+    id: "tag-quality",
+    title: "Проверка качества тега",
+    description: "Обработка Bad quality.",
+    code: `if (getTagQuality("Boiler.Pressure") !== "Good") {\n  setObjectText("pressure_status", "Нет связи");\n  setObjectVisible("pressure_bad_icon", true);\n}`,
+  },
+];

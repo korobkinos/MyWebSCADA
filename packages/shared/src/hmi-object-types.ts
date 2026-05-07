@@ -42,6 +42,7 @@ export type HmiObjectBase = {
     | "button"
     | "switch"
     | "image"
+    | "stateImage"
     | "libraryElementInstance"
     | "valve"
     | "pump"
@@ -186,13 +187,21 @@ export type RuntimeAction =
   | {
       type: "runMacro";
       macroId: string;
+      args?: Record<string, unknown>;
       confirm?: boolean;
       confirmText?: string;
     };
 
 export type ButtonObject = HmiObjectBase & {
   type: "button";
-  text: string;
+  text?: string;
+  showText?: boolean;
+  backgroundAssetId?: string;
+  pressedBackgroundAssetId?: string;
+  disabledBackgroundAssetId?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
   action: RuntimeAction;
   textStyle: TextStyle;
 } & TextLayout;
@@ -215,6 +224,7 @@ export type ImageObject = HmiObjectBase & {
   type: "image";
   assetId?: string;
   src?: string;
+  action?: RuntimeAction;
   fit: "contain" | "cover" | "stretch" | "none";
   preserveAspectRatio?: boolean;
   opacity?: number;
@@ -224,6 +234,28 @@ export type ImageObject = HmiObjectBase & {
     opacity?: ExpressionBinding;
     assetId?: ExpressionBinding;
   };
+};
+
+export type StateImageCondition =
+  | { type: "equals"; value: string | number | boolean }
+  | { type: "notEquals"; value: string | number | boolean }
+  | { type: "true" }
+  | { type: "false" };
+
+export type StateImageObject = HmiObjectBase & {
+  type: "stateImage";
+  tag: string;
+  states: Array<{
+    id: string;
+    name: string;
+    condition: StateImageCondition;
+    assetId: string;
+  }>;
+  defaultAssetId?: string;
+  badQualityAssetId?: string;
+  fit: "contain" | "cover" | "stretch" | "none";
+  preserveAspectRatio?: boolean;
+  action?: RuntimeAction;
 };
 
 export type LibraryElementInstanceObject = HmiObjectBase & {
@@ -282,6 +314,7 @@ export type HmiObject =
   | ButtonObject
   | SwitchObject
   | ImageObject
+  | StateImageObject
   | LibraryElementInstanceObject
   | ValveObject
   | PumpObject

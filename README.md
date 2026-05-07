@@ -16,6 +16,33 @@ Web SCADA Lite - это расширяемая web-SCADA/HMI система на
   - element libraries
   - library element instances
   - сохранение выбранных объектов в библиотечный элемент
+- Новый раздел `Element Editor` (`/element-editor`) для создания библиотечных шаблонов элементов
+
+## Что добавлено в этой доработке (Element Editor)
+
+- В главном меню добавлен отдельный раздел **Element Editor**.
+- Реализована отдельная страница редактирования библиотечных элементов:
+  - левый dock: выбор библиотеки и списка элементов;
+  - центр: canvas шаблона элемента (на базе `HmiStage`);
+  - правый dock: свойства элемента/объекта, assets, preview, state rules.
+- Реализованы операции:
+  - `New / Save / Duplicate / Delete element`;
+  - добавление примитивов (`Image`, `Text`, `Line`, `Rectangle`, `StateImage`);
+  - drag&drop asset на canvas элемента.
+- Расширена модель `LibraryElement`:
+  - `elementKey`, `libraryId`,
+  - расширенные `parameters` (включая `tagPrefix` и `index`),
+  - `stateRules` (`source -> cases -> actions`).
+- Runtime для `libraryElementInstance` теперь применяет:
+  - parameter substitution,
+  - `tagPrefix`,
+  - `stateRules` (MVP actions: `setVisible`, `setAsset`, `setText`, `setFill`, `setStroke`).
+- Расширен шаблонизатор параметров:
+  - поддержка `{{name}}`,
+  - поддержка короткого формата `{index}`.
+- В свойствах `LibraryElementInstance` улучшено редактирование параметров:
+  - отдельные поля по типам параметров,
+  - JSON advanced режим сохранён.
 
 ## Структура
 
@@ -134,3 +161,21 @@ LIBRARIES_DIR=../../libraries
 - `DELETE /api/libraries/:libraryId/elements/:elementId`
 - `POST /api/project/libraries/attach`
 - `POST /api/project/libraries/detach`
+
+## Element Editor: быстрый сценарий
+
+1. Откройте `Element Editor`.
+2. Выберите библиотеку слева.
+3. Нажмите `New`, задайте имя/размеры элемента.
+4. Добавьте объекты на canvas (`Add Image`, `Add Text`, ...).
+5. Во вкладке `Assets` перетащите изображения на canvas или нажмите `Add`.
+6. В `Element` задайте параметры (`tagPrefix`, `index`, `label` и т.д.).
+7. В `State Rules` задайте JSON-правила состояний.
+8. Нажмите `Save`.
+9. В обычном `Editor` добавьте `LibraryElementInstance`, выберите библиотеку/элемент и задайте `parameterValues`/`tagPrefix`.
+
+## Ограничения текущего MVP
+
+- Полноценный визуальный конструктор `stateRules` пока не сделан (редактирование через JSON).
+- Advanced docking (tabbed docking / cross-side drag) не реализован.
+- Floating detached windows для всех разделов ещё не унифицированы полностью.

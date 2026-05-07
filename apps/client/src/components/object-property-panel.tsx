@@ -1,5 +1,6 @@
 import type { Asset, ElementLibrary, HmiObject, HmiScreen, ScadaProject, TextStyle } from "@web-scada/shared";
-import { Button, Divider, Form, Input, InputNumber, Select, Space, Switch } from "antd";
+import { Button, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
+import { TagPicker } from "./tag-picker";
 
 type Props = {
   project: ScadaProject;
@@ -177,7 +178,7 @@ function SpecificPropertyFields({
     return (
       <>
         <Form.Item label="Tag">
-          <Input value={object.tag} onChange={(e) => onPatch({ tag: e.target.value } as Partial<HmiObject>)} />
+          <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Suffix">
           <Input value={object.suffix ?? ""} onChange={(e) => onPatch({ suffix: e.target.value } as Partial<HmiObject>)} />
@@ -190,7 +191,7 @@ function SpecificPropertyFields({
     return (
       <>
         <Form.Item label="Tag">
-          <Input value={object.tag} onChange={(e) => onPatch({ tag: e.target.value } as Partial<HmiObject>)} />
+          <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Min">
           <InputNumber style={{ width: "100%" }} value={object.min} onChange={(v) => onPatch({ min: Number(v ?? 0) } as Partial<HmiObject>)} />
@@ -206,7 +207,7 @@ function SpecificPropertyFields({
     return (
       <>
         <Form.Item label="Tag">
-          <Input value={object.tag} onChange={(e) => onPatch({ tag: e.target.value } as Partial<HmiObject>)} />
+          <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="True Text">
           <Input value={object.trueText} onChange={(e) => onPatch({ trueText: e.target.value } as Partial<HmiObject>)} />
@@ -219,14 +220,70 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "button") {
+    const runMacroAction = object.action.type === "runMacro" ? object.action : undefined;
+    const macro = runMacroAction
+      ? (project.macros ?? []).find((item) => item.id === runMacroAction.macroId)
+      : undefined;
     return (
       <>
         <Form.Item label="Text">
-          <Input value={object.text} onChange={(e) => onPatch({ text: e.target.value } as Partial<HmiObject>)} />
+          <Input value={object.text ?? ""} onChange={(e) => onPatch({ text: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Space>
+          <span>Show text</span>
+          <Switch checked={object.showText ?? true} onChange={(checked) => onPatch({ showText: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Form.Item label="Background Asset">
+          <Select
+            value={object.backgroundAssetId}
+            allowClear
+            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            onChange={(value) => onPatch({ backgroundAssetId: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Pressed Asset">
+          <Select
+            value={object.pressedBackgroundAssetId}
+            allowClear
+            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            onChange={(value) => onPatch({ pressedBackgroundAssetId: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Background Color">
+          <Input value={object.backgroundColor ?? "#0958d9"} onChange={(e) => onPatch({ backgroundColor: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Action Type">
           <Input value={object.action.type} disabled />
         </Form.Item>
+        {runMacroAction ? (
+          <>
+            <Form.Item label="Macro">
+              <Select
+                value={runMacroAction.macroId}
+                options={(project.macros ?? []).map((item) => ({ label: item.name, value: item.id }))}
+                onChange={(value) =>
+                  onPatch({
+                    action: {
+                      ...runMacroAction,
+                      macroId: value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Space>
+              <Typography.Text type="secondary">Status:</Typography.Text>
+              {!macro ? <Tag color="red">Missing</Tag> : null}
+              {macro && (macro.enabled ?? true) ? <Tag color="green">Enabled</Tag> : null}
+              {macro && (macro.enabled ?? true) === false ? <Tag color="gold">Disabled</Tag> : null}
+            </Space>
+            {macro && (macro.enabled ?? true) === false ? (
+              <Typography.Text type="warning">
+                This macro is disabled. It will not run in Runtime.
+              </Typography.Text>
+            ) : null}
+          </>
+        ) : null}
       </>
     );
   }
@@ -234,12 +291,13 @@ function SpecificPropertyFields({
   if (object.type === "switch") {
     return (
       <Form.Item label="Tag">
-        <Input value={object.tag} onChange={(e) => onPatch({ tag: e.target.value } as Partial<HmiObject>)} />
+        <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
       </Form.Item>
     );
   }
 
   if (object.type === "image") {
+    const imageRunMacroAction = object.action?.type === "runMacro" ? object.action : undefined;
     return (
       <>
         <Form.Item label="Asset">
@@ -253,8 +311,78 @@ function SpecificPropertyFields({
         <Form.Item label="Fallback src">
           <Input value={object.src ?? ""} onChange={(e) => onPatch({ src: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Action Type">
+          <Select
+            value={object.action?.type ?? "none"}
+            options={[
+              { label: "none", value: "none" },
+              { label: "write", value: "write" },
+              { label: "pulse", value: "pulse" },
+              { label: "toggle", value: "toggle" },
+              { label: "openScreen", value: "openScreen" },
+              { label: "openPopup", value: "openPopup" },
+              { label: "runMacro", value: "runMacro" },
+            ]}
+            onChange={(value) => {
+              if (value === "none") {
+                onPatch({ action: undefined } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "write") {
+                onPatch({ action: { type: "write", tag: "", value: true } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "pulse") {
+                onPatch({ action: { type: "pulse", tag: "", value: true, durationMs: 500 } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "toggle") {
+                onPatch({ action: { type: "toggle", tag: "" } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "openScreen") {
+                onPatch({ action: { type: "openScreen", screenId: project.screens[0]?.id ?? "" } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "openPopup") {
+                const popup = project.screens.find((s) => s.kind === "popup");
+                onPatch({ action: { type: "openPopup", popupScreenId: popup?.id ?? "" } } as Partial<HmiObject>);
+                return;
+              }
+              onPatch({ action: { type: "runMacro", macroId: "" } } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+        {imageRunMacroAction ? (
+          <>
+            <Form.Item label="Macro">
+              <Select
+                value={imageRunMacroAction.macroId}
+                options={(project.macros ?? []).map((item) => ({ label: item.name, value: item.id }))}
+                onChange={(value) =>
+                  onPatch({
+                    action: {
+                      ...imageRunMacroAction,
+                      macroId: value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            {(() => {
+              const macro = (project.macros ?? []).find((item) => item.id === imageRunMacroAction.macroId);
+              if (!macro) {
+                return <Tag color="red">Macro missing</Tag>;
+              }
+              if ((macro.enabled ?? true) === false) {
+                return <Tag color="gold">Macro disabled</Tag>;
+              }
+              return <Tag color="green">Macro enabled</Tag>;
+            })()}
+          </>
+        ) : null}
         <Form.Item label="State Tag">
-          <Input value={object.stateTag ?? ""} onChange={(e) => onPatch({ stateTag: e.target.value } as Partial<HmiObject>)} />
+          <TagPicker project={project} value={object.stateTag ?? ""} onChange={(tag) => onPatch({ stateTag: tag } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="State Images (JSON)">
           <Input.TextArea
@@ -303,10 +431,102 @@ function SpecificPropertyFields({
     );
   }
 
+  if (object.type === "stateImage") {
+    const stateImageRunMacroAction = object.action?.type === "runMacro" ? object.action : undefined;
+    return (
+      <>
+        <Form.Item label="Tag">
+          <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Default Asset">
+          <Select
+            value={object.defaultAssetId}
+            allowClear
+            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            onChange={(value) => onPatch({ defaultAssetId: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Bad Quality Asset">
+          <Select
+            value={object.badQualityAssetId}
+            allowClear
+            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            onChange={(value) => onPatch({ badQualityAssetId: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="States (JSON)">
+          <Input.TextArea
+            rows={6}
+            value={JSON.stringify(object.states, null, 2)}
+            onChange={(e) => {
+              try {
+                const parsed = JSON.parse(e.target.value) as Array<{
+                  id: string;
+                  name: string;
+                  condition: { type: "equals" | "notEquals" | "true" | "false"; value?: string | number | boolean };
+                  assetId: string;
+                }>;
+                onPatch({ states: parsed } as Partial<HmiObject>);
+              } catch {
+                // ignore typing
+              }
+            }}
+          />
+        </Form.Item>
+        <Form.Item label="Action Type">
+          <Select
+            value={object.action?.type ?? "none"}
+            options={[
+              { label: "none", value: "none" },
+              { label: "runMacro", value: "runMacro" },
+            ]}
+            onChange={(value) => {
+              if (value === "none") {
+                onPatch({ action: undefined } as Partial<HmiObject>);
+                return;
+              }
+              onPatch({ action: { type: "runMacro", macroId: "" } } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+        {stateImageRunMacroAction ? (
+          <>
+            <Form.Item label="Macro">
+              <Select
+                value={stateImageRunMacroAction.macroId}
+                options={(project.macros ?? []).map((item) => ({ label: item.name, value: item.id }))}
+                onChange={(value) =>
+                  onPatch({
+                    action: {
+                      ...stateImageRunMacroAction,
+                      macroId: value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            {(() => {
+              const macro = (project.macros ?? []).find((item) => item.id === stateImageRunMacroAction.macroId);
+              if (!macro) {
+                return <Tag color="red">Macro missing</Tag>;
+              }
+              if ((macro.enabled ?? true) === false) {
+                return <Tag color="gold">Macro disabled</Tag>;
+              }
+              return <Tag color="green">Macro enabled</Tag>;
+            })()}
+          </>
+        ) : null}
+      </>
+    );
+  }
+
   if (object.type === "libraryElementInstance") {
     const libraryOptions = libraries.map((library) => ({ label: library.name, value: library.id }));
     const selectedLibrary = libraries.find((library) => library.id === object.libraryId);
     const elementOptions = (selectedLibrary?.elements ?? []).map((element) => ({ label: element.name, value: element.id }));
+    const selectedElement = selectedLibrary?.elements.find((element) => element.id === object.elementId);
+    const parameterValues = object.parameterValues ?? {};
     return (
       <>
         <Form.Item label="Library">
@@ -337,20 +557,116 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ scaleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        <Form.Item label="Parameter Values (JSON)">
-          <Input.TextArea
-            rows={4}
-            value={JSON.stringify(object.parameterValues ?? {}, null, 2)}
-            onChange={(e) => {
-              try {
-                const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
-                onPatch({ parameterValues: parsed } as Partial<HmiObject>);
-              } catch {
-                // ignore invalid JSON while typing
+        {selectedElement?.parameters?.length ? (
+          <>
+            <Typography.Text type="secondary">
+              Element parameters
+            </Typography.Text>
+            {selectedElement.parameters.map((parameter) => {
+              const currentValue = parameterValues[parameter.name] ?? parameter.defaultValue;
+              if (parameter.type === "boolean") {
+                return (
+                  <Form.Item key={parameter.name} label={parameter.displayName ?? parameter.name}>
+                    <Switch
+                      checked={Boolean(currentValue)}
+                      onChange={(checked) =>
+                        onPatch({
+                          parameterValues: {
+                            ...parameterValues,
+                            [parameter.name]: checked,
+                          },
+                        } as Partial<HmiObject>)
+                      }
+                    />
+                  </Form.Item>
+                );
               }
-            }}
-          />
-        </Form.Item>
+
+              if (parameter.type === "number" || parameter.type === "index") {
+                return (
+                  <Form.Item key={parameter.name} label={parameter.displayName ?? parameter.name}>
+                    <InputNumber
+                      style={{ width: "100%" }}
+                      value={typeof currentValue === "number" ? currentValue : Number(currentValue ?? 0)}
+                      onChange={(value) =>
+                        onPatch({
+                          parameterValues: {
+                            ...parameterValues,
+                            [parameter.name]: Number(value ?? 0),
+                          },
+                        } as Partial<HmiObject>)
+                      }
+                    />
+                  </Form.Item>
+                );
+              }
+
+              if (parameter.type === "tag") {
+                return (
+                  <Form.Item key={parameter.name} label={parameter.displayName ?? parameter.name}>
+                    <Input
+                      value={String(currentValue ?? "")}
+                      placeholder='Tag name (supports relative ".State")'
+                      onChange={(e) =>
+                        onPatch({
+                          parameterValues: {
+                            ...parameterValues,
+                            [parameter.name]: e.target.value,
+                          },
+                        } as Partial<HmiObject>)
+                      }
+                    />
+                  </Form.Item>
+                );
+              }
+
+              return (
+                <Form.Item key={parameter.name} label={parameter.displayName ?? parameter.name}>
+                  <Input
+                    value={String(currentValue ?? "")}
+                    onChange={(e) =>
+                      onPatch({
+                        parameterValues: {
+                          ...parameterValues,
+                          [parameter.name]: e.target.value,
+                        },
+                      } as Partial<HmiObject>)
+                    }
+                  />
+                </Form.Item>
+              );
+            })}
+            <Form.Item label="Parameter Values (JSON advanced)">
+              <Input.TextArea
+                rows={4}
+                value={JSON.stringify(parameterValues, null, 2)}
+                onChange={(e) => {
+                  try {
+                    const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
+                    onPatch({ parameterValues: parsed } as Partial<HmiObject>);
+                  } catch {
+                    // ignore invalid JSON while typing
+                  }
+                }}
+              />
+            </Form.Item>
+          </>
+        ) : (
+          <Form.Item label="Parameter Values (JSON)">
+            <Input.TextArea
+              rows={4}
+              value={JSON.stringify(object.parameterValues ?? {}, null, 2)}
+              onChange={(e) => {
+                try {
+                  const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
+                  onPatch({ parameterValues: parsed } as Partial<HmiObject>);
+                } catch {
+                  // ignore invalid JSON while typing
+                }
+              }}
+            />
+          </Form.Item>
+        )}
       </>
     );
   }

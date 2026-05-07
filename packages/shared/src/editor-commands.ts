@@ -1,4 +1,5 @@
-import type { GroupObject, HmiObject, HmiScreen } from "./hmi-object-types";
+import type { GroupObject, HmiObject } from "./hmi-object-types";
+import type { HmiScreen } from "./project-types";
 
 export type Rect = {
   x: number;
@@ -426,4 +427,3 @@ function selectedUnlocked(objects: HmiObject[], selectedIds: string[]): HmiObjec
 function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
 }
-

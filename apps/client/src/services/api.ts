@@ -38,8 +38,22 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `${response.status} ${response.statusText}`);
+    let message = `${response.status} ${response.statusText}`;
+    try {
+      const text = await response.text();
+      // Try to parse JSON error response for a cleaner message
+      try {
+        const parsed = JSON.parse(text) as { message?: string };
+        if (parsed.message) {
+          message = parsed.message;
+        }
+      } catch {
+        message = text || message;
+      }
+    } catch {
+      // ignore read error
+    }
+    throw new Error(message);
   }
 
   return (await response.json()) as T;
@@ -75,10 +89,24 @@ export const api = {
       body: JSON.stringify({ value }),
     }),
   listMacros: () => request<MacroDefinition[]>("/api/macros"),
-  runMacro: (id: string, args?: Record<string, unknown>) =>
-    request<{ ok: boolean }>(`/api/macros/${encodeURIComponent(id)}/run`, {
+  getMacro: (id: string) => request<MacroDefinition>(`/api/macros/${encodeURIComponent(id)}`),
+  updateMacro: (id: string, payload: {
+    name: string;
+    description?: string;
+    enabled: boolean;
+    language: "ts" | "javascript-lite" | "expression" | "blockly";
+    code: string;
+    triggers?: unknown[];
+    options?: Record<string, unknown>;
+  }) =>
+    request<MacroDefinition>(`/api/macros/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  runMacro: (id: string, args?: Record<string, unknown>, options?: { allowDisabledForTest?: boolean }) =>
+    request<{ ok: boolean; status?: "ok" | "skipped"; reason?: "disabled" }>(`/api/macros/${encodeURIComponent(id)}/run`, {
       method: "POST",
-      body: JSON.stringify({ args: args ?? {} }),
+      body: JSON.stringify({ args: args ?? {}, allowDisabledForTest: options?.allowDisabledForTest }),
     }),
   writeTag: (name: string, value: boolean | number | string | null) =>
     request<{ ok: boolean }>(`/api/tags/${encodeURIComponent(name)}/write`, {

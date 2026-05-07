@@ -1,12 +1,21 @@
 export type ParameterMap = Record<string, unknown>;
 
 const TOKEN_REGEX = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
+const SHORT_TOKEN_REGEX = /\{([a-zA-Z0-9_.-]+)\}/g;
 
 export function resolveTemplateString(input: string, params: ParameterMap): string {
-  return input.replace(TOKEN_REGEX, (_, token: string) => {
+  const expanded = input.replace(TOKEN_REGEX, (_, token: string) => {
     const value = params[token];
     if (value === undefined || value === null) {
       return "";
+    }
+    return String(value);
+  });
+
+  return expanded.replace(SHORT_TOKEN_REGEX, (_, token: string) => {
+    const value = params[token];
+    if (value === undefined || value === null) {
+      return `{${token}}`;
     }
     return String(value);
   });
@@ -28,4 +37,3 @@ export function resolveParameters(value: unknown, params: ParameterMap): unknown
 
   return value;
 }
-

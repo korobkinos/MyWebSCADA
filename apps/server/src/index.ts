@@ -11,7 +11,7 @@ import { LibraryService } from "./libraries/library-service.js";
 import { ProjectService } from "./project/project-service.js";
 import { CommandService } from "./runtime/command-service.js";
 import { EngineerAuthService } from "./runtime/engineer-auth-service.js";
-import { InternalVariableService, variableToTagDefinition } from "./runtime/internal-variable-service.js";
+import { buildInternalAndLwTagDefinitions, InternalVariableService } from "./runtime/internal-variable-service.js";
 import { MacroService } from "./runtime/macro-service.js";
 import { RuntimeService } from "./runtime/runtime-service.js";
 import { TagStore } from "./tags/tag-store.js";
@@ -41,9 +41,9 @@ async function bootstrap(): Promise<void> {
   const wsGateway = new WebSocketGateway(tagStore, commandService);
 
   const project = await projectService.loadProject();
-  const variableDefinitions = (project.variables ?? []).map(variableToTagDefinition);
+  const variableDefinitions = buildInternalAndLwTagDefinitions(project.variables ?? [], project.lwStore);
   tagStore.setDefinitions([...project.tags, ...variableDefinitions]);
-  internalVariableService.setup(project.variables ?? []);
+  internalVariableService.setup(project.variables ?? [], project.lwStore);
   macroService.configure(project);
 
   await registerApiRoutes(app, {

@@ -3,7 +3,11 @@ import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konv
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
   combineTagPrefix,
+  type ElementStateAction,
+  type ElementStateCase,
+  type ElementStateRule,
   resolveParameters,
+  resolveTemplateString,
   resolveTagName,
   type Asset,
   type ElementLibrary,
@@ -16,6 +20,7 @@ import {
   type RenderContext,
   type RuntimeAction,
   type ScadaProject,
+  type StateImageCondition,
   type TagValue,
   type TextStyle,
 } from "@web-scada/shared";
@@ -42,6 +47,9 @@ type HmiRendererProps = {
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onDoubleClickObject?: (objectId: string) => void;
+  onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
+  showObjectFrames?: boolean;
   scopedAssets?: Record<string, Asset>;
 };
 
@@ -60,6 +68,9 @@ type BaseNodeProps = {
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onDoubleClickObject?: (objectId: string) => void;
+  onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
+  showObjectFrames: boolean;
   scopedAssets?: Record<string, Asset>;
 };
 
@@ -78,6 +89,9 @@ export function HmiRenderer({
   onMoveObject,
   onResizeObject,
   onAction,
+  onDoubleClickObject,
+  onContextMenuObject,
+  showObjectFrames = false,
   scopedAssets,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
@@ -101,6 +115,9 @@ export function HmiRenderer({
           onMoveObject={onMoveObject}
           onResizeObject={onResizeObject}
           onAction={onAction}
+          onDoubleClickObject={onDoubleClickObject}
+          onContextMenuObject={onContextMenuObject}
+          showObjectFrames={showObjectFrames}
           scopedAssets={scopedAssets}
         />
       ))}
@@ -123,6 +140,9 @@ function ObjectNode({
   onMoveObject,
   onResizeObject,
   onAction,
+  onDoubleClickObject,
+  onContextMenuObject,
+  showObjectFrames,
   scopedAssets,
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
@@ -184,6 +204,7 @@ function ObjectNode({
           y: node.y(),
           width: nextWidth,
           height: nextHeight,
+          rotation: node.rotation(),
           points: scaledPoints,
         } as Partial<HmiObject>);
       } else {
@@ -192,11 +213,29 @@ function ObjectNode({
           y: node.y(),
           width: nextWidth,
           height: nextHeight,
+          rotation: node.rotation(),
         });
       }
 
       node.scaleX(1);
       node.scaleY(1);
+    },
+    onDblClick: () => {
+      if (interactive) {
+        onDoubleClickObject?.(resolvedObject.id);
+      }
+    },
+    onContextMenu: (evt: KonvaEventObject<PointerEvent>) => {
+      if (!interactive) {
+        return;
+      }
+      evt.evt.preventDefault();
+      onContextMenuObject?.({
+        objectId: resolvedObject.id,
+        clientX: evt.evt.clientX,
+        clientY: evt.evt.clientY,
+        additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+      });
     },
   };
 
@@ -217,6 +256,9 @@ function ObjectNode({
         onMoveObject={onMoveObject}
         onResizeObject={onResizeObject}
         onAction={onAction}
+        onDoubleClickObject={onDoubleClickObject}
+        onContextMenuObject={onContextMenuObject}
+        showObjectFrames={showObjectFrames}
         scopedAssets={scopedAssets}
         groupProps={commonGroupProps}
       />
@@ -226,13 +268,14 @@ function ObjectNode({
   if (resolvedObject.type === "text") {
     return (
       <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         {renderBoxText(resolvedObject.text, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
           wrap: resolvedObject.wrap,
           ellipsis: resolvedObject.ellipsis,
         })}
-        <SelectionOutline object={resolvedObject} selected={selected} />
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
   }
@@ -240,8 +283,9 @@ function ObjectNode({
   if (resolvedObject.type === "line") {
     return (
       <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Line points={resolvedObject.points} stroke={resolvedObject.stroke} strokeWidth={resolvedObject.strokeWidth} />
-        <SelectionOutline object={resolvedObject} selected={selected} />
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
   }
@@ -249,6 +293,7 @@ function ObjectNode({
   if (resolvedObject.type === "rectangle") {
     return (
       <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect
           width={resolvedObject.width}
           height={resolvedObject.height}
@@ -257,7 +302,7 @@ function ObjectNode({
           strokeWidth={resolvedObject.strokeWidth}
           cornerRadius={resolvedObject.cornerRadius}
         />
-        <SelectionOutline object={resolvedObject} selected={selected} />
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
   }
@@ -272,13 +317,14 @@ function ObjectNode({
 
     return (
       <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         {renderBoxText(text, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
           wrap: resolvedObject.wrap,
           ellipsis: resolvedObject.ellipsis,
         })}
-        <SelectionOutline object={resolvedObject} selected={selected} />
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
   }
@@ -296,17 +342,13 @@ function ObjectNode({
             });
             return;
           }
-          const input = window.prompt(`Write value to ${resolveTagName(resolvedObject.tag, renderContext) ?? resolvedObject.tag}`, String(value ?? ""));
-          if (input === null) {
-            return;
-          }
-          const numeric = Number(input);
-          const parsed = Number.isNaN(numeric) ? input : numeric;
           onAction?.(
             {
-              type: "write",
-              tag: resolvedObject.tag,
-              value: parsed,
+              type: "writeNumberPrompt",
+              target: "tag",
+              name: resolvedObject.tag,
+              min: resolvedObject.min,
+              max: resolvedObject.max,
               confirm: resolvedObject.confirm,
               confirmText: resolvedObject.confirmText,
             },
@@ -314,6 +356,7 @@ function ObjectNode({
           );
         }}
       >
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={4} />
         {renderBoxText(`${value ?? "--"}${resolvedObject.suffix ?? ""}`, resolvedObject.textStyle, {
           width: resolvedObject.width,
@@ -321,7 +364,7 @@ function ObjectNode({
           wrap: resolvedObject.wrap,
           ellipsis: resolvedObject.ellipsis,
         })}
-        <SelectionOutline object={resolvedObject} selected={selected} />
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
   }
@@ -335,6 +378,7 @@ function ObjectNode({
 
     return (
       <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect width={resolvedObject.width} height={resolvedObject.height} fill={fill} cornerRadius={8} />
         {renderBoxText(text, resolvedObject.textStyle, {
           width: resolvedObject.width,
@@ -349,28 +393,18 @@ function ObjectNode({
 
   if (resolvedObject.type === "button") {
     return (
-      <Group
-        {...commonGroupProps}
-        onClick={(evt: KonvaEventObject<MouseEvent>) => {
-          if (interactive) {
-            onSelectObject?.({
-              objectId: resolvedObject.id,
-              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
-            });
-            return;
-          }
-          onAction?.(resolvedObject.action, renderContext);
-        }}
-      >
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#0958d9" cornerRadius={6} />
-        {renderBoxText(resolvedObject.text, resolvedObject.textStyle, {
-          width: resolvedObject.width,
-          height: resolvedObject.height,
-          wrap: resolvedObject.wrap,
-          ellipsis: resolvedObject.ellipsis,
-        })}
-        <SelectionOutline object={resolvedObject} selected={selected} />
-      </Group>
+      <ButtonNode
+        object={resolvedObject}
+        selected={selected}
+        groupProps={commonGroupProps}
+        project={project}
+        scopedAssets={scopedAssets}
+        interactive={interactive}
+        onSelectObject={onSelectObject}
+        onAction={onAction}
+        renderContext={renderContext}
+        forceFrame={showObjectFrames}
+      />
     );
   }
 
@@ -397,6 +431,7 @@ function ObjectNode({
           );
         }}
       >
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect width={resolvedObject.width} height={resolvedObject.height} fill={isOn ? "#389e0d" : "#434343"} cornerRadius={8} />
         {renderBoxText(isOn ? resolvedObject.onText ?? "ON" : resolvedObject.offText ?? "OFF", resolvedObject.textStyle, {
           width: resolvedObject.width,
@@ -418,6 +453,38 @@ function ObjectNode({
         project={project}
         scopedAssets={scopedAssets}
         stateValue={resolvedObject.stateTag ? tagValue(resolvedObject.stateTag)?.value : undefined}
+        interactive={interactive}
+        onSelectObject={onSelectObject}
+        onAction={onAction}
+        renderContext={renderContext}
+        forceFrame={showObjectFrames}
+      />
+    );
+  }
+
+  if (resolvedObject.type === "stateImage") {
+    const tag = tagValue(resolvedObject.tag);
+    const stateAssetId = selectStateImageAssetId(resolvedObject.states, tag?.value);
+    const activeAssetId = tag?.quality === "Bad" ? (resolvedObject.badQualityAssetId ?? stateAssetId ?? resolvedObject.defaultAssetId) : (stateAssetId ?? resolvedObject.defaultAssetId);
+    return (
+      <ImageNode
+        object={{
+          ...resolvedObject,
+          type: "image",
+          assetId: activeAssetId,
+          src: undefined,
+          stateImages: undefined,
+        }}
+        groupProps={commonGroupProps}
+        selected={selected}
+        project={project}
+        scopedAssets={scopedAssets}
+        stateValue={undefined}
+        interactive={interactive}
+        onSelectObject={onSelectObject}
+        onAction={onAction}
+        renderContext={renderContext}
+        forceFrame={showObjectFrames}
       />
     );
   }
@@ -452,6 +519,7 @@ function ObjectNode({
 
     return (
       <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} />
         <Line points={[20, 20, resolvedObject.width - 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
         <Line points={[resolvedObject.width - 20, 20, 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
@@ -468,6 +536,7 @@ function ObjectNode({
 
     return (
       <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} />
         <Circle x={resolvedObject.width * 0.35} y={resolvedObject.height * 0.45} radius={Math.min(resolvedObject.width, resolvedObject.height) * 0.2} fill={color} />
         <Line
@@ -527,6 +596,9 @@ function GroupNode({
   onMoveObject,
   onResizeObject,
   onAction,
+  onDoubleClickObject,
+  onContextMenuObject,
+  showObjectFrames,
   scopedAssets,
   groupProps,
 }: {
@@ -544,6 +616,9 @@ function GroupNode({
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onDoubleClickObject?: (objectId: string) => void;
+  onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
+  showObjectFrames: boolean;
   scopedAssets?: Record<string, Asset>;
   groupProps: Record<string, unknown>;
 }) {
@@ -573,9 +648,12 @@ function GroupNode({
         onMoveObject={onMoveObject}
         onResizeObject={onResizeObject}
         onAction={onAction}
+        onDoubleClickObject={onDoubleClickObject}
+        onContextMenuObject={onContextMenuObject}
+        showObjectFrames={showObjectFrames}
         scopedAssets={scopedAssets}
       />
-      {interactive ? <SelectionOutline object={object} selected={selected} /> : null}
+      {interactive ? <SelectionOutline object={object} selected={selected || showObjectFrames} /> : null}
     </Group>
   );
 }
@@ -720,6 +798,7 @@ function LibraryInstanceNode({
     tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
     parameters: { ...(renderContext.parameters ?? {}), ...instanceParams },
   };
+  const resolvedObjects = applyElementStateRules(element.objects, element.stateRules ?? [], context, tags);
 
   const childScale = computeFrameScale(object.scaleMode ?? "fit", object.width, object.height, element.width, element.height);
   const scopedAssets = toAssetMap(library.assets);
@@ -731,7 +810,7 @@ function LibraryInstanceNode({
     width: element.width,
     height: element.height,
     background: "transparent",
-    objects: element.objects,
+    objects: resolvedObjects,
   };
 
   return (
@@ -766,6 +845,11 @@ function ImageNode({
   project,
   scopedAssets,
   stateValue,
+  interactive,
+  onSelectObject,
+  onAction,
+  renderContext,
+  forceFrame = false,
 }: {
   object: Extract<HmiObject, { type: "image" }>;
   selected: boolean;
@@ -773,6 +857,11 @@ function ImageNode({
   project: ScadaProject;
   scopedAssets?: Record<string, Asset>;
   stateValue: unknown;
+  interactive: boolean;
+  onSelectObject?: (payload: ObjectSelectPayload) => void;
+  onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  renderContext: RenderContext;
+  forceFrame?: boolean;
 }) {
   const stateEntry = object.stateImages?.find((item) => String(item.state) === String(stateValue));
   const stateSrc = stateEntry?.src;
@@ -786,7 +875,22 @@ function ImageNode({
   );
 
   return (
-    <Group {...groupProps} opacity={object.opacity ?? 1}>
+    <Group
+      {...groupProps}
+      opacity={object.opacity ?? 1}
+      onClick={(evt: KonvaEventObject<MouseEvent>) => {
+        if (interactive) {
+          onSelectObject?.({
+            objectId: object.id,
+            additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+          });
+          return;
+        }
+        if (object.action) {
+          onAction?.(object.action, renderContext);
+        }
+      }}
+    >
       <Rect width={object.width} height={object.height} fill="#262626" stroke="#434343" />
       {source && image ? (
         <KonvaImage
@@ -807,7 +911,85 @@ function ImageNode({
           verticalAlign="middle"
         />
       )}
-      <SelectionOutline object={object} selected={selected} />
+      <SelectionOutline object={object} selected={selected || forceFrame} />
+    </Group>
+  );
+}
+
+function ButtonNode({
+  object,
+  selected,
+  groupProps,
+  project,
+  scopedAssets,
+  interactive,
+  onSelectObject,
+  onAction,
+  renderContext,
+  forceFrame = false,
+}: {
+  object: Extract<HmiObject, { type: "button" }>;
+  selected: boolean;
+  groupProps: Record<string, unknown>;
+  project: ScadaProject;
+  scopedAssets?: Record<string, Asset>;
+  interactive: boolean;
+  onSelectObject?: (payload: ObjectSelectPayload) => void;
+  onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  renderContext: RenderContext;
+  forceFrame?: boolean;
+}) {
+  const [pressed, setPressed] = useState(false);
+  const normalSrc = resolveAssetUrl(object.backgroundAssetId, project.assets ?? [], scopedAssets);
+  const pressedSrc = resolveAssetUrl(object.pressedBackgroundAssetId, project.assets ?? [], scopedAssets);
+  const currentSrc = pressed && pressedSrc ? pressedSrc : normalSrc;
+  const image = useImage(currentSrc);
+  const placement = useMemo(
+    () => computeImagePlacement(object.width, object.height, image?.width, image?.height, "stretch"),
+    [image?.height, image?.width, object.height, object.width],
+  );
+
+  return (
+    <Group
+      {...groupProps}
+      onMouseDown={() => {
+        if (!interactive) {
+          setPressed(true);
+        }
+      }}
+      onMouseUp={() => setPressed(false)}
+      onMouseLeave={() => setPressed(false)}
+      onClick={(evt: KonvaEventObject<MouseEvent>) => {
+        if (interactive) {
+          onSelectObject?.({
+            objectId: object.id,
+            additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+          });
+          return;
+        }
+        onAction?.(object.action, renderContext);
+      }}
+    >
+      <Rect
+        width={object.width}
+        height={object.height}
+        fill={object.backgroundColor ?? "#0958d9"}
+        stroke={object.borderColor}
+        strokeWidth={object.borderWidth ?? 0}
+        cornerRadius={6}
+      />
+      {currentSrc && image ? (
+        <KonvaImage image={image} x={placement.x} y={placement.y} width={placement.width} height={placement.height} />
+      ) : null}
+      {(object.showText ?? true) && object.text ? (
+        renderBoxText(object.text, object.textStyle, {
+          width: object.width,
+          height: object.height,
+          wrap: object.wrap,
+          ellipsis: object.ellipsis,
+        })
+      ) : null}
+      <SelectionOutline object={object} selected={selected || forceFrame} />
     </Group>
   );
 }
@@ -830,6 +1012,15 @@ function SelectionOutline({ object, selected }: { object: HmiObject; selected: b
   );
 }
 
+function SelectionHitArea({ object, enabled }: { object: HmiObject; enabled: boolean }) {
+  if (!enabled) {
+    return null;
+  }
+  const minWidth = Math.max(10, object.width);
+  const minHeight = Math.max(10, object.height);
+  return <Rect x={0} y={0} width={minWidth} height={minHeight} fill="rgba(0,0,0,0.001)" />;
+}
+
 function MissingNode({ commonGroupProps, message }: { commonGroupProps: Record<string, unknown>; message: string }) {
   return (
     <Group {...commonGroupProps}>
@@ -842,6 +1033,143 @@ function MissingNode({ commonGroupProps, message }: { commonGroupProps: Record<s
 function toResolvedParameterMap(element: LibraryElement, values?: Record<string, unknown>): Record<string, unknown> {
   const defaults = Object.fromEntries((element.parameters ?? []).map((item) => [item.name, item.defaultValue]));
   return { ...defaults, ...(values ?? {}) };
+}
+
+function applyElementStateRules(
+  objects: HmiObject[],
+  rules: ElementStateRule[],
+  context: RenderContext,
+  tags: TagMap,
+): HmiObject[] {
+  if (!rules.length) {
+    return objects;
+  }
+
+  const cloned = structuredClone(objects) as HmiObject[];
+  for (const rule of rules) {
+    const sourceValue = resolveRuleSourceValue(rule, context, tags);
+    const matchingCase = rule.cases.find((candidate) => matchesStateCase(candidate, sourceValue));
+    if (!matchingCase) {
+      continue;
+    }
+    for (const action of matchingCase.actions) {
+      applyStateAction(cloned, action, context);
+    }
+  }
+
+  return cloned;
+}
+
+function resolveRuleSourceValue(rule: ElementStateRule, context: RenderContext, tags: TagMap): unknown {
+  if (rule.source.type === "parameter") {
+    return context.parameters?.[rule.source.value];
+  }
+
+  if (rule.source.type === "expression") {
+    return context.parameters?.[rule.source.value];
+  }
+
+  const resolvedTagTemplate = resolveTemplateString(rule.source.value, context.parameters ?? {});
+  const tagName = resolveTagName(resolvedTagTemplate, context);
+  if (!tagName) {
+    return undefined;
+  }
+  return tags[tagName]?.value;
+}
+
+function matchesStateCase(stateCase: ElementStateCase, sourceValue: unknown): boolean {
+  const condition = stateCase.condition;
+
+  if (condition.type === "true") {
+    return Boolean(sourceValue);
+  }
+  if (condition.type === "false") {
+    return !Boolean(sourceValue);
+  }
+  if (condition.type === "equals") {
+    return String(sourceValue) === String(condition.value);
+  }
+  if (condition.type === "notEquals") {
+    return String(sourceValue) !== String(condition.value);
+  }
+
+  const numericValue = Number(sourceValue);
+  if (!Number.isFinite(numericValue)) {
+    return false;
+  }
+
+  if (condition.type === "greaterThan") {
+    return numericValue > condition.value;
+  }
+  if (condition.type === "lessThan") {
+    return numericValue < condition.value;
+  }
+  if (condition.type === "between") {
+    return numericValue >= condition.min && numericValue <= condition.max;
+  }
+
+  return false;
+}
+
+function applyStateAction(objects: HmiObject[], action: ElementStateAction, context: RenderContext): boolean {
+  for (let index = 0; index < objects.length; index += 1) {
+    const current = objects[index]!;
+    if (current.id === action.objectId) {
+      objects[index] = patchObjectByStateAction(current, action, context);
+      return true;
+    }
+    if (current.type === "group") {
+      const foundInChildren = applyStateAction(current.objects, action, context);
+      if (foundInChildren) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function patchObjectByStateAction(object: HmiObject, action: ElementStateAction, context: RenderContext): HmiObject {
+  if (action.type === "setVisible") {
+    return { ...object, visible: action.visible };
+  }
+
+  if (action.type === "setAsset") {
+    const nextAssetId = resolveTemplateString(action.assetId, context.parameters ?? {});
+    if (object.type === "image") {
+      return { ...object, assetId: nextAssetId };
+    }
+    if (object.type === "stateImage") {
+      return { ...object, defaultAssetId: nextAssetId };
+    }
+    return object;
+  }
+
+  if (action.type === "setText") {
+    const nextText = resolveTemplateString(action.text, context.parameters ?? {});
+    if ("text" in object) {
+      return { ...object, text: nextText } as HmiObject;
+    }
+    return object;
+  }
+
+  if (action.type === "setFill") {
+    if (object.type === "rectangle") {
+      return { ...object, fill: action.color };
+    }
+    return object;
+  }
+
+  if (action.type === "setStroke") {
+    if (object.type === "rectangle") {
+      return { ...object, stroke: action.color };
+    }
+    if (object.type === "line") {
+      return { ...object, stroke: action.color };
+    }
+    return object;
+  }
+
+  return object;
 }
 
 function toAssetMap(assets: Asset[]): Record<string, Asset> {
@@ -955,6 +1283,27 @@ function computeImagePlacement(
   };
 }
 
+function selectStateImageAssetId(
+  states: Array<{ condition: StateImageCondition; assetId: string }>,
+  value: unknown,
+): string | undefined {
+  for (const state of states) {
+    if (state.condition.type === "true" && Boolean(value)) {
+      return state.assetId;
+    }
+    if (state.condition.type === "false" && !Boolean(value)) {
+      return state.assetId;
+    }
+    if (state.condition.type === "equals" && String(value) === String(state.condition.value)) {
+      return state.assetId;
+    }
+    if (state.condition.type === "notEquals" && String(value) !== String(state.condition.value)) {
+      return state.assetId;
+    }
+  }
+  return undefined;
+}
+
 function resolveObjectParameters(object: HmiObject, params: Record<string, unknown>): HmiObject {
   if (!Object.keys(params).length) {
     return object;
@@ -1010,4 +1359,3 @@ function useImage(src: string | undefined): HTMLImageElement | undefined {
 
   return image;
 }
-

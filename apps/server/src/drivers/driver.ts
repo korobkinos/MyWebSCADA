@@ -1,6 +1,6 @@
 import type { TagDefinition, TagScalarValue, TagValue } from "@web-scada/shared";
 
-export type DriverHealth = "stopped" | "starting" | "running" | "error" | "reconnecting";
+export type DriverHealth = "disabled" | "stopped" | "starting" | "running" | "error" | "reconnecting";
 
 export type DriverStatus = {
   id: string;

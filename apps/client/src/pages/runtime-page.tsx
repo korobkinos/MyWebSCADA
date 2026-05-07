@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   createInitialPopupState,
   popupReducer,
@@ -7,7 +7,7 @@ import {
   type RenderContext,
   type RuntimeAction,
 } from "@web-scada/shared";
-import { Button, Card, Space, Typography } from "antd";
+import { Button, Card, Form, InputNumber, Modal, Space, Typography, message } from "antd";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { useScadaStore } from "../store/scada-store";
 
@@ -30,6 +30,18 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   const [popupState, dispatchPopup] = useReducer(popupReducer, undefined, createInitialPopupState);
   const dragRefs = useRef<Record<string, { dx: number; dy: number }>>({});
+  const runtimeRootRef = useRef<HTMLDivElement | null>(null);
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    text: string;
+    action?: RuntimeAction;
+    context?: RenderContext;
+  }>({ open: false, text: "Confirm action?" });
+  const [numberPrompt, setNumberPrompt] = useState<{
+    open: boolean;
+    action?: Extract<RuntimeAction, { type: "writeNumberPrompt" }>;
+    value?: number;
+  }>({ open: false });
 
   const screen = useMemo(
     () => project?.screens.find((item) => item.id === currentScreenId) ?? project?.screens[0],
@@ -37,6 +49,26 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   );
 
   const modalOpen = popupState.items.some((item) => item.modal);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || fullscreen !== true || !screen) {
+      return;
+    }
+    const root = runtimeRootRef.current;
+    // eslint-disable-next-line no-console
+    console.debug("[Runtime Layout]", {
+      window: [window.innerWidth, window.innerHeight],
+      body: [document.body.scrollWidth, document.body.scrollHeight],
+      runtimeRoot: [root?.clientWidth ?? 0, root?.clientHeight ?? 0],
+    });
+    if (document.body.scrollWidth > window.innerWidth || document.body.scrollHeight > window.innerHeight) {
+      // eslint-disable-next-line no-console
+      console.warn("Runtime body overflow detected", {
+        body: [document.body.scrollWidth, document.body.scrollHeight],
+        window: [window.innerWidth, window.innerHeight],
+      });
+    }
+  }, [fullscreen, popupState.items.length, screen?.id, screen?.width, screen?.height]);
 
   if (!project || !screen) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -46,10 +78,13 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     const action = resolveRuntimeAction(inputAction, context);
 
     if ("confirm" in action && action.confirm) {
-      const accepted = window.confirm(action.confirmText ?? "Confirm action?");
-      if (!accepted) {
-        return;
-      }
+      setConfirmState({
+        open: true,
+        text: action.confirmText ?? "Confirm action?",
+        action: { ...action, confirm: false },
+        context,
+      });
+      return;
     }
 
     if (action.type === "write") {
@@ -81,28 +116,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "writeNumberPrompt") {
-      const input = window.prompt(`Enter numeric value for ${action.name}`);
-      if (input === null) {
-        return;
-      }
-      const value = Number(input);
-      if (Number.isNaN(value)) {
-        window.alert("Only numbers are allowed");
-        return;
-      }
-      if (typeof action.min === "number" && value < action.min) {
-        window.alert(`Value must be >= ${action.min}`);
-        return;
-      }
-      if (typeof action.max === "number" && value > action.max) {
-        window.alert(`Value must be <= ${action.max}`);
-        return;
-      }
-      if (action.target === "variable") {
-        await writeVariable(action.name, value);
-      } else {
-        await writeTag(action.name, value);
-      }
+      setNumberPrompt({ open: true, action, value: undefined });
       return;
     }
 
@@ -116,12 +130,16 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "runMacro") {
-      const macroExists = macros.some((macro) => macro.id === action.macroId);
+      const selectedMacro = macros.find((macro) => macro.id === action.macroId);
+      const macroExists = Boolean(selectedMacro);
       if (!macroExists) {
-        window.alert(`Macro ${action.macroId} not found`);
+        void message.error(`Macro ${action.macroId} not found`);
         return;
       }
-      await runMacro(action.macroId);
+      const result = await runMacro(action.macroId, action.args);
+      if (result.status === "skipped") {
+        void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is disabled and was not executed`);
+      }
       return;
     }
 
@@ -269,9 +287,46 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   if (fullscreen) {
     return (
-      <div style={{ width: "100vw", height: "100vh", overflow: "hidden", position: "relative" }}>
+      <div ref={runtimeRootRef} style={{ width: "100vw", height: "100vh", overflow: "hidden", position: "relative" }}>
         {stageElement}
         {popupOverlay}
+        <RuntimeDialogs
+          confirmState={confirmState}
+          numberPrompt={numberPrompt}
+          onConfirm={async () => {
+            const nextAction = confirmState.action;
+            const nextContext = confirmState.context;
+            setConfirmState({ open: false, text: "Confirm action?" });
+            if (nextAction && nextContext) {
+              await executeAction(nextAction, nextContext);
+            }
+          }}
+          onCancelConfirm={() => setConfirmState({ open: false, text: "Confirm action?" })}
+          onCloseNumberPrompt={() => setNumberPrompt({ open: false })}
+          onApplyNumberPrompt={async () => {
+            const action = numberPrompt.action;
+            const value = numberPrompt.value;
+            if (!action || typeof value !== "number" || Number.isNaN(value)) {
+              void message.warning("Numeric value is required");
+              return;
+            }
+            if (typeof action.min === "number" && value < action.min) {
+              void message.warning(`Value must be >= ${action.min}`);
+              return;
+            }
+            if (typeof action.max === "number" && value > action.max) {
+              void message.warning(`Value must be <= ${action.max}`);
+              return;
+            }
+            if (action.target === "variable") {
+              await writeVariable(action.name, value);
+            } else {
+              await writeTag(action.name, value);
+            }
+            setNumberPrompt({ open: false });
+          }}
+          onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
+        />
       </div>
     );
   }
@@ -292,6 +347,81 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         {stageElement}
         {popupOverlay}
       </div>
+      <RuntimeDialogs
+        confirmState={confirmState}
+        numberPrompt={numberPrompt}
+        onConfirm={async () => {
+          const nextAction = confirmState.action;
+          const nextContext = confirmState.context;
+          setConfirmState({ open: false, text: "Confirm action?" });
+          if (nextAction && nextContext) {
+            await executeAction(nextAction, nextContext);
+          }
+        }}
+        onCancelConfirm={() => setConfirmState({ open: false, text: "Confirm action?" })}
+        onCloseNumberPrompt={() => setNumberPrompt({ open: false })}
+        onApplyNumberPrompt={async () => {
+          const action = numberPrompt.action;
+          const value = numberPrompt.value;
+          if (!action || typeof value !== "number" || Number.isNaN(value)) {
+            void message.warning("Numeric value is required");
+            return;
+          }
+          if (typeof action.min === "number" && value < action.min) {
+            void message.warning(`Value must be >= ${action.min}`);
+            return;
+          }
+          if (typeof action.max === "number" && value > action.max) {
+            void message.warning(`Value must be <= ${action.max}`);
+            return;
+          }
+          if (action.target === "variable") {
+            await writeVariable(action.name, value);
+          } else {
+            await writeTag(action.name, value);
+          }
+          setNumberPrompt({ open: false });
+        }}
+        onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
+      />
     </Space>
+  );
+}
+
+function RuntimeDialogs({
+  confirmState,
+  numberPrompt,
+  onConfirm,
+  onCancelConfirm,
+  onCloseNumberPrompt,
+  onApplyNumberPrompt,
+  onChangeNumberValue,
+}: {
+  confirmState: { open: boolean; text: string };
+  numberPrompt: { open: boolean; action?: Extract<RuntimeAction, { type: "writeNumberPrompt" }>; value?: number };
+  onConfirm: () => Promise<void>;
+  onCancelConfirm: () => void;
+  onCloseNumberPrompt: () => void;
+  onApplyNumberPrompt: () => Promise<void>;
+  onChangeNumberValue: (value: number | null) => void;
+}) {
+  return (
+    <>
+      <Modal title="Confirm" open={confirmState.open} onOk={() => void onConfirm()} onCancel={onCancelConfirm}>
+        <Typography.Text>{confirmState.text}</Typography.Text>
+      </Modal>
+      <Modal
+        title={numberPrompt.action ? `Write value: ${numberPrompt.action.name}` : "Write value"}
+        open={numberPrompt.open}
+        onCancel={onCloseNumberPrompt}
+        onOk={() => void onApplyNumberPrompt()}
+      >
+        <Form layout="vertical">
+          <Form.Item label="Value">
+            <InputNumber style={{ width: "100%" }} value={numberPrompt.value} onChange={onChangeNumberValue} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
   );
 }

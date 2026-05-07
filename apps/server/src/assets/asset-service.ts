@@ -123,6 +123,20 @@ function isAssetUsedInObject(object: HmiObject, assetId: string): boolean {
     return Boolean(object.stateImages?.some((item) => item.assetId === assetId));
   }
 
+  if (object.type === "stateImage") {
+    if (object.defaultAssetId === assetId || object.badQualityAssetId === assetId) {
+      return true;
+    }
+    return object.states.some((state) => state.assetId === assetId);
+  }
+
+  if (object.type === "button") {
+    return (
+      object.backgroundAssetId === assetId ||
+      object.pressedBackgroundAssetId === assetId ||
+      object.disabledBackgroundAssetId === assetId
+    );
+  }
+
   return false;
 }
-

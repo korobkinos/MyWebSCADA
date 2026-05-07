@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { HmiObject } from "./hmi-object-types";
 
 const expressionBindingSchema = z.object({
   mode: z.enum(["tag", "expr"]),
@@ -46,13 +47,14 @@ const hmiBaseSchema = z.object({
   bindings: hmiBindingsSchema,
 });
 
-type AnyObject = Record<string, unknown>;
-
 const assetTypeSchema = z.enum(["png", "jpg", "jpeg", "svg"]);
 
 export const assetSchema = z.object({
   id: z.string().min(1),
+  groupId: z.string().optional(),
   name: z.string().min(1),
+  description: z.string().optional(),
+  category: z.string().optional(),
   type: assetTypeSchema,
   mimeType: z.string().min(1),
   fileName: z.string().min(1),
@@ -63,6 +65,14 @@ export const assetSchema = z.object({
   updatedAt: z.string().min(1),
   storagePath: z.string().min(1),
   previewUrl: z.string().min(1),
+});
+
+export const assetGroupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
 });
 
 export const projectLibraryRefSchema = z.object({
@@ -138,6 +148,7 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("runMacro"),
     macroId: z.string().min(1),
+    args: z.record(z.unknown()).optional(),
     confirm: z.boolean().optional(),
     confirmText: z.string().optional(),
   }),
@@ -198,7 +209,14 @@ const stateIndicatorObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend(
 
 const buttonObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   type: z.literal("button"),
-  text: z.string(),
+  text: z.string().optional(),
+  showText: z.boolean().optional(),
+  backgroundAssetId: z.string().optional(),
+  pressedBackgroundAssetId: z.string().optional(),
+  disabledBackgroundAssetId: z.string().optional(),
+  backgroundColor: z.string().optional(),
+  borderColor: z.string().optional(),
+  borderWidth: z.number().nonnegative().optional(),
   textStyle: textStyleSchema,
   action: runtimeActionSchema,
 });
@@ -215,6 +233,7 @@ const imageObjectSchema = hmiBaseSchema.extend({
   type: z.literal("image"),
   assetId: z.string().optional(),
   src: z.string().optional(),
+  action: runtimeActionSchema.optional(),
   fit: z.enum(["contain", "cover", "stretch", "none"]),
   preserveAspectRatio: z.boolean().optional(),
   opacity: z.number().min(0).max(1).optional(),
@@ -238,6 +257,31 @@ const imageObjectSchema = hmiBaseSchema.extend({
       assetId: expressionBindingSchema.optional(),
     })
     .optional(),
+});
+
+const stateImageConditionSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("equals"), value: z.union([z.string(), z.number(), z.boolean()]) }),
+  z.object({ type: z.literal("notEquals"), value: z.union([z.string(), z.number(), z.boolean()]) }),
+  z.object({ type: z.literal("true") }),
+  z.object({ type: z.literal("false") }),
+]);
+
+const stateImageObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("stateImage"),
+  tag: z.string().min(1),
+  states: z.array(
+    z.object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      condition: stateImageConditionSchema,
+      assetId: z.string().min(1),
+    }),
+  ),
+  defaultAssetId: z.string().optional(),
+  badQualityAssetId: z.string().optional(),
+  fit: z.enum(["contain", "cover", "stretch", "none"]),
+  preserveAspectRatio: z.boolean().optional(),
+  action: runtimeActionSchema.optional(),
 });
 
 const libraryElementInstanceSchema = hmiBaseSchema.extend({
@@ -283,7 +327,7 @@ const frameObjectSchema = hmiBaseSchema.extend({
   scaleMode: z.enum(["none", "fit", "stretch"]).optional(),
 });
 
-export const hmiObjectSchema: z.ZodType<AnyObject> = z.lazy(() =>
+export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
   z.discriminatedUnion("type", [
     groupObjectSchema,
     textObjectSchema,
@@ -295,11 +339,12 @@ export const hmiObjectSchema: z.ZodType<AnyObject> = z.lazy(() =>
     buttonObjectSchema,
     switchObjectSchema,
     imageObjectSchema,
+    stateImageObjectSchema,
     libraryElementInstanceSchema,
     valveObjectSchema,
     pumpObjectSchema,
     frameObjectSchema,
-  ]) as z.ZodType<AnyObject>,
+  ]) as z.ZodType<HmiObject>,
 );
 
 const groupObjectSchema = hmiBaseSchema.extend({
@@ -309,13 +354,71 @@ const groupObjectSchema = hmiBaseSchema.extend({
 
 export const libraryParameterSchema = z.object({
   name: z.string().min(1),
-  type: z.enum(["string", "number", "boolean", "color", "tag"]),
+  displayName: z.string().min(1).optional(),
+  type: z.enum(["string", "number", "boolean", "color", "tag", "tagPrefix", "index"]),
   defaultValue: z.unknown().optional(),
   description: z.string().optional(),
+  required: z.boolean().optional(),
+});
+
+const elementStateActionSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("setVisible"),
+    objectId: z.string().min(1),
+    visible: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("setAsset"),
+    objectId: z.string().min(1),
+    assetId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("setText"),
+    objectId: z.string().min(1),
+    text: z.string(),
+  }),
+  z.object({
+    type: z.literal("setFill"),
+    objectId: z.string().min(1),
+    color: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("setStroke"),
+    objectId: z.string().min(1),
+    color: z.string().min(1),
+  }),
+]);
+
+const elementStateCaseSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  condition: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("equals"), value: z.unknown() }),
+    z.object({ type: z.literal("notEquals"), value: z.unknown() }),
+    z.object({ type: z.literal("greaterThan"), value: z.number() }),
+    z.object({ type: z.literal("lessThan"), value: z.number() }),
+    z.object({ type: z.literal("between"), min: z.number(), max: z.number() }),
+    z.object({ type: z.literal("true") }),
+    z.object({ type: z.literal("false") }),
+  ]),
+  actions: z.array(elementStateActionSchema),
+});
+
+const elementStateRuleSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  source: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("tag"), value: z.string().min(1) }),
+    z.object({ type: z.literal("parameter"), value: z.string().min(1) }),
+    z.object({ type: z.literal("expression"), value: z.string().min(1) }),
+  ]),
+  cases: z.array(elementStateCaseSchema),
 });
 
 export const libraryElementSchema = z.object({
   id: z.string().min(1),
+  libraryId: z.string().min(1).optional(),
+  elementKey: z.string().min(1).optional(),
   name: z.string().min(1),
   description: z.string().optional(),
   category: z.string().optional(),
@@ -324,6 +427,7 @@ export const libraryElementSchema = z.object({
   previewAssetId: z.string().optional(),
   objects: z.array(hmiObjectSchema),
   parameters: z.array(libraryParameterSchema).optional(),
+  stateRules: z.array(elementStateRuleSchema).optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
 });
@@ -359,35 +463,75 @@ const simulatedAddressSchema = z.object({
   step: z.number().optional(),
 });
 
-const tagDataTypeSchema = z.enum(["BOOL", "INT", "DINT", "REAL", "STRING"]);
+const tagDataTypeSchema = z.enum(["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"]);
 
 const tagSchema = z.object({
+  id: z.string().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
+  sourceType: z.enum(["opcua", "modbus", "lw", "internal", "computed", "simulated"]).optional(),
   dataType: tagDataTypeSchema,
   driverId: z.string().optional(),
+  nodeId: z.string().optional(),
+  area: z.enum(["coil", "discreteInput", "holdingRegister", "inputRegister"]).optional(),
+  functionCode: z.string().optional(),
+  unitId: z.number().int().nonnegative().optional(),
+  bit: z.number().int().nonnegative().optional(),
+  wordOrder: z.enum(["ABCD", "CDAB", "BADC", "DCBA"]).optional(),
+  byteOrder: z.enum(["AB", "BA"]).optional(),
+  lwAddress: z.number().int().nonnegative().optional(),
+  internalVariableName: z.string().optional(),
   address: z.union([modbusAddressSchema, opcuaAddressSchema, simulatedAddressSchema, z.record(z.unknown())]).optional(),
   writable: z.boolean().optional(),
+  persistent: z.boolean().optional(),
   scanRateMs: z.number().int().positive().optional(),
   scale: z.number().optional(),
   offset: z.number().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  group: z.string().optional(),
   unit: z.string().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
 });
 
 const variableSchema = z.object({
+  id: z.string().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
-  dataType: tagDataTypeSchema,
+  dataType: z.enum(["BOOL", "INT", "DINT", "REAL", "STRING"]),
   initialValue: z.union([z.boolean(), z.number(), z.string(), z.null()]).optional(),
+  currentValue: z.union([z.boolean(), z.number(), z.string(), z.null()]).optional(),
+  persistent: z.boolean().optional(),
+  lwAddress: z.number().int().nonnegative().optional(),
   writable: z.boolean().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
 });
 
 const macroSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
-  language: z.literal("ts"),
+  language: z.enum(["ts", "javascript-lite", "expression", "blockly"]),
   code: z.string().min(1),
+  enabled: z.boolean().optional(),
+  triggers: z
+    .array(
+      z.discriminatedUnion("type", [
+        z.object({ type: z.literal("onScreenOpen"), screenKey: z.string().min(1) }),
+        z.object({ type: z.literal("onScreenClose"), screenKey: z.string().min(1) }),
+        z.object({
+          type: z.literal("onButtonClick"),
+          objectId: z.string().min(1),
+          screenKey: z.string().optional(),
+        }),
+        z.object({ type: z.literal("onTagChange"), tag: z.string().min(1) }),
+        z.object({ type: z.literal("onCondition"), condition: z.string().min(1) }),
+        z.object({ type: z.literal("interval"), intervalMs: z.number().int().positive() }),
+      ]),
+    )
+    .optional(),
 });
 
 const simulatedDriverSchema = z.object({
@@ -407,6 +551,21 @@ const modbusDriverSchema = z.object({
   unitId: z.number().int().nonnegative(),
   timeoutMs: z.number().int().positive().optional(),
   reconnectMs: z.number().int().positive().optional(),
+});
+
+const modbusRtuDriverSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("modbus-rtu"),
+  enabled: z.boolean(),
+  name: z.string().optional(),
+  serialPort: z.string().min(1),
+  baudRate: z.number().int().positive(),
+  dataBits: z.union([z.literal(7), z.literal(8)]),
+  stopBits: z.union([z.literal(1), z.literal(2)]),
+  parity: z.enum(["none", "even", "odd"]),
+  unitId: z.number().int().nonnegative(),
+  timeoutMs: z.number().int().positive().optional(),
+  pollIntervalMs: z.number().int().positive().optional(),
 });
 
 const opcuaDriverSchema = z.object({
@@ -447,11 +606,110 @@ export const projectSchema = z.object({
   version: z.number().int().positive(),
   name: z.string().min(1),
   assets: z.array(assetSchema).optional(),
+  assetGroups: z.array(assetGroupSchema).optional(),
   libraries: z.array(projectLibraryRefSchema).optional(),
-  drivers: z.array(z.discriminatedUnion("type", [simulatedDriverSchema, modbusDriverSchema, opcuaDriverSchema])),
+  drivers: z.array(
+    z.discriminatedUnion("type", [simulatedDriverSchema, modbusDriverSchema, modbusRtuDriverSchema, opcuaDriverSchema]),
+  ),
   tags: z.array(tagSchema),
   variables: z.array(variableSchema).optional(),
+  lwStore: z
+    .object({
+      mode: z.enum(["volatile", "persistent"]).optional(),
+      values: z.record(z.coerce.number()).optional(),
+    })
+    .optional(),
   macros: z.array(macroSchema).optional(),
+  editorSettings: z
+    .object({
+      layout: z
+        .object({
+          leftPanel: z.object({
+            visible: z.boolean(),
+            collapsed: z.boolean(),
+            width: z.number().positive(),
+            minWidth: z.number().positive(),
+            maxWidth: z.number().positive(),
+            collapsedWidth: z.number().positive(),
+          }),
+          rightPanel: z.object({
+            visible: z.boolean(),
+            collapsed: z.boolean(),
+            width: z.number().positive(),
+            minWidth: z.number().positive(),
+            maxWidth: z.number().positive(),
+            collapsedWidth: z.number().positive(),
+          }),
+          topArea: z.object({
+            collapsed: z.boolean(),
+            compact: z.boolean(),
+            height: z.number().positive().optional(),
+          }),
+          canvasToolbar: z.object({
+            collapsed: z.boolean(),
+            compact: z.boolean(),
+          }),
+          panels: z.object({
+            screensCollapsed: z.boolean(),
+            currentScreenCollapsed: z.boolean(),
+            toolboxCollapsed: z.boolean(),
+            propertiesCollapsed: z.boolean(),
+            objectTreeCollapsed: z.boolean(),
+          }),
+        })
+        .optional(),
+      dockLayout: z
+        .object({
+          panels: z.record(
+            z.object({
+              id: z.string().min(1),
+              side: z.enum(["left", "right", "top", "bottom"]),
+              hidden: z.boolean(),
+              size: z.number().nonnegative(),
+              lastVisibleSize: z.number().nonnegative(),
+              detached: z.boolean().optional(),
+              x: z.number().optional(),
+              y: z.number().optional(),
+              width: z.number().positive().optional(),
+              height: z.number().positive().optional(),
+            }),
+          ),
+        })
+        .optional(),
+      leftPanelWidth: z.number().positive().optional(),
+      rightPanelWidth: z.number().positive().optional(),
+      showObjectFrames: z.boolean().optional(),
+      panels: z
+        .array(
+          z.object({
+            id: z.enum([
+              "screens",
+              "assets",
+              "libraries",
+              "toolbox",
+              "properties",
+              "tags",
+              "macros",
+              "drivers",
+              "objectTree",
+              "layers",
+              "projectSettings",
+            ]),
+            title: z.string().min(1),
+            visible: z.boolean(),
+            collapsed: z.boolean(),
+            dock: z.enum(["left", "right", "bottom", "floating"]),
+            x: z.number().optional(),
+            y: z.number().optional(),
+            width: z.number().positive(),
+            height: z.number().positive(),
+            minWidth: z.number().positive().optional(),
+            minHeight: z.number().positive().optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
   screens: z.array(screenSchema).min(1),
   startScreenId: z.string().optional(),
 });

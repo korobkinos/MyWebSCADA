@@ -38,6 +38,9 @@ type HmiStageProps = {
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onDoubleClickObject?: (objectId: string) => void;
+  onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
+  showObjectFrames?: boolean;
   fullscreenRuntime?: boolean;
 };
 
@@ -57,8 +60,12 @@ export function HmiStage({
   onMoveObject,
   onResizeObject,
   onAction,
+  onDoubleClickObject,
+  onContextMenuObject,
+  showObjectFrames = false,
   fullscreenRuntime = false,
 }: HmiStageProps) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -108,8 +115,8 @@ export function HmiStage({
     return Math.min(1, Math.min(viewport.width / screen.width, viewport.height / screen.height));
   }, [mode, screen.height, screen.width, viewport.height, viewport.width]);
 
-  const stageWidth = mode === "runtime" ? Math.max(1, Math.floor(screen.width * runtimeScale)) : screen.width;
-  const stageHeight = mode === "runtime" ? Math.max(1, Math.floor(screen.height * runtimeScale)) : screen.height;
+  const stageWidth = screen.width;
+  const stageHeight = screen.height;
 
   const selectedObjects = screen.objects.filter((item) => selectedObjectIds.includes(item.id));
   const minWidth = Math.min(...selectedObjects.map((item) => item.minWidth ?? 8), 8);
@@ -182,13 +189,43 @@ export function HmiStage({
     onSelectionRectChange?.(undefined);
   };
 
+  useEffect(() => {
+    if (!import.meta.env.DEV || mode !== "editor") {
+      return;
+    }
+    const viewportWidth = wrapRef.current?.clientWidth ?? 0;
+    const viewportHeight = wrapRef.current?.clientHeight ?? 0;
+    // eslint-disable-next-line no-console
+    console.debug("[Editor Canvas]", {
+      screenId: screen.id,
+      screenName: screen.name,
+      screenSize: [screen.width, screen.height],
+      objects: screen.objects.length,
+      viewport: [viewportWidth, viewportHeight],
+      stageSize: [stageWidth, stageHeight],
+      zoom: 1,
+    });
+    if (viewportWidth === 0 || viewportHeight === 0) {
+      // eslint-disable-next-line no-console
+      console.warn("[Editor Canvas] zero viewport size detected", {
+        viewportWidth,
+        viewportHeight,
+      });
+    }
+  }, [mode, screen.height, screen.id, screen.name, screen.objects.length, screen.width, stageHeight, stageWidth]);
+
   return (
     <div
+      ref={wrapRef}
       className="canvas-wrap"
       style={{
-        width: mode === "runtime" && fullscreenRuntime ? "100vw" : undefined,
-        height: mode === "runtime" && fullscreenRuntime ? "100vh" : undefined,
-        overflow: "auto",
+        width: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
+        height: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
+        overflow: mode === "editor" ? "visible" : "auto",
+        display: mode === "editor" ? "inline-block" : "block",
+        border: mode === "runtime" ? "none" : undefined,
+        maxWidth: mode === "runtime" ? "100%" : undefined,
+        maxHeight: mode === "runtime" ? "100%" : undefined,
       }}
     >
       <Stage
@@ -215,6 +252,9 @@ export function HmiStage({
             onMoveObject={onMoveObject}
             onResizeObject={onResizeObject}
             onAction={onAction}
+            onDoubleClickObject={onDoubleClickObject}
+            onContextMenuObject={onContextMenuObject}
+            showObjectFrames={showObjectFrames}
           />
 
           {mode === "editor" && selectionRect ? (
@@ -270,4 +310,3 @@ function intersectsRect(a: SelectionRect, b: SelectionRect): boolean {
     a.y + a.height < b.y
   );
 }
-

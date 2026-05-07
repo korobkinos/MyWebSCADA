@@ -1,7 +1,18 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, type ReactNode, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { DashboardOutlined, EditOutlined, HddOutlined, LockOutlined, LogoutOutlined, SettingOutlined, TagsOutlined } from "@ant-design/icons";
-import { Button, Form, Input, Layout, Menu, Modal, Spin, Typography, message } from "antd";
+import {
+  DashboardOutlined,
+  EditOutlined,
+  FileImageOutlined,
+  HddOutlined,
+  LockOutlined,
+  LogoutOutlined,
+  MenuOutlined,
+  SettingOutlined,
+  TagsOutlined,
+} from "@ant-design/icons";
+import { Button, Dropdown, Form, Input, Layout, Menu, Modal, Spin, Typography, message } from "antd";
+import type { MenuProps } from "antd";
 import { createRuntimeSocket } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
 
@@ -11,6 +22,12 @@ const EditorPage = lazy(() => import("../pages/editor-page").then((m) => ({ defa
 const TagsPage = lazy(() => import("../pages/tags-page").then((m) => ({ default: m.TagsPage })));
 const DriversPage = lazy(() => import("../pages/drivers-page").then((m) => ({ default: m.DriversPage })));
 const ProjectPage = lazy(() => import("../pages/project-page").then((m) => ({ default: m.ProjectPage })));
+const ScreensPage = lazy(() => import("../pages/screens-page").then((m) => ({ default: m.ScreensPage })));
+const AssetsPage = lazy(() => import("../pages/assets-page").then((m) => ({ default: m.AssetsPage })));
+const LibrariesPage = lazy(() => import("../pages/libraries-page").then((m) => ({ default: m.LibrariesPage })));
+const MacrosPage = lazy(() => import("../pages/macros-page").then((m) => ({ default: m.MacrosPage })));
+const ElementEditorPage = lazy(() => import("../pages/element-editor-page").then((m) => ({ default: m.ElementEditorPage })));
+const SettingsPage = lazy(() => import("../pages/settings-page").then((m) => ({ default: m.SettingsPage })));
 
 export function App() {
   const location = useLocation();
@@ -23,6 +40,7 @@ export function App() {
   const loadLibraries = useScadaStore((s) => s.loadLibraries);
   const setTagValue = useScadaStore((s) => s.setTagValue);
   const project = useScadaStore((s) => s.project);
+  const setCurrentScreen = useScadaStore((s) => s.setCurrentScreen);
   const engineerAuthorized = useScadaStore((s) => s.engineerAuthorized);
   const loginEngineer = useScadaStore((s) => s.loginEngineer);
   const logoutEngineer = useScadaStore((s) => s.logoutEngineer);
@@ -46,30 +64,103 @@ export function App() {
 
   if (!project) {
     return (
-      <div style={{ height: "100vh", display: "grid", placeItems: "center" }}>
+      <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
         <Spin size="large" />
       </div>
     );
   }
 
   if (isRuntimeRoute) {
+    const runtimeMenuItems: MenuProps["items"] = [
+      {
+        key: "editor",
+        label: "Войти в редактор",
+        icon: <EditOutlined />,
+        onClick: () => {
+          if (!engineerAuthorized) {
+            setEngineerModalOpen(true);
+            return;
+          }
+          navigate("/editor");
+        },
+      },
+      {
+        key: "screen",
+        label: "Выбор экрана",
+        icon: <DashboardOutlined />,
+        children: project.screens
+          .filter((screen) => screen.kind === "screen")
+          .map((screen) => ({
+            key: `screen_${screen.id}`,
+            label: screen.name,
+            onClick: () => setCurrentScreen(screen.id),
+          })),
+      },
+      {
+        key: "runtime-settings",
+        label: "Настройки runtime",
+        icon: <SettingOutlined />,
+        disabled: true,
+      },
+      {
+        key: "fullscreen",
+        label: "Полноэкранный режим",
+        icon: <MenuOutlined />,
+        onClick: () => {
+          if (document.fullscreenElement) {
+            void document.exitFullscreen();
+            return;
+          }
+          void document.documentElement.requestFullscreen();
+        },
+      },
+      engineerAuthorized
+        ? {
+            key: "logout",
+            label: "Выйти из режима инженера",
+            icon: <LogoutOutlined />,
+            onClick: () => logoutEngineer(),
+          }
+        : {
+            key: "login",
+            label: "Вход инженера",
+            icon: <LockOutlined />,
+            onClick: () => setEngineerModalOpen(true),
+          },
+    ];
+
     return (
-      <div style={{ width: "100vw", height: "100vh", background: "#0b1016" }}>
-        <div style={{ position: "fixed", top: 12, right: 12, zIndex: 1000, display: "flex", gap: 8 }}>
-          <Button
-            icon={<LockOutlined />}
-            onClick={() => setEngineerModalOpen(true)}
+      <div style={{ width: "100vw", height: "100vh", background: "#0b1016", overflow: "hidden", position: "relative" }}>
+        <div style={{ position: "fixed", top: 12, right: 12, zIndex: 1100 }}>
+          <Dropdown
+            menu={{
+              items: runtimeMenuItems,
+              style: { maxHeight: "calc(100vh - 72px)", overflow: "auto", maxWidth: "min(320px, calc(100vw - 24px))" },
+            }}
+            trigger={["click"]}
+            placement="bottomRight"
+            overlayStyle={{ maxWidth: "calc(100vw - 24px)" }}
+            getPopupContainer={(node) => node?.parentElement ?? document.body}
           >
-            Engineer
-          </Button>
-          {engineerAuthorized ? (
-            <>
-              <Button icon={<EditOutlined />} type="primary" onClick={() => navigate("/editor")}>Editor</Button>
-              <Button icon={<LogoutOutlined />} onClick={() => logoutEngineer()}>
-                Logout
-              </Button>
-            </>
-          ) : null}
+            <Button
+              shape="circle"
+              size="small"
+              icon={<MenuOutlined />}
+              style={{
+                opacity: 0.32,
+                transition: "opacity 0.2s ease",
+                borderColor: "#7f8ea3",
+                color: "#dce7f7",
+                background: "rgba(15, 23, 32, 0.45)",
+              }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.opacity = "0.9";
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.opacity = "0.32";
+              }}
+            />
+          </Dropdown>
         </div>
 
         <Suspense fallback={<div style={{ height: "100%", display: "grid", placeItems: "center" }}><Spin size="large" /></div>}>
@@ -98,7 +189,7 @@ export function App() {
 
   return (
     <Layout className="app-shell">
-      <Sider theme="dark" width={240}>
+      <Sider className="app-sidebar" theme="dark" width={240}>
         <div style={{ color: "#fff", padding: 16, fontWeight: 600 }}>Web SCADA Lite</div>
         <Menu
           theme="dark"
@@ -107,15 +198,20 @@ export function App() {
           items={[
             { key: "/runtime", icon: <DashboardOutlined />, label: <Link to="/runtime">Runtime</Link> },
             { key: "/editor", icon: <EditOutlined />, label: <Link to="/editor">Editor</Link> },
+            { key: "/screens", icon: <DashboardOutlined />, label: <Link to="/screens">Screens</Link> },
             { key: "/tags", icon: <TagsOutlined />, label: <Link to="/tags">Tags</Link> },
             { key: "/drivers", icon: <HddOutlined />, label: <Link to="/drivers">Drivers</Link> },
-            { key: "/project", icon: <SettingOutlined />, label: <Link to="/project">Project</Link> },
+            { key: "/assets", icon: <FileImageOutlined />, label: <Link to="/assets">Assets</Link> },
+            { key: "/libraries", icon: <SettingOutlined />, label: <Link to="/libraries">Libraries</Link> },
+            { key: "/macros", icon: <TagsOutlined />, label: <Link to="/macros">Macros</Link> },
+            { key: "/element-editor", icon: <EditOutlined />, label: <Link to="/element-editor">Element Editor</Link> },
+            { key: "/settings", icon: <SettingOutlined />, label: <Link to="/settings">Settings</Link> },
           ]}
         />
       </Sider>
 
-      <Layout>
-        <Header style={{ background: "#fff", paddingInline: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <Layout className="app-root-layout">
+        <Header className="app-header" style={{ background: "#fff", paddingInline: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Typography.Title style={{ margin: 0 }} level={4}>
             {project.name}
           </Typography.Title>
@@ -123,20 +219,122 @@ export function App() {
             {engineerAuthorized ? "Engineer Logout" : "Engineer Login"}
           </Button>
         </Header>
-        <Content style={{ margin: 16 }}>
+        <Content className="app-content">
           <Suspense
             fallback={
-              <div style={{ height: "50vh", display: "grid", placeItems: "center" }}>
+              <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
                 <Spin size="large" />
               </div>
             }
           >
-            <Routes>
-              <Route path="/editor" element={engineerAuthorized ? <EditorPage /> : <Navigate to="/runtime" replace />} />
-              <Route path="/tags" element={<TagsPage />} />
-              <Route path="/drivers" element={<DriversPage />} />
-              <Route path="/project" element={<ProjectPage />} />
-            </Routes>
+            <div className="app-content-inner">
+              <Routes>
+                <Route
+                  path="/editor"
+                  element={
+                    engineerAuthorized ? (
+                      <FillPage>
+                        <EditorPage />
+                      </FillPage>
+                    ) : (
+                      <Navigate to="/runtime" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/screens"
+                  element={
+                    engineerAuthorized ? (
+                      <ScrollPage>
+                        <ScreensPage />
+                      </ScrollPage>
+                    ) : (
+                      <Navigate to="/runtime" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/tags"
+                  element={
+                    <FillPage>
+                      <TagsPage />
+                    </FillPage>
+                  }
+                />
+                <Route
+                  path="/drivers"
+                  element={
+                    <FillPage>
+                      <DriversPage />
+                    </FillPage>
+                  }
+                />
+                <Route
+                  path="/assets"
+                  element={
+                    engineerAuthorized ? (
+                      <FillPage>
+                        <AssetsPage />
+                      </FillPage>
+                    ) : (
+                      <Navigate to="/runtime" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/libraries"
+                  element={
+                    engineerAuthorized ? (
+                      <FillPage>
+                        <LibrariesPage />
+                      </FillPage>
+                    ) : (
+                      <Navigate to="/runtime" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/macros"
+                  element={
+                    engineerAuthorized ? (
+                      <FillPage>
+                        <MacrosPage />
+                      </FillPage>
+                    ) : (
+                      <Navigate to="/runtime" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/element-editor"
+                  element={
+                    engineerAuthorized ? (
+                      <FillPage>
+                        <ElementEditorPage />
+                      </FillPage>
+                    ) : (
+                      <Navigate to="/runtime" replace />
+                    )
+                  }
+                />
+                <Route
+                  path="/project"
+                  element={
+                    <ScrollPage>
+                      <ProjectPage />
+                    </ScrollPage>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ScrollPage>
+                      <SettingsPage />
+                    </ScrollPage>
+                  }
+                />
+              </Routes>
+            </div>
           </Suspense>
         </Content>
       </Layout>
@@ -156,6 +354,14 @@ export function App() {
       />
     </Layout>
   );
+}
+
+function ScrollPage({ children }: { children: ReactNode }) {
+  return <div className="route-page-scroll">{children}</div>;
+}
+
+function FillPage({ children }: { children: ReactNode }) {
+  return <div className="route-page-fill">{children}</div>;
 }
 
 type EngineerLoginModalProps = {

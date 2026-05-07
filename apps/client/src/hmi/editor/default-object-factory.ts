@@ -126,6 +126,10 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         minWidth: 60,
         minHeight: 24,
         text: "Start",
+        showText: true,
+        backgroundColor: "#0958d9",
+        borderColor: "#0958d9",
+        borderWidth: 1,
         textStyle: { ...defaultTextStyle },
         action: { type: "pulse", tag: "Burner_1.StartCmd", value: true, durationMs: 500 },
       };
@@ -157,6 +161,34 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         fit: "contain",
         preserveAspectRatio: true,
         opacity: 1,
+      };
+    case "stateImage":
+      return {
+        id: id("state_img"),
+        type,
+        x: 100,
+        y: 100,
+        width: 140,
+        height: 100,
+        minWidth: 40,
+        minHeight: 40,
+        tag: "Valve_1.State",
+        states: [
+          {
+            id: id("state"),
+            name: "Open",
+            condition: { type: "equals", value: 1 },
+            assetId: "",
+          },
+          {
+            id: id("state"),
+            name: "Closed",
+            condition: { type: "equals", value: 0 },
+            assetId: "",
+          },
+        ],
+        fit: "contain",
+        preserveAspectRatio: true,
       };
     case "libraryElementInstance":
       return {

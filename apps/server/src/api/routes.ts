@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { libraryElementSchema, projectSchema } from "@web-scada/shared";
+import type { MacroDefinition, MacroTrigger, ScadaProject } from "@web-scada/shared";
 import { AssetService } from "../assets/asset-service.js";
 import { DriverManager } from "../drivers/driver-manager.js";
 import { LibraryService } from "../libraries/library-service.js";
@@ -12,6 +13,7 @@ import { EngineerAuthService } from "../runtime/engineer-auth-service.js";
 import { InternalVariableService } from "../runtime/internal-variable-service.js";
 import { MacroService } from "../runtime/macro-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
+import { buildInternalAndLwTagDefinitions } from "../runtime/internal-variable-service.js";
 import { TagStore } from "../tags/tag-store.js";
 
 type ApiDeps = {
@@ -29,7 +31,19 @@ type ApiDeps = {
 
 const writeSchema = z.object({ value: z.union([z.boolean(), z.number(), z.string(), z.null()]) });
 const engineerLoginSchema = z.object({ password: z.string().min(1) });
-const macroRunSchema = z.object({ args: z.record(z.unknown()).optional() });
+const macroRunSchema = z.object({
+  args: z.record(z.unknown()).optional(),
+  allowDisabledForTest: z.boolean().optional(),
+});
+const macroUpdateSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  enabled: z.boolean(),
+  language: z.enum(["ts", "javascript-lite", "expression", "blockly"]),
+  code: z.string(),
+  triggers: z.array(z.record(z.unknown())).optional(),
+  options: z.record(z.unknown()).optional(),
+});
 const createLibrarySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -104,6 +118,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
 
     const parsed = projectSchema.parse(request.body);
     const saved = await deps.projectService.saveProject(parsed);
+    const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
+    deps.tagStore.setDefinitions([...(saved.tags ?? []), ...variableDefinitions]);
+    deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
+    deps.macroService.configure(saved);
 
     if (deps.runtimeService.getState().running) {
       await deps.runtimeService.stop();
@@ -142,11 +160,78 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
 
   app.get("/api/macros", async () => deps.macroService.list());
 
+  app.get("/api/macros/:id", async (request, reply) => {
+    const params = request.params as { id: string };
+    const macro = deps.macroService.getById(params.id);
+    if (!macro) {
+      return reply.code(404).send({ message: "Macro not found" });
+    }
+    return macro;
+  });
+
+  app.put("/api/macros/:id", async (request, reply) => {
+    try {
+      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
+    } catch {
+      return reply.code(401).send({ message: "Engineer auth required" });
+    }
+
+    const params = request.params as { id: string };
+    const payload = macroUpdateSchema.parse(request.body);
+
+    // Get current project
+    const project = deps.projectService.getProject();
+    const macros = project.macros ?? [];
+    const index = macros.findIndex((m) => m.id === params.id);
+
+    if (index === -1) {
+      return reply.code(404).send({ message: "Macro not found" });
+    }
+
+    // Build updated macro
+    const existing = macros[index]!;
+    const updatedMacro: MacroDefinition = {
+      id: existing.id,
+      name: payload.name,
+      description: payload.description ?? existing.description,
+      enabled: payload.enabled,
+      language: payload.language,
+      code: payload.code,
+      triggers: (payload.triggers ?? existing.triggers ?? []) as MacroTrigger[],
+    };
+
+    // Update project macros array
+    const nextMacros = [...macros];
+    nextMacros[index] = updatedMacro;
+
+    const nextProject: ScadaProject = {
+      ...project,
+      macros: nextMacros,
+    };
+
+    // Save project to JSON file
+    const saved = await deps.projectService.saveProject(nextProject);
+
+    // Reload MacroService with updated project
+    deps.macroService.configure(saved);
+
+    // Reload macro triggers in runtime registry (no need to restart whole runtime)
+    if (deps.runtimeService.getState().running) {
+      deps.runtimeService.macroRegistry.reloadMacro(updatedMacro);
+    }
+
+    console.log(`[Macro] Updated macro ${params.id} (${updatedMacro.name}), enabled=${updatedMacro.enabled}`);
+
+    return reply.send(updatedMacro);
+  });
+
   app.post("/api/macros/:id/run", async (request, reply) => {
     const params = request.params as { id: string };
     const payload = macroRunSchema.parse(request.body ?? {});
-    await deps.macroService.run(params.id, payload.args);
-    return reply.send({ ok: true });
+    const result = await deps.macroService.run(params.id, payload.args, {
+      allowDisabledForTest: payload.allowDisabledForTest,
+    });
+    return reply.send({ ok: true, ...result });
   });
 
   app.get("/api/drivers", async () => deps.driverManager.getStatuses());

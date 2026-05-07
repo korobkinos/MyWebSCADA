@@ -16,16 +16,29 @@ export class MacroService {
 
   public configure(project: ScadaProject): void {
     this.macros = project.macros ?? [];
+    console.log(`[MacroService] Configured with ${this.macros.length} macros`);
   }
 
   public list(): MacroDefinition[] {
     return this.macros;
   }
 
-  public async run(macroId: string, args?: Record<string, unknown>): Promise<void> {
+  public getById(macroId: string): MacroDefinition | undefined {
+    return this.macros.find((item) => item.id === macroId);
+  }
+
+  public async run(
+    macroId: string,
+    args?: Record<string, unknown>,
+    options?: { allowDisabledForTest?: boolean },
+  ): Promise<{ status: "ok" | "skipped"; reason?: "disabled" }> {
     const macro = this.macros.find((item) => item.id === macroId);
     if (!macro) {
       throw new Error(`Macro ${macroId} not found`);
+    }
+    if ((macro.enabled ?? true) === false && !options?.allowDisabledForTest) {
+      console.warn(`[macro:${macro.id}] Macro is disabled and was not executed`);
+      return { status: "skipped", reason: "disabled" };
     }
 
     const jsCode = ts.transpileModule(macro.code, {
@@ -64,6 +77,7 @@ export class MacroService {
     };
 
     await fn(api, args ?? {});
+    return { status: "ok" };
   }
 }
 

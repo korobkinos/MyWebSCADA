@@ -1,8 +1,20 @@
 {
   "version": 1,
   "name": "Web SCADA Lite Demo",
-  "startScreenId": "main",
-  "assets": [],
+  "assets": [
+    {
+      "id": "65685489-78e0-4e74-9a79-85929f242617",
+      "name": "2024-10-18 23 01 06.jpg",
+      "type": "jpg",
+      "mimeType": "image/jpeg",
+      "fileName": "65685489-78e0-4e74-9a79-85929f242617.jpg",
+      "size": 141336,
+      "createdAt": "2026-05-03T18:46:03.441Z",
+      "updatedAt": "2026-05-03T18:46:03.441Z",
+      "storagePath": "assets/65685489-78e0-4e74-9a79-85929f242617.jpg",
+      "previewUrl": "/api/assets/65685489-78e0-4e74-9a79-85929f242617/file"
+    }
+  ],
   "libraries": [
     {
       "libraryId": "amaks-basic-equipment",
@@ -16,13 +28,147 @@
     {
       "id": "sim_1",
       "type": "simulated",
-      "enabled": true
+      "enabled": false
+    }
+  ],
+  "tags": [
+    {
+      "name": "Boiler.Pressure",
+      "dataType": "REAL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "sine",
+        "periodMs": 6000,
+        "min": 8,
+        "max": 16
+      },
+      "scanRateMs": 500
+    },
+    {
+      "name": "Burner_1.Flame",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "toggle",
+        "periodMs": 1800
+      },
+      "scanRateMs": 700
+    },
+    {
+      "name": "Burner_1.PZK_1.Opened",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "toggle",
+        "periodMs": 3100
+      },
+      "scanRateMs": 900
+    },
+    {
+      "name": "Burner_1.PZK_1.Fault",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "random",
+        "min": 0,
+        "max": 1
+      },
+      "scanRateMs": 1000
+    },
+    {
+      "name": "Burner_1.PZK_1.VisualState",
+      "dataType": "INT",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "random",
+        "min": 0,
+        "max": 1
+      },
+      "scanRateMs": 1000
+    },
+    {
+      "name": "Burner_1.PZK_1.OpenCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "Burner_1.PZK_1.CloseCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "Burner_1.PZK_2.Opened",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "toggle",
+        "periodMs": 4300
+      },
+      "scanRateMs": 920
+    },
+    {
+      "name": "Burner_1.PZK_2.Fault",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "random",
+        "min": 0,
+        "max": 1
+      },
+      "scanRateMs": 980
+    },
+    {
+      "name": "Burner_1.PZK_2.VisualState",
+      "dataType": "INT",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "random",
+        "min": 0,
+        "max": 1
+      },
+      "scanRateMs": 1000
+    },
+    {
+      "name": "Burner_1.PZK_2.OpenCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "Burner_1.PZK_2.CloseCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
     }
   ],
   "variables": [
     {
       "name": "Counter",
       "dataType": "DINT",
+      "initialValue": 0,
+      "writable": true
+    },
+    {
+      "name": "Counter1",
+      "dataType": "REAL",
       "initialValue": 0,
       "writable": true
     }
@@ -32,144 +178,162 @@
       "id": "inc_counter",
       "name": "Increment Counter",
       "language": "ts",
-      "code": "const current = Number(api.readVariable('Counter') ?? 0); api.writeVariable('Counter', current + 1);"
+      "code": "const current = Number(api.readVariable('Counter') ?? 0); api.writeVariable('Counter', current + 1);",
+      "enabled": false,
+      "triggers": [
+        {
+          "type": "interval",
+          "intervalMs": 1000
+        }
+      ]
+    },
+    {
+      "id": "macro_458y8c",
+      "name": "Newmacro_1",
+      "description": "",
+      "language": "ts",
+      "code": "const current = Number(api.readVariable('Counter2') ?? 0); api.writeVariable('Counter2', current + 1);",
+      "enabled": true,
+      "triggers": [
+        {
+          "type": "interval",
+          "intervalMs": 1000
+        }
+      ]
     }
   ],
-  "tags": [
-    {
-      "name": "Boiler.Pressure",
-      "dataType": "REAL",
-      "driverId": "sim_1",
-      "scanRateMs": 500,
-      "address": {
-        "pattern": "sine",
-        "min": 8,
-        "max": 16,
-        "periodMs": 6000
+  "editorSettings": {
+    "layout": {
+      "leftPanel": {
+        "visible": true,
+        "collapsed": true,
+        "width": 330,
+        "minWidth": 240,
+        "maxWidth": 520,
+        "collapsedWidth": 36
+      },
+      "rightPanel": {
+        "visible": true,
+        "collapsed": true,
+        "width": 372,
+        "minWidth": 260,
+        "maxWidth": 560,
+        "collapsedWidth": 36
+      },
+      "topArea": {
+        "collapsed": false,
+        "compact": false
+      },
+      "canvasToolbar": {
+        "collapsed": true,
+        "compact": true
+      },
+      "panels": {
+        "screensCollapsed": false,
+        "currentScreenCollapsed": false,
+        "toolboxCollapsed": false,
+        "propertiesCollapsed": false,
+        "objectTreeCollapsed": false
       }
     },
-    {
-      "name": "Burner_1.Flame",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "scanRateMs": 700,
-      "address": {
-        "pattern": "toggle",
-        "periodMs": 1800
+    "leftPanelWidth": 330,
+    "rightPanelWidth": 372,
+    "showObjectFrames": true,
+    "panels": [
+      {
+        "id": "screens",
+        "title": "Screens",
+        "visible": true,
+        "collapsed": false,
+        "dock": "left",
+        "width": 330,
+        "height": 240
+      },
+      {
+        "id": "assets",
+        "title": "Assets",
+        "visible": true,
+        "collapsed": false,
+        "dock": "left",
+        "x": 180,
+        "y": 160,
+        "width": 480,
+        "height": 520
+      },
+      {
+        "id": "libraries",
+        "title": "Libraries",
+        "visible": true,
+        "collapsed": false,
+        "dock": "right",
+        "x": 120,
+        "y": 120,
+        "width": 460,
+        "height": 520
+      },
+      {
+        "id": "toolbox",
+        "title": "Toolbox",
+        "visible": true,
+        "collapsed": false,
+        "dock": "left",
+        "width": 330,
+        "height": 220
+      },
+      {
+        "id": "properties",
+        "title": "Properties",
+        "visible": true,
+        "collapsed": false,
+        "dock": "right",
+        "width": 372,
+        "height": 280
+      },
+      {
+        "id": "objectTree",
+        "title": "Object Tree / Layers",
+        "visible": true,
+        "collapsed": false,
+        "dock": "right",
+        "width": 372,
+        "height": 320
+      },
+      {
+        "id": "tags",
+        "title": "Tags",
+        "visible": true,
+        "collapsed": false,
+        "dock": "left",
+        "width": 330,
+        "height": 220
+      },
+      {
+        "id": "macros",
+        "title": "Macros",
+        "visible": true,
+        "collapsed": false,
+        "dock": "left",
+        "width": 330,
+        "height": 220
+      },
+      {
+        "id": "drivers",
+        "title": "Drivers",
+        "visible": true,
+        "collapsed": false,
+        "dock": "left",
+        "width": 330,
+        "height": 220
       }
-    },
-    {
-      "name": "Burner_1.PZK_1.Opened",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "scanRateMs": 900,
-      "address": {
-        "pattern": "toggle",
-        "periodMs": 3100
-      }
-    },
-    {
-      "name": "Burner_1.PZK_1.Fault",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "scanRateMs": 1000,
-      "address": {
-        "pattern": "random",
-        "min": 0,
-        "max": 1
-      }
-    },
-    {
-      "name": "Burner_1.PZK_1.VisualState",
-      "dataType": "INT",
-      "driverId": "sim_1",
-      "scanRateMs": 1000,
-      "address": {
-        "pattern": "random",
-        "min": 0,
-        "max": 1
-      }
-    },
-    {
-      "name": "Burner_1.PZK_1.OpenCmd",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "writable": true,
-      "scanRateMs": 500,
-      "address": {
-        "pattern": "static"
-      }
-    },
-    {
-      "name": "Burner_1.PZK_1.CloseCmd",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "writable": true,
-      "scanRateMs": 500,
-      "address": {
-        "pattern": "static"
-      }
-    },
-    {
-      "name": "Burner_1.PZK_2.Opened",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "scanRateMs": 920,
-      "address": {
-        "pattern": "toggle",
-        "periodMs": 4300
-      }
-    },
-    {
-      "name": "Burner_1.PZK_2.Fault",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "scanRateMs": 980,
-      "address": {
-        "pattern": "random",
-        "min": 0,
-        "max": 1
-      }
-    },
-    {
-      "name": "Burner_1.PZK_2.VisualState",
-      "dataType": "INT",
-      "driverId": "sim_1",
-      "scanRateMs": 1000,
-      "address": {
-        "pattern": "random",
-        "min": 0,
-        "max": 1
-      }
-    },
-    {
-      "name": "Burner_1.PZK_2.OpenCmd",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "writable": true,
-      "scanRateMs": 500,
-      "address": {
-        "pattern": "static"
-      }
-    },
-    {
-      "name": "Burner_1.PZK_2.CloseCmd",
-      "dataType": "BOOL",
-      "driverId": "sim_1",
-      "writable": true,
-      "scanRateMs": 500,
-      "address": {
-        "pattern": "static"
-      }
-    }
-  ],
+    ]
+  },
   "screens": [
     {
       "id": "main",
       "name": "Главный экран",
       "kind": "screen",
-      "width": 1920,
-      "height": 1080,
+      "width": 1800,
+      "height": 1000,
       "background": "#1e1e1e",
       "objects": [
         {
@@ -179,6 +343,8 @@
           "y": 24,
           "width": 360,
           "height": 52,
+          "wrap": "none",
+          "ellipsis": false,
           "text": "Котел К-11",
           "textStyle": {
             "fontFamily": "Arial",
@@ -188,9 +354,7 @@
             "horizontalAlign": "left",
             "verticalAlign": "middle",
             "padding": 0
-          },
-          "wrap": "none",
-          "ellipsis": false
+          }
         },
         {
           "id": "pressure_label",
@@ -233,8 +397,8 @@
         {
           "id": "flame",
           "type": "state-indicator",
-          "x": 40,
-          "y": 140,
+          "x": 39,
+          "y": 141,
           "width": 220,
           "height": 46,
           "tag": "Burner_1.Flame",
@@ -321,10 +485,11 @@
         {
           "id": "valve_inst_1",
           "type": "libraryElementInstance",
-          "x": 340,
+          "x": 336,
           "y": 150,
           "width": 230,
           "height": 120,
+          "locked": false,
           "libraryId": "amaks-basic-equipment",
           "elementId": "valve-cutoff",
           "tagPrefix": "Burner_1.PZK_1",
@@ -336,8 +501,8 @@
         {
           "id": "valve_inst_2",
           "type": "libraryElementInstance",
-          "x": 590,
-          "y": 150,
+          "x": 336,
+          "y": 308,
           "width": 230,
           "height": 120,
           "libraryId": "amaks-basic-equipment",
@@ -347,6 +512,149 @@
             "label": "ПЗК-2"
           },
           "scaleMode": "fit"
+        },
+        {
+          "id": "switch_6wi3oi",
+          "type": "switch",
+          "x": 669,
+          "y": 193,
+          "width": 130,
+          "height": 44,
+          "minWidth": 70,
+          "minHeight": 28,
+          "tag": "Burner_1.StartCmd",
+          "onText": "ON",
+          "offText": "OFF",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "state_5o7iy4",
+          "type": "state-indicator",
+          "x": 80,
+          "y": 413,
+          "width": 160,
+          "height": 44,
+          "minWidth": 80,
+          "minHeight": 28,
+          "tag": "Burner_1.Flame",
+          "trueText": "ХУЙ",
+          "falseText": "НЕ ХУЙ",
+          "trueColor": "#389e0d",
+          "falseColor": "#595959",
+          "badColor": "#bfbfbf",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "line_5f2f5n",
+          "type": "line",
+          "x": 74.85352290552584,
+          "y": 527.4573604409424,
+          "width": 354.09804029859595,
+          "height": 38.294417637713025,
+          "minWidth": 20,
+          "minHeight": 10,
+          "points": [
+            0,
+            19.147208818856512,
+            354.09804029859595,
+            19.147208818856512
+          ],
+          "stroke": "#d9d9d9",
+          "strokeWidth": 3
+        },
+        {
+          "id": "line_afkk4q",
+          "type": "line",
+          "x": 438.4510775390375,
+          "y": 545.9306086204947,
+          "width": 66.53814807449706,
+          "height": 20.00000000000008,
+          "minWidth": 20,
+          "minHeight": 10,
+          "points": [
+            0,
+            10.00000000000004,
+            66.53814807449706,
+            10.00000000000004
+          ],
+          "stroke": "#d9d9d9",
+          "strokeWidth": 3
+        },
+        {
+          "id": "line_uka3i4",
+          "type": "line",
+          "x": 425,
+          "y": 602,
+          "width": 140,
+          "height": 20,
+          "minWidth": 20,
+          "minHeight": 10,
+          "points": [
+            0,
+            10,
+            140,
+            10
+          ],
+          "stroke": "#d9d9d9",
+          "strokeWidth": 3
+        },
+        {
+          "id": "input_sdsanx",
+          "type": "value-input",
+          "x": 139,
+          "y": 632,
+          "width": 170,
+          "height": 44,
+          "minWidth": 80,
+          "minHeight": 28,
+          "tag": "Burner_1.StartCmd",
+          "min": 0,
+          "max": 99,
+          "confirm": true,
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "value-display_cn8v8o",
+          "type": "value-display",
+          "x": 632,
+          "y": 319,
+          "width": 220,
+          "height": 36,
+          "tag": "LW.Counter2",
+          "suffix": " cnt",
+          "textStyle": {
+            "fontFamily": "Consolas",
+            "fontSize": 16,
+            "fontStyle": "bold",
+            "color": "#ffec3d",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 2
+          }
         }
       ]
     },
@@ -357,24 +665,6 @@
       "width": 460,
       "height": 240,
       "background": "#102130",
-      "popupOptions": {
-        "title": "Управление клапаном",
-        "defaultX": 180,
-        "defaultY": 150,
-        "modal": false,
-        "draggable": true,
-        "closable": true,
-        "resizable": false,
-        "titleTextStyle": {
-          "fontFamily": "Arial",
-          "fontSize": 15,
-          "fontStyle": "bold",
-          "color": "#ffffff",
-          "horizontalAlign": "left",
-          "verticalAlign": "middle",
-          "padding": 2
-        }
-      },
       "objects": [
         {
           "id": "popup_title",
@@ -429,7 +719,26 @@
             "type": "closePopup"
           }
         }
-      ]
+      ],
+      "popupOptions": {
+        "title": "Управление клапаном",
+        "defaultX": 180,
+        "defaultY": 150,
+        "modal": false,
+        "draggable": true,
+        "closable": true,
+        "resizable": false,
+        "titleTextStyle": {
+          "fontFamily": "Arial",
+          "fontSize": 15,
+          "fontStyle": "bold",
+          "color": "#ffffff",
+          "horizontalAlign": "left",
+          "verticalAlign": "middle",
+          "padding": 2
+        }
+      }
     }
-  ]
+  ],
+  "startScreenId": "main"
 }

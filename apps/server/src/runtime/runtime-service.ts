@@ -1,19 +1,23 @@
 import type { RuntimeState, ScadaProject, TagScalarValue } from "@web-scada/shared";
 import { DriverManager } from "../drivers/driver-manager.js";
 import { TagStore } from "../tags/tag-store.js";
-import { InternalVariableService, variableToTagDefinition } from "./internal-variable-service.js";
+import { buildInternalAndLwTagDefinitions, InternalVariableService } from "./internal-variable-service.js";
 import { MacroService } from "./macro-service.js";
+import { MacroRuntimeRegistry } from "./macro-runtime-registry.js";
 
 export class RuntimeService {
   private readonly intervals = new Map<string, NodeJS.Timeout>();
   private state: RuntimeState = { running: false };
+  public readonly macroRegistry: MacroRuntimeRegistry;
 
   public constructor(
     private readonly tagStore: TagStore,
     private readonly driverManager: DriverManager,
     private readonly internalVariableService: InternalVariableService,
     private readonly macroService: MacroService,
-  ) {}
+  ) {
+    this.macroRegistry = new MacroRuntimeRegistry(macroService);
+  }
 
   public getState(): RuntimeState {
     return this.state;
@@ -27,10 +31,13 @@ export class RuntimeService {
     this.driverManager.configure(project.drivers);
     await this.driverManager.startAll();
 
-    const variableDefinitions = (project.variables ?? []).map(variableToTagDefinition);
+    const variableDefinitions = buildInternalAndLwTagDefinitions(project.variables ?? [], project.lwStore);
     this.tagStore.setDefinitions([...project.tags, ...variableDefinitions]);
-    this.internalVariableService.setup(project.variables ?? []);
+    this.internalVariableService.setup(project.variables ?? [], project.lwStore);
     this.macroService.configure(project);
+
+    // Register macro interval triggers
+    this.macroRegistry.registerAll(project.macros ?? []);
 
     for (const tag of project.tags) {
       const scanRateMs = tag.scanRateMs ?? 1000;
@@ -56,6 +63,9 @@ export class RuntimeService {
       clearInterval(timer);
     }
     this.intervals.clear();
+
+    // Stop all macro interval triggers
+    this.macroRegistry.stopAll();
 
     await this.driverManager.stopAll();
     this.state = { running: false };

@@ -5,6 +5,7 @@ import type {
   EditorCommand,
   EditorSelectionState,
   ElementLibrary,
+  GroupObject,
   HmiObject,
   HmiScreen,
   InternalVariableDefinition,
@@ -44,7 +45,19 @@ type ScadaState = {
   stopRuntime: () => Promise<void>;
   writeTag: (name: string, value: boolean | number | string | null) => Promise<void>;
   writeVariable: (name: string, value: boolean | number | string | null) => Promise<void>;
-  runMacro: (macroId: string, args?: Record<string, unknown>) => Promise<void>;
+  runMacro: (
+    macroId: string,
+    args?: Record<string, unknown>,
+    options?: { allowDisabledForTest?: boolean },
+  ) => Promise<{ ok: boolean; status?: "ok" | "skipped"; reason?: "disabled" }>;
+  updateMacro: (macroId: string, payload: {
+    name: string;
+    description?: string;
+    enabled: boolean;
+    language: "ts" | "javascript-lite" | "expression" | "blockly";
+    code: string;
+    triggers?: unknown[];
+  }) => Promise<MacroDefinition>;
   loginEngineer: (password: string) => Promise<boolean>;
   logoutEngineer: () => void;
   setTagValue: (value: TagValue) => void;
@@ -124,11 +137,11 @@ function applyResize(obj: HmiObject, patch: Partial<HmiObject>): HmiObject {
 
   return {
     ...obj,
-    ...patch,
+    ...(patch as Partial<GroupObject>),
     width: nextWidth,
     height: nextHeight,
     objects: children,
-  };
+  } satisfies GroupObject;
 }
 
 export const useScadaStore = create<ScadaState>((set, get) => ({
@@ -183,6 +196,20 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     set({ macros });
   },
 
+  async updateMacro(macroId, payload) {
+    const updated = await api.updateMacro(macroId, payload);
+    set((state) => ({
+      macros: state.macros.map((m) => (m.id === macroId ? updated : m)),
+      project: state.project
+        ? {
+            ...state.project,
+            macros: (state.project.macros ?? []).map((m) => (m.id === macroId ? updated : m)),
+          }
+        : null,
+    }));
+    return updated;
+  },
+
   async loadAssets() {
     const assets = await api.listAssets();
     set({ assets });
@@ -211,8 +238,8 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     await api.writeVariable(name, value);
   },
 
-  async runMacro(macroId, args) {
-    await api.runMacro(macroId, args);
+  async runMacro(macroId, args, options) {
+    return await api.runMacro(macroId, args, options);
   },
 
   async loginEngineer(password) {
