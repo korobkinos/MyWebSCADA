@@ -144,6 +144,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(element),
     }),
+  getLibraryElement: (libraryId: string, elementId: string) =>
+    request<LibraryElement>(`/api/libraries/${encodeURIComponent(libraryId)}/elements/${encodeURIComponent(elementId)}`),
   updateLibraryElement: (libraryId: string, elementId: string, patch: Partial<LibraryElement>) =>
     request<LibraryElement>(`/api/libraries/${encodeURIComponent(libraryId)}/elements/${encodeURIComponent(elementId)}`, {
       method: "PUT",

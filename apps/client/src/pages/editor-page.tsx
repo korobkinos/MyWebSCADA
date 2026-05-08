@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   Asset,
@@ -35,13 +35,17 @@ import {
 } from "antd";
 import {
   BorderOutlined,
+  DeleteOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
   LeftOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ReloadOutlined,
+  RedoOutlined,
   RightOutlined,
+  SaveOutlined,
+  UndoOutlined,
   VerticalAlignTopOutlined,
 } from "@ant-design/icons";
 import { api } from "../services/api";
@@ -50,7 +54,9 @@ import { ResizableDockPanel } from "../components/resizable-dock-panel";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
+import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { useScadaStore } from "../store/scada-store";
+import { isTextEditingTarget } from "../utils/keyboard";
 
 const basicToolboxTypes: HmiObject["type"][] = [
   "text",
@@ -181,6 +187,7 @@ export function EditorPage() {
   const moveObject = useScadaStore((s) => s.moveObject);
   const resizeObject = useScadaStore((s) => s.resizeObject);
   const updateObject = useScadaStore((s) => s.updateObject);
+  const setScreenObjects = useScadaStore((s) => s.setScreenObjects);
   const removeObject = useScadaStore((s) => s.removeObject);
   const removeSelectedUnlocked = useScadaStore((s) => s.removeSelectedUnlocked);
   const addObject = useScadaStore((s) => s.addObject);
@@ -278,6 +285,36 @@ export function EditorPage() {
     (selection.activeObjectId ? selectedObjects.find((obj) => obj.id === selection.activeObjectId) : undefined) ??
     selectedObjects[0] ??
     null;
+  const history = useSnapshotHistory<HmiObject[]>({ maxSteps: 50 });
+
+  const captureObjects = useCallback((): HmiObject[] => structuredClone(screen?.objects ?? []), [screen?.objects]);
+
+  const applyObjects = useCallback(
+    (objects: HmiObject[]) => {
+      if (!screen) {
+        return;
+      }
+      setScreenObjects(screen.id, structuredClone(objects));
+    },
+    [screen, setScreenObjects],
+  );
+
+  const runWithHistory = useCallback(
+    (label: string, mutate: () => void) => {
+      if (!screen) {
+        return;
+      }
+      const before = captureObjects();
+      mutate();
+      const latestProject = useScadaStore.getState().project;
+      const latestScreen = latestProject?.screens.find((item) => item.id === screen.id);
+      if (!latestScreen) {
+        return;
+      }
+      history.pushEntry(label, before, latestScreen.objects);
+    },
+    [captureObjects, history, screen],
+  );
 
   const enabledLibraryRefs = useMemo(
     () => (project?.libraries ?? []).filter((ref) => ref.enabled),
@@ -425,39 +462,104 @@ export function EditorPage() {
       if (!screen) {
         return;
       }
-      if (event.key === "Delete") {
+      const ctrlOrMeta = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      const editing = isTextEditingTarget(event.target);
+
+      if (ctrlOrMeta && key === "z" && !event.shiftKey) {
         event.preventDefault();
+        const current = captureObjects();
+        const previous = history.undo(current);
+        if (previous) {
+          applyObjects(previous);
+        }
+        return;
+      }
+
+      if (ctrlOrMeta && (key === "y" || (key === "z" && event.shiftKey))) {
+        event.preventDefault();
+        const current = captureObjects();
+        const next = history.redo(current);
+        if (next) {
+          applyObjects(next);
+        }
+        return;
+      }
+
+      if (ctrlOrMeta && key === "s") {
+        event.preventDefault();
+        void saveProject();
+        return;
+      }
+
+      if (!editing && (event.key === "Delete" || event.key === "Backspace")) {
+        event.preventDefault();
+        const lockedCount = selectedObjects.filter((item) => item.locked).length;
+        const before = captureObjects();
         removeSelectedUnlocked(screen.id);
+        const latestProject = useScadaStore.getState().project;
+        const latestScreen = latestProject?.screens.find((item) => item.id === screen.id);
+        if (latestScreen) {
+          history.pushEntry("Delete objects", before, latestScreen.objects);
+        }
+        if (lockedCount > 0) {
+          void message.warning("Locked objects were not deleted.");
+        }
         return;
       }
-      if (!(event.ctrlKey || event.metaKey)) {
+
+      if (!ctrlOrMeta) {
         return;
       }
-      if (event.key.toLowerCase() === "g" && event.shiftKey) {
+      if (key === "g" && event.shiftKey) {
         event.preventDefault();
-        runCommand({ type: "ungroupSelected" });
+        const before = captureObjects();
+        executeCommand({ type: "ungroupSelected" });
+        const latestProject = useScadaStore.getState().project;
+        const latestScreen = latestProject?.screens.find((item) => item.id === screen.id);
+        if (latestScreen) {
+          history.pushEntry("Command: ungroupSelected", before, latestScreen.objects);
+        }
         return;
       }
-      if (event.key.toLowerCase() === "g") {
+      if (key === "g") {
         event.preventDefault();
-        runCommand({ type: "groupSelected" });
+        const before = captureObjects();
+        executeCommand({ type: "groupSelected" });
+        const latestProject = useScadaStore.getState().project;
+        const latestScreen = latestProject?.screens.find((item) => item.id === screen.id);
+        if (latestScreen) {
+          history.pushEntry("Command: groupSelected", before, latestScreen.objects);
+        }
         return;
       }
-      if (event.key.toLowerCase() === "l" && event.shiftKey) {
+      if (key === "l" && event.shiftKey) {
         event.preventDefault();
-        runCommand({ type: "unlockSelected" });
+        const before = captureObjects();
+        executeCommand({ type: "unlockSelected" });
+        const latestProject = useScadaStore.getState().project;
+        const latestScreen = latestProject?.screens.find((item) => item.id === screen.id);
+        if (latestScreen) {
+          history.pushEntry("Command: unlockSelected", before, latestScreen.objects);
+        }
         return;
       }
-      if (event.key.toLowerCase() === "l") {
+      if (key === "l") {
         event.preventDefault();
-        runCommand({ type: "lockSelected" });
+        const before = captureObjects();
+        executeCommand({ type: "lockSelected" });
+        const latestProject = useScadaStore.getState().project;
+        const latestScreen = latestProject?.screens.find((item) => item.id === screen.id);
+        if (latestScreen) {
+          history.pushEntry("Command: lockSelected", before, latestScreen.objects);
+        }
         return;
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [screen?.id, selectedObjects.length]);
+  }, [applyObjects, captureObjects, executeCommand, history, removeSelectedUnlocked, saveProject, screen, selectedObjects]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -493,17 +595,81 @@ export function EditorPage() {
     }
   }, [leftWidth, rightWidth, leftCollapsed, rightCollapsed, topAreaCollapsed, canvasToolbarCollapsed, floatingAssets, floatingLibraries, toolbarTab, leftTab]);
 
+  useEffect(() => {
+    history.clear();
+  }, [screen?.id]);
+
   if (!project || !screen) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
   }
 
   const runCommand = (command: EditorCommand): void => {
-    const warnings = executeCommand(command);
-    if (warnings.length) {
-      void message.warning(warnings.join("; "));
-    }
-    setContextMenu((prev) => ({ ...prev, visible: false }));
+    runWithHistory(`Command: ${command.type}`, () => {
+      const warnings = executeCommand(command);
+      if (warnings.length) {
+        void message.warning(warnings.join("; "));
+      }
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+    });
   };
+
+  const addObjectWithHistory = useCallback(
+    (object: HmiObject) => {
+      runWithHistory(`Add ${object.type}`, () => {
+        addObject(screen.id, object);
+      });
+    },
+    [addObject, runWithHistory, screen.id],
+  );
+
+  const deleteSelectionWithHistory = useCallback(() => {
+    if (!selectedObjects.length) {
+      return;
+    }
+    const lockedCount = selectedObjects.filter((item) => item.locked).length;
+    runWithHistory("Delete objects", () => {
+      removeSelectedUnlocked(screen.id);
+    });
+    if (lockedCount > 0) {
+      void message.warning("Locked objects were not deleted.");
+    }
+  }, [removeSelectedUnlocked, runWithHistory, screen.id, selectedObjects]);
+
+  const moveObjectWithHistory = useCallback(
+    (objectId: string, x: number, y: number) => {
+      runWithHistory("Move object", () => {
+        moveObject(screen.id, objectId, x, y);
+      });
+    },
+    [moveObject, runWithHistory, screen.id],
+  );
+
+  const resizeObjectWithHistory = useCallback(
+    (objectId: string, patch: Partial<HmiObject>) => {
+      runWithHistory("Resize/transform object", () => {
+        resizeObject(screen.id, objectId, patch);
+      });
+    },
+    [resizeObject, runWithHistory, screen.id],
+  );
+
+  const updateObjectWithHistory = useCallback(
+    (objectId: string, patch: Partial<HmiObject>, label = "Update object") => {
+      runWithHistory(label, () => {
+        updateObject(screen.id, objectId, patch);
+      });
+    },
+    [runWithHistory, screen.id, updateObject],
+  );
+
+  const removeObjectWithHistory = useCallback(
+    (objectId: string) => {
+      runWithHistory("Delete object", () => {
+        removeObject(screen.id, objectId);
+      });
+    },
+    [removeObject, runWithHistory, screen.id],
+  );
 
   const onUploadProjectAsset = async (file: File): Promise<void> => {
     try {
@@ -518,7 +684,7 @@ export function EditorPage() {
 
   const addAssetAsImage = (asset: Asset, x = 100, y = 100): void => {
     const object = createObjectByType("image") as Extract<HmiObject, { type: "image" }>;
-    addObject(screen.id, {
+    addObjectWithHistory({
       ...object,
       x,
       y,
@@ -531,7 +697,7 @@ export function EditorPage() {
   };
 
   const addLibraryElementInstance = (libraryId: string, element: LibraryElement, x = 120, y = 120): void => {
-    addObject(screen.id, {
+    addObjectWithHistory({
       id: id("lib"),
       type: "libraryElementInstance",
       x,
@@ -670,9 +836,11 @@ export function EditorPage() {
       }
     }
 
-    for (const object of created) {
-      addObject(screen.id, object);
-    }
+    runWithHistory("Clone objects", () => {
+      for (const object of created) {
+        addObject(screen.id, object);
+      }
+    });
     setSelectedObjects(
       created.map((obj) => obj.id),
       created[created.length - 1]?.id,
@@ -738,6 +906,41 @@ export function EditorPage() {
   const canSameSize = selectedUnlocked.length >= 2;
   const canLock = selectedObjects.length > 0;
   const canUnlock = selectedObjects.some((item) => item.locked);
+  const canDelete = selectedUnlocked.length > 0;
+  const debugPerformance =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("debugPerformance") === "1";
+
+  useEffect(() => {
+    if (!debugPerformance) {
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.debug("[Render] EditorPage", {
+      screenId: screen.id,
+      objects: screen.objects.length,
+      selected: selection.selectedObjectIds.length,
+      history: {
+        undo: history.canUndo,
+        redo: history.canRedo,
+      },
+    });
+  }, [debugPerformance, history.canRedo, history.canUndo, screen.id, screen.objects.length, selection.selectedObjectIds.length]);
+
+  const undo = () => {
+    const previous = history.undo(captureObjects());
+    if (previous) {
+      applyObjects(previous);
+    }
+  };
+
+  const redo = () => {
+    const next = history.redo(captureObjects());
+    if (next) {
+      applyObjects(next);
+    }
+  };
 
   return (
     <div className="editor-page">
@@ -748,6 +951,18 @@ export function EditorPage() {
         bodyStyle={{ overflow: "hidden", padding: topAreaCompact ? 8 : 12 }}
         extra={
           <Space size={6}>
+            <Tooltip title="Undo Ctrl+Z">
+              <Button size="small" icon={<UndoOutlined />} onClick={undo} disabled={!history.canUndo} />
+            </Tooltip>
+            <Tooltip title="Redo Ctrl+Y">
+              <Button size="small" icon={<RedoOutlined />} onClick={redo} disabled={!history.canRedo} />
+            </Tooltip>
+            <Tooltip title="Delete Del">
+              <Button size="small" icon={<DeleteOutlined />} onClick={deleteSelectionWithHistory} disabled={!canDelete} />
+            </Tooltip>
+            <Tooltip title="Save Ctrl+S">
+              <Button size="small" icon={<SaveOutlined />} onClick={() => void saveProject()} />
+            </Tooltip>
             <Tooltip title={leftPanelHidden ? "Show left panel" : "Hide left panel"}>
               <Button
                 size="small"
@@ -826,7 +1041,7 @@ export function EditorPage() {
                   <Button disabled>Cut</Button>
                   <Button disabled>Copy</Button>
                   <Button disabled>Paste</Button>
-                  <Button danger disabled={!selectedUnlocked.length} onClick={() => removeSelectedUnlocked(screen.id)}>Delete</Button>
+                  <Button danger disabled={!selectedUnlocked.length} onClick={deleteSelectionWithHistory}>Delete</Button>
                   <Button disabled={!selectedUnlocked.length} onClick={() => setCloneOpen(true)}>Clone</Button>
                 </Space>
               ),
@@ -850,7 +1065,7 @@ export function EditorPage() {
               children: (
                 <Space wrap>
                   {basicToolboxTypes.map((type) => (
-                    <Button key={type} size="small" onClick={() => addObject(screen.id, createObjectByType(type))}>
+                    <Button key={type} size="small" onClick={() => addObjectWithHistory(createObjectByType(type))}>
                       {type}
                     </Button>
                   ))}
@@ -1052,7 +1267,7 @@ export function EditorPage() {
             {collapsedPanels.toolbox ? null : (
             <Space wrap>
               {basicToolboxTypes.map((type) => (
-                <Button key={type} size="small" onClick={() => addObject(screen.id, createObjectByType(type))}>
+                <Button key={type} size="small" onClick={() => addObjectWithHistory(createObjectByType(type))}>
                   {type}
                 </Button>
               ))}
@@ -1268,8 +1483,8 @@ export function EditorPage() {
                 onSelectObjects={(objectIds, activeId) => {
                   setSelectedObjects(objectIds, activeId);
                 }}
-                onMoveObject={(id, x, y) => moveObject(screen.id, id, x, y)}
-                onResizeObject={(id, patch) => resizeObject(screen.id, id, patch)}
+                onMoveObject={moveObjectWithHistory}
+                onResizeObject={resizeObjectWithHistory}
               />
             </div>
           </Card>
@@ -1478,7 +1693,7 @@ export function EditorPage() {
                           size="small"
                           onClick={(event) => {
                             event.stopPropagation();
-                            updateObject(screen.id, item.id, { visible: !(item.visible ?? true) });
+                            updateObjectWithHistory(item.id, { visible: !(item.visible ?? true) }, "Toggle object visibility");
                           }}
                         >
                           {item.visible ?? true ? "Hide" : "Show"}
@@ -1488,7 +1703,7 @@ export function EditorPage() {
                           size="small"
                           onClick={(event) => {
                             event.stopPropagation();
-                            updateObject(screen.id, item.id, { locked: !item.locked });
+                            updateObjectWithHistory(item.id, { locked: !item.locked }, "Toggle object lock");
                           }}
                         >
                           {item.locked ? "Unlock" : "Lock"}
@@ -1500,7 +1715,7 @@ export function EditorPage() {
                           disabled={item.locked}
                           onClick={(event) => {
                             event.stopPropagation();
-                            removeObject(screen.id, item.id);
+                            removeObjectWithHistory(item.id);
                           }}
                         >
                           Delete
@@ -1575,7 +1790,7 @@ export function EditorPage() {
             if (!activeObject) {
               return;
             }
-            updateObject(screen.id, activeObject.id, patch);
+            updateObjectWithHistory(activeObject.id, patch, "Object properties change");
           }}
           onDelete={() => {
             if (!activeObject) {
@@ -1585,7 +1800,7 @@ export function EditorPage() {
               void message.warning("Locked object cannot be deleted");
               return;
             }
-            removeObject(screen.id, activeObject.id);
+            removeObjectWithHistory(activeObject.id);
             setPropertiesOpen(false);
           }}
         />
@@ -1766,7 +1981,7 @@ export function EditorPage() {
           <Space direction="vertical">
             <Button size="small" onClick={() => setPropertiesOpen(true)} disabled={!activeObject}>Properties</Button>
             <Button size="small" onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length}>Clone...</Button>
-            <Button size="small" danger onClick={() => removeSelectedUnlocked(screen.id)} disabled={!selectedUnlocked.length}>Delete</Button>
+            <Button size="small" danger onClick={deleteSelectionWithHistory} disabled={!selectedUnlocked.length}>Delete</Button>
             <Button size="small" onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>Group</Button>
             <Button size="small" onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</Button>
             <Button size="small" onClick={() => runCommand({ type: "lockSelected" })} disabled={!canLock}>Lock</Button>

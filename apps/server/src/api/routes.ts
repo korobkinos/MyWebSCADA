@@ -316,6 +316,19 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     return library.elements;
   });
 
+  app.get("/api/libraries/:libraryId/elements/:elementId", async (request, reply) => {
+    const { libraryId, elementId } = request.params as { libraryId: string; elementId: string };
+    const library = await deps.libraryService.getLibrary(libraryId);
+    if (!library) {
+      return reply.code(404).send({ message: "Library not found" });
+    }
+    const element = library.elements.find((item) => item.id === elementId);
+    if (!element) {
+      return reply.code(404).send({ message: "Element not found" });
+    }
+    return element;
+  });
+
   app.post("/api/libraries", async (request, reply) => {
     try {
       ensureEngineer(request as { headers: Record<string, unknown> }, deps);

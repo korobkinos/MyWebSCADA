@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
@@ -95,11 +95,28 @@ export function HmiRenderer({
   scopedAssets,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
+  const debugPerformance =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("debugPerformance") === "1";
+
+  useEffect(() => {
+    if (!debugPerformance) {
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.debug("[Render] HmiRenderer", {
+      screenId: screen.id,
+      mode,
+      objects: screen.objects.length,
+      selected: selectedObjectIds.length,
+    });
+  }, [debugPerformance, mode, screen.id, screen.objects.length, selectedObjectIds.length]);
 
   return (
     <>
       {screen.objects.map((object) => (
-        <ObjectNode
+        <MemoObjectNode
           key={object.id}
           object={object}
           project={project}
@@ -125,6 +142,83 @@ export function HmiRenderer({
   );
 }
 
+const MemoObjectNode = memo(ObjectNode, areObjectNodePropsEqual);
+
+function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): boolean {
+  if (prev.object !== next.object) return false;
+  if (prev.selected !== next.selected) return false;
+  if (prev.interactive !== next.interactive) return false;
+  if (prev.showObjectFrames !== next.showObjectFrames) return false;
+  if (prev.mode !== next.mode) return false;
+  if (prev.renderContext.tagPrefix !== next.renderContext.tagPrefix) return false;
+  if (prev.renderContext.parameters !== next.renderContext.parameters) return false;
+
+  const watchedTags = collectWatchedTags(next.object, next.renderContext);
+  if (!watchedTags) {
+    return prev.tags === next.tags;
+  }
+  for (const tagName of watchedTags) {
+    const left = prev.tags[tagName];
+    const right = next.tags[tagName];
+    if (!left && !right) {
+      continue;
+    }
+    if (!left || !right) {
+      return false;
+    }
+    if (left.value !== right.value || left.quality !== right.quality || left.timestamp !== right.timestamp) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function collectWatchedTags(object: HmiObject, context: RenderContext): string[] | null {
+  if (object.type === "libraryElementInstance" || object.type === "frame") {
+    return null;
+  }
+
+  if (object.type === "group") {
+    const tags = new Set<string>();
+    for (const child of object.objects) {
+      const childTags = collectWatchedTags(child, context);
+      if (!childTags) {
+        return null;
+      }
+      for (const item of childTags) {
+        tags.add(item);
+      }
+    }
+    return [...tags];
+  }
+
+  const candidates: Array<string | undefined> = [];
+  switch (object.type) {
+    case "value-display":
+    case "value-input":
+    case "state-indicator":
+    case "switch":
+    case "stateImage":
+      candidates.push(object.tag);
+      break;
+    case "image":
+      candidates.push(object.stateTag);
+      break;
+    case "valve":
+      candidates.push(object.openTag, object.closedTag, object.errorTag);
+      break;
+    case "pump":
+      candidates.push(object.runTag, object.faultTag);
+      break;
+    default:
+      break;
+  }
+
+  return candidates
+    .map((name) => resolveTagName(name, context))
+    .filter((name): name is string => Boolean(name));
+}
+
 function ObjectNode({
   object,
   project,
@@ -146,6 +240,22 @@ function ObjectNode({
   scopedAssets,
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
+  const debugPerformance =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("debugPerformance") === "1";
+
+  useEffect(() => {
+    if (!debugPerformance) {
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.debug("[Render] HmiObjectNode", {
+      id: resolvedObject.id,
+      type: resolvedObject.type,
+      interactive,
+    });
+  }, [debugPerformance, interactive, resolvedObject.id, resolvedObject.type]);
 
   const tagValue = (name: string | undefined): TagValue | undefined => {
     const resolved = resolveTagName(name, renderContext);
@@ -798,7 +908,10 @@ function LibraryInstanceNode({
     tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
     parameters: { ...(renderContext.parameters ?? {}), ...instanceParams },
   };
-  const resolvedObjects = applyElementStateRules(element.objects, element.stateRules ?? [], context, tags);
+  const resolvedObjects = useMemo(
+    () => applyElementStateRules(element.objects, element.stateRules ?? [], context, tags),
+    [context, element.objects, element.stateRules, tags],
+  );
 
   const childScale = computeFrameScale(object.scaleMode ?? "fit", object.width, object.height, element.width, element.height);
   const scopedAssets = toAssetMap(library.assets);
@@ -1351,11 +1464,68 @@ function useImage(src: string | undefined): HTMLImageElement | undefined {
       return;
     }
 
+    const cached = imageCache.get(src);
+    if (cached?.status === "loaded") {
+      setImage(cached.image);
+      return;
+    }
+    if (cached?.status === "error") {
+      setImage(undefined);
+      return;
+    }
+
+    let disposed = false;
+    if (cached?.status === "loading") {
+      cached.waiters.push((nextImage) => {
+        if (!disposed) {
+          setImage(nextImage);
+        }
+      });
+      return () => {
+        disposed = true;
+      };
+    }
+
+    const waiters: Array<(nextImage: HTMLImageElement | undefined) => void> = [];
+    imageCache.set(src, { status: "loading", waiters });
+
     const img = new window.Image();
     img.src = src;
-    img.onload = () => setImage(img);
-    img.onerror = () => setImage(undefined);
+    img.onload = () => {
+      imageCache.set(src, { status: "loaded", image: img, waiters: [] });
+      setImage(img);
+      for (const waiter of waiters) {
+        waiter(img);
+      }
+    };
+    img.onerror = () => {
+      imageCache.set(src, { status: "error", waiters: [] });
+      setImage(undefined);
+      for (const waiter of waiters) {
+        waiter(undefined);
+      }
+    };
+    return () => {
+      disposed = true;
+    };
   }, [src]);
 
   return image;
 }
+
+type ImageCacheItem =
+  | {
+      status: "loaded";
+      image: HTMLImageElement;
+      waiters: Array<(nextImage: HTMLImageElement | undefined) => void>;
+    }
+  | {
+      status: "loading";
+      waiters: Array<(nextImage: HTMLImageElement | undefined) => void>;
+    }
+  | {
+      status: "error";
+      waiters: Array<(nextImage: HTMLImageElement | undefined) => void>;
+    };
+
+const imageCache = new Map<string, ImageCacheItem>();

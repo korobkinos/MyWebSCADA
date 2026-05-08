@@ -72,6 +72,7 @@ type ScadaState = {
   updateObject: (screenId: string, objectId: string, patch: Partial<HmiObject>) => void;
   addScreen: (kind?: ScreenKind) => void;
   updateScreen: (screenId: string, patch: Partial<HmiScreen>) => void;
+  setScreenObjects: (screenId: string, objects: HmiObject[]) => void;
   addObject: (screenId: string, object: HmiObject) => void;
   removeObject: (screenId: string, objectId: string) => void;
   removeSelectedUnlocked: (screenId: string) => void;
@@ -436,6 +437,29 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
       project: {
         ...project,
         screens: project.screens.map((screen) => (screen.id === screenId ? { ...screen, ...patch } : screen)),
+      },
+    });
+  },
+
+  setScreenObjects(screenId, objects) {
+    const project = get().project;
+    if (!project) {
+      return;
+    }
+
+    const objectsById = new Set(objects.map((item) => item.id));
+    const selection = get().selection;
+    const nextSelected = selection.selectedObjectIds.filter((id) => objectsById.has(id));
+    const nextActive = selection.activeObjectId && objectsById.has(selection.activeObjectId)
+      ? selection.activeObjectId
+      : nextSelected[nextSelected.length - 1];
+
+    set({
+      project: mutateScreen(project, screenId, (screen) => ({ ...screen, objects })),
+      selection: {
+        ...selection,
+        selectedObjectIds: nextSelected,
+        activeObjectId: nextActive,
       },
     });
   },

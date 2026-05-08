@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LeftOutlined, PlusOutlined, RightOutlined, SaveOutlined } from "@ant-design/icons";
-import { Button, Card, Divider, Form, Input, InputNumber, List, Select, Space, Switch, Tabs, Typography, message } from "antd";
+import { DeleteOutlined, LeftOutlined, PlusOutlined, RedoOutlined, RightOutlined, SaveOutlined, UndoOutlined } from "@ant-design/icons";
+import { Button, Card, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tooltip, Typography, message } from "antd";
 import type { DockPanelState, HmiObject, HmiScreen, LibraryElement, LibraryParameter, TagValue } from "@web-scada/shared";
 import { resolveTagName, resolveTemplateString } from "@web-scada/shared";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { ResizableDockPanel } from "../components/resizable-dock-panel";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
+import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { useDockLayout } from "../hooks/use-dock-layout";
 import { api } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
+import { isTextEditingTarget } from "../utils/keyboard";
 
 const defaultDockPanels: DockPanelState[] = [
   { id: "elementEditor.left", side: "left", hidden: false, size: 340, lastVisibleSize: 340 },
@@ -95,6 +97,29 @@ function resolveParameterValue(param: LibraryParameter, raw: string): unknown {
   return raw;
 }
 
+function countElementUsages(project: ReturnType<typeof useScadaStore.getState>["project"], libraryId: string, elementId: string): number {
+  if (!project) {
+    return 0;
+  }
+  let count = 0;
+  for (const screen of project.screens) {
+    const queue = [...screen.objects];
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) {
+        continue;
+      }
+      if (item.type === "libraryElementInstance" && item.libraryId === libraryId && item.elementId === elementId) {
+        count += 1;
+      }
+      if (item.type === "group") {
+        queue.push(...item.objects);
+      }
+    }
+  }
+  return count;
+}
+
 export function ElementEditorPage() {
   const project = useScadaStore((s) => s.project);
   const tags = useScadaStore((s) => s.tags);
@@ -111,6 +136,7 @@ export function ElementEditorPage() {
   const [dirty, setDirty] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number }>();
   const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [activeObjectId, setActiveObjectId] = useState<string>();
@@ -118,6 +144,7 @@ export function ElementEditorPage() {
   const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
   const [previewStateTag, setPreviewStateTag] = useState(".State");
   const [previewStateValue, setPreviewStateValue] = useState<string>("0");
+  const history = useSnapshotHistory<LibraryElement>({ maxSteps: 50 });
 
   const leftPanel = dockLayout.getPanelState("elementEditor.left") ?? defaultDockPanels[0]!;
   const rightPanel = dockLayout.getPanelState("elementEditor.right") ?? defaultDockPanels[1]!;
@@ -126,11 +153,56 @@ export function ElementEditorPage() {
   const filteredElements = useMemo(() => {
     const list = selectedLibrary?.elements ?? [];
     const term = search.trim().toLowerCase();
+    const byCategory =
+      categoryFilter === "all"
+        ? list
+        : list.filter((item) => (item.category ?? "").toLowerCase() === categoryFilter.toLowerCase());
     if (!term) {
-      return list;
+      return byCategory;
     }
-    return list.filter((item) => item.name.toLowerCase().includes(term) || item.id.toLowerCase().includes(term));
-  }, [search, selectedLibrary?.elements]);
+    return byCategory.filter((item) => item.name.toLowerCase().includes(term) || item.id.toLowerCase().includes(term));
+  }, [categoryFilter, search, selectedLibrary?.elements]);
+
+  const categoryOptions = useMemo(() => {
+    const categories = new Set(
+      (selectedLibrary?.elements ?? [])
+        .map((item) => item.category?.trim())
+        .filter((item): item is string => Boolean(item)),
+    );
+    return ["all", ...[...categories].sort((a, b) => a.localeCompare(b, "ru"))];
+  }, [selectedLibrary?.elements]);
+
+  const requestSwitchLibrary = (nextLibraryId: string) => {
+    if (!dirty) {
+      setSelectedLibraryId(nextLibraryId);
+      setSelectedElementId("");
+      return;
+    }
+    Modal.confirm({
+      title: "Unsaved changes",
+      content: "Discard current changes and switch library?",
+      okText: "Discard",
+      cancelText: "Cancel",
+      onOk: () => {
+        setDirty(false);
+        setSelectedLibraryId(nextLibraryId);
+        setSelectedElementId("");
+      },
+    });
+  };
+
+  const updateDraftWithHistory = (label: string, updater: (current: LibraryElement) => LibraryElement) => {
+    setDraftElement((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      const before = structuredClone(prev);
+      const next = updater(prev);
+      history.pushEntry(label, before, next);
+      return next;
+    });
+    setDirty(true);
+  };
 
   useEffect(() => {
     if (!selectedLibraryId && libraries[0]) {
@@ -139,6 +211,7 @@ export function ElementEditorPage() {
   }, [libraries, selectedLibraryId]);
 
   useEffect(() => {
+    let cancelled = false;
     if (!selectedLibrary) {
       return;
     }
@@ -148,19 +221,31 @@ export function ElementEditorPage() {
       }
       return;
     }
-    const element = selectedLibrary.elements.find((item) => item.id === selectedElementId);
-    if (!element) {
-      return;
-    }
-    const clone = deepClone(element);
-    setDraftElement(clone);
-    setStateRulesJson(JSON.stringify(clone.stateRules ?? [], null, 2));
-    setPreviewValues(
-      Object.fromEntries((clone.parameters ?? []).map((param) => [param.name, String(param.defaultValue ?? "")])),
-    );
-    setSelectedObjectIds([]);
-    setActiveObjectId(undefined);
-    setDirty(false);
+    void (async () => {
+      try {
+        const element = await api.getLibraryElement(selectedLibrary.id, selectedElementId);
+        if (cancelled) {
+          return;
+        }
+        const clone = deepClone(element);
+        setDraftElement(clone);
+        setStateRulesJson(JSON.stringify(clone.stateRules ?? [], null, 2));
+        setPreviewValues(
+          Object.fromEntries((clone.parameters ?? []).map((param) => [param.name, String(param.defaultValue ?? "")])),
+        );
+        setSelectedObjectIds([]);
+        setActiveObjectId(undefined);
+        setDirty(false);
+        history.clear();
+      } catch (error) {
+        if (!cancelled) {
+          void message.error(error instanceof Error ? error.message : "Failed to load element");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedElementId, selectedLibrary]);
 
   const activeObject = useMemo(() => {
@@ -220,6 +305,96 @@ export function ElementEditorPage() {
     }
     return next;
   }, [previewParameters, previewStateTag, previewStateValue, previewTagPrefix, tags]);
+  const debugPerformance =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("debugPerformance") === "1";
+
+  useEffect(() => {
+    if (!debugPerformance) {
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.debug("[Render] ElementEditor", {
+      libraryId: selectedLibraryId,
+      elementId: draftElement?.id,
+      objects: draftElement?.objects.length ?? 0,
+      selected: selectedObjectIds.length,
+      history: {
+        undo: history.canUndo,
+        redo: history.canRedo,
+      },
+    });
+  }, [debugPerformance, draftElement?.id, draftElement?.objects.length, history.canRedo, history.canUndo, selectedLibraryId, selectedObjectIds.length]);
+
+  useEffect(() => {
+    if (!dirty) {
+      return;
+    }
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!draftElement) {
+        return;
+      }
+      const ctrlOrMeta = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      const editing = isTextEditingTarget(event.target);
+
+      if (ctrlOrMeta && key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        const previous = history.undo(draftElement);
+        if (previous) {
+          setDraftElement(previous);
+          setDirty(true);
+        }
+        return;
+      }
+
+      if (ctrlOrMeta && (key === "y" || (key === "z" && event.shiftKey))) {
+        event.preventDefault();
+        const next = history.redo(draftElement);
+        if (next) {
+          setDraftElement(next);
+          setDirty(true);
+        }
+        return;
+      }
+
+      if (ctrlOrMeta && key === "s") {
+        event.preventDefault();
+        void saveElement();
+        return;
+      }
+
+      if (!editing && (event.key === "Delete" || event.key === "Backspace")) {
+        if (!activeObjectId) {
+          return;
+        }
+        if (activeObject?.locked) {
+          void message.warning("Locked objects were not deleted.");
+          return;
+        }
+        event.preventDefault();
+        updateDraftWithHistory("Delete object", (current) => ({
+          ...current,
+          objects: removeObjectInList(current.objects, activeObjectId),
+        }));
+        setSelectedObjectIds([]);
+        setActiveObjectId(undefined);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeObject, activeObjectId, draftElement, history]);
 
   if (!project) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -229,16 +404,17 @@ export function ElementEditorPage() {
     if (!draftElement) {
       return;
     }
-    setDraftElement({ ...draftElement, ...patch });
-    setDirty(true);
+    updateDraftWithHistory("Update element properties", (current) => ({ ...current, ...patch }));
   };
 
   const setObjects = (updater: (objects: HmiObject[]) => HmiObject[]) => {
     if (!draftElement) {
       return;
     }
-    setDraftElement({ ...draftElement, objects: updater(draftElement.objects) });
-    setDirty(true);
+    updateDraftWithHistory("Update element objects", (current) => ({
+      ...current,
+      objects: updater(current.objects),
+    }));
   };
 
   const addObject = (type: HmiObject["type"]) => {
@@ -264,6 +440,28 @@ export function ElementEditorPage() {
   };
 
   const newElement = () => {
+    if (dirty) {
+      Modal.confirm({
+        title: "Unsaved changes",
+        content: "Discard current draft and create new element?",
+        okText: "Discard",
+        cancelText: "Cancel",
+        onOk: () => {
+          const element = createDefaultElement();
+          setDraftElement(element);
+          setSelectedElementId("");
+          setSelectedObjectIds([]);
+          setActiveObjectId(undefined);
+          setStateRulesJson(JSON.stringify([], null, 2));
+          setPreviewValues(
+            Object.fromEntries((element.parameters ?? []).map((param) => [param.name, String(param.defaultValue ?? "")])),
+          );
+          setDirty(true);
+          history.clear();
+        },
+      });
+      return;
+    }
     const element = createDefaultElement();
     setDraftElement(element);
     setSelectedElementId("");
@@ -274,9 +472,10 @@ export function ElementEditorPage() {
       Object.fromEntries((element.parameters ?? []).map((param) => [param.name, String(param.defaultValue ?? "")])),
     );
     setDirty(true);
+    history.clear();
   };
 
-  const saveElement = async () => {
+  async function saveElement() {
     if (!selectedLibraryId) {
       void message.warning("Select library first");
       return;
@@ -320,18 +519,33 @@ export function ElementEditorPage() {
     setDraftElement(normalized);
     setDirty(false);
     void message.success("Element saved");
-  };
+  }
 
   const deleteElement = async () => {
     if (!selectedLibraryId || !selectedElementId) {
       return;
     }
-    await api.deleteLibraryElement(selectedLibraryId, selectedElementId);
-    await loadLibraries();
-    setSelectedElementId("");
-    setDraftElement(null);
-    setDirty(false);
-    void message.success("Element deleted");
+    const usageCount = countElementUsages(project, selectedLibraryId, selectedElementId);
+    if (usageCount > 0) {
+      void message.warning(`Element is used ${usageCount} time(s) on screens. Detach references before delete.`);
+      return;
+    }
+    Modal.confirm({
+      title: "Delete element",
+      content: `Delete element "${draftElement?.name ?? selectedElementId}" from library "${selectedLibrary?.name ?? selectedLibraryId}"?`,
+      okText: "Delete",
+      okButtonProps: { danger: true },
+      cancelText: "Cancel",
+      onOk: async () => {
+        await api.deleteLibraryElement(selectedLibraryId, selectedElementId);
+        await loadLibraries();
+        setSelectedElementId("");
+        setDraftElement(null);
+        setDirty(false);
+        history.clear();
+        void message.success("Element deleted");
+      },
+    });
   };
 
   const duplicateElement = async () => {
@@ -409,11 +623,16 @@ export function ElementEditorPage() {
         >
           <Select
             value={selectedLibraryId || undefined}
-            onChange={setSelectedLibraryId}
+            onChange={requestSwitchLibrary}
             placeholder="Select library"
             options={libraries.map((item) => ({ label: item.name, value: item.id }))}
           />
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search elements" />
+          <Select
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            options={categoryOptions.map((item) => ({ label: item === "all" ? "All categories" : item, value: item }))}
+          />
           <Space wrap>
             <Button icon={<PlusOutlined />} onClick={newElement}>New</Button>
             <Button onClick={() => void duplicateElement()} disabled={!draftElement}>Duplicate</Button>
@@ -428,7 +647,20 @@ export function ElementEditorPage() {
                 style={{ cursor: "pointer", background: selectedElementId === item.id ? "#e6f4ff" : undefined, borderRadius: 6 }}
                 onClick={() => {
                   if (dirty) {
-                    void message.warning("Save current element before switching");
+                    Modal.confirm({
+                      title: "Unsaved changes",
+                      content: "Save current element before switching?",
+                      okText: "Save and switch",
+                      cancelText: "Discard",
+                      onOk: async () => {
+                        await saveElement();
+                        setSelectedElementId(item.id);
+                      },
+                      onCancel: () => {
+                        setDirty(false);
+                        setSelectedElementId(item.id);
+                      },
+                    });
                     return;
                   }
                   setSelectedElementId(item.id);
@@ -437,6 +669,7 @@ export function ElementEditorPage() {
                 <Space direction="vertical" size={0}>
                   <Typography.Text>{item.name}</Typography.Text>
                   <Typography.Text type="secondary">{item.elementKey ?? item.id}</Typography.Text>
+                  <Typography.Text type="secondary">{item.category || "General"} · {new Date(item.updatedAt).toLocaleString()}</Typography.Text>
                 </Space>
               </List.Item>
             )}
@@ -447,9 +680,50 @@ export function ElementEditorPage() {
       <div style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", gap: 10 }}>
         <Card size="small" bodyStyle={{ padding: 10 }}>
           <Space wrap>
+            <Tooltip title="Undo Ctrl+Z">
+              <Button icon={<UndoOutlined />} onClick={() => {
+                if (!draftElement) {
+                  return;
+                }
+                const previous = history.undo(draftElement);
+                if (previous) {
+                  setDraftElement(previous);
+                  setDirty(true);
+                }
+              }} disabled={!draftElement || !history.canUndo} />
+            </Tooltip>
+            <Tooltip title="Redo Ctrl+Y">
+              <Button icon={<RedoOutlined />} onClick={() => {
+                if (!draftElement) {
+                  return;
+                }
+                const next = history.redo(draftElement);
+                if (next) {
+                  setDraftElement(next);
+                  setDirty(true);
+                }
+              }} disabled={!draftElement || !history.canRedo} />
+            </Tooltip>
             <Button type="primary" icon={<SaveOutlined />} onClick={() => void saveElement()} disabled={!draftElement}>
               Save
             </Button>
+            <Tooltip title="Delete selected object Del/Backspace">
+              <Button icon={<DeleteOutlined />} onClick={() => {
+                if (!activeObjectId) {
+                  return;
+                }
+                if (activeObject?.locked) {
+                  void message.warning("Locked objects were not deleted.");
+                  return;
+                }
+                updateDraftWithHistory("Delete object", (current) => ({
+                  ...current,
+                  objects: removeObjectInList(current.objects, activeObjectId),
+                }));
+                setSelectedObjectIds([]);
+                setActiveObjectId(undefined);
+              }} disabled={!activeObjectId} />
+            </Tooltip>
             <Switch checked={previewMode} onChange={setPreviewMode} checkedChildren="Preview" unCheckedChildren="Edit" />
             <Button onClick={() => addObject("image")} disabled={!draftElement}>Add Image</Button>
             <Button onClick={() => addObject("text")} disabled={!draftElement}>Add Text</Button>
@@ -541,10 +815,11 @@ export function ElementEditorPage() {
         restoreIcon={<LeftOutlined />}
         onStateChange={(state) => dockLayout.setPanelState("elementEditor.right", () => state)}
       >
-        <Tabs
-          size="small"
-          style={{ height: "100%" }}
-          items={[
+        <div className="element-editor-right-panel">
+          <Tabs
+            size="small"
+            style={{ height: "100%" }}
+            items={[
             {
               key: "element",
               label: "Element",
@@ -681,6 +956,10 @@ export function ElementEditorPage() {
                     if (!activeObject) {
                       return;
                     }
+                    if (activeObject.locked) {
+                      void message.warning("Locked objects were not deleted.");
+                      return;
+                    }
                     setObjects((objects) => removeObjectInList(objects, activeObject.id));
                     setSelectedObjectIds([]);
                     setActiveObjectId(undefined);
@@ -772,8 +1051,9 @@ export function ElementEditorPage() {
                 <Typography.Text type="secondary">Select element</Typography.Text>
               ),
             },
-          ]}
-        />
+            ]}
+          />
+        </div>
       </ResizableDockPanel>
     </div>
   );

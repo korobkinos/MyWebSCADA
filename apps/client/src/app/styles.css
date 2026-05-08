@@ -476,3 +476,45 @@ body {
   max-width: 100%;
   max-height: 100%;
 }
+
+.element-editor-right-panel {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 14px 12px 14px;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.element-editor-right-panel .ant-tabs,
+.element-editor-right-panel .ant-tabs-content-holder,
+.element-editor-right-panel .ant-tabs-content,
+.element-editor-right-panel .ant-tabs-tabpane {
+  height: 100%;
+  min-height: 0;
+}
+
+.element-editor-right-panel .ant-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.element-editor-right-panel .ant-form-item {
+  margin-bottom: 10px;
+}
+
+.element-editor-right-panel .ant-form-item-control-input,
+.element-editor-right-panel .ant-form-item-control-input-content {
+  min-width: 0;
+}
+
+.element-editor-right-panel input,
+.element-editor-right-panel textarea,
+.element-editor-right-panel .ant-input,
+.element-editor-right-panel .ant-input-number,
+.element-editor-right-panel .ant-select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
