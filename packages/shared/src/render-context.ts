@@ -1,10 +1,15 @@
 export type RenderContext = {
+  popupInstanceId?: string;
+  screenId?: string;
+  title?: string;
   tagPrefix?: string;
   parameters?: Record<string, unknown>;
   bindings?: Record<string, string>;
+  args?: Record<string, unknown>;
 };
 
 import type { RuntimeAction } from "./hmi-object-types";
+import { resolveParameters, resolveTemplateString } from "./parameter-resolver";
 
 export function isBindingReference(tag: string | undefined): boolean {
   if (!tag) {
@@ -103,7 +108,9 @@ export function resolveRuntimeAction(action: RuntimeAction, context: RenderConte
   if (action.type === "openPopup") {
     return {
       ...action,
+      title: action.title ? resolveTemplateString(action.title, context.parameters ?? {}) : action.title,
       tagPrefix: combineTagPrefix(context.tagPrefix, action.tagPrefix),
+      args: action.args ? (resolveParameters(action.args, context.parameters ?? {}) as Record<string, unknown>) : action.args,
     };
   }
 

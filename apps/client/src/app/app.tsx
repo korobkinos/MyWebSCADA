@@ -6,12 +6,14 @@ import {
   FileImageOutlined,
   HddOutlined,
   LogoutOutlined,
+  MenuFoldOutlined,
   MenuOutlined,
+  MenuUnfoldOutlined,
   SettingOutlined,
   TagsOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Button, Dropdown, Layout, Menu, Spin, Typography, message } from "antd";
+import { Button, Dropdown, Layout, Menu, Space, Spin, Typography, message } from "antd";
 import type { MenuProps } from "antd";
 import type { AppPermission } from "@web-scada/shared";
 import { createRuntimeSocket } from "../services/ws";
@@ -52,6 +54,19 @@ export function App() {
   const isRuntimeRoute = location.pathname === "/" || location.pathname === "/runtime";
   const isLoginRoute = location.pathname === "/login";
   const [bootError, setBootError] = useState<string | null>(null);
+  const [mainMenuHidden, setMainMenuHidden] = useState<boolean>(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("scada.mainMenuHidden") === "1";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("scada.mainMenuHidden", mainMenuHidden ? "1" : "0");
+  }, [mainMenuHidden]);
 
   const bootstrapApp = useCallback(async () => {
     setBootError(null);
@@ -250,16 +265,25 @@ export function App() {
 
   return (
     <Layout className="app-shell">
-      <Sider className="app-sidebar" theme="dark" width={240}>
-        <div style={{ color: "#fff", padding: 16, fontWeight: 600 }}>Web SCADA Lite</div>
-        <Menu theme="dark" mode="inline" selectedKeys={[location.pathname]} items={menuItems} />
-      </Sider>
+      {!mainMenuHidden ? (
+        <Sider className="app-sidebar" theme="dark" width={240}>
+          <div style={{ color: "#fff", padding: 16, fontWeight: 600 }}>Web SCADA Lite</div>
+          <Menu theme="dark" mode="inline" selectedKeys={[location.pathname]} items={menuItems} />
+        </Sider>
+      ) : null}
 
       <Layout className="app-root-layout">
         <Header className="app-header" style={{ background: "#fff", paddingInline: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Typography.Title style={{ margin: 0 }} level={4}>
-            {project.name}
-          </Typography.Title>
+          <Space align="center">
+            <Button
+              icon={mainMenuHidden ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setMainMenuHidden((prev) => !prev)}
+              title={mainMenuHidden ? "Show main menu" : "Hide main menu"}
+            />
+            <Typography.Title style={{ margin: 0 }} level={4}>
+              {project.name}
+            </Typography.Title>
+          </Space>
           <Button
             icon={<LogoutOutlined />}
             onClick={() => {

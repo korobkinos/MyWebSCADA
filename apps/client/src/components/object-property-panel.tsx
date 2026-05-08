@@ -10,7 +10,7 @@ import type {
   TextStyle,
 } from "@web-scada/shared";
 import { parseTagSegments, resolveElementBindingAssignment, resolveRuntimeValueSync } from "@web-scada/shared";
-import { Button, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
+import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 
 type Props = {
@@ -25,6 +25,39 @@ type Props = {
 };
 
 const fontOptions = ["Arial", "Tahoma", "Verdana", "Consolas", "Segoe UI", "Roboto", "Noto Sans"];
+
+function ColorField({
+  label,
+  value,
+  fallback = "#1677ff",
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  value: string | undefined;
+  fallback?: string;
+  disabled?: boolean;
+  onChange: (next: string) => void;
+}) {
+  const pickerValue = normalizePickerColor(value, fallback);
+  return (
+    <Form.Item label={label}>
+      <Space.Compact style={{ width: "100%" }}>
+        <ColorPicker
+          value={pickerValue}
+          disabled={disabled}
+          onChangeComplete={(color) => onChange(color.toHexString())}
+        />
+        <Input
+          value={value ?? ""}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={fallback}
+        />
+      </Space.Compact>
+    </Form.Item>
+  );
+}
 
 function extractBindingKey(tag: string | undefined): string | undefined {
   if (!tag || !tag.startsWith("$binding.")) {
@@ -271,6 +304,16 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
         <span>Locked</span>
         <Switch checked={object.locked ?? false} onChange={(checked) => onPatch({ locked: checked })} />
       </Space>
+      <Form.Item label="Opacity (0..1)" style={{ marginTop: 8 }}>
+        <InputNumber
+          style={{ width: "100%" }}
+          min={0}
+          max={1}
+          step={0.05}
+          value={object.opacity ?? 1}
+          onChange={(value) => onPatch({ opacity: clampOpacity(value) })}
+        />
+      </Form.Item>
 
       <Divider style={{ margin: "10px 0" }} />
       <SpecificPropertyFields
@@ -299,9 +342,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
               onChange={(value) => applyTextStyle({ fontSize: Number(value ?? 12) })}
             />
           </Form.Item>
-          <Form.Item label="Text Color">
-            <Input value={object.textStyle.color} onChange={(e) => applyTextStyle({ color: e.target.value })} />
-          </Form.Item>
+          <ColorField label="Text Color" value={object.textStyle.color} fallback="#ffffff" onChange={(next) => applyTextStyle({ color: next })} />
           <Form.Item label="Font Style">
             <Select
               value={object.textStyle.fontStyle ?? "normal"}
@@ -399,6 +440,74 @@ function SpecificPropertyFields({
     );
   }
 
+  if (object.type === "line") {
+    return (
+      <>
+        <ColorField label="Stroke Color" value={object.stroke} fallback="#d9d9d9" onChange={(next) => onPatch({ stroke: next } as Partial<HmiObject>)} />
+        <Form.Item label="Stroke Width">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1}
+            value={object.strokeWidth}
+            onChange={(v) => onPatch({ strokeWidth: Math.max(1, Number(v ?? 1)) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Space>
+          <span>Closed</span>
+          <Switch checked={object.closed ?? false} onChange={(checked) => onPatch({ closed: checked } as Partial<HmiObject>)} />
+        </Space>
+        {object.closed ? (
+          <ColorField label="Fill Color" value={object.fill ?? ""} fallback="#262626" onChange={(next) => onPatch({ fill: next } as Partial<HmiObject>)} />
+        ) : null}
+        <Form.Item label="Points (JSON [x1,y1,x2,y2,...])">
+          <Input.TextArea
+            rows={3}
+            value={JSON.stringify(object.points)}
+            onChange={(e) => {
+              try {
+                const parsed = JSON.parse(e.target.value) as unknown;
+                if (!Array.isArray(parsed)) {
+                  return;
+                }
+                const points = parsed.map((item) => Number(item)).filter((item) => Number.isFinite(item));
+                if (points.length >= 4 && points.length % 2 === 0) {
+                  onPatch({ points } as Partial<HmiObject>);
+                }
+              } catch {
+                // ignore invalid JSON while typing
+              }
+            }}
+          />
+        </Form.Item>
+      </>
+    );
+  }
+
+  if (object.type === "rectangle") {
+    return (
+      <>
+        <ColorField label="Fill Color" value={object.fill ?? ""} fallback="#262626" onChange={(next) => onPatch({ fill: next } as Partial<HmiObject>)} />
+        <ColorField label="Stroke Color" value={object.stroke ?? ""} fallback="#8c8c8c" onChange={(next) => onPatch({ stroke: next } as Partial<HmiObject>)} />
+        <Form.Item label="Stroke Width">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            value={object.strokeWidth ?? 0}
+            onChange={(v) => onPatch({ strokeWidth: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Corner Radius">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            value={object.cornerRadius ?? 0}
+            onChange={(v) => onPatch({ cornerRadius: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+      </>
+    );
+  }
+
   if (object.type === "value-display") {
     return (
       <>
@@ -449,6 +558,9 @@ function SpecificPropertyFields({
         <Form.Item label="False Text">
           <Input value={object.falseText} onChange={(e) => onPatch({ falseText: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
+        <ColorField label="True Color" value={object.trueColor} fallback="#389e0d" onChange={(next) => onPatch({ trueColor: next } as Partial<HmiObject>)} />
+        <ColorField label="False Color" value={object.falseColor} fallback="#595959" onChange={(next) => onPatch({ falseColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Bad Color" value={object.badColor} fallback="#bfbfbf" onChange={(next) => onPatch({ badColor: next } as Partial<HmiObject>)} />
       </>
     );
   }
@@ -490,8 +602,17 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ pressedBackgroundAssetId: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        <Form.Item label="Background Color">
-          <Input value={object.backgroundColor ?? "#0958d9"} onChange={(e) => onPatch({ backgroundColor: e.target.value } as Partial<HmiObject>)} />
+        <ColorField label="Background Color" value={object.backgroundColor ?? "#0958d9"} fallback="#0958d9" onChange={(next) => onPatch({ backgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Pressed Color" value={object.pressedBackgroundColor ?? "#0747b3"} fallback="#0747b3" onChange={(next) => onPatch({ pressedBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Color" value={object.disabledBackgroundColor ?? "#434343"} fallback="#434343" onChange={(next) => onPatch({ disabledBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Border Color" value={object.borderColor ?? "#0958d9"} fallback="#0958d9" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Border Width">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            value={object.borderWidth ?? 1}
+            onChange={(v) => onPatch({ borderWidth: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)}
+          />
         </Form.Item>
         <Form.Item label="Action Type">
           <Select
@@ -653,22 +774,71 @@ function SpecificPropertyFields({
           </Form.Item>
         ) : null}
         {openPopupAction ? (
-          <Form.Item label="Popup">
-            <Select
-              value={openPopupAction.popupScreenId}
-              options={project.screens
-                .filter((screen) => screen.kind === "popup")
-                .map((screen) => ({ label: screen.name, value: screen.id }))}
-              onChange={(value) =>
-                onPatch({
-                  action: {
-                    ...openPopupAction,
-                    popupScreenId: value,
-                  },
-                } as Partial<HmiObject>)
-              }
-            />
-          </Form.Item>
+          <>
+            <Form.Item label="Popup">
+              <Select
+                value={openPopupAction.popupScreenId}
+                options={project.screens
+                  .filter((screen) => screen.kind === "popup")
+                  .map((screen) => ({ label: screen.name, value: screen.id }))}
+                onChange={(value) =>
+                  onPatch({
+                    action: {
+                      ...openPopupAction,
+                      popupScreenId: value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Popup Title">
+              <Input
+                value={openPopupAction.title ?? ""}
+                placeholder="Управление: {{valveName}}"
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...openPopupAction,
+                      title: event.target.value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Popup Tag Prefix">
+              <Input
+                value={openPopupAction.tagPrefix ?? ""}
+                placeholder="VALVES.PZK_1 or .PZK_1"
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...openPopupAction,
+                      tagPrefix: event.target.value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Popup Args (JSON)">
+              <Input.TextArea
+                rows={3}
+                value={JSON.stringify(openPopupAction.args ?? {}, null, 2)}
+                onChange={(event) => {
+                  try {
+                    const parsed = JSON.parse(event.target.value) as Record<string, unknown>;
+                    onPatch({
+                      action: {
+                        ...openPopupAction,
+                        args: parsed,
+                      },
+                    } as Partial<HmiObject>);
+                  } catch {
+                    // ignore invalid JSON while typing
+                  }
+                }}
+              />
+            </Form.Item>
+          </>
         ) : null}
         {runMacroAction ? (
           <>
@@ -774,6 +944,23 @@ function SpecificPropertyFields({
           value={object.tag}
           onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
         />
+        <Form.Item label="ON Text">
+          <Input value={object.onText ?? "ON"} onChange={(e) => onPatch({ onText: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="OFF Text">
+          <Input value={object.offText ?? "OFF"} onChange={(e) => onPatch({ offText: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="ON Color" value={object.onColor ?? "#389e0d"} fallback="#389e0d" onChange={(next) => onPatch({ onColor: next } as Partial<HmiObject>)} />
+        <ColorField label="OFF Color" value={object.offColor ?? "#434343"} fallback="#434343" onChange={(next) => onPatch({ offColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Border Color" value={object.borderColor ?? "#595959"} fallback="#595959" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Border Width">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            value={object.borderWidth ?? 1}
+            onChange={(v) => onPatch({ borderWidth: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
       </>
     );
   }
@@ -1048,22 +1235,69 @@ function SpecificPropertyFields({
           </Form.Item>
         ) : null}
         {imageOpenPopupAction ? (
-          <Form.Item label="Popup">
-            <Select
-              value={imageOpenPopupAction.popupScreenId}
-              options={project.screens
-                .filter((screen) => screen.kind === "popup")
-                .map((screen) => ({ label: screen.name, value: screen.id }))}
-              onChange={(value) =>
-                onPatch({
-                  action: {
-                    ...imageOpenPopupAction,
-                    popupScreenId: value,
-                  },
-                } as Partial<HmiObject>)
-              }
-            />
-          </Form.Item>
+          <>
+            <Form.Item label="Popup">
+              <Select
+                value={imageOpenPopupAction.popupScreenId}
+                options={project.screens
+                  .filter((screen) => screen.kind === "popup")
+                  .map((screen) => ({ label: screen.name, value: screen.id }))}
+                onChange={(value) =>
+                  onPatch({
+                    action: {
+                      ...imageOpenPopupAction,
+                      popupScreenId: value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Popup Title">
+              <Input
+                value={imageOpenPopupAction.title ?? ""}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...imageOpenPopupAction,
+                      title: event.target.value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Popup Tag Prefix">
+              <Input
+                value={imageOpenPopupAction.tagPrefix ?? ""}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...imageOpenPopupAction,
+                      tagPrefix: event.target.value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Popup Args (JSON)">
+              <Input.TextArea
+                rows={3}
+                value={JSON.stringify(imageOpenPopupAction.args ?? {}, null, 2)}
+                onChange={(event) => {
+                  try {
+                    const parsed = JSON.parse(event.target.value) as Record<string, unknown>;
+                    onPatch({
+                      action: {
+                        ...imageOpenPopupAction,
+                        args: parsed,
+                      },
+                    } as Partial<HmiObject>);
+                  } catch {
+                    // ignore invalid JSON while typing
+                  }
+                }}
+              />
+            </Form.Item>
+          </>
         ) : null}
         {imageRunMacroAction ? (
           <>
@@ -1129,16 +1363,6 @@ function SpecificPropertyFields({
             onChange={(checked) => onPatch({ preserveAspectRatio: checked } as Partial<HmiObject>)}
           />
         </Space>
-        <Form.Item label="Opacity">
-          <InputNumber
-            style={{ width: "100%" }}
-            min={0}
-            max={1}
-            step={0.05}
-            value={object.opacity ?? 1}
-            onChange={(v) => onPatch({ opacity: Number(v ?? 1) } as Partial<HmiObject>)}
-          />
-        </Form.Item>
       </>
     );
   }
@@ -1838,9 +2062,7 @@ function SpecificPropertyFields({
           <span>Border</span>
           <Switch checked={object.showBorder ?? true} onChange={(checked) => onPatch({ showBorder: checked } as Partial<HmiObject>)} />
         </Space>
-        <Form.Item label="Border Color">
-          <Input value={object.borderColor ?? "#888"} onChange={(e) => onPatch({ borderColor: e.target.value } as Partial<HmiObject>)} />
-        </Form.Item>
+        <ColorField label="Border Color" value={object.borderColor ?? "#888"} fallback="#888888" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
         <Form.Item label="Border Width">
           <InputNumber style={{ width: "100%" }} value={object.borderWidth ?? 1} onChange={(v) => onPatch({ borderWidth: Number(v ?? 1) } as Partial<HmiObject>)} />
         </Form.Item>
@@ -1899,6 +2121,42 @@ function stringifyRuntimeActionValue(value: boolean | number | string | null): s
     return "null";
   }
   return String(value);
+}
+
+function clampOpacity(value: number | string | null | undefined): number {
+  const numeric = Number(value ?? 1);
+  if (!Number.isFinite(numeric)) {
+    return 1;
+  }
+  if (numeric < 0) {
+    return 0;
+  }
+  if (numeric > 1) {
+    return 1;
+  }
+  return numeric;
+}
+
+function normalizePickerColor(value: string | undefined, fallback: string): string {
+  const token = (value ?? "").trim();
+  if (!token) {
+    return fallback;
+  }
+  if (isLikelyCssColor(token)) {
+    return token;
+  }
+  return fallback;
+}
+
+function isLikelyCssColor(value: string): boolean {
+  return (
+    value.startsWith("#") ||
+    value.startsWith("rgb(") ||
+    value.startsWith("rgba(") ||
+    value.startsWith("hsl(") ||
+    value.startsWith("hsla(") ||
+    /^[a-zA-Z]+$/.test(value)
+  );
 }
 
 function matchStateImageCondition(

@@ -136,9 +136,19 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         void message.error(`Macro ${action.macroId} not found`);
         return;
       }
-      const result = await runMacro(action.macroId, action.args);
+      const result = await runMacro(action.macroId, action.args, {
+        context: {
+          popupInstanceId: context.popupInstanceId,
+          screenId: context.screenId,
+          tagPrefix: context.tagPrefix,
+          parameters: context.parameters,
+        },
+      });
       if (result.status === "skipped") {
         void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is disabled and was not executed`);
+      }
+      for (const effect of result.effects ?? []) {
+        await executeAction(effect as RuntimeAction, context);
       }
       return;
     }
@@ -163,16 +173,26 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       if (!popupScreen) {
         return;
       }
+      const popupKey = getPopupKey(action);
+      if (popupKey) {
+        const existing = popupState.items.find((item) => item.popupKey === popupKey);
+        if (existing) {
+          dispatchPopup({ type: "focus", payload: { id: existing.id } });
+          return;
+        }
+      }
       const popupOptions = popupScreen.popupOptions ?? {};
       dispatchPopup({
         type: "open",
         payload: {
           id: `popup_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          popupKey,
           popupScreenId: action.popupScreenId,
           title: action.title ?? popupOptions.title ?? popupScreen.name,
           x: action.x ?? popupOptions.defaultX ?? 120,
           y: action.y ?? popupOptions.defaultY ?? 120,
           tagPrefix: action.tagPrefix,
+          args: action.args,
           modal: popupOptions.modal ?? false,
           draggable: popupOptions.draggable ?? true,
           closable: popupOptions.closable ?? true,
@@ -195,7 +215,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       tags={tags}
       libraries={libraries}
       fullscreenRuntime={fullscreen}
-      renderContext={{}}
+      renderContext={{ screenId: screen.id }}
       onAction={(action, context) => {
         void executeAction(action, context);
       }}
@@ -285,7 +305,14 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             tags={tags}
             libraries={libraries}
             fullscreenRuntime={false}
-            renderContext={{ tagPrefix: item.tagPrefix }}
+            renderContext={{
+              popupInstanceId: item.id,
+              screenId: popupScreen.id,
+              title: item.title,
+              tagPrefix: item.tagPrefix,
+              parameters: item.args,
+              args: item.args,
+            }}
             onAction={(action, context) => {
               void executeAction(action, context);
             }}
@@ -396,6 +423,18 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       />
     </Space>
   );
+}
+
+function getPopupKey(action: Extract<RuntimeAction, { type: "openPopup" }>): string | undefined {
+  const valveId = typeof action.args?.valveId === "string" ? action.args.valveId.trim() : "";
+  if (valveId) {
+    return `${action.popupScreenId}::${valveId}`;
+  }
+  const prefix = typeof action.tagPrefix === "string" ? action.tagPrefix.trim() : "";
+  if (prefix) {
+    return `${action.popupScreenId}::prefix::${prefix}`;
+  }
+  return undefined;
 }
 
 function RuntimeDialogs({

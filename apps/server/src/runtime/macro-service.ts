@@ -1,6 +1,12 @@
 import * as vm from "node:vm";
 import ts from "typescript";
-import type { MacroDefinition, ScadaProject, TagScalarValue } from "@web-scada/shared";
+import type {
+  MacroDefinition,
+  MacroRuntimeContext,
+  MacroUiEffect,
+  ScadaProject,
+  TagScalarValue,
+} from "@web-scada/shared";
 import { CommandService } from "./command-service.js";
 import { InternalVariableService } from "./internal-variable-service.js";
 import { TagStore } from "../tags/tag-store.js";
@@ -30,8 +36,8 @@ export class MacroService {
   public async run(
     macroId: string,
     args?: Record<string, unknown>,
-    options?: { allowDisabledForTest?: boolean },
-  ): Promise<{ status: "ok" | "skipped"; reason?: "disabled" }> {
+    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+  ): Promise<{ status: "ok" | "skipped"; reason?: "disabled"; effects?: MacroUiEffect[] }> {
     const macro = this.macros.find((item) => item.id === macroId);
     if (!macro) {
       throw new Error(`Macro ${macroId} not found`);
@@ -48,7 +54,30 @@ export class MacroService {
       },
     }).outputText;
 
-    const wrapped = `\n(async (api, args) => {\n${jsCode}\n})`;
+    const wrapped =
+      `\n(async (api, args) => {\n` +
+      `const {\n` +
+      `  readTag,\n` +
+      `  writeTag,\n` +
+      `  getLW,\n` +
+      `  setLW,\n` +
+      `  getVar,\n` +
+      `  setVar,\n` +
+      `  readVariable,\n` +
+      `  writeVariable,\n` +
+      `  openPopup,\n` +
+      `  closePopup,\n` +
+      `  openScreen,\n` +
+      `  getCurrentTagPrefix,\n` +
+      `  getContext,\n` +
+      `  resolveTag,\n` +
+      `  setInstancePrefix,\n` +
+      `  setInstanceIndex,\n` +
+      `  setInstanceBindingAssignment,\n` +
+      `  log,\n` +
+      `} = api;\n` +
+      `${jsCode}\n` +
+      `})`;
     const script = new vm.Script(wrapped, { filename: `macro-${macro.id}.ts` });
 
     const context = vm.createContext({
@@ -63,8 +92,10 @@ export class MacroService {
     const commandService = this.commandService;
     const internalVariableService = this.internalVariableService;
     const tagStore = this.tagStore;
+    const runtimeContext = toMacroRuntimeContext(options?.context);
+    const effects: MacroUiEffect[] = [];
 
-const api: MacroApi = {
+    const api: MacroApi = {
       readTag: (name) => tagStore.getValue(name)?.value ?? null,
       writeTag: async (name, value) => {
         await commandService.writeTag(name, value);
@@ -80,6 +111,41 @@ const api: MacroApi = {
       readVariable: (name) => internalVariableService.get(name)?.value ?? null,
       writeVariable: (name, value) => {
         internalVariableService.write(name, value);
+      },
+      openPopup: (popupScreenId, popupOptions) => {
+        effects.push({
+          type: "openPopup",
+          popupScreenId,
+          title: popupOptions?.title,
+          x: popupOptions?.x,
+          y: popupOptions?.y,
+          tagPrefix: popupOptions?.tagPrefix,
+          args: popupOptions?.args,
+        });
+      },
+      closePopup: (popupInstanceId) => {
+        effects.push({
+          type: "closePopup",
+          popupInstanceId,
+        });
+      },
+      openScreen: (screenId) => {
+        effects.push({
+          type: "openScreen",
+          screenId,
+        });
+      },
+      getCurrentTagPrefix: () => runtimeContext.tagPrefix,
+      getContext: () => runtimeContext,
+      resolveTag: (relativeOrAbsoluteTag, providedPrefix) => {
+        if (!relativeOrAbsoluteTag.startsWith(".")) {
+          return relativeOrAbsoluteTag;
+        }
+        const effectivePrefix = (providedPrefix ?? runtimeContext.tagPrefix ?? "").trim();
+        if (!effectivePrefix) {
+          return relativeOrAbsoluteTag.slice(1);
+        }
+        return `${effectivePrefix}${relativeOrAbsoluteTag}`;
       },
       setInstancePrefix: (instanceId, value, bindingKey) => {
         console.warn(`[macro:${macro.id}] setInstancePrefix is not implemented for runtime object mutation`, {
@@ -106,7 +172,7 @@ const api: MacroApi = {
     };
 
     await fn(api, args ?? {});
-    return { status: "ok" };
+    return { status: "ok", effects };
   }
 }
 
@@ -119,8 +185,41 @@ type MacroApi = {
   setVar: (name: string, value: TagScalarValue) => void;
   readVariable: (name: string) => TagScalarValue;
   writeVariable: (name: string, value: TagScalarValue) => void;
+  openPopup: (popupScreenId: string, options?: {
+    title?: string;
+    x?: number;
+    y?: number;
+    tagPrefix?: string;
+    args?: Record<string, unknown>;
+  }) => void;
+  closePopup: (popupInstanceId?: string) => void;
+  openScreen: (screenId: string) => void;
+  getCurrentTagPrefix: () => string | undefined;
+  getContext: () => MacroRuntimeContext;
+  resolveTag: (relativeOrAbsoluteTag: string, tagPrefix?: string) => string;
   setInstancePrefix: (instanceId: string, value: string, bindingKey?: string) => void;
   setInstanceIndex: (instanceId: string, value: number, bindingKey?: string) => void;
   setInstanceBindingAssignment: (instanceId: string, bindingKey: string, patch: Record<string, unknown>) => void;
   log: (...items: unknown[]) => void;
 };
+
+function toMacroRuntimeContext(input: Record<string, unknown> | undefined): MacroRuntimeContext {
+  if (!input) {
+    return {};
+  }
+
+  const out: MacroRuntimeContext = {};
+  if (typeof input.tagPrefix === "string") {
+    out.tagPrefix = input.tagPrefix;
+  }
+  if (typeof input.popupInstanceId === "string") {
+    out.popupInstanceId = input.popupInstanceId;
+  }
+  if (typeof input.screenId === "string") {
+    out.screenId = input.screenId;
+  }
+  if (input.parameters && typeof input.parameters === "object") {
+    out.parameters = input.parameters as Record<string, unknown>;
+  }
+  return out;
+}

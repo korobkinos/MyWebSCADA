@@ -60,6 +60,7 @@ export type HmiObjectBase = {
   rotation?: number;
   visible?: boolean;
   locked?: boolean;
+  opacity?: number;
 
   minWidth?: number;
   minHeight?: number;
@@ -78,6 +79,8 @@ export type LineObject = HmiObjectBase & {
   points: number[];
   stroke: string;
   strokeWidth: number;
+  closed?: boolean;
+  fill?: string;
 };
 
 export type GroupObject = HmiObjectBase & {
@@ -137,6 +140,7 @@ export type RuntimeAction =
       x?: number;
       y?: number;
       tagPrefix?: string;
+      args?: Record<string, unknown>;
     }
   | {
       type: "closePopup";
@@ -217,6 +221,8 @@ export type ButtonObject = HmiObjectBase & {
   pressedBackgroundAssetId?: string;
   disabledBackgroundAssetId?: string;
   backgroundColor?: string;
+  pressedBackgroundColor?: string;
+  disabledBackgroundColor?: string;
   borderColor?: string;
   borderWidth?: number;
   action: RuntimeAction;
@@ -228,6 +234,10 @@ export type SwitchObject = HmiObjectBase & {
   tag: string;
   onText?: string;
   offText?: string;
+  onColor?: string;
+  offColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
   textStyle: TextStyle;
 } & TextLayout;
 
@@ -244,7 +254,6 @@ export type ImageObject = HmiObjectBase & {
   action?: RuntimeAction;
   fit: "contain" | "cover" | "stretch" | "none";
   preserveAspectRatio?: boolean;
-  opacity?: number;
   stateTag?: string;
   stateImages?: ImageState[];
   bindings?: HmiBindings & {
@@ -306,6 +315,7 @@ export type LibraryElementInstanceObject = HmiObjectBase & {
   parameterValues?: Record<string, unknown>;
   bindingAssignments?: Record<string, ElementBindingAssignment>;
   scaleMode?: "none" | "fit" | "stretch";
+  action?: RuntimeAction;
 };
 
 /** @deprecated Use image + libraryElementInstance/template instead. */

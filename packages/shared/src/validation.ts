@@ -42,6 +42,7 @@ const hmiBaseSchema = z.object({
   rotation: z.number().optional(),
   visible: z.boolean().optional(),
   locked: z.boolean().optional(),
+  opacity: z.number().min(0).max(1).optional(),
   minWidth: z.number().positive().optional(),
   minHeight: z.number().positive().optional(),
   bindings: hmiBindingsSchema,
@@ -95,6 +96,7 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
     x: z.number().optional(),
     y: z.number().optional(),
     tagPrefix: z.string().optional(),
+    args: z.record(z.unknown()).optional(),
   }),
   z.object({
     type: z.literal("closePopup"),
@@ -179,6 +181,8 @@ const lineObjectSchema = hmiBaseSchema.extend({
   points: z.array(z.number()).min(4),
   stroke: z.string(),
   strokeWidth: z.number().positive(),
+  closed: z.boolean().optional(),
+  fill: z.string().optional(),
 });
 
 const rectangleObjectSchema = hmiBaseSchema.extend({
@@ -229,6 +233,8 @@ const buttonObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   pressedBackgroundAssetId: z.string().optional(),
   disabledBackgroundAssetId: z.string().optional(),
   backgroundColor: z.string().optional(),
+  pressedBackgroundColor: z.string().optional(),
+  disabledBackgroundColor: z.string().optional(),
   borderColor: z.string().optional(),
   borderWidth: z.number().nonnegative().optional(),
   textStyle: textStyleSchema,
@@ -240,6 +246,10 @@ const switchObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   tag: z.string().min(1),
   onText: z.string().optional(),
   offText: z.string().optional(),
+  onColor: z.string().optional(),
+  offColor: z.string().optional(),
+  borderColor: z.string().optional(),
+  borderWidth: z.number().nonnegative().optional(),
   textStyle: textStyleSchema,
 });
 
@@ -250,7 +260,6 @@ const imageObjectSchema = hmiBaseSchema.extend({
   action: runtimeActionSchema.optional(),
   fit: z.enum(["contain", "cover", "stretch", "none"]),
   preserveAspectRatio: z.boolean().optional(),
-  opacity: z.number().min(0).max(1).optional(),
   stateTag: z.string().optional(),
   stateImages: z
     .array(
@@ -401,6 +410,7 @@ const libraryElementInstanceSchema = hmiBaseSchema.extend({
   parameterValues: z.record(z.unknown()).optional(),
   bindingAssignments: z.record(elementBindingAssignmentSchema).optional(),
   scaleMode: z.enum(["none", "fit", "stretch"]).optional(),
+  action: runtimeActionSchema.optional(),
 });
 
 const valveObjectSchema = hmiBaseSchema.extend({

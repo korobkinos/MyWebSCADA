@@ -9,6 +9,7 @@ import type {
   ElementLibrary,
   LibraryElement,
   MacroDefinition,
+  MacroRunResult,
   RuntimeState,
   ScadaProject,
   TagSnapshot,
@@ -147,10 +148,14 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
-  runMacro: (id: string, args?: Record<string, unknown>, options?: { allowDisabledForTest?: boolean }) =>
-    request<{ ok: boolean; status?: "ok" | "skipped"; reason?: "disabled" }>(`/api/macros/${encodeURIComponent(id)}/run`, {
+  runMacro: (
+    id: string,
+    args?: Record<string, unknown>,
+    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+  ) =>
+    request<MacroRunResult>(`/api/macros/${encodeURIComponent(id)}/run`, {
       method: "POST",
-      body: JSON.stringify({ args: args ?? {}, allowDisabledForTest: options?.allowDisabledForTest }),
+      body: JSON.stringify({ args: args ?? {}, allowDisabledForTest: options?.allowDisabledForTest, context: options?.context }),
     }),
   writeTag: (name: string, value: boolean | number | string | null) =>
     request<{ ok: boolean }>(`/api/tags/${encodeURIComponent(name)}/write`, {

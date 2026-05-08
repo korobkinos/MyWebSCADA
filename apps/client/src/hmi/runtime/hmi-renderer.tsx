@@ -295,6 +295,7 @@ function ObjectNode({
     x: resolvedObject.x,
     y: resolvedObject.y,
     rotation: resolvedObject.rotation ?? 0,
+    opacity: resolvedObject.opacity ?? 1,
     visible: resolvedObject.visible ?? true,
     draggable: interactive && !resolvedObject.locked,
     onClick: (evt: KonvaEventObject<MouseEvent>) => {
@@ -420,7 +421,13 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Line points={resolvedObject.points} stroke={resolvedObject.stroke} strokeWidth={resolvedObject.strokeWidth} />
+        <Line
+          points={resolvedObject.points}
+          stroke={resolvedObject.stroke}
+          strokeWidth={resolvedObject.strokeWidth}
+          closed={resolvedObject.closed ?? false}
+          fill={resolvedObject.fill}
+        />
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
@@ -551,6 +558,7 @@ function ObjectNode({
 
   if (resolvedObject.type === "switch") {
     const isOn = Boolean(tagValue(resolvedObject.tag).value?.value);
+    const fillColor = isOn ? (resolvedObject.onColor ?? "#389e0d") : (resolvedObject.offColor ?? "#434343");
     return (
       <Group
         {...commonGroupProps}
@@ -573,7 +581,14 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill={isOn ? "#389e0d" : "#434343"} cornerRadius={8} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={fillColor}
+          stroke={resolvedObject.borderColor}
+          strokeWidth={resolvedObject.borderWidth ?? 0}
+          cornerRadius={8}
+        />
         {renderBoxText(isOn ? resolvedObject.onText ?? "ON" : resolvedObject.offText ?? "OFF", resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
@@ -1062,7 +1077,23 @@ function LibraryInstanceNode({
   }, [element.id, library.id, missingBindingReferences, mode, object.id]);
 
   return (
-    <Group {...commonGroupProps}>
+    <Group
+      {...commonGroupProps}
+      onClick={(event) => {
+        const baseOnClick = commonGroupProps.onClick as ((evt: KonvaEventObject<MouseEvent>) => void) | undefined;
+        baseOnClick?.(event);
+        if (!interactive && object.action) {
+          onAction?.(object.action, context);
+        }
+      }}
+      onTap={(event) => {
+        const baseOnTap = commonGroupProps.onTap as ((evt: KonvaEventObject<Event>) => void) | undefined;
+        baseOnTap?.(event);
+        if (!interactive && object.action) {
+          onAction?.(object.action, context);
+        }
+      }}
+    >
       <Group x={childScale.offsetX} y={childScale.offsetY} scaleX={childScale.scaleX} scaleY={childScale.scaleY}>
         <HmiRenderer
           project={project}
@@ -1134,7 +1165,6 @@ function ImageNode({
   return (
     <Group
       {...groupProps}
-      opacity={object.opacity ?? 1}
       onClick={(evt: KonvaEventObject<MouseEvent>) => {
         if (interactive) {
           onSelectObject?.({
@@ -1202,6 +1232,7 @@ function ButtonNode({
   forceFrame?: boolean;
 }) {
   const [pressed, setPressed] = useState(false);
+  const isDisabled = !interactive && !onAction;
   const normalSrc = resolveAssetUrl(object.backgroundAssetId, {
     projectAssets: project.assets ?? [],
     scopedAssets,
@@ -1212,7 +1243,17 @@ function ButtonNode({
     scopedAssets,
     libraries,
   });
-  const currentSrc = pressed && pressedSrc ? pressedSrc : normalSrc;
+  const disabledSrc = resolveAssetUrl(object.disabledBackgroundAssetId, {
+    projectAssets: project.assets ?? [],
+    scopedAssets,
+    libraries,
+  });
+  const currentSrc = isDisabled ? disabledSrc ?? normalSrc : pressed && pressedSrc ? pressedSrc : normalSrc;
+  const currentFill = isDisabled
+    ? object.disabledBackgroundColor ?? object.backgroundColor ?? "#434343"
+    : pressed
+      ? object.pressedBackgroundColor ?? object.backgroundColor ?? "#0958d9"
+      : object.backgroundColor ?? "#0958d9";
   const { image } = useImage(currentSrc);
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, "stretch"),
@@ -1223,7 +1264,7 @@ function ButtonNode({
     <Group
       {...groupProps}
       onMouseDown={() => {
-        if (!interactive) {
+        if (!interactive && !isDisabled) {
           setPressed(true);
         }
       }}
@@ -1237,13 +1278,15 @@ function ButtonNode({
           });
           return;
         }
-        onAction?.(object.action, renderContext);
+        if (!isDisabled) {
+          onAction?.(object.action, renderContext);
+        }
       }}
     >
       <Rect
         width={object.width}
         height={object.height}
-        fill={object.backgroundColor ?? "#0958d9"}
+        fill={currentFill}
         stroke={object.borderColor}
         strokeWidth={object.borderWidth ?? 0}
         cornerRadius={6}

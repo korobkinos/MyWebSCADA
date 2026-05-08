@@ -111,6 +111,7 @@ const updateUserSchema: z.ZodType<UpdateUserRequest> = z.object({
 const macroRunSchema = z.object({
   args: z.record(z.unknown()).optional(),
   allowDisabledForTest: z.boolean().optional(),
+  context: z.record(z.unknown()).optional(),
 });
 const macroUpdateSchema = z.object({
   name: z.string().min(1),
@@ -460,6 +461,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     const payload = macroRunSchema.parse(request.body ?? {});
     const result = await deps.macroService.run(params.id, payload.args, {
       allowDisabledForTest: payload.allowDisabledForTest,
+      context: payload.context,
     });
     return reply.send({ ok: true, ...result });
   });

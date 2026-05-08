@@ -1,11 +1,13 @@
 export type PopupInstance = {
   id: string;
   popupScreenId: string;
+  popupKey?: string;
   title?: string;
   x: number;
   y: number;
   zIndex: number;
   tagPrefix?: string;
+  args?: Record<string, unknown>;
   modal: boolean;
   draggable: boolean;
   closable: boolean;

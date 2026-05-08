@@ -251,6 +251,186 @@
       "scanRateMs": 500,
       "createdAt": "2026-05-08T14:30:39.314Z",
       "updatedAt": "2026-05-08T14:30:39.314Z"
+    },
+    {
+      "name": "VALVES.PZK_1.Opened",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_1.Closed",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_1.Fault",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_1.OpenCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_1.CloseCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_1.State",
+      "dataType": "INT",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_2.Opened",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_2.Closed",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_2.Fault",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_2.OpenCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_2.CloseCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.PZK_2.State",
+      "dataType": "INT",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.KZ.Opened",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.KZ.Closed",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.KZ.Fault",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.KZ.OpenCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.KZ.CloseCmd",
+      "dataType": "BOOL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
+    },
+    {
+      "name": "VALVES.KZ.State",
+      "dataType": "INT",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "static"
+      },
+      "writable": true,
+      "scanRateMs": 500
     }
   ],
   "variables": [
@@ -264,6 +444,27 @@
       "name": "Counter1",
       "dataType": "REAL",
       "initialValue": 0,
+      "writable": true
+    },
+    {
+      "name": "SelectedValvePrefix",
+      "dataType": "STRING",
+      "initialValue": "VALVES.PZK_1",
+      "persistent": false,
+      "writable": true
+    },
+    {
+      "name": "SelectedValveName",
+      "dataType": "STRING",
+      "initialValue": "ПЗК-1",
+      "persistent": false,
+      "writable": true
+    },
+    {
+      "name": "SelectedValveIndex",
+      "dataType": "INT",
+      "initialValue": 1,
+      "persistent": false,
       "writable": true
     }
   ],
@@ -294,6 +495,30 @@
           "intervalMs": 1000
         }
       ]
+    },
+    {
+      "id": "openValvePopup",
+      "name": "Open valve popup",
+      "description": "Open valve popup",
+      "language": "ts",
+      "code": "const prefix = String(args.prefix ?? \"\").trim();\nconst name = String(args.name ?? \"\").trim();\nconst index = Number(args.index ?? 0);\nconst valveId = String(args.valveId ?? \"\").trim();\nif (!prefix) {\n  log(\"openValvePopup: prefix is empty\");\n  return;\n}\nsetVar(\"SelectedValvePrefix\", prefix);\nsetVar(\"SelectedValveName\", name || prefix);\nsetVar(\"SelectedValveIndex\", index || 0);\nopenPopup(\"Popup_ValveControl\", {\n  title: \"Управление: \" + (name || prefix),\n  tagPrefix: prefix,\n  args: {\n    valveId: valveId || prefix,\n    valveName: name || prefix,\n    valvePrefix: prefix,\n    valveIndex: index || 0,\n  },\n});",
+      "enabled": true
+    },
+    {
+      "id": "valveOpen",
+      "name": "Valve open command",
+      "description": "Valve open command",
+      "language": "ts",
+      "code": "const ctx = getContext();\nconst params = (ctx && typeof ctx.parameters === \"object\" && ctx.parameters) ? ctx.parameters : {};\nconst paramPrefix = typeof params.valvePrefix === \"string\" ? params.valvePrefix.trim() : \"\";\nconst popupPrefix = typeof getCurrentTagPrefix() === \"string\" ? String(getCurrentTagPrefix()).trim() : \"\";\nconst prefix = paramPrefix || popupPrefix;\nif (!prefix) {\n  log(\"valveOpen: prefix is empty\");\n  return;\n}\nawait writeTag(prefix + \".OpenCmd\", true);\nawait writeTag(prefix + \".CloseCmd\", false);\nawait writeTag(prefix + \".Opened\", true);\nawait writeTag(prefix + \".Closed\", false);\nawait writeTag(prefix + \".State\", 2);",
+      "enabled": true
+    },
+    {
+      "id": "valveClose",
+      "name": "Valve close command",
+      "description": "Valve close command",
+      "language": "ts",
+      "code": "const ctx = getContext();\nconst params = (ctx && typeof ctx.parameters === \"object\" && ctx.parameters) ? ctx.parameters : {};\nconst paramPrefix = typeof params.valvePrefix === \"string\" ? params.valvePrefix.trim() : \"\";\nconst popupPrefix = typeof getCurrentTagPrefix() === \"string\" ? String(getCurrentTagPrefix()).trim() : \"\";\nconst prefix = paramPrefix || popupPrefix;\nif (!prefix) {\n  log(\"valveClose: prefix is empty\");\n  return;\n}\nawait writeTag(prefix + \".CloseCmd\", true);\nawait writeTag(prefix + \".OpenCmd\", false);\nawait writeTag(prefix + \".Closed\", true);\nawait writeTag(prefix + \".Opened\", false);\nawait writeTag(prefix + \".State\", 0);",
+      "enabled": true
     }
   ],
   "editorSettings": {
@@ -301,7 +526,7 @@
       "leftPanel": {
         "visible": true,
         "collapsed": false,
-        "width": 330,
+        "width": 487,
         "minWidth": 240,
         "maxWidth": 520,
         "collapsedWidth": 36
@@ -309,7 +534,7 @@
       "rightPanel": {
         "visible": true,
         "collapsed": false,
-        "width": 541,
+        "width": 277,
         "minWidth": 260,
         "maxWidth": 560,
         "collapsedWidth": 36
@@ -348,8 +573,8 @@
         }
       }
     },
-    "leftPanelWidth": 330,
-    "rightPanelWidth": 541,
+    "leftPanelWidth": 487,
+    "rightPanelWidth": 277,
     "showObjectFrames": false,
     "panels": [
       {
@@ -358,7 +583,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 330,
+        "width": 487,
         "height": 240
       },
       {
@@ -389,7 +614,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 330,
+        "width": 487,
         "height": 220
       },
       {
@@ -398,7 +623,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "right",
-        "width": 541,
+        "width": 277,
         "height": 280
       },
       {
@@ -407,7 +632,7 @@
         "visible": true,
         "collapsed": true,
         "dock": "right",
-        "width": 541,
+        "width": 277,
         "height": 320
       },
       {
@@ -416,7 +641,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 330,
+        "width": 487,
         "height": 220
       },
       {
@@ -425,7 +650,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 330,
+        "width": 487,
         "height": 220
       },
       {
@@ -434,7 +659,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 330,
+        "width": 487,
         "height": 220
       }
     ]
@@ -571,30 +796,6 @@
           }
         },
         {
-          "id": "btn_popup",
-          "type": "button",
-          "x": 329,
-          "y": 279.5,
-          "width": 220,
-          "height": 40,
-          "text": "Управление ПЗК-1",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 14,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 2
-          },
-          "action": {
-            "type": "openPopup",
-            "popupScreenId": "valve_popup",
-            "title": "Управление ПЗК-1",
-            "tagPrefix": "Burner_1.PZK_1"
-          }
-        },
-        {
           "id": "switch_6wi3oi",
           "type": "switch",
           "x": 669,
@@ -606,84 +807,6 @@
           "tag": "Burner_1.StartCmd",
           "onText": "ON",
           "offText": "OFF",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 16,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 4
-          }
-        },
-        {
-          "id": "line_5f2f5n",
-          "type": "line",
-          "x": 74.85352290552584,
-          "y": 527.4573604409424,
-          "width": 354.09804029859595,
-          "height": 38.294417637713025,
-          "minWidth": 20,
-          "minHeight": 10,
-          "points": [
-            0,
-            19.147208818856512,
-            354.09804029859595,
-            19.147208818856512
-          ],
-          "stroke": "#d9d9d9",
-          "strokeWidth": 3
-        },
-        {
-          "id": "line_afkk4q",
-          "type": "line",
-          "x": 438.49814046314316,
-          "y": 544.5956086861257,
-          "width": 66.53814807449699,
-          "height": 20.00000000000022,
-          "rotation": 89.61803379527072,
-          "minWidth": 20,
-          "minHeight": 10,
-          "points": [
-            0,
-            10.00000000000011,
-            66.53814807449699,
-            10.00000000000011
-          ],
-          "stroke": "#d9d9d9",
-          "strokeWidth": 3
-        },
-        {
-          "id": "line_uka3i4",
-          "type": "line",
-          "x": 429,
-          "y": 602,
-          "width": 140,
-          "height": 20,
-          "minWidth": 20,
-          "minHeight": 10,
-          "points": [
-            0,
-            10,
-            140,
-            10
-          ],
-          "stroke": "#d9d9d9",
-          "strokeWidth": 3
-        },
-        {
-          "id": "input_sdsanx",
-          "type": "value-input",
-          "x": 139,
-          "y": 632,
-          "width": 170,
-          "height": 44,
-          "minWidth": 80,
-          "minHeight": 28,
-          "tag": "Burner_1.StartCmd",
-          "min": 0,
-          "max": 99,
-          "confirm": true,
           "textStyle": {
             "fontFamily": "Arial",
             "fontSize": 16,
@@ -714,48 +837,257 @@
           }
         },
         {
-          "id": "lib_fqkyqv",
-          "type": "libraryElementInstance",
-          "x": 111,
-          "y": 473,
-          "width": 220,
-          "height": 120,
-          "visible": true,
-          "minWidth": 40,
-          "minHeight": 30,
-          "libraryId": "amaks-basic-equipment",
-          "elementId": "element_qkwgwe",
-          "tagPrefix": "",
-          "parameterValues": {},
-          "scaleMode": "fit"
+          "id": "valves_demo_hint",
+          "type": "text",
+          "x": 40,
+          "y": 420,
+          "width": 1240,
+          "height": 34,
+          "text": "Демонстрация tagPrefix для клапанов. Нажмите на клапан, чтобы открыть общее окно управления.",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 18,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
         },
         {
-          "id": "lib_u29sci",
+          "id": "valves_demo_hint2",
+          "type": "text",
+          "x": 40,
+          "y": 452,
+          "width": 1240,
+          "height": 30,
+          "text": "Один popup + разные prefix/индексы через макрос = переиспользуемый компонент.",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "main_selected_name",
+          "type": "value-display",
+          "x": 40,
+          "y": 486,
+          "width": 260,
+          "height": 30,
+          "tag": "LW.SelectedValveName",
+          "suffix": "",
+          "badQualityText": "BAD",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "main_selected_prefix",
+          "type": "value-display",
+          "x": 310,
+          "y": 486,
+          "width": 340,
+          "height": 30,
+          "tag": "LW.SelectedValvePrefix",
+          "suffix": "",
+          "badQualityText": "BAD",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "main_selected_idx",
+          "type": "value-display",
+          "x": 660,
+          "y": 486,
+          "width": 180,
+          "height": 30,
+          "tag": "LW.SelectedValveIndex",
+          "suffix": "",
+          "badQualityText": "BAD",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "main_valve_pzk1",
           "type": "libraryElementInstance",
-          "x": 254.99999084472717,
-          "y": 361.99998522949306,
-          "width": 360,
-          "height": 150,
-          "minWidth": 40,
-          "minHeight": 30,
+          "name": "ПЗК-1",
+          "x": 80,
+          "y": 550,
+          "width": 220,
+          "height": 120,
           "libraryId": "amaks-basic-equipment",
-          "elementId": "prefix_demo_element",
-          "tagPrefix": "",
-          "parameterValues": {},
-          "bindingAssignments": {
-            "stateLastSegmentPrefixed": {
-              "baseTag": "Counter",
-              "prefix": "2",
-              "prefixMode": {
-                "type": "lastSegment",
-                "position": "append"
-              },
-              "indexMode": {
-                "type": "none"
-              }
+          "elementId": "element_qkwgwe",
+          "tagPrefix": "VALVES.PZK_1",
+          "scaleMode": "fit",
+          "action": {
+            "type": "runMacro",
+            "macroId": "openValvePopup",
+            "args": {
+              "prefix": "VALVES.PZK_1",
+              "name": "ПЗК-1",
+              "index": 1,
+              "valveId": "PZK_1"
             }
-          },
-          "scaleMode": "fit"
+          }
+        },
+        {
+          "id": "main_valve_pzk2",
+          "type": "libraryElementInstance",
+          "name": "ПЗК-2",
+          "x": 360,
+          "y": 550,
+          "width": 220,
+          "height": 120,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "element_qkwgwe",
+          "tagPrefix": "VALVES.PZK_2",
+          "scaleMode": "fit",
+          "action": {
+            "type": "runMacro",
+            "macroId": "openValvePopup",
+            "args": {
+              "prefix": "VALVES.PZK_2",
+              "name": "ПЗК-2",
+              "index": 2,
+              "valveId": "PZK_2"
+            }
+          }
+        },
+        {
+          "id": "main_valve_kz",
+          "type": "libraryElementInstance",
+          "name": "КЗ",
+          "x": 640,
+          "y": 550,
+          "width": 220,
+          "height": 120,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "element_qkwgwe",
+          "tagPrefix": "VALVES.KZ",
+          "scaleMode": "fit",
+          "action": {
+            "type": "runMacro",
+            "macroId": "openValvePopup",
+            "args": {
+              "prefix": "VALVES.KZ",
+              "name": "КЗ",
+              "index": 3,
+              "valveId": "KZ"
+            }
+          }
+        },
+        {
+          "id": "main_valve_lbl_1",
+          "type": "text",
+          "x": 120,
+          "y": 676,
+          "width": 140,
+          "height": 30,
+          "text": "ПЗК-1",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "main_valve_lbl_2",
+          "type": "text",
+          "x": 400,
+          "y": 676,
+          "width": 140,
+          "height": 30,
+          "text": "ПЗК-2",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "main_valve_lbl_3",
+          "type": "text",
+          "x": 700,
+          "y": 676,
+          "width": 100,
+          "height": 30,
+          "text": "КЗ",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "line_3wkwka",
+          "type": "line",
+          "x": 366.9999818929048,
+          "y": 310.99998712158276,
+          "width": 140,
+          "height": 20,
+          "minWidth": 20,
+          "minHeight": 10,
+          "points": [
+            0,
+            10,
+            140,
+            10
+          ],
+          "stroke": "#ff0707",
+          "strokeWidth": 3,
+          "closed": false
+        },
+        {
+          "id": "circle_cqqw39",
+          "type": "rectangle",
+          "x": 393.9999807400186,
+          "y": 204.9999942016605,
+          "width": 90,
+          "height": 90,
+          "opacity": 1,
+          "minWidth": 20,
+          "minHeight": 20,
+          "fill": "#07ec03",
+          "stroke": "#8c8c8c",
+          "strokeWidth": 2,
+          "cornerRadius": 45
         }
       ]
     },
@@ -838,6 +1170,225 @@
           "verticalAlign": "middle",
           "padding": 2
         }
+      }
+    },
+    {
+      "id": "Popup_ValveControl",
+      "name": "Popup_ValveControl",
+      "kind": "popup",
+      "width": 640,
+      "height": 360,
+      "background": "#101820",
+      "objects": [
+        {
+          "id": "popup_title",
+          "type": "text",
+          "x": 20,
+          "y": 16,
+          "width": 600,
+          "height": 38,
+          "text": "Управление клапаном: {{valveName}}",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 22,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "popup_prefix_text",
+          "type": "text",
+          "x": 20,
+          "y": 56,
+          "width": 600,
+          "height": 28,
+          "text": "Префикс: {{valvePrefix}}",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "popup_index_text",
+          "type": "text",
+          "x": 20,
+          "y": 84,
+          "width": 600,
+          "height": 28,
+          "text": "Индекс: {{valveIndex}}",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "popup_opened",
+          "type": "state-indicator",
+          "x": 20,
+          "y": 122,
+          "width": 190,
+          "height": 46,
+          "tag": ".Opened",
+          "trueText": "Открыт",
+          "falseText": "Не открыт",
+          "trueColor": "#fadb14",
+          "falseColor": "#595959",
+          "badColor": "#bfbfbf",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "popup_closed",
+          "type": "state-indicator",
+          "x": 225,
+          "y": 122,
+          "width": 190,
+          "height": 46,
+          "tag": ".Closed",
+          "trueText": "Закрыт",
+          "falseText": "Не закрыт",
+          "trueColor": "#000000",
+          "falseColor": "#595959",
+          "badColor": "#bfbfbf",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "popup_fault",
+          "type": "state-indicator",
+          "x": 430,
+          "y": 122,
+          "width": 190,
+          "height": 46,
+          "tag": ".Fault",
+          "trueText": "Авария",
+          "falseText": "Норма",
+          "trueColor": "#cf1322",
+          "falseColor": "#722ed1",
+          "badColor": "#bfbfbf",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "popup_btn_open",
+          "type": "button",
+          "x": 20,
+          "y": 188,
+          "width": 190,
+          "height": 48,
+          "text": "Открыть",
+          "showText": true,
+          "backgroundColor": "#1677ff",
+          "borderColor": "#1677ff",
+          "borderWidth": 1,
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          },
+          "action": {
+            "type": "runMacro",
+            "macroId": "valveOpen"
+          }
+        },
+        {
+          "id": "popup_btn_close",
+          "type": "button",
+          "x": 225,
+          "y": 188,
+          "width": 190,
+          "height": 48,
+          "text": "Закрыть",
+          "showText": true,
+          "backgroundColor": "#d4380d",
+          "borderColor": "#d4380d",
+          "borderWidth": 1,
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          },
+          "action": {
+            "type": "runMacro",
+            "macroId": "valveClose"
+          }
+        },
+        {
+          "id": "popup_btn_exit",
+          "type": "button",
+          "x": 430,
+          "y": 188,
+          "width": 190,
+          "height": 48,
+          "text": "Закрыть окно",
+          "showText": true,
+          "backgroundColor": "#434343",
+          "borderColor": "#595959",
+          "borderWidth": 1,
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          },
+          "action": {
+            "type": "closePopup"
+          }
+        }
+      ],
+      "popupOptions": {
+        "title": "Управление клапаном",
+        "defaultX": 220,
+        "defaultY": 130,
+        "modal": false,
+        "draggable": true,
+        "closable": true,
+        "resizable": false
       }
     }
   ],

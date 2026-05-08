@@ -61,7 +61,7 @@ type MacroReference = {
 const macroDockDefaults = [
   { id: "macros.list", side: "left", hidden: false, size: 320, lastVisibleSize: 320 },
   { id: "macros.help", side: "right", hidden: false, size: 360, lastVisibleSize: 360 },
-  { id: "macros.logs", side: "bottom", hidden: false, size: 180, lastVisibleSize: 180 },
+  { id: "macros.logs", side: "bottom", hidden: false, size: 140, lastVisibleSize: 140 },
 ] as const;
 
 function clamp(value: number, min: number, max: number): number {
@@ -679,12 +679,13 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
                 <Switch checked={selectedMacro.enabled ?? true} onChange={(checked) => mutateMacro({ enabled: checked })} checkedChildren="Enabled" unCheckedChildren="Disabled" />
               </Space>
 
-              <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}>
+              <div style={{ flex: "1 1 auto", minHeight: 320, overflow: "auto" }}>
                 <Input.TextArea
                   ref={(node) => {
                     codeRef.current = node?.resizableTextArea?.textArea ?? null;
                   }}
-                  style={{ height: "100%" }}
+                  autoSize={false}
+                  style={{ height: "100%", minHeight: 320, resize: "vertical", fontFamily: "Consolas, Menlo, Monaco, monospace" }}
                   value={selectedMacro.code}
                   onChange={(e) => mutateMacro({ code: e.target.value })}
                 />

@@ -328,6 +328,12 @@ export const macroExamples: MacroExample[] = [
     code: `setVar("selectedBurnerPrefix", "_2");`,
   },
   {
+    id: "open-reusable-popup",
+    title: "Общий popup с tagPrefix и args",
+    description: "Открывает одно popup-окно для разных клапанов через prefix.",
+    code: `const prefix = String(args.prefix || "VALVES.PZK_1");\nconst name = String(args.name || "ПЗК-1");\n\nsetVar("SelectedValvePrefix", prefix);\nsetVar("SelectedValveName", name);\n\nopenPopup("Popup_ValveControl", {\n  title: "Управление: " + name,\n  tagPrefix: prefix,\n  args: {\n    valveName: name,\n    valvePrefix: prefix\n  }\n});`,
+  },
+  {
     id: "set-object-text",
     title: "Изменение текста объекта",
     description: "Показывает текущее давление в тексте.",

@@ -12,6 +12,7 @@ import type {
   HmiScreen,
   InternalVariableDefinition,
   MacroDefinition,
+  MacroRunResult,
   RuntimeState,
   ScadaProject,
   ScreenKind,
@@ -52,8 +53,8 @@ type ScadaState = {
   runMacro: (
     macroId: string,
     args?: Record<string, unknown>,
-    options?: { allowDisabledForTest?: boolean },
-  ) => Promise<{ ok: boolean; status?: "ok" | "skipped"; reason?: "disabled" }>;
+    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+  ) => Promise<MacroRunResult>;
   updateMacro: (macroId: string, payload: {
     name: string;
     description?: string;

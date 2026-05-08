@@ -1,4 +1,4 @@
-import type { HmiObject, TextStyle } from "./hmi-object-types";
+import type { HmiObject, RuntimeAction, TextStyle } from "./hmi-object-types";
 import type { TagDataType, TagDefinition, TagScalarValue } from "./tag-types";
 import type { Asset, AssetGroup, ProjectLibraryRef } from "./asset-library-types";
 
@@ -101,6 +101,22 @@ export type MacroDefinition = {
   code: string;
   enabled?: boolean;
   triggers?: MacroTrigger[];
+};
+
+export type MacroRuntimeContext = {
+  tagPrefix?: string;
+  parameters?: Record<string, unknown>;
+  popupInstanceId?: string;
+  screenId?: string;
+};
+
+export type MacroUiEffect = Extract<RuntimeAction, { type: "openPopup" | "closePopup" | "openScreen" }>;
+
+export type MacroRunResult = {
+  ok: boolean;
+  status?: "ok" | "skipped";
+  reason?: "disabled";
+  effects?: MacroUiEffect[];
 };
 
 export type MacroTrigger =

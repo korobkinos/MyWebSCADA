@@ -12,6 +12,7 @@ import type {
   RuntimeAction,
   ScreenKind,
 } from "@web-scada/shared";
+import { normalizeObjectsToGroup } from "@web-scada/shared";
 import {
   Button,
   Card,
@@ -53,6 +54,7 @@ import { FloatingPanel } from "../components/floating-panel";
 import { ResizableDockPanel } from "../components/resizable-dock-panel";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
+import { importSvgAssetToPrimitives } from "../hmi/editor/svg-primitive-import";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { useScadaStore } from "../store/scada-store";
@@ -85,6 +87,7 @@ type CloneOptions = {
   startIndex: number;
   step: number;
 };
+type PrimitiveShapeKind = "square" | "circle" | "triangle";
 
 const defaultEditorLayoutSettings: EditorLayoutSettings = {
   leftPanel: {
@@ -170,6 +173,59 @@ function normalizeLayoutSettings(input?: EditorLayoutSettings): EditorLayoutSett
 
 function id(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createPrimitiveShape(kind: PrimitiveShapeKind): HmiObject {
+  if (kind === "triangle") {
+    return {
+      id: id("tri"),
+      type: "line",
+      x: 110,
+      y: 110,
+      width: 90,
+      height: 80,
+      minWidth: 20,
+      minHeight: 20,
+      points: [45, 0, 90, 80, 0, 80],
+      stroke: "#8c8c8c",
+      strokeWidth: 2,
+      closed: true,
+      fill: "#262626",
+      opacity: 1,
+    };
+  }
+  if (kind === "circle") {
+    return {
+      id: id("circle"),
+      type: "rectangle",
+      x: 110,
+      y: 110,
+      width: 90,
+      height: 90,
+      minWidth: 20,
+      minHeight: 20,
+      fill: "#262626",
+      stroke: "#8c8c8c",
+      strokeWidth: 2,
+      cornerRadius: 45,
+      opacity: 1,
+    };
+  }
+  return {
+    id: id("square"),
+    type: "rectangle",
+    x: 110,
+    y: 110,
+    width: 90,
+    height: 90,
+    minWidth: 20,
+    minHeight: 20,
+    fill: "#262626",
+    stroke: "#8c8c8c",
+    strokeWidth: 2,
+    cornerRadius: 0,
+    opacity: 1,
+  };
 }
 
 export function EditorPage() {
@@ -936,6 +992,32 @@ export function EditorPage() {
     }
   };
 
+  const addSvgAssetAsPrimitives = async (asset: Asset, x = 100, y = 100): Promise<void> => {
+    try {
+      const imported = await importSvgAssetToPrimitives(asset);
+      const { groupBounds, normalizedObjects } = normalizeObjectsToGroup(imported.objects);
+      addObjectWithHistory({
+        id: id("group"),
+        type: "group",
+        name: `svg:${asset.name}`,
+        x,
+        y,
+        width: Math.max(1, groupBounds.width),
+        height: Math.max(1, groupBounds.height),
+        minWidth: 10,
+        minHeight: 10,
+        objects: normalizedObjects,
+      });
+      if (imported.warnings.length) {
+        void message.warning(imported.warnings.join(" | "));
+      } else {
+        void message.success(`SVG imported as primitives: ${asset.name}`);
+      }
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : "Failed to import SVG as primitives");
+    }
+  };
+
   const redo = () => {
     const next = history.redo(captureObjects());
     if (next) {
@@ -1070,6 +1152,9 @@ export function EditorPage() {
                       {type}
                     </Button>
                   ))}
+                  <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("square"))}>Square</Button>
+                  <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("circle"))}>Circle</Button>
+                  <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("triangle"))}>Triangle</Button>
                 </Space>
               ),
             },
@@ -1272,6 +1357,9 @@ export function EditorPage() {
                   {type}
                 </Button>
               ))}
+              <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("square"))}>Square</Button>
+              <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("circle"))}>Circle</Button>
+              <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("triangle"))}>Triangle</Button>
             </Space>
             )}
           </Card>
@@ -1320,7 +1408,16 @@ export function EditorPage() {
                         JSON.stringify({ kind: "asset", assetId: asset.id }),
                       );
                     }}
-                    actions={[<Button size="small" onClick={() => addAssetAsImage(asset)}>Add</Button>]}
+                    actions={[
+                      <Button key="add-image" size="small" onClick={() => addAssetAsImage(asset)}>
+                        Add Image
+                      </Button>,
+                      asset.type === "svg" ? (
+                        <Button key="add-svg" size="small" onClick={() => void addSvgAssetAsPrimitives(asset)}>
+                          Add SVG Primitives
+                        </Button>
+                      ) : null,
+                    ]}
                   >
                     <Space>
                       <img src={asset.previewUrl} alt={asset.name} style={{ width: 30, height: 30, objectFit: "contain", background: "#111" }} />
@@ -2102,6 +2199,9 @@ function remapTagFields(object: HmiObject, map: (tag: string) => string): HmiObj
 
   if (cloned.type === "libraryElementInstance" && cloned.tagPrefix) {
     cloned.tagPrefix = map(cloned.tagPrefix);
+  }
+  if (cloned.type === "libraryElementInstance" && cloned.action) {
+    cloned.action = remapAction(cloned.action);
   }
 
   if (cloned.type === "group") {

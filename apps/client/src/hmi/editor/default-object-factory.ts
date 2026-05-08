@@ -54,6 +54,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         points: [0, 10, 140, 10],
         stroke: "#d9d9d9",
         strokeWidth: 3,
+        closed: false,
       };
     case "rectangle":
       return {
@@ -128,6 +129,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         text: "Start",
         showText: true,
         backgroundColor: "#0958d9",
+        pressedBackgroundColor: "#0747b3",
+        disabledBackgroundColor: "#434343",
         borderColor: "#0958d9",
         borderWidth: 1,
         textStyle: { ...defaultTextStyle },
@@ -146,6 +149,10 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         tag: "Burner_1.StartCmd",
         onText: "ON",
         offText: "OFF",
+        onColor: "#389e0d",
+        offColor: "#434343",
+        borderColor: "#595959",
+        borderWidth: 1,
         textStyle: { ...defaultTextStyle },
       };
     case "image":

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineTagPrefix, extractBindingKey, isBindingReference, resolveTagName } from "../src/render-context";
+import { combineTagPrefix, extractBindingKey, isBindingReference, resolveRuntimeAction, resolveTagName } from "../src/render-context";
 
 describe("combineTagPrefix", () => {
   it("combines relative child with parent", () => {
@@ -18,6 +18,14 @@ describe("combineTagPrefix", () => {
 describe("resolveTagName", () => {
   it("resolves relative tag with prefix", () => {
     expect(resolveTagName(".Opened", { tagPrefix: "Burner_1.PZK_1" })).toBe("Burner_1.PZK_1.Opened");
+  });
+
+  it("resolves CloseCmd for PZK_2", () => {
+    expect(resolveTagName(".CloseCmd", { tagPrefix: "VALVES.PZK_2" })).toBe("VALVES.PZK_2.CloseCmd");
+  });
+
+  it("resolves Fault for KZ", () => {
+    expect(resolveTagName(".Fault", { tagPrefix: "VALVES.KZ" })).toBe("VALVES.KZ.Fault");
   });
 
   it("keeps absolute tag", () => {
@@ -56,5 +64,48 @@ describe("binding helpers", () => {
   it("returns undefined for non-binding tag", () => {
     expect(isBindingReference("Burner_1.PZK_1.Opened")).toBe(false);
     expect(extractBindingKey("Burner_1.PZK_1.Opened")).toBeUndefined();
+  });
+});
+
+describe("resolveRuntimeAction openPopup", () => {
+  it("combines parent and relative popup prefix", () => {
+    const action = resolveRuntimeAction(
+      {
+        type: "openPopup",
+        popupScreenId: "Popup_ValveControl",
+        tagPrefix: ".PZK_1",
+      },
+      {
+        tagPrefix: "VALVES",
+      },
+    );
+
+    expect(action.type).toBe("openPopup");
+    expect(action.tagPrefix).toBe("VALVES.PZK_1");
+  });
+
+  it("resolves popup args from parameters", () => {
+    const action = resolveRuntimeAction(
+      {
+        type: "openPopup",
+        popupScreenId: "Popup_ValveControl",
+        args: {
+          valveName: "{{name}}",
+          valvePrefix: "{{prefix}}",
+        },
+      },
+      {
+        parameters: {
+          name: "ПЗК-1",
+          prefix: "VALVES.PZK_1",
+        },
+      },
+    );
+
+    expect(action.type).toBe("openPopup");
+    expect(action.args).toEqual({
+      valveName: "ПЗК-1",
+      valvePrefix: "VALVES.PZK_1",
+    });
   });
 });

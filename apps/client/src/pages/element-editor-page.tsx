@@ -11,10 +11,11 @@ import type {
   LibraryParameter,
   TagValue,
 } from "@web-scada/shared";
-import { resolveTagName, resolveTemplateString } from "@web-scada/shared";
+import { normalizeObjectsToGroup, resolveTagName, resolveTemplateString } from "@web-scada/shared";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { ResizableDockPanel } from "../components/resizable-dock-panel";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
+import { importSvgAssetToPrimitives } from "../hmi/editor/svg-primitive-import";
 import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { useDockLayout } from "../hooks/use-dock-layout";
@@ -68,6 +69,7 @@ function getInsertPosition(
 
 type CreateElementMode = "empty" | "template";
 type TemplateKind = "valve3" | "pump" | "indicator" | "button" | "custom";
+type PrimitiveShapeKind = "square" | "circle" | "triangle";
 
 type NewElementFormValues = {
   name: string;
@@ -106,6 +108,59 @@ type DeleteElementDialogState =
 
 function makeId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createPrimitiveShape(kind: PrimitiveShapeKind): HmiObject {
+  if (kind === "triangle") {
+    return {
+      id: makeId("tri"),
+      type: "line",
+      x: 110,
+      y: 110,
+      width: 90,
+      height: 80,
+      minWidth: 20,
+      minHeight: 20,
+      points: [45, 0, 90, 80, 0, 80],
+      stroke: "#8c8c8c",
+      strokeWidth: 2,
+      closed: true,
+      fill: "#262626",
+      opacity: 1,
+    };
+  }
+  if (kind === "circle") {
+    return {
+      id: makeId("circle"),
+      type: "rectangle",
+      x: 110,
+      y: 110,
+      width: 90,
+      height: 90,
+      minWidth: 20,
+      minHeight: 20,
+      fill: "#262626",
+      stroke: "#8c8c8c",
+      strokeWidth: 2,
+      cornerRadius: 45,
+      opacity: 1,
+    };
+  }
+  return {
+    id: makeId("square"),
+    type: "rectangle",
+    x: 110,
+    y: 110,
+    width: 90,
+    height: 90,
+    minWidth: 20,
+    minHeight: 20,
+    fill: "#262626",
+    stroke: "#8c8c8c",
+    strokeWidth: 2,
+    cornerRadius: 0,
+    opacity: 1,
+  };
 }
 
 function createDefaultElement(input?: Partial<Pick<LibraryElement, "name" | "elementKey" | "description" | "category" | "width" | "height">>): LibraryElement {
@@ -816,6 +871,23 @@ export function ElementEditorPage() {
     setActiveObjectId(object.id);
   };
 
+  const addPrimitiveShape = (kind: PrimitiveShapeKind) => {
+    if (!canElementsWrite) {
+      void message.warning("Insufficient permissions: elements.write");
+      return;
+    }
+    if (!draftElement) {
+      return;
+    }
+    const object = createPrimitiveShape(kind);
+    const position = getInsertPosition(draftElement, draftElement.objects.length, object.width, object.height);
+    object.x = position.x;
+    object.y = position.y;
+    setObjects((prev) => [...prev, object]);
+    setSelectedObjectIds([object.id]);
+    setActiveObjectId(object.id);
+  };
+
   const addImageFromAsset = (assetId: string, targetObjectId?: string) => {
     if (!canElementsWrite) {
       void message.warning("Insufficient permissions: elements.write");
@@ -867,6 +939,47 @@ export function ElementEditorPage() {
     setActiveObjectId(image.id);
     setAssetPickerOpen(false);
     setAssetPickerTargetObjectId(undefined);
+  };
+
+  const addSvgPrimitivesFromAsset = async (asset: Asset) => {
+    if (!canElementsWrite) {
+      void message.warning("Insufficient permissions: elements.write");
+      return;
+    }
+    if (!draftElement) {
+      return;
+    }
+    try {
+      const imported = await importSvgAssetToPrimitives(asset);
+      const { groupBounds, normalizedObjects } = normalizeObjectsToGroup(imported.objects);
+      const group: Extract<HmiObject, { type: "group" }> = {
+        id: makeId("group"),
+        type: "group",
+        name: `svg:${asset.name}`,
+        x: 10,
+        y: 10,
+        width: Math.max(1, groupBounds.width),
+        height: Math.max(1, groupBounds.height),
+        minWidth: 10,
+        minHeight: 10,
+        objects: normalizedObjects,
+      };
+      const position = getInsertPosition(draftElement, draftElement.objects.length, group.width, group.height);
+      group.x = position.x;
+      group.y = position.y;
+      setObjects((prev) => [...prev, group]);
+      setSelectedObjectIds([group.id]);
+      setActiveObjectId(group.id);
+      if (imported.warnings.length) {
+        void message.warning(imported.warnings.join(" | "));
+      } else {
+        void message.success(`SVG imported as primitives: ${asset.name}`);
+      }
+      setAssetPickerOpen(false);
+      setAssetPickerTargetObjectId(undefined);
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : "Failed to import SVG as primitives");
+    }
   };
 
   const openAssetPicker = (targetObjectId?: string) => {
@@ -1531,6 +1644,9 @@ export function ElementEditorPage() {
             <Button onClick={() => addObject("text")} disabled={!draftElement || !canElementsWrite}>Add Text</Button>
             <Button onClick={() => addObject("line")} disabled={!draftElement || !canElementsWrite}>Add Line</Button>
             <Button onClick={() => addObject("rectangle")} disabled={!draftElement || !canElementsWrite}>Add Rectangle</Button>
+            <Button onClick={() => addPrimitiveShape("square")} disabled={!draftElement || !canElementsWrite}>Add Square</Button>
+            <Button onClick={() => addPrimitiveShape("circle")} disabled={!draftElement || !canElementsWrite}>Add Circle</Button>
+            <Button onClick={() => addPrimitiveShape("triangle")} disabled={!draftElement || !canElementsWrite}>Add Triangle</Button>
             <Button onClick={() => addObject("button")} disabled={!draftElement || !canElementsWrite}>Add Button</Button>
             <Button onClick={() => addObject("state-indicator")} disabled={!draftElement || !canElementsWrite}>Add Indicator</Button>
             <Typography.Text type={dirty ? "warning" : "secondary"}>{dirty ? "Unsaved changes" : "Saved"}</Typography.Text>
@@ -2149,6 +2265,11 @@ export function ElementEditorPage() {
                   <Button key="use" size="small" type="primary" onClick={() => addImageFromAsset(asset.id, assetPickerTargetObjectId)}>
                     {assetPickerTargetObjectId ? "Replace" : "Add"}
                   </Button>,
+                  !assetPickerTargetObjectId && asset.type === "svg" ? (
+                    <Button key="import-svg" size="small" onClick={() => void addSvgPrimitivesFromAsset(asset)}>
+                      Add SVG Primitives
+                    </Button>
+                  ) : null,
                 ]}
               >
                 <Space direction="vertical" size={0}>
