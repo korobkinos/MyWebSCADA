@@ -1,0 +1,18 @@
+{
+  "users": [
+    {
+      "id": "8727a5f2-a79e-4aee-a9c7-441d81b890cb",
+      "username": "admin",
+      "displayName": "Administrator",
+      "enabled": true,
+      "roles": [
+        "admin"
+      ],
+      "permissions": [],
+      "createdAt": "2026-05-08T07:59:46.962Z",
+      "updatedAt": "2026-05-08T09:13:28.367Z",
+      "lastLoginAt": "2026-05-08T09:13:28.367Z",
+      "passwordHash": "scrypt$8ca6f94e1ccd4eec953518c3d0ce0a4c$0d9cd9b766d4aae0c6c0c4c98a8d8839bdf5096d68e4fae35b5a4b7e9fad2517ca73e525c5fb75f4cc5d3f50befd8ec7d24933a86c2007fd8fe1d08ce4dd5ed7"
+    }
+  ]
+}

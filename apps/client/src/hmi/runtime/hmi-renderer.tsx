@@ -508,6 +508,7 @@ function ObjectNode({
         selected={selected}
         groupProps={commonGroupProps}
         project={project}
+        libraries={libraries}
         scopedAssets={scopedAssets}
         interactive={interactive}
         onSelectObject={onSelectObject}
@@ -561,6 +562,7 @@ function ObjectNode({
         groupProps={commonGroupProps}
         selected={selected}
         project={project}
+        libraries={libraries}
         scopedAssets={scopedAssets}
         stateValue={resolvedObject.stateTag ? tagValue(resolvedObject.stateTag)?.value : undefined}
         interactive={interactive}
@@ -588,6 +590,7 @@ function ObjectNode({
         groupProps={commonGroupProps}
         selected={selected}
         project={project}
+        libraries={libraries}
         scopedAssets={scopedAssets}
         stateValue={undefined}
         interactive={interactive}
@@ -956,6 +959,7 @@ function ImageNode({
   selected,
   groupProps,
   project,
+  libraries,
   scopedAssets,
   stateValue,
   interactive,
@@ -968,6 +972,7 @@ function ImageNode({
   selected: boolean;
   groupProps: Record<string, unknown>;
   project: ScadaProject;
+  libraries: ElementLibrary[];
   scopedAssets?: Record<string, Asset>;
   stateValue: unknown;
   interactive: boolean;
@@ -980,8 +985,15 @@ function ImageNode({
   const stateSrc = stateEntry?.src;
   const stateAssetId = stateEntry?.assetId;
   const activeAssetId = stateAssetId ?? object.assetId;
-  const source = stateSrc ?? resolveAssetUrl(activeAssetId, project.assets ?? [], scopedAssets) ?? object.src;
-  const image = useImage(source);
+  const source =
+    stateSrc ??
+    resolveAssetUrl(activeAssetId, {
+      projectAssets: project.assets ?? [],
+      scopedAssets,
+      libraries,
+    }) ??
+    object.src;
+  const { image, status: imageStatus } = useImage(source);
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, object.fit),
     [image?.height, image?.width, object.fit, object.height, object.width],
@@ -1004,7 +1016,6 @@ function ImageNode({
         }
       }}
     >
-      <Rect width={object.width} height={object.height} fill="#262626" stroke="#434343" />
       {source && image ? (
         <KonvaImage
           image={image}
@@ -1013,16 +1024,20 @@ function ImageNode({
           width={placement.width}
           height={placement.height}
           crop={placement.crop}
+          perfectDrawEnabled={false}
         />
-      ) : (
-        <Text
-          text={activeAssetId ? `Asset not found: ${activeAssetId}` : "Image source is empty"}
-          width={object.width}
-          height={object.height}
-          fill="#ff7875"
-          align="center"
-          verticalAlign="middle"
-        />
+      ) : source && imageStatus === "loading" ? null : (
+        <>
+          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} />
+          <Text
+            text={source ? (activeAssetId ? `Asset not found: ${activeAssetId}` : "Failed to load image") : "Image source is empty"}
+            width={object.width}
+            height={object.height}
+            fill="#ff7875"
+            align="center"
+            verticalAlign="middle"
+          />
+        </>
       )}
       <SelectionOutline object={object} selected={selected || forceFrame} />
     </Group>
@@ -1034,6 +1049,7 @@ function ButtonNode({
   selected,
   groupProps,
   project,
+  libraries,
   scopedAssets,
   interactive,
   onSelectObject,
@@ -1045,6 +1061,7 @@ function ButtonNode({
   selected: boolean;
   groupProps: Record<string, unknown>;
   project: ScadaProject;
+  libraries: ElementLibrary[];
   scopedAssets?: Record<string, Asset>;
   interactive: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
@@ -1053,10 +1070,18 @@ function ButtonNode({
   forceFrame?: boolean;
 }) {
   const [pressed, setPressed] = useState(false);
-  const normalSrc = resolveAssetUrl(object.backgroundAssetId, project.assets ?? [], scopedAssets);
-  const pressedSrc = resolveAssetUrl(object.pressedBackgroundAssetId, project.assets ?? [], scopedAssets);
+  const normalSrc = resolveAssetUrl(object.backgroundAssetId, {
+    projectAssets: project.assets ?? [],
+    scopedAssets,
+    libraries,
+  });
+  const pressedSrc = resolveAssetUrl(object.pressedBackgroundAssetId, {
+    projectAssets: project.assets ?? [],
+    scopedAssets,
+    libraries,
+  });
   const currentSrc = pressed && pressedSrc ? pressedSrc : normalSrc;
-  const image = useImage(currentSrc);
+  const { image } = useImage(currentSrc);
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, "stretch"),
     [image?.height, image?.width, object.height, object.width],
@@ -1289,17 +1314,51 @@ function toAssetMap(assets: Asset[]): Record<string, Asset> {
   return Object.fromEntries(assets.map((item) => [item.id, item]));
 }
 
-function resolveAssetUrl(assetId: string | undefined, projectAssets: Asset[], scopedAssets?: Record<string, Asset>): string | undefined {
+type AssetResolveContext = {
+  projectAssets: Asset[];
+  scopedAssets?: Record<string, Asset>;
+  libraries: ElementLibrary[];
+};
+
+const warnedMissingAssetIds = new Set<string>();
+
+function resolveAsset(assetId: string | undefined, context: AssetResolveContext): Asset | null {
   if (!assetId) {
-    return undefined;
+    return null;
   }
 
-  if (scopedAssets?.[assetId]) {
-    return scopedAssets[assetId].previewUrl;
+  if (context.scopedAssets?.[assetId]) {
+    return context.scopedAssets[assetId] ?? null;
   }
 
-  const found = projectAssets.find((item) => item.id === assetId);
-  return found?.previewUrl;
+  const fromProject = context.projectAssets.find((item) => item.id === assetId);
+  if (fromProject) {
+    return fromProject;
+  }
+
+  for (const library of context.libraries) {
+    const fromLibrary = library.assets.find((item) => item.id === assetId);
+    if (fromLibrary) {
+      return fromLibrary;
+    }
+  }
+
+  if (import.meta.env.DEV && !warnedMissingAssetIds.has(assetId)) {
+    warnedMissingAssetIds.add(assetId);
+    const availableAssetIds = [
+      ...context.projectAssets.map((item) => item.id),
+      ...Object.keys(context.scopedAssets ?? {}),
+      ...context.libraries.flatMap((library) => library.assets.map((item) => item.id)),
+    ];
+    // eslint-disable-next-line no-console
+    console.warn("[Assets] Asset not found", { assetId, availableAssetIds });
+  }
+
+  return null;
+}
+
+function resolveAssetUrl(assetId: string | undefined, context: AssetResolveContext): string | undefined {
+  return resolveAsset(assetId, context)?.previewUrl;
 }
 
 function computeFrameScale(
@@ -1455,30 +1514,38 @@ function renderBoxText(
   );
 }
 
-function useImage(src: string | undefined): HTMLImageElement | undefined {
+type ImageLoadStatus = "idle" | "loading" | "loaded" | "error";
+
+function useImage(src: string | undefined): { image: HTMLImageElement | undefined; status: ImageLoadStatus } {
   const [image, setImage] = useState<HTMLImageElement | undefined>(undefined);
+  const [status, setStatus] = useState<ImageLoadStatus>("idle");
 
   useEffect(() => {
     if (!src) {
       setImage(undefined);
-      return;
+      setStatus("idle");
+      return undefined;
     }
 
     const cached = imageCache.get(src);
     if (cached?.status === "loaded") {
       setImage(cached.image);
-      return;
+      setStatus("loaded");
+      return undefined;
     }
     if (cached?.status === "error") {
       setImage(undefined);
-      return;
+      setStatus("error");
+      return undefined;
     }
 
     let disposed = false;
     if (cached?.status === "loading") {
+      setStatus("loading");
       cached.waiters.push((nextImage) => {
         if (!disposed) {
           setImage(nextImage);
+          setStatus(nextImage ? "loaded" : "error");
         }
       });
       return () => {
@@ -1488,12 +1555,14 @@ function useImage(src: string | undefined): HTMLImageElement | undefined {
 
     const waiters: Array<(nextImage: HTMLImageElement | undefined) => void> = [];
     imageCache.set(src, { status: "loading", waiters });
+    setStatus("loading");
 
     const img = new window.Image();
     img.src = src;
     img.onload = () => {
       imageCache.set(src, { status: "loaded", image: img, waiters: [] });
       setImage(img);
+      setStatus("loaded");
       for (const waiter of waiters) {
         waiter(img);
       }
@@ -1501,6 +1570,7 @@ function useImage(src: string | undefined): HTMLImageElement | undefined {
     img.onerror = () => {
       imageCache.set(src, { status: "error", waiters: [] });
       setImage(undefined);
+      setStatus("error");
       for (const waiter of waiters) {
         waiter(undefined);
       }
@@ -1510,7 +1580,7 @@ function useImage(src: string | undefined): HTMLImageElement | undefined {
     };
   }, [src]);
 
-  return image;
+  return { image, status };
 }
 
 type ImageCacheItem =

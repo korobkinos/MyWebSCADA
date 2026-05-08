@@ -1,14 +1,20 @@
 import type {
+  AdminChangePasswordRequest,
   Asset,
+  AuthLoginResponse,
+  AuthMeResponse,
+  ChangeOwnPasswordRequest,
+  CreateUserRequest,
   DriverStatus,
   ElementLibrary,
-  EngineerAuthResponse,
   LibraryElement,
   MacroDefinition,
   RuntimeState,
   ScadaProject,
   TagSnapshot,
   TagValue,
+  AppUser,
+  UpdateUserRequest,
 } from "@web-scada/shared";
 
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
@@ -28,8 +34,11 @@ function setEngineerToken(token: string | null): void {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const token = getEngineerToken();
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
-  const defaultHeaders: Record<string, string> = token ? { "x-engineer-token": token } : {};
-  if (!isFormData) {
+  const hasBody = init?.body !== undefined && init?.body !== null;
+  const defaultHeaders: Record<string, string> = token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : {};
+  // Avoid sending JSON content-type on empty-body requests (notably DELETE),
+  // otherwise Fastify may reject with FST_ERR_CTP_EMPTY_JSON_BODY.
+  if (hasBody && !isFormData) {
     defaultHeaders["Content-Type"] = "application/json";
   }
   const response = await fetch(url, {
@@ -38,12 +47,20 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      setEngineerToken(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("scada-auth-invalid"));
+      }
+    }
     let message = `${response.status} ${response.statusText}`;
+    let details: unknown = undefined;
     try {
       const text = await response.text();
       // Try to parse JSON error response for a cleaner message
       try {
         const parsed = JSON.parse(text) as { message?: string };
+        details = parsed;
         if (parsed.message) {
           message = parsed.message;
         }
@@ -53,7 +70,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     } catch {
       // ignore read error
     }
-    throw new Error(message);
+    const error = new Error(message) as Error & { status?: number; details?: unknown };
+    error.status = response.status;
+    error.details = details;
+    throw error;
   }
 
   return (await response.json()) as T;
@@ -63,8 +83,19 @@ export const api = {
   getEngineerToken,
   setEngineerToken,
 
+  login: async (username: string, password: string) => {
+    const response = await request<AuthLoginResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+    if (response.ok && response.token) {
+      setEngineerToken(response.token);
+    }
+    return response;
+  },
+
   loginEngineer: async (password: string) => {
-    const response = await request<EngineerAuthResponse>("/api/auth/engineer", {
+    const response = await request<AuthLoginResponse>("/api/auth/engineer", {
       method: "POST",
       body: JSON.stringify({ password }),
     });
@@ -73,6 +104,19 @@ export const api = {
     }
     return response;
   },
+
+  authMe: () => request<AuthMeResponse>("/api/auth/me"),
+  logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+  changeOwnPassword: (payload: ChangeOwnPasswordRequest) =>
+    request<{ ok: boolean }>("/api/auth/change-password", { method: "POST", body: JSON.stringify(payload) }),
+
+  listUsers: () => request<AppUser[]>("/api/users"),
+  createUser: (payload: CreateUserRequest) => request<AppUser>("/api/users", { method: "POST", body: JSON.stringify(payload) }),
+  updateUser: (id: string, payload: UpdateUserRequest) =>
+    request<AppUser>(`/api/users/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteUser: (id: string) => request<{ ok: boolean }>(`/api/users/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  changeUserPassword: (id: string, payload: AdminChangePasswordRequest) =>
+    request<{ ok: boolean }>(`/api/users/${encodeURIComponent(id)}/change-password`, { method: "POST", body: JSON.stringify(payload) }),
 
   getProject: () => request<ScadaProject>("/api/project"),
   saveProject: (project: ScadaProject) =>
@@ -146,13 +190,20 @@ export const api = {
     }),
   getLibraryElement: (libraryId: string, elementId: string) =>
     request<LibraryElement>(`/api/libraries/${encodeURIComponent(libraryId)}/elements/${encodeURIComponent(elementId)}`),
+  getLibraryElementUsage: (libraryId: string, elementId: string) =>
+    request<{ items: Array<{ screenId: string; screenName: string; objectId: string; objectName?: string; path: string }> }>(
+      `/api/libraries/${encodeURIComponent(libraryId)}/elements/${encodeURIComponent(elementId)}/usage`,
+    ),
   updateLibraryElement: (libraryId: string, elementId: string, patch: Partial<LibraryElement>) =>
     request<LibraryElement>(`/api/libraries/${encodeURIComponent(libraryId)}/elements/${encodeURIComponent(elementId)}`, {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
-  deleteLibraryElement: (libraryId: string, elementId: string) =>
-    request<{ ok: boolean }>(`/api/libraries/${encodeURIComponent(libraryId)}/elements/${encodeURIComponent(elementId)}`, { method: "DELETE" }),
+  deleteLibraryElement: (libraryId: string, elementId: string, options?: { force?: boolean }) =>
+    request<{ ok: boolean; deletedId?: string; removedUsages?: number }>(
+      `/api/libraries/${encodeURIComponent(libraryId)}/elements/${encodeURIComponent(elementId)}${options?.force ? "?force=true" : ""}`,
+      { method: "DELETE" },
+    ),
   attachLibrary: (libraryId: string) =>
     request<ScadaProject>("/api/project/libraries/attach", {
       method: "POST",

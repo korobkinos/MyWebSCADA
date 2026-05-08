@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type {
   Asset,
+  AppPermission,
+  AppUser,
   DriverStatus,
   EditorCommand,
   EditorSelectionState,
@@ -34,6 +36,8 @@ type ScadaState = {
   currentScreenId: string | null;
   selection: EditorSelectionState;
   engineerAuthorized: boolean;
+  authUser: AppUser | null;
+  authResolved: boolean;
   loadProject: () => Promise<void>;
   saveProject: () => Promise<void>;
   loadTags: () => Promise<void>;
@@ -58,8 +62,11 @@ type ScadaState = {
     code: string;
     triggers?: unknown[];
   }) => Promise<MacroDefinition>;
+  initializeAuth: () => Promise<void>;
+  login: (username: string, password: string) => Promise<boolean>;
   loginEngineer: (password: string) => Promise<boolean>;
   logoutEngineer: () => void;
+  hasPermission: (permission: AppPermission) => boolean;
   setTagValue: (value: TagValue) => void;
   setCurrentScreen: (screenId: string) => void;
   setSelectedObjects: (objectIds: string[], activeObjectId?: string) => void;
@@ -159,6 +166,28 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     selectedObjectIds: [],
   },
   engineerAuthorized: Boolean(api.getEngineerToken()),
+  authUser: null,
+  authResolved: false,
+
+  async initializeAuth() {
+    const token = api.getEngineerToken();
+    if (!token) {
+      set({ engineerAuthorized: false, authUser: null, authResolved: true });
+      return;
+    }
+    try {
+      const me = await api.authMe();
+      if (!me.user) {
+        api.setEngineerToken(null);
+        set({ engineerAuthorized: false, authUser: null, authResolved: true });
+        return;
+      }
+      set({ engineerAuthorized: true, authUser: me.user, authResolved: true });
+    } catch {
+      api.setEngineerToken(null);
+      set({ engineerAuthorized: false, authUser: null, authResolved: true });
+    }
+  },
 
   async loadProject() {
     const project = await api.getProject();
@@ -243,16 +272,33 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     return await api.runMacro(macroId, args, options);
   },
 
+  async login(username, password) {
+    const result = await api.login(username, password);
+    const ok = result.ok && Boolean(result.token) && Boolean(result.user);
+    set({ engineerAuthorized: ok, authUser: result.user ?? null, authResolved: true });
+    return ok;
+  },
+
   async loginEngineer(password) {
     const result = await api.loginEngineer(password);
     const ok = result.ok && Boolean(result.token);
-    set({ engineerAuthorized: ok });
+    const me = ok ? await api.authMe() : { user: null };
+    set({ engineerAuthorized: ok, authUser: me.user ?? null, authResolved: true });
     return ok;
   },
 
   logoutEngineer() {
+    void api.logout().catch(() => undefined);
     api.setEngineerToken(null);
-    set({ engineerAuthorized: false });
+    set({ engineerAuthorized: false, authUser: null, authResolved: true });
+  },
+
+  hasPermission(permission) {
+    const user = get().authUser;
+    if (!user) {
+      return false;
+    }
+    return user.permissions.includes(permission);
   },
 
   setTagValue(value) {

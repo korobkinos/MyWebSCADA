@@ -1,19 +1,29 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import {
+  type AdminChangePasswordRequest,
+  type AppPermission,
+  type AuthLoginRequest,
+  type ChangeOwnPasswordRequest,
+  type CreateUserRequest,
+  type MacroDefinition,
+  type MacroTrigger,
+  type ScadaProject,
+  type UpdateUserRequest,
+  libraryElementSchema,
+  projectSchema,
+} from "@web-scada/shared";
 import { z } from "zod";
-import type { FastifyInstance, FastifyRequest } from "fastify";
-import { libraryElementSchema, projectSchema } from "@web-scada/shared";
-import type { MacroDefinition, MacroTrigger, ScadaProject } from "@web-scada/shared";
+import { AuthService } from "../auth/auth-service.js";
 import { AssetService } from "../assets/asset-service.js";
 import { DriverManager } from "../drivers/driver-manager.js";
 import { LibraryService } from "../libraries/library-service.js";
 import { ProjectService } from "../project/project-service.js";
 import { CommandService } from "../runtime/command-service.js";
-import { EngineerAuthService } from "../runtime/engineer-auth-service.js";
-import { InternalVariableService } from "../runtime/internal-variable-service.js";
+import { buildInternalAndLwTagDefinitions, InternalVariableService } from "../runtime/internal-variable-service.js";
 import { MacroService } from "../runtime/macro-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
-import { buildInternalAndLwTagDefinitions } from "../runtime/internal-variable-service.js";
 import { TagStore } from "../tags/tag-store.js";
 
 type ApiDeps = {
@@ -26,11 +36,78 @@ type ApiDeps = {
   commandService: CommandService;
   internalVariableService: InternalVariableService;
   macroService: MacroService;
-  engineerAuthService: EngineerAuthService;
+  authService: AuthService;
 };
 
+type LibraryElementUsage = {
+  screenId: string;
+  screenName: string;
+  objectId: string;
+  objectName?: string;
+  path: string;
+};
+
+function removeLibraryElementInstances(project: ScadaProject, libraryId: string, elementId: string): { project: ScadaProject; removed: number } {
+  let removed = 0;
+
+  const pruneObjects = (objects: ScadaProject["screens"][number]["objects"]): ScadaProject["screens"][number]["objects"] => {
+    const next: ScadaProject["screens"][number]["objects"] = [];
+    for (const object of objects) {
+      if (object.type === "libraryElementInstance" && object.libraryId === libraryId && object.elementId === elementId) {
+        removed += 1;
+        continue;
+      }
+      if (object.type === "group") {
+        next.push({
+          ...object,
+          objects: pruneObjects(object.objects),
+        });
+        continue;
+      }
+      next.push(object);
+    }
+    return next;
+  };
+
+  return {
+    project: {
+      ...project,
+      screens: project.screens.map((screen) => ({
+        ...screen,
+        objects: pruneObjects(screen.objects),
+      })),
+    },
+    removed,
+  };
+}
+
 const writeSchema = z.object({ value: z.union([z.boolean(), z.number(), z.string(), z.null()]) });
-const engineerLoginSchema = z.object({ password: z.string().min(1) });
+const permissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>((value) => typeof value === "string");
+const loginSchema: z.ZodType<AuthLoginRequest> = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+const changeOwnPasswordSchema: z.ZodType<ChangeOwnPasswordRequest> = z.object({
+  oldPassword: z.string().min(1),
+  newPassword: z.string().min(4),
+});
+const adminChangePasswordSchema: z.ZodType<AdminChangePasswordRequest> = z.object({
+  newPassword: z.string().min(4),
+});
+const createUserSchema: z.ZodType<CreateUserRequest> = z.object({
+  username: z.string().min(1),
+  displayName: z.string().optional(),
+  password: z.string().min(4),
+  roles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),
+  permissions: z.array(permissionSchema).optional(),
+  enabled: z.boolean().optional(),
+});
+const updateUserSchema: z.ZodType<UpdateUserRequest> = z.object({
+  displayName: z.string().optional(),
+  roles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),
+  permissions: z.array(permissionSchema).optional(),
+  enabled: z.boolean().optional(),
+});
 const macroRunSchema = z.object({
   args: z.record(z.unknown()).optional(),
   allowDisabledForTest: z.boolean().optional(),
@@ -52,16 +129,54 @@ const createLibrarySchema = z.object({
 });
 const attachLibrarySchema = z.object({ libraryId: z.string().min(1) });
 
+type AuthContext = {
+  userId: string;
+  permissions: Set<AppPermission>;
+};
+
 function tokenFromRequest(request: { headers: Record<string, unknown> }): string | undefined {
-  const header = request.headers["x-engineer-token"];
-  return typeof header === "string" ? header : undefined;
+  const header = request.headers["x-engineer-token"] ?? request.headers.authorization;
+  if (typeof header !== "string") {
+    return undefined;
+  }
+  if (header.toLowerCase().startsWith("bearer ")) {
+    return header.slice(7).trim();
+  }
+  return header;
 }
 
-function ensureEngineer(request: { headers: Record<string, unknown> }, deps: ApiDeps): void {
-  const token = tokenFromRequest(request);
-  if (!deps.engineerAuthService.verify(token)) {
-    throw new Error("Engineer authentication required");
+async function requireAuth(request: FastifyRequest, reply: FastifyReply, deps: ApiDeps): Promise<AuthContext | null> {
+  const token = tokenFromRequest(request as { headers: Record<string, unknown> });
+  const user = await deps.authService.getUserByToken(token);
+  if (!user) {
+    await reply.code(401).send({ error: "Unauthorized", message: "Authentication required" });
+    return null;
   }
+  return {
+    userId: user.id,
+    permissions: new Set(user.permissions),
+  };
+}
+
+async function requirePermission(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  deps: ApiDeps,
+  permission: AppPermission,
+): Promise<AuthContext | null> {
+  const auth = await requireAuth(request, reply, deps);
+  if (!auth) {
+    return null;
+  }
+  if (!auth.permissions.has(permission)) {
+    await reply.code(403).send({
+      error: "Forbidden",
+      requiredPermission: permission,
+      message: `Insufficient permissions. Required: ${permission}`,
+    });
+    return null;
+  }
+  return auth;
 }
 
 async function parseUpload(request: FastifyRequest): Promise<{
@@ -91,6 +206,38 @@ async function parseUpload(request: FastifyRequest): Promise<{
   };
 }
 
+function findLibraryElementUsages(project: ScadaProject, libraryId: string, elementId: string): LibraryElementUsage[] {
+  const usages: LibraryElementUsage[] = [];
+
+  const scanObjects = (
+    screenId: string,
+    screenName: string,
+    objects: ScadaProject["screens"][number]["objects"],
+    pathPrefix: string,
+  ) => {
+    for (const object of objects) {
+      const path = `${pathPrefix}/${object.id}`;
+      if (object.type === "libraryElementInstance" && object.libraryId === libraryId && object.elementId === elementId) {
+        usages.push({
+          screenId,
+          screenName,
+          objectId: object.id,
+          objectName: object.name,
+          path,
+        });
+      }
+      if (object.type === "group") {
+        scanObjects(screenId, screenName, object.objects, path);
+      }
+    }
+  };
+
+  for (const screen of project.screens) {
+    scanObjects(screen.id, screen.name, screen.objects, screen.id);
+  }
+  return usages;
+}
+
 export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Promise<void> {
   app.get("/", async () => ({
     service: "web-scada-server",
@@ -98,24 +245,106 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     apiRoot: "/api",
   }));
 
-  app.post("/api/auth/engineer", async (request, reply) => {
-    const payload = engineerLoginSchema.parse(request.body);
-    const result = deps.engineerAuthService.login(payload.password);
+  app.post("/api/auth/login", async (request, reply) => {
+    const payload = loginSchema.parse(request.body);
+    const result = await deps.authService.login(payload.username, payload.password);
     if (!result.ok) {
-      return reply.code(401).send({ ok: false, message: "Invalid password" });
+      return reply.code(401).send({ ok: false, message: "Invalid credentials" });
     }
     return result;
+  });
+
+  // Backward compatibility with old engineer modal flow.
+  app.post("/api/auth/engineer", async (request, reply) => {
+    const payload = z.object({ password: z.string().min(1) }).parse(request.body);
+    const result = await deps.authService.login("admin", payload.password);
+    if (!result.ok) {
+      return reply.code(401).send({ ok: false, message: "Invalid credentials" });
+    }
+    return result;
+  });
+
+  app.get("/api/auth/me", async (request, reply) => {
+    const token = tokenFromRequest(request as { headers: Record<string, unknown> });
+    const user = await deps.authService.getUserByToken(token);
+    if (!user) {
+      return reply.send({ user: null });
+    }
+    return reply.send({ user });
+  });
+
+  app.post("/api/auth/logout", async (request, reply) => {
+    deps.authService.logout(tokenFromRequest(request as { headers: Record<string, unknown> }));
+    return reply.send({ ok: true });
+  });
+
+  app.post("/api/auth/change-password", async (request, reply) => {
+    const auth = await requireAuth(request, reply, deps);
+    if (!auth) {
+      return;
+    }
+    const payload = changeOwnPasswordSchema.parse(request.body);
+    await deps.authService.changeOwnPassword(auth.userId, payload.oldPassword, payload.newPassword);
+    return reply.send({ ok: true });
+  });
+
+  app.get("/api/users", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "users.view");
+    if (!auth) {
+      return;
+    }
+    return reply.send(await deps.authService.listUsers());
+  });
+
+  app.post("/api/users", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "users.write");
+    if (!auth) {
+      return;
+    }
+    const payload = createUserSchema.parse(request.body);
+    const created = await deps.authService.createUser(payload);
+    return reply.send(created);
+  });
+
+  app.put("/api/users/:id", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "users.write");
+    if (!auth) {
+      return;
+    }
+    const { id } = request.params as { id: string };
+    const payload = updateUserSchema.parse(request.body);
+    const updated = await deps.authService.updateUser(id, payload);
+    return reply.send(updated);
+  });
+
+  app.delete("/api/users/:id", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "users.delete");
+    if (!auth) {
+      return;
+    }
+    const { id } = request.params as { id: string };
+    await deps.authService.deleteUser(id);
+    return reply.send({ ok: true });
+  });
+
+  app.post("/api/users/:id/change-password", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "users.changePassword");
+    if (!auth) {
+      return;
+    }
+    const { id } = request.params as { id: string };
+    const payload = adminChangePasswordSchema.parse(request.body);
+    await deps.authService.changePasswordByAdmin(id, payload);
+    return reply.send({ ok: true });
   });
 
   app.get("/api/project", async () => deps.projectService.getProject());
 
   app.post("/api/project", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
     }
-
     const parsed = projectSchema.parse(request.body);
     const saved = await deps.projectService.saveProject(parsed);
     const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
@@ -143,6 +372,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.post("/api/tags/:name/write", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
     const params = request.params as { name: string };
     const payload = writeSchema.parse(request.body);
     await deps.commandService.writeTag(params.name, payload.value);
@@ -152,6 +385,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   app.get("/api/variables", async () => deps.internalVariableService.getAll());
 
   app.post("/api/variables/:name/write", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
     const params = request.params as { name: string };
     const payload = writeSchema.parse(request.body);
     await deps.commandService.writeVariable(params.name, payload.value);
@@ -170,16 +407,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.put("/api/macros/:id", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "macros.write");
+    if (!auth) {
+      return;
     }
 
     const params = request.params as { id: string };
     const payload = macroUpdateSchema.parse(request.body);
-
-    // Get current project
     const project = deps.projectService.getProject();
     const macros = project.macros ?? [];
     const index = macros.findIndex((m) => m.id === params.id);
@@ -188,7 +422,6 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.code(404).send({ message: "Macro not found" });
     }
 
-    // Build updated macro
     const existing = macros[index]!;
     const updatedMacro: MacroDefinition = {
       id: existing.id,
@@ -200,7 +433,6 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       triggers: (payload.triggers ?? existing.triggers ?? []) as MacroTrigger[],
     };
 
-    // Update project macros array
     const nextMacros = [...macros];
     nextMacros[index] = updatedMacro;
 
@@ -209,23 +441,21 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       macros: nextMacros,
     };
 
-    // Save project to JSON file
     const saved = await deps.projectService.saveProject(nextProject);
-
-    // Reload MacroService with updated project
     deps.macroService.configure(saved);
 
-    // Reload macro triggers in runtime registry (no need to restart whole runtime)
     if (deps.runtimeService.getState().running) {
       deps.runtimeService.macroRegistry.reloadMacro(updatedMacro);
     }
-
-    console.log(`[Macro] Updated macro ${params.id} (${updatedMacro.name}), enabled=${updatedMacro.enabled}`);
 
     return reply.send(updatedMacro);
   });
 
   app.post("/api/macros/:id/run", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "macros.run");
+    if (!auth) {
+      return;
+    }
     const params = request.params as { id: string };
     const payload = macroRunSchema.parse(request.body ?? {});
     const result = await deps.macroService.run(params.id, payload.args, {
@@ -236,13 +466,21 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
 
   app.get("/api/drivers", async () => deps.driverManager.getStatuses());
 
-  app.post("/api/runtime/start", async () => {
+  app.post("/api/runtime/start", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "runtime.control");
+    if (!auth) {
+      return;
+    }
     const project = deps.projectService.getProject();
     await deps.runtimeService.start(project);
     return deps.runtimeService.getState();
   });
 
-  app.post("/api/runtime/stop", async () => {
+  app.post("/api/runtime/stop", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "runtime.control");
+    if (!auth) {
+      return;
+    }
     await deps.runtimeService.stop();
     return deps.runtimeService.getState();
   });
@@ -250,12 +488,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   app.get("/api/runtime/state", async () => deps.runtimeService.getState());
 
   app.post("/api/assets/upload", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "assets.write");
+    if (!auth) {
+      return;
     }
-
     const uploaded = await parseUpload(request);
     const asset = await deps.assetService.uploadProjectAsset(uploaded);
     return reply.send(asset);
@@ -286,10 +522,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.delete("/api/assets/:assetId", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "assets.delete");
+    if (!auth) {
+      return;
     }
     const { assetId } = request.params as { assetId: string };
     await deps.assetService.deleteProjectAsset(assetId);
@@ -329,11 +564,21 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     return element;
   });
 
+  app.get("/api/libraries/:libraryId/elements/:elementId/usage", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "elements.view");
+    if (!auth) {
+      return;
+    }
+    const { libraryId, elementId } = request.params as { libraryId: string; elementId: string };
+    const project = deps.projectService.getProject();
+    const usage = findLibraryElementUsages(project, libraryId, elementId);
+    return reply.send({ items: usage });
+  });
+
   app.post("/api/libraries", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "libraries.write");
+    if (!auth) {
+      return;
     }
     const payload = createLibrarySchema.parse(request.body);
     const library = await deps.libraryService.createLibrary(payload);
@@ -341,10 +586,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.post("/api/libraries/:libraryId/assets/upload", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "assets.write");
+    if (!auth) {
+      return;
     }
     const { libraryId } = request.params as { libraryId: string };
     const uploaded = await parseUpload(request);
@@ -369,10 +613,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.post("/api/libraries/:libraryId/elements", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "elements.write");
+    if (!auth) {
+      return;
     }
     const { libraryId } = request.params as { libraryId: string };
     const payload = libraryElementSchema.parse(request.body);
@@ -381,10 +624,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.put("/api/libraries/:libraryId/elements/:elementId", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "elements.write");
+    if (!auth) {
+      return;
     }
     const { libraryId, elementId } = request.params as { libraryId: string; elementId: string };
     const payload = request.body as Partial<z.infer<typeof libraryElementSchema>>;
@@ -393,21 +635,77 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.delete("/api/libraries/:libraryId/elements/:elementId", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "elements.delete");
+    if (!auth) {
+      return;
     }
     const { libraryId, elementId } = request.params as { libraryId: string; elementId: string };
-    await deps.libraryService.deleteElement(libraryId, elementId);
-    return reply.send({ ok: true });
+    const { force } = (request.query ?? {}) as { force?: string };
+    const forceDelete = String(force).toLowerCase() === "true";
+    app.log.info(
+      {
+        userId: auth.userId,
+        libraryId,
+        elementId,
+        forceDelete,
+        params: request.params,
+      },
+      "[API] DELETE library element request",
+    );
+    const project = deps.projectService.getProject();
+    const usage = findLibraryElementUsages(project, libraryId, elementId);
+    if (usage.length > 0) {
+      if (forceDelete) {
+        const pruned = removeLibraryElementInstances(project, libraryId, elementId);
+        await deps.projectService.saveProject(pruned.project);
+        app.log.warn(
+          { libraryId, elementId, usageCount: usage.length, removedUsages: pruned.removed },
+          "[API] DELETE library element force-pruned instances from project",
+        );
+      } else {
+        app.log.warn(
+          { libraryId, elementId, usageCount: usage.length },
+          "[API] DELETE library element failed: used in screens",
+        );
+        return reply.code(409).send({
+          error: "Element is used",
+          usage,
+        });
+      }
+    }
+    const library = await deps.libraryService.getLibrary(libraryId);
+    if (!library) {
+      app.log.error({ libraryId, elementId }, "[API] DELETE library element failed");
+      return reply.code(404).send({ error: "Not Found", message: "Library not found" });
+    }
+    const element = library.elements.find((item) => item.id === elementId);
+    if (!element) {
+      app.log.warn(
+        { libraryId, elementId },
+        "[API] DELETE library element failed: not found",
+      );
+      return reply.code(404).send({ error: "Not Found", message: "Element not found" });
+    }
+    app.log.info({ element }, "[API] DELETE library element found");
+    try {
+      await deps.libraryService.deleteElement(libraryId, elementId);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (text.toLowerCase().includes("not found")) {
+        app.log.error({ error, libraryId, elementId }, "[API] DELETE library element failed");
+        return reply.code(404).send({ error: "Not Found", message: text });
+      }
+      app.log.error({ error, libraryId, elementId }, "[API] DELETE library element failed");
+      throw error;
+    }
+    app.log.info({ elementId }, "[API] DELETE library element deleted");
+    return reply.send({ ok: true, deletedId: elementId, removedUsages: usage.length && forceDelete ? usage.length : 0 });
   });
 
   app.post("/api/project/libraries/attach", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "libraries.write");
+    if (!auth) {
+      return;
     }
     const payload = attachLibrarySchema.parse(request.body);
     const project = await deps.libraryService.attachLibraryToProject(payload.libraryId);
@@ -415,10 +713,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.post("/api/project/libraries/detach", async (request, reply) => {
-    try {
-      ensureEngineer(request as { headers: Record<string, unknown> }, deps);
-    } catch {
-      return reply.code(401).send({ message: "Engineer auth required" });
+    const auth = await requirePermission(request, reply, deps, "libraries.write");
+    if (!auth) {
+      return;
     }
     const payload = attachLibrarySchema.parse(request.body);
     const project = await deps.libraryService.detachLibraryFromProject(payload.libraryId);

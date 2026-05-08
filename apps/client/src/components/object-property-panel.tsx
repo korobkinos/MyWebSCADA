@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Asset, ElementLibrary, HmiObject, HmiScreen, ScadaProject, TextStyle } from "@web-scada/shared";
 import { Button, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
@@ -166,6 +167,7 @@ function SpecificPropertyFields({
   object: HmiObject;
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
+  const [stateImagePreviewValue, setStateImagePreviewValue] = useState<string>("0");
   if (object.type === "text") {
     return (
       <Form.Item label="Text">
@@ -433,10 +435,13 @@ function SpecificPropertyFields({
 
   if (object.type === "stateImage") {
     const stateImageRunMacroAction = object.action?.type === "runMacro" ? object.action : undefined;
+    const activeState = object.states.find((state) => matchStateImageCondition(state.condition, stateImagePreviewValue));
+    const previewAssetId = activeState?.assetId ?? object.defaultAssetId;
+    const previewAsset = assets.find((asset) => asset.id === previewAssetId);
     return (
       <>
-        <Form.Item label="Tag">
-          <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
+        <Form.Item label="Source Tag">
+          <Input value={object.tag} onChange={(event) => onPatch({ tag: event.target.value } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Default Asset">
           <Select
@@ -454,25 +459,122 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ badQualityAssetId: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        <Form.Item label="States (JSON)">
-          <Input.TextArea
-            rows={6}
-            value={JSON.stringify(object.states, null, 2)}
-            onChange={(e) => {
-              try {
-                const parsed = JSON.parse(e.target.value) as Array<{
-                  id: string;
-                  name: string;
-                  condition: { type: "equals" | "notEquals" | "true" | "false"; value?: string | number | boolean };
-                  assetId: string;
-                }>;
-                onPatch({ states: parsed } as Partial<HmiObject>);
-              } catch {
-                // ignore typing
-              }
-            }}
-          />
-        </Form.Item>
+        <Typography.Text strong>States</Typography.Text>
+        <Button
+          size="small"
+          onClick={() =>
+            onPatch({
+              states: [
+                ...object.states,
+                {
+                  id: `state_${Math.random().toString(36).slice(2, 8)}`,
+                  name: `State ${object.states.length}`,
+                  condition: { type: "equals", value: object.states.length },
+                  assetId: "",
+                },
+              ],
+            } as Partial<HmiObject>)
+          }
+        >
+          Add State
+        </Button>
+        {object.states.map((state) => (
+          <Space key={state.id} direction="vertical" style={{ width: "100%", border: "1px solid #f0f0f0", borderRadius: 8, padding: 8 }}>
+            <Space wrap style={{ width: "100%" }}>
+              <Input
+                style={{ width: 170 }}
+                value={state.name}
+                placeholder="State name"
+                onChange={(event) =>
+                  onPatch({
+                    states: object.states.map((item) => (item.id === state.id ? { ...item, name: event.target.value } : item)),
+                  } as Partial<HmiObject>)
+                }
+              />
+              <Select
+                style={{ width: 130 }}
+                value={state.condition.type}
+                options={[
+                  { label: "equals", value: "equals" },
+                  { label: "notEquals", value: "notEquals" },
+                  { label: "true", value: "true" },
+                  { label: "false", value: "false" },
+                ]}
+                onChange={(value) => {
+                  if (value === "true" || value === "false") {
+                    onPatch({
+                      states: object.states.map((item) =>
+                        item.id === state.id ? { ...item, condition: { type: value } } : item,
+                      ),
+                    } as Partial<HmiObject>);
+                    return;
+                  }
+                  onPatch({
+                    states: object.states.map((item) =>
+                      item.id === state.id
+                        ? { ...item, condition: { type: value, value: "value" } }
+                        : item,
+                    ),
+                  } as Partial<HmiObject>);
+                }}
+              />
+              {state.condition.type === "equals" || state.condition.type === "notEquals" ? (
+                <Input
+                  style={{ width: 120 }}
+                  value={String(state.condition.value ?? "")}
+                  placeholder="Value"
+                  onChange={(event) =>
+                    onPatch({
+                      states: object.states.map((item) =>
+                        item.id === state.id
+                          ? {
+                              ...item,
+                              condition: {
+                                ...item.condition,
+                                value: parseConditionValue(event.target.value),
+                              },
+                            }
+                          : item,
+                      ),
+                    } as Partial<HmiObject>)
+                  }
+                />
+              ) : null}
+              <Select
+                style={{ minWidth: 220 }}
+                value={state.assetId}
+                placeholder="Select asset"
+                options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+                onChange={(value) =>
+                  onPatch({
+                    states: object.states.map((item) => (item.id === state.id ? { ...item, assetId: value } : item)),
+                  } as Partial<HmiObject>)
+                }
+              />
+              <Button
+                danger
+                size="small"
+                onClick={() =>
+                  onPatch({
+                    states: object.states.filter((item) => item.id !== state.id),
+                  } as Partial<HmiObject>)
+                }
+              >
+                Delete
+              </Button>
+            </Space>
+          </Space>
+        ))}
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Preview</Typography.Text>
+        <Input
+          value={stateImagePreviewValue}
+          placeholder="Test value"
+          onChange={(event) => setStateImagePreviewValue(event.target.value)}
+        />
+        <Typography.Text type="secondary">
+          Active state: {activeState?.name ?? "default"} | asset: {previewAsset?.name ?? previewAssetId ?? "none"}
+        </Typography.Text>
         <Form.Item label="Action Type">
           <Select
             value={object.action?.type ?? "none"}
@@ -750,6 +852,38 @@ function SpecificPropertyFields({
   }
 
   return <></>;
+}
+
+function parseConditionValue(value: string): string | number | boolean {
+  const normalized = value.trim();
+  if (normalized.toLowerCase() === "true") {
+    return true;
+  }
+  if (normalized.toLowerCase() === "false") {
+    return false;
+  }
+  const asNumber = Number(normalized);
+  if (Number.isFinite(asNumber) && normalized !== "") {
+    return asNumber;
+  }
+  return normalized;
+}
+
+function matchStateImageCondition(
+  condition: { type: "equals" | "notEquals" | "true" | "false"; value?: string | number | boolean },
+  rawValue: string,
+): boolean {
+  const parsed = parseConditionValue(rawValue);
+  if (condition.type === "true") {
+    return Boolean(parsed);
+  }
+  if (condition.type === "false") {
+    return !Boolean(parsed);
+  }
+  if (condition.type === "equals") {
+    return String(parsed) === String(condition.value);
+  }
+  return String(parsed) !== String(condition.value);
 }
 
 function hasTextStyle(

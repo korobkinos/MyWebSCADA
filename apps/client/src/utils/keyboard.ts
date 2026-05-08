@@ -24,6 +24,10 @@ export function isTextEditingTarget(target: EventTarget | null): boolean {
     return true;
   }
 
+  if (target.closest("[data-code-editor='true']")) {
+    return true;
+  }
+
   return false;
 }
 

@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-03T00:00:00.000Z",
+  "updatedAt": "2026-05-08T09:16:44.484Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -33,145 +33,116 @@
       "updatedAt": "2026-05-03T00:00:00.000Z",
       "storagePath": "assets/valve-open.svg",
       "previewUrl": "/api/libraries/amaks-basic-equipment/assets/valve_open_svg/file"
+    },
+    {
+      "id": "f908f864-26b3-48e3-bcb4-732b013f28f2",
+      "name": "black",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "f908f864-26b3-48e3-bcb4-732b013f28f2.png",
+      "size": 3565,
+      "createdAt": "2026-05-08T06:24:15.798Z",
+      "updatedAt": "2026-05-08T06:24:15.798Z",
+      "storagePath": "assets/f908f864-26b3-48e3-bcb4-732b013f28f2.png",
+      "previewUrl": "/api/libraries/amaks-basic-equipment/assets/f908f864-26b3-48e3-bcb4-732b013f28f2/file"
     }
   ],
   "elements": [
     {
-      "id": "valve-cutoff",
-      "name": "Клапан отсечной",
-      "description": "Шаблон клапана с картинками состояний",
-      "category": "Арматура",
+      "id": "element_qkwgwe",
+      "libraryId": "amaks-basic-equipment",
+      "elementKey": "PZK1",
+      "name": "ПЗК-1",
+      "description": "",
+      "category": "valves",
       "width": 220,
       "height": 120,
-      "previewAssetId": "valve_open_svg",
       "objects": [
         {
-          "id": "label",
-          "type": "text",
-          "x": 10,
-          "y": 0,
-          "width": 200,
-          "height": 22,
-          "text": "{{label}}",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 14,
-            "fontStyle": "bold",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 2
-          }
-        },
-        {
-          "id": "state_image",
-          "type": "image",
-          "x": 70,
-          "y": 24,
-          "width": 80,
-          "height": 46,
-          "assetId": "valve_closed_svg",
-          "fit": "contain",
-          "preserveAspectRatio": true,
-          "opacity": 1,
-          "stateTag": ".VisualState",
-          "stateImages": [
+          "id": "state_img_4gyecx",
+          "type": "stateImage",
+          "name": "valves",
+          "x": 66,
+          "y": 45,
+          "width": 90,
+          "height": 56,
+          "minWidth": 40,
+          "minHeight": 40,
+          "tag": ".State",
+          "states": [
             {
-              "state": 0,
-              "assetId": "valve_closed_svg"
+              "id": "state_7qih2d",
+              "name": "State 0",
+              "condition": {
+                "type": "equals",
+                "value": 0
+              },
+              "assetId": "f908f864-26b3-48e3-bcb4-732b013f28f2"
             },
             {
-              "state": 1,
-              "assetId": "valve_open_svg"
+              "id": "state_nqxuxv",
+              "name": "State 1",
+              "condition": {
+                "type": "equals",
+                "value": 1
+              },
+              "assetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0"
+            },
+            {
+              "id": "state_suse7j",
+              "name": "State 2",
+              "condition": {
+                "type": "equals",
+                "value": 2
+              },
+              "assetId": "edd18c1b-b49b-4269-85bc-a51c9786d8f8"
             }
-          ]
+          ],
+          "defaultAssetId": "f908f864-26b3-48e3-bcb4-732b013f28f2",
+          "fit": "contain",
+          "preserveAspectRatio": true
         },
         {
-          "id": "fault",
-          "type": "state-indicator",
-          "x": 8,
-          "y": 72,
-          "width": 204,
-          "height": 20,
-          "tag": ".Fault",
-          "trueText": "АВАРИЯ",
-          "falseText": "НОРМА",
-          "trueColor": "#f5222d",
-          "falseColor": "#2f7d32",
-          "badColor": "#8c8c8c",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 12,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 1
-          }
-        },
-        {
-          "id": "open",
-          "type": "button",
-          "x": 8,
-          "y": 94,
-          "width": 98,
-          "height": 22,
-          "text": "Открыть",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 11,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 1
-          },
-          "action": {
-            "type": "pulse",
-            "tag": ".OpenCmd",
-            "value": true,
-            "durationMs": 500,
-            "confirm": true,
-            "confirmText": "Открыть {{label}}?"
-          }
-        },
-        {
-          "id": "close",
-          "type": "button",
-          "x": 114,
-          "y": 94,
-          "width": 98,
-          "height": 22,
-          "text": "Закрыть",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 11,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 1
-          },
-          "action": {
-            "type": "pulse",
-            "tag": ".CloseCmd",
-            "value": true,
-            "durationMs": 500,
-            "confirm": true,
-            "confirmText": "Закрыть {{label}}?"
-          }
+          "id": "state_img_ojo66y",
+          "type": "stateImage",
+          "name": "move",
+          "x": 91.50553805816568,
+          "y": 17.505538058165733,
+          "width": 40,
+          "height": 40,
+          "rotation": 0,
+          "minWidth": 40,
+          "minHeight": 40,
+          "tag": ".State",
+          "states": [
+            {
+              "id": "state_rlzr24",
+              "name": "State 0",
+              "condition": {
+                "type": "equals",
+                "value": 0
+              },
+              "assetId": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1"
+            },
+            {
+              "id": "state_janmv5",
+              "name": "State 1",
+              "condition": {
+                "type": "equals",
+                "value": 1
+              },
+              "assetId": "766367c9-dc43-437f-9eeb-c5b7140db82d"
+            }
+          ],
+          "defaultAssetId": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1",
+          "fit": "contain",
+          "preserveAspectRatio": true
         }
       ],
-      "parameters": [
-        {
-          "name": "label",
-          "type": "string",
-          "defaultValue": "Клапан"
-        }
-      ],
-      "createdAt": "2026-05-03T00:00:00.000Z",
-      "updatedAt": "2026-05-03T00:00:00.000Z"
+      "parameters": [],
+      "stateRules": [],
+      "createdAt": "2026-05-08T06:46:42.460Z",
+      "updatedAt": "2026-05-08T09:16:44.484Z"
     }
   ]
 }
-

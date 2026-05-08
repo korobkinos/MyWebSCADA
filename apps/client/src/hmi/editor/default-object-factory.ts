@@ -172,21 +172,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         height: 100,
         minWidth: 40,
         minHeight: 40,
-        tag: "Valve_1.State",
-        states: [
-          {
-            id: id("state"),
-            name: "Open",
-            condition: { type: "equals", value: 1 },
-            assetId: "",
-          },
-          {
-            id: id("state"),
-            name: "Closed",
-            condition: { type: "equals", value: 0 },
-            assetId: "",
-          },
-        ],
+        tag: ".State",
+        states: [],
         fit: "contain",
         preserveAspectRatio: true,
       };

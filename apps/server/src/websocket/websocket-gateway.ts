@@ -8,6 +8,7 @@ export class WebSocketGateway {
   private readonly clients = new Set<WebSocket>();
   private readonly queue = new Map<string, TagValue>();
   private flushTimer: NodeJS.Timeout | undefined;
+  private unsubscribeTagListener: (() => void) | undefined;
 
   public constructor(
     private readonly tagStore: TagStore,
@@ -27,10 +28,32 @@ export class WebSocketGateway {
       });
     });
 
-    this.tagStore.subscribe((value) => {
+    this.unsubscribeTagListener = this.tagStore.subscribe((value) => {
       this.queue.set(value.name, value);
       this.ensureFlusher();
     });
+  }
+
+  public async close(): Promise<void> {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+
+    if (this.unsubscribeTagListener) {
+      this.unsubscribeTagListener();
+      this.unsubscribeTagListener = undefined;
+    }
+
+    this.queue.clear();
+    for (const client of this.clients) {
+      try {
+        client.close(1001, "Server shutdown");
+      } catch {
+        // ignore close errors during shutdown
+      }
+    }
+    this.clients.clear();
   }
 
   private ensureFlusher(): void {

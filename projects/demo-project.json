@@ -13,6 +13,78 @@
       "updatedAt": "2026-05-03T18:46:03.441Z",
       "storagePath": "assets/65685489-78e0-4e74-9a79-85929f242617.jpg",
       "previewUrl": "/api/assets/65685489-78e0-4e74-9a79-85929f242617/file"
+    },
+    {
+      "id": "f45a9489-2bb6-4a9d-ad3b-9b98e424db8f",
+      "name": "black.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "f45a9489-2bb6-4a9d-ad3b-9b98e424db8f.png",
+      "size": 3565,
+      "createdAt": "2026-05-08T06:23:41.131Z",
+      "updatedAt": "2026-05-08T06:23:41.131Z",
+      "storagePath": "assets/f45a9489-2bb6-4a9d-ad3b-9b98e424db8f.png",
+      "previewUrl": "/api/assets/f45a9489-2bb6-4a9d-ad3b-9b98e424db8f/file"
+    },
+    {
+      "id": "cf4007e7-9e78-43c0-a197-c4edc109e849",
+      "name": "blue.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "cf4007e7-9e78-43c0-a197-c4edc109e849.png",
+      "size": 3637,
+      "createdAt": "2026-05-08T06:23:43.778Z",
+      "updatedAt": "2026-05-08T06:23:43.778Z",
+      "storagePath": "assets/cf4007e7-9e78-43c0-a197-c4edc109e849.png",
+      "previewUrl": "/api/assets/cf4007e7-9e78-43c0-a197-c4edc109e849/file"
+    },
+    {
+      "id": "edd18c1b-b49b-4269-85bc-a51c9786d8f8",
+      "name": "white.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "edd18c1b-b49b-4269-85bc-a51c9786d8f8.png",
+      "size": 3592,
+      "createdAt": "2026-05-08T06:23:47.938Z",
+      "updatedAt": "2026-05-08T06:23:47.938Z",
+      "storagePath": "assets/edd18c1b-b49b-4269-85bc-a51c9786d8f8.png",
+      "previewUrl": "/api/assets/edd18c1b-b49b-4269-85bc-a51c9786d8f8/file"
+    },
+    {
+      "id": "2fdfe33c-47d0-403c-b846-9bd699dea9f0",
+      "name": "yellow.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "2fdfe33c-47d0-403c-b846-9bd699dea9f0.png",
+      "size": 3570,
+      "createdAt": "2026-05-08T06:23:51.115Z",
+      "updatedAt": "2026-05-08T06:23:51.115Z",
+      "storagePath": "assets/2fdfe33c-47d0-403c-b846-9bd699dea9f0.png",
+      "previewUrl": "/api/assets/2fdfe33c-47d0-403c-b846-9bd699dea9f0/file"
+    },
+    {
+      "id": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1",
+      "name": "square_0.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1.png",
+      "size": 2846,
+      "createdAt": "2026-05-08T09:13:57.558Z",
+      "updatedAt": "2026-05-08T09:13:57.558Z",
+      "storagePath": "assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1.png",
+      "previewUrl": "/api/assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1/file"
+    },
+    {
+      "id": "766367c9-dc43-437f-9eeb-c5b7140db82d",
+      "name": "square_1.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "766367c9-dc43-437f-9eeb-c5b7140db82d.png",
+      "size": 2844,
+      "createdAt": "2026-05-08T09:14:01.194Z",
+      "updatedAt": "2026-05-08T09:14:01.194Z",
+      "storagePath": "assets/766367c9-dc43-437f-9eeb-c5b7140db82d.png",
+      "previewUrl": "/api/assets/766367c9-dc43-437f-9eeb-c5b7140db82d/file"
     }
   ],
   "libraries": [
@@ -28,7 +100,7 @@
     {
       "id": "sim_1",
       "type": "simulated",
-      "enabled": false
+      "enabled": true
     }
   ],
   "tags": [
@@ -179,7 +251,7 @@
       "name": "Increment Counter",
       "language": "ts",
       "code": "const current = Number(api.readVariable('Counter') ?? 0); api.writeVariable('Counter', current + 1);",
-      "enabled": false,
+      "enabled": true,
       "triggers": [
         {
           "type": "interval",
@@ -234,6 +306,25 @@
         "toolboxCollapsed": false,
         "propertiesCollapsed": false,
         "objectTreeCollapsed": false
+      }
+    },
+    "dockLayout": {
+      "panels": {
+        "elementEditor.left": {
+          "id": "elementEditor.left",
+          "side": "left",
+          "hidden": false,
+          "size": 340,
+          "lastVisibleSize": 340
+        },
+        "elementEditor.right": {
+          "id": "elementEditor.right",
+          "side": "right",
+          "hidden": false,
+          "size": 591,
+          "lastVisibleSize": 591,
+          "detached": false
+        }
       }
     },
     "leftPanelWidth": 330,
@@ -483,37 +574,6 @@
           }
         },
         {
-          "id": "valve_inst_1",
-          "type": "libraryElementInstance",
-          "x": 336,
-          "y": 150,
-          "width": 230,
-          "height": 120,
-          "locked": false,
-          "libraryId": "amaks-basic-equipment",
-          "elementId": "valve-cutoff",
-          "tagPrefix": "Burner_1.PZK_1",
-          "parameterValues": {
-            "label": "ПЗК-1"
-          },
-          "scaleMode": "fit"
-        },
-        {
-          "id": "valve_inst_2",
-          "type": "libraryElementInstance",
-          "x": 336,
-          "y": 308,
-          "width": 230,
-          "height": 120,
-          "libraryId": "amaks-basic-equipment",
-          "elementId": "valve-cutoff",
-          "tagPrefix": "Burner_1.PZK_2",
-          "parameterValues": {
-            "label": "ПЗК-2"
-          },
-          "scaleMode": "fit"
-        },
-        {
           "id": "switch_6wi3oi",
           "type": "switch",
           "x": 669,
@@ -581,17 +641,18 @@
         {
           "id": "line_afkk4q",
           "type": "line",
-          "x": 438.4510775390375,
-          "y": 545.9306086204947,
-          "width": 66.53814807449706,
-          "height": 20.00000000000008,
+          "x": 438.49814046314316,
+          "y": 544.5956086861257,
+          "width": 66.53814807449699,
+          "height": 20.00000000000022,
+          "rotation": 89.61803379527072,
           "minWidth": 20,
           "minHeight": 10,
           "points": [
             0,
-            10.00000000000004,
-            66.53814807449706,
-            10.00000000000004
+            10.00000000000011,
+            66.53814807449699,
+            10.00000000000011
           ],
           "stroke": "#d9d9d9",
           "strokeWidth": 3
@@ -640,7 +701,7 @@
         {
           "id": "value-display_cn8v8o",
           "type": "value-display",
-          "x": 632,
+          "x": 625,
           "y": 319,
           "width": 220,
           "height": 36,
@@ -655,6 +716,22 @@
             "verticalAlign": "middle",
             "padding": 2
           }
+        },
+        {
+          "id": "lib_fqkyqv",
+          "type": "libraryElementInstance",
+          "x": 111,
+          "y": 473,
+          "width": 220,
+          "height": 120,
+          "visible": true,
+          "minWidth": 40,
+          "minHeight": 30,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "element_qkwgwe",
+          "tagPrefix": "",
+          "parameterValues": {},
+          "scaleMode": "fit"
         }
       ]
     },

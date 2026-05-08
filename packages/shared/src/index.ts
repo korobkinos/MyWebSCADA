@@ -8,3 +8,4 @@ export * from "./popup-reducer";
 export * from "./asset-library-types";
 export * from "./parameter-resolver";
 export * from "./editor-commands";
+export * from "./auth-types";

@@ -6,7 +6,7 @@ Web SCADA Lite - это расширяемая web-SCADA/HMI система на
 
 - Monorepo: `apps/server`, `apps/client`, `packages/shared`
 - Backend: Fastify + WebSocket, tag store, simulated driver, runtime
-- Frontend: Runtime + Editor (react-konva), инженерная авторизация
+- Frontend: Runtime + Editor (react-konva), role/permission authorization
 - Resize/drag/select объектов в Editor
 - Popup-окна и template/frame
 - Относительные теги с `tagPrefix` (`.Opened` -> `Pump_1.Opened`)
@@ -77,6 +77,14 @@ npm install
 npm run dev
 ```
 
+`pnpm dev` / `npm run dev` запускает единый Node dev-runner, который поднимает:
+- `@web-scada/server` (`tsx watch`)
+- `@web-scada/client` (`vite`)
+
+Остановка:
+- Нажмите `Ctrl+C` один раз.
+- Dev-runner корректно завершит оба процесса без `Terminate batch job (Y/N)` и без ввода `Y`.
+
 Открыть:
 - UI: `http://localhost:3000`
 - API: `http://localhost:3001/api/project`
@@ -88,20 +96,41 @@ pnpm test
 pnpm build
 ```
 
-## Инженерный вход
+Если после аварийного завершения порт остался занят:
 
-По умолчанию пароль инженера: `1234`.
+```bash
+pnpm dev:kill
+```
+
+Для ручной диагностики на Windows:
+
+```powershell
+netstat -ano | findstr :3001
+netstat -ano | findstr :5173
+taskkill /PID <pid> /F
+```
+
+## Аутентификация и пользователи
+
+При первом запуске создается default admin.
 
 Настройка в `.env`:
 
 ```env
-ENGINEER_PASSWORD=your_password
+DEFAULT_ADMIN_USERNAME=admin
+DEFAULT_ADMIN_PASSWORD=admin
+USERS_FILE=../../data/users.json
 PORT=3001
 PROJECT_FILE=../../projects/demo-project.json
 LIBRARIES_DIR=../../libraries
 ```
 
-В Runtime нажмите `Engineer` (правый верхний угол), после входа станет доступен переход в `Editor`.
+Если `DEFAULT_ADMIN_PASSWORD` не задан, сервер использует insecure fallback и пишет warning в лог.
+
+Логин:
+- Откройте `http://localhost:3000/login`
+- Войдите под admin
+- Управление пользователями: раздел `Users`
 
 ## Работа с графикой (новый подход)
 
@@ -140,7 +169,17 @@ LIBRARIES_DIR=../../libraries
 - `GET /api/drivers`
 - `POST /api/runtime/start`
 - `POST /api/runtime/stop`
-- `POST /api/auth/engineer`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
+- `POST /api/auth/change-password`
+
+### Users
+- `GET /api/users`
+- `POST /api/users`
+- `PUT /api/users/:id`
+- `DELETE /api/users/:id`
+- `POST /api/users/:id/change-password`
 
 ### Assets
 - `POST /api/assets/upload`

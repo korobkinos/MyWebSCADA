@@ -184,6 +184,10 @@ export class LibraryService {
 
   public async deleteElement(libraryId: string, elementId: string): Promise<void> {
     const library = await this.requireLibrary(libraryId);
+    const exists = library.elements.some((item) => item.id === elementId);
+    if (!exists) {
+      throw new Error("Element not found");
+    }
     library.elements = library.elements.filter((item) => item.id !== elementId);
     library.updatedAt = nowIso();
     await this.saveLibrary(library);

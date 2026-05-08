@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DeleteOutlined, LeftOutlined, PlusOutlined, RedoOutlined, RightOutlined, SaveOutlined, UndoOutlined } from "@ant-design/icons";
 import { Button, Card, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tooltip, Typography, message } from "antd";
-import type { DockPanelState, HmiObject, HmiScreen, LibraryElement, LibraryParameter, TagValue } from "@web-scada/shared";
+import type { Asset, DockPanelState, HmiObject, HmiScreen, LibraryElement, LibraryParameter, TagValue } from "@web-scada/shared";
 import { resolveTagName, resolveTemplateString } from "@web-scada/shared";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { ResizableDockPanel } from "../components/resizable-dock-panel";
@@ -34,25 +34,163 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function createDefaultElement(): LibraryElement {
+function getInsertPosition(
+  element: Pick<LibraryElement, "width" | "height">,
+  index: number,
+  objectWidth: number,
+  objectHeight: number,
+): { x: number; y: number } {
+  const padding = 10;
+  const step = 12;
+  const maxX = Math.max(padding, element.width - objectWidth - padding);
+  const maxY = Math.max(padding, element.height - objectHeight - padding);
+  const x = Math.min(maxX, padding + index * step);
+  const y = Math.min(maxY, padding + index * step);
+  return { x, y };
+}
+
+type CreateElementMode = "empty" | "template";
+type TemplateKind = "valve3" | "pump" | "indicator" | "button" | "custom";
+
+type NewElementFormValues = {
+  name: string;
+  elementKey: string;
+  description: string;
+  category: string;
+  width: number;
+  height: number;
+  creationMode: CreateElementMode;
+  templateKind: TemplateKind;
+};
+
+type StateImageRowDraft = {
+  id: string;
+  value: string;
+  name: string;
+  assetId?: string;
+};
+
+type DeleteElementDialogState =
+  | {
+      open: false;
+    }
+  | {
+      open: true;
+      mode: "discardDraft" | "deletePersisted";
+      libraryId: string;
+      elementId?: string;
+      elementName: string;
+      elementKey?: string;
+      category?: string;
+      localUsageCount?: number;
+    };
+
+function makeId(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createDefaultElement(input?: Partial<Pick<LibraryElement, "name" | "elementKey" | "description" | "category" | "width" | "height">>): LibraryElement {
   const now = new Date().toISOString();
   return {
-    id: `element_${Math.random().toString(36).slice(2, 8)}`,
-    elementKey: `element_${Math.random().toString(36).slice(2, 8)}`,
-    name: "Новый элемент",
-    description: "",
-    category: "",
-    width: 180,
-    height: 120,
+    id: makeId("element"),
+    elementKey: input?.elementKey ?? "",
+    name: input?.name ?? "New Element",
+    description: input?.description ?? "",
+    category: input?.category ?? "",
+    width: input?.width ?? 220,
+    height: input?.height ?? 120,
     objects: [],
-    parameters: [
-      { name: "tagPrefix", displayName: "Tag Prefix", type: "tagPrefix", defaultValue: "", required: false },
-      { name: "index", displayName: "Index", type: "index", defaultValue: 1, required: false },
-      { name: "label", displayName: "Label", type: "string", defaultValue: "Element", required: false },
-    ],
+    parameters: [],
     stateRules: [],
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+function parseStateValue(raw: string): string | number | boolean {
+  const normalized = raw.trim();
+  if (normalized.toLowerCase() === "true") {
+    return true;
+  }
+  if (normalized.toLowerCase() === "false") {
+    return false;
+  }
+  const asNumber = Number(normalized);
+  if (Number.isFinite(asNumber) && normalized !== "") {
+    return asNumber;
+  }
+  return normalized;
+}
+
+function findAssetByToken(libraryAssets: Asset[], token: string): Asset | undefined {
+  const lower = token.toLowerCase();
+  return libraryAssets.find((asset) => `${asset.id} ${asset.name} ${asset.fileName}`.toLowerCase().includes(lower));
+}
+
+function createTemplateElement(base: LibraryElement, kind: TemplateKind, libraryAssets: Asset[]): LibraryElement {
+  if (kind === "custom") {
+    return base;
+  }
+
+  if (kind === "button") {
+    const button = createObjectByType("button");
+    button.x = 50;
+    button.y = 38;
+    button.width = 120;
+    button.height = 44;
+    return { ...base, objects: [button] };
+  }
+
+  if (kind === "indicator") {
+    const indicator = createObjectByType("state-indicator");
+    indicator.x = 30;
+    indicator.y = 30;
+    indicator.width = Math.max(160, base.width - 60);
+    return { ...base, objects: [indicator] };
+  }
+
+  if (kind === "pump") {
+    const pump = createObjectByType("pump");
+    pump.x = 44;
+    pump.y = 20;
+    pump.width = 130;
+    pump.height = 90;
+    return { ...base, objects: [pump] };
+  }
+
+  const closed = findAssetByToken(libraryAssets, "closed") ?? libraryAssets[0];
+  const open = findAssetByToken(libraryAssets, "open") ?? closed ?? libraryAssets[0];
+  const middle = findAssetByToken(libraryAssets, "middle") ?? open ?? closed ?? libraryAssets[0];
+  const fault = findAssetByToken(libraryAssets, "fault") ?? middle ?? open ?? closed ?? libraryAssets[0];
+
+  const label = createObjectByType("text") as Extract<HmiObject, { type: "text" }>;
+  label.name = "label";
+  label.text = "{{label}}";
+  label.x = 10;
+  label.y = 0;
+  label.width = Math.max(140, base.width - 20);
+  label.height = 22;
+
+  const stateImage = createObjectByType("stateImage") as Extract<HmiObject, { type: "stateImage" }>;
+  stateImage.name = "state_image";
+  stateImage.x = Math.max(0, Math.round((base.width - 90) / 2));
+  stateImage.y = 28;
+  stateImage.width = 90;
+  stateImage.height = 56;
+  stateImage.tag = ".State";
+  stateImage.defaultAssetId = closed?.id;
+  const fallbackAssetId = closed?.id ?? open?.id ?? middle?.id ?? fault?.id ?? "";
+  stateImage.states = [
+    { id: makeId("state"), name: "Closed", condition: { type: "equals", value: 0 }, assetId: closed?.id ?? fallbackAssetId },
+    { id: makeId("state"), name: "Open", condition: { type: "equals", value: 1 }, assetId: open?.id ?? fallbackAssetId },
+    { id: makeId("state"), name: "Middle", condition: { type: "equals", value: 2 }, assetId: middle?.id ?? fallbackAssetId },
+    { id: makeId("state"), name: "Fault", condition: { type: "equals", value: 3 }, assetId: fault?.id ?? fallbackAssetId },
+  ];
+
+  return {
+    ...base,
+    objects: [label, stateImage],
+    parameters: [{ name: "label", type: "string", defaultValue: "Valve", description: "Label text" }],
   };
 }
 
@@ -80,10 +218,21 @@ function updateObjectInList(objects: HmiObject[], objectId: string, updater: (cu
   });
 }
 
-function removeObjectInList(objects: HmiObject[], objectId: string): HmiObject[] {
+function removeObjectsInList(objects: HmiObject[], ids: Set<string>): HmiObject[] {
   return objects
-    .filter((item) => item.id !== objectId)
-    .map((item) => (item.type === "group" ? { ...item, objects: removeObjectInList(item.objects, objectId) } : item));
+    .filter((item) => !ids.has(item.id))
+    .map((item) => (item.type === "group" ? { ...item, objects: removeObjectsInList(item.objects, ids) } : item));
+}
+
+function flattenObjectIds(objects: HmiObject[]): string[] {
+  const ids: string[] = [];
+  for (const object of objects) {
+    ids.push(object.id);
+    if (object.type === "group") {
+      ids.push(...flattenObjectIds(object.objects));
+    }
+  }
+  return ids;
 }
 
 function resolveParameterValue(param: LibraryParameter, raw: string): unknown {
@@ -120,6 +269,22 @@ function countElementUsages(project: ReturnType<typeof useScadaStore.getState>["
   return count;
 }
 
+function toActionErrorMessage(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  const normalized = text.toLowerCase();
+  if (
+    normalized.includes("engineer auth required") ||
+    normalized.includes("engineer authentication required") ||
+    normalized.includes("401")
+  ) {
+    return "Authentication required. Please sign in again.";
+  }
+  if (normalized.includes("403") || normalized.includes("insufficient permissions") || normalized.includes("required:")) {
+    return "Insufficient permissions for this action.";
+  }
+  return text;
+}
+
 export function ElementEditorPage() {
   const project = useScadaStore((s) => s.project);
   const tags = useScadaStore((s) => s.tags);
@@ -127,12 +292,15 @@ export function ElementEditorPage() {
   const assets = useScadaStore((s) => s.assets);
   const loadLibraries = useScadaStore((s) => s.loadLibraries);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
+  const canElementsWrite = useScadaStore((s) => s.hasPermission("elements.write"));
+  const canElementsDelete = useScadaStore((s) => s.hasPermission("elements.delete"));
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const dockLayout = useDockLayout(defaultDockPanels, { autoSaveMs: 900 });
 
   const [selectedLibraryId, setSelectedLibraryId] = useState<string>("");
   const [selectedElementId, setSelectedElementId] = useState<string>("");
   const [draftElement, setDraftElement] = useState<LibraryElement | null>(null);
+  const [draftIsNew, setDraftIsNew] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [search, setSearch] = useState("");
@@ -144,12 +312,62 @@ export function ElementEditorPage() {
   const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
   const [previewStateTag, setPreviewStateTag] = useState(".State");
   const [previewStateValue, setPreviewStateValue] = useState<string>("0");
+  const [newElementModalOpen, setNewElementModalOpen] = useState(false);
+  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+  const [assetPickerTargetObjectId, setAssetPickerTargetObjectId] = useState<string>();
+  const [stateImageWizardOpen, setStateImageWizardOpen] = useState(false);
+  const [stateImageDraftRows, setStateImageDraftRows] = useState<StateImageRowDraft[]>([
+    { id: makeId("state"), value: "0", name: "State 0", assetId: undefined },
+  ]);
+  const [stateImageWizardTag, setStateImageWizardTag] = useState(".State");
+  const [stateImageWizardName, setStateImageWizardName] = useState("state_image");
+  const [stateImageWizardWidth, setStateImageWizardWidth] = useState(90);
+  const [stateImageWizardHeight, setStateImageWizardHeight] = useState(56);
+  const [uploadingAsset, setUploadingAsset] = useState(false);
+  const [deletingElement, setDeletingElement] = useState(false);
+  const [deleteElementDialog, setDeleteElementDialog] = useState<DeleteElementDialogState>({ open: false });
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [newElementForm] = Form.useForm<NewElementFormValues>();
+  const creationMode = Form.useWatch("creationMode", newElementForm);
   const history = useSnapshotHistory<LibraryElement>({ maxSteps: 50 });
 
   const leftPanel = dockLayout.getPanelState("elementEditor.left") ?? defaultDockPanels[0]!;
   const rightPanel = dockLayout.getPanelState("elementEditor.right") ?? defaultDockPanels[1]!;
 
   const selectedLibrary = libraries.find((library) => library.id === selectedLibraryId) ?? null;
+  const selectedLibraryAssets = selectedLibrary?.assets ?? [];
+  const availableAssets = useMemo(() => {
+    const byId = new Map<string, Asset>();
+    for (const asset of assets) {
+      byId.set(asset.id, asset);
+    }
+    for (const asset of selectedLibraryAssets) {
+      byId.set(asset.id, asset);
+    }
+    for (const library of libraries) {
+      for (const asset of library.assets) {
+        if (!byId.has(asset.id)) {
+          byId.set(asset.id, asset);
+        }
+      }
+    }
+    return [...byId.values()];
+  }, [assets, libraries, selectedLibraryAssets]);
+  const availableAssetMap = useMemo(() => new Map(availableAssets.map((asset) => [asset.id, asset])), [availableAssets]);
+  const elementEditorProject = useMemo(() => {
+    if (!project) {
+      return null;
+    }
+    const projectAssets = project.assets ?? [];
+    const mergedAssets = new Map(projectAssets.map((asset) => [asset.id, asset]));
+    for (const asset of availableAssets) {
+      mergedAssets.set(asset.id, asset);
+    }
+    return {
+      ...project,
+      assets: [...mergedAssets.values()],
+    };
+  }, [availableAssets, project]);
   const filteredElements = useMemo(() => {
     const list = selectedLibrary?.elements ?? [];
     const term = search.trim().toLowerCase();
@@ -162,6 +380,15 @@ export function ElementEditorPage() {
     }
     return byCategory.filter((item) => item.name.toLowerCase().includes(term) || item.id.toLowerCase().includes(term));
   }, [categoryFilter, search, selectedLibrary?.elements]);
+  const displayElements = useMemo(() => {
+    if (!draftIsNew || !draftElement) {
+      return filteredElements.map((item) => ({ ...item, isDraft: false }));
+    }
+    return [
+      { ...draftElement, id: draftElement.id || "__draft__", name: `${draftElement.name || "New Element"} *`, isDraft: true },
+      ...filteredElements.filter((item) => item.id !== draftElement.id).map((item) => ({ ...item, isDraft: false })),
+    ];
+  }, [draftElement, draftIsNew, filteredElements]);
 
   const categoryOptions = useMemo(() => {
     const categories = new Set(
@@ -176,6 +403,8 @@ export function ElementEditorPage() {
     if (!dirty) {
       setSelectedLibraryId(nextLibraryId);
       setSelectedElementId("");
+      setDraftElement(null);
+      setDraftIsNew(false);
       return;
     }
     Modal.confirm({
@@ -187,6 +416,8 @@ export function ElementEditorPage() {
         setDirty(false);
         setSelectedLibraryId(nextLibraryId);
         setSelectedElementId("");
+        setDraftElement(null);
+        setDraftIsNew(false);
       },
     });
   };
@@ -216,7 +447,7 @@ export function ElementEditorPage() {
       return;
     }
     if (!selectedElementId) {
-      if (selectedLibrary.elements[0]) {
+      if (!draftIsNew && selectedLibrary.elements[0]) {
         setSelectedElementId(selectedLibrary.elements[0].id);
       }
       return;
@@ -236,6 +467,7 @@ export function ElementEditorPage() {
         setSelectedObjectIds([]);
         setActiveObjectId(undefined);
         setDirty(false);
+        setDraftIsNew(false);
         history.clear();
       } catch (error) {
         if (!cancelled) {
@@ -246,7 +478,7 @@ export function ElementEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedElementId, selectedLibrary]);
+  }, [draftIsNew, selectedElementId, selectedLibrary]);
 
   const activeObject = useMemo(() => {
     if (!draftElement || !activeObjectId) {
@@ -267,6 +499,120 @@ export function ElementEditorPage() {
     }
     return null;
   }, [activeObjectId, draftElement]);
+
+  const currentPersistedElementId = useMemo(() => {
+    if (draftIsNew) {
+      return "";
+    }
+    return selectedElementId || draftElement?.id || "";
+  }, [draftElement?.id, draftIsNew, selectedElementId]);
+
+  const selectedPersistedElement = useMemo(
+    () =>
+      selectedLibrary?.elements.find((item) => item.id === currentPersistedElementId) ??
+      (draftElement && draftElement.id === currentPersistedElementId ? draftElement : null),
+    [currentPersistedElementId, draftElement, selectedLibrary?.elements],
+  );
+
+  const deleteElementDisabledReason = useMemo(() => {
+    if (!canElementsDelete) {
+      return "Insufficient permissions: elements.delete";
+    }
+    if (deletingElement) {
+      return "Deleting...";
+    }
+    if (!draftIsNew && !currentPersistedElementId) {
+      return "Select element";
+    }
+    return undefined;
+  }, [canElementsDelete, currentPersistedElementId, deletingElement, draftIsNew]);
+
+  const deleteDialogUsageCount = deleteElementDialog.open ? (deleteElementDialog.localUsageCount ?? 0) : 0;
+
+  const findObjectById = (objectId: string): HmiObject | null => {
+    if (!draftElement) {
+      return null;
+    }
+    const stack: HmiObject[] = [...draftElement.objects];
+    while (stack.length > 0) {
+      const item = stack.shift();
+      if (!item) {
+        continue;
+      }
+      if (item.id === objectId) {
+        return item;
+      }
+      if (item.type === "group") {
+        stack.push(...item.objects);
+      }
+    }
+    return null;
+  };
+
+  const deleteSelectedElementObjects = (source: "keyboard" | "toolbar" | "properties") => {
+    if (!draftElement) {
+      return;
+    }
+    if (!canElementsDelete) {
+      void message.warning("Insufficient permissions: elements.delete");
+      return;
+    }
+
+    const sourceIds = selectedObjectIds.length > 0 ? selectedObjectIds : activeObjectId ? [activeObjectId] : [];
+    if (sourceIds.length === 0) {
+      return;
+    }
+
+    const existing = new Set(flattenObjectIds(draftElement.objects));
+    const selectedIds = sourceIds.filter((id) => existing.has(id));
+    if (selectedIds.length === 0) {
+      return;
+    }
+
+    const lockedIds = selectedIds.filter((id) => Boolean(findObjectById(id)?.locked));
+    const deletableIds = selectedIds.filter((id) => !lockedIds.includes(id));
+    if (deletableIds.length === 0) {
+      void message.warning("Selected objects are locked and cannot be deleted.");
+      return;
+    }
+    const deletableSet = new Set(deletableIds);
+
+    const hasStateRuleReferences = (draftElement.stateRules ?? []).some((rule) =>
+      rule.cases.some((stateCase) => stateCase.actions.some((action) => deletableSet.has(action.objectId))),
+    );
+
+    const performDelete = () => {
+      updateDraftWithHistory(`Delete objects (${source})`, (current) => ({
+        ...current,
+        objects: removeObjectsInList(current.objects, deletableSet),
+        stateRules: (current.stateRules ?? []).map((rule) => ({
+          ...rule,
+          cases: rule.cases.map((stateCase) => ({
+            ...stateCase,
+            actions: stateCase.actions.filter((action) => !deletableSet.has(action.objectId)),
+          })),
+        })),
+      }));
+      setSelectedObjectIds([]);
+      setActiveObjectId(undefined);
+      if (lockedIds.length > 0) {
+        void message.warning("Some locked objects were skipped.");
+      }
+    };
+
+    if (hasStateRuleReferences) {
+      Modal.confirm({
+        title: "Object is referenced by state rules",
+        content: "Delete object and remove references from state rules?",
+        okText: "Delete",
+        okButtonProps: { danger: true },
+        onOk: performDelete,
+      });
+      return;
+    }
+
+    performDelete();
+  };
 
   const previewParameters = useMemo(() => {
     if (!draftElement) {
@@ -370,31 +716,23 @@ export function ElementEditorPage() {
 
       if (ctrlOrMeta && key === "s") {
         event.preventDefault();
+        if (!canElementsWrite) {
+          void message.warning("Insufficient permissions: elements.write");
+          return;
+        }
         void saveElement();
         return;
       }
 
       if (!editing && (event.key === "Delete" || event.key === "Backspace")) {
-        if (!activeObjectId) {
-          return;
-        }
-        if (activeObject?.locked) {
-          void message.warning("Locked objects were not deleted.");
-          return;
-        }
         event.preventDefault();
-        updateDraftWithHistory("Delete object", (current) => ({
-          ...current,
-          objects: removeObjectInList(current.objects, activeObjectId),
-        }));
-        setSelectedObjectIds([]);
-        setActiveObjectId(undefined);
+        deleteSelectedElementObjects("keyboard");
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeObject, activeObjectId, draftElement, history]);
+  }, [canElementsWrite, deleteSelectedElementObjects, draftElement, history]);
 
   if (!project) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -418,64 +756,233 @@ export function ElementEditorPage() {
   };
 
   const addObject = (type: HmiObject["type"]) => {
+    if (!canElementsWrite) {
+      void message.warning("Insufficient permissions: elements.write");
+      return;
+    }
     if (!draftElement) {
       return;
     }
     const object = createObjectByType(type);
-    object.x = 60 + draftElement.objects.length * 8;
-    object.y = 60 + draftElement.objects.length * 8;
+    const position = getInsertPosition(draftElement, draftElement.objects.length, object.width, object.height);
+    object.x = position.x;
+    object.y = position.y;
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug("[ElementEditor] addObject", {
+        object,
+        elementSize: [draftElement.width, draftElement.height],
+        objectsCount: draftElement.objects.length,
+      });
+    }
     setObjects((prev) => [...prev, object]);
     setSelectedObjectIds([object.id]);
     setActiveObjectId(object.id);
   };
 
-  const addImageFromAsset = (assetId: string) => {
+  const addImageFromAsset = (assetId: string, targetObjectId?: string) => {
+    if (!canElementsWrite) {
+      void message.warning("Insufficient permissions: elements.write");
+      return;
+    }
+    const sourceAsset = availableAssetMap.get(assetId);
+    if (!sourceAsset) {
+      void message.error(`Asset not found in cache: ${assetId}`);
+      return;
+    }
+    if (targetObjectId) {
+      setObjects((prev) =>
+        updateObjectInList(prev, targetObjectId, (item) => {
+          if (item.type === "image") {
+            return {
+              ...item,
+              assetId,
+              width: sourceAsset?.width ?? item.width ?? 80,
+              height: sourceAsset?.height ?? item.height ?? 80,
+            };
+          }
+          if (item.type === "stateImage") {
+            return {
+              ...item,
+              defaultAssetId: assetId,
+            };
+          }
+          return item;
+        }),
+      );
+      setAssetPickerOpen(false);
+      setAssetPickerTargetObjectId(undefined);
+      return;
+    }
+
+    if (!draftElement) {
+      return;
+    }
+
     const image = createObjectByType("image") as Extract<HmiObject, { type: "image" }>;
     image.assetId = assetId;
-    image.width = 100;
-    image.height = 80;
+    image.width = sourceAsset?.width ?? 80;
+    image.height = sourceAsset?.height ?? 80;
+    const position = getInsertPosition(draftElement, draftElement.objects.length, image.width, image.height);
+    image.x = position.x;
+    image.y = position.y;
     setObjects((prev) => [...prev, image]);
     setSelectedObjectIds([image.id]);
     setActiveObjectId(image.id);
+    setAssetPickerOpen(false);
+    setAssetPickerTargetObjectId(undefined);
   };
 
-  const newElement = () => {
+  const openAssetPicker = (targetObjectId?: string) => {
+    if (!canElementsWrite) {
+      void message.warning("Insufficient permissions: elements.write");
+      return;
+    }
+    if (!draftElement) {
+      return;
+    }
+    setAssetPickerTargetObjectId(targetObjectId);
+    setAssetPickerOpen(true);
+  };
+
+  const uploadAssetToLibrary = async (file: File) => {
+    if (!selectedLibraryId) {
+      void message.warning("Select library first");
+      return;
+    }
+    setUploadingAsset(true);
+    try {
+      await api.uploadLibraryAsset(selectedLibraryId, file);
+      await loadLibraries();
+      void message.success("Asset uploaded");
+    } catch (error) {
+      void message.error(toActionErrorMessage(error) || "Failed to upload asset");
+    } finally {
+      setUploadingAsset(false);
+    }
+  };
+
+  const openStateImageWizard = () => {
+    if (!canElementsWrite) {
+      void message.warning("Insufficient permissions: elements.write");
+      return;
+    }
+    if (!draftElement) {
+      return;
+    }
+    setStateImageWizardOpen(true);
+    setStateImageWizardName(`state_image_${(draftElement.objects.length ?? 0) + 1}`);
+    setStateImageWizardTag(".State");
+    setStateImageWizardWidth(90);
+    setStateImageWizardHeight(56);
+    setStateImageDraftRows([{ id: makeId("state"), value: "0", name: "State 0" }]);
+  };
+
+  const createStateImageFromWizard = () => {
+    if (!draftElement) {
+      return;
+    }
+    const normalizedRows = stateImageDraftRows.filter((row) => row.value.trim() !== "" && row.assetId);
+    if (!normalizedRows.length) {
+      void message.warning("Add at least one state with selected asset");
+      return;
+    }
+    const object = createObjectByType("stateImage") as Extract<HmiObject, { type: "stateImage" }>;
+    object.name = stateImageWizardName.trim() || "state_image";
+    object.tag = stateImageWizardTag.trim() || ".State";
+    object.width = Math.max(20, Number(stateImageWizardWidth || 90));
+    object.height = Math.max(20, Number(stateImageWizardHeight || 56));
+    const position = getInsertPosition(draftElement, draftElement.objects.length, object.width, object.height);
+    object.x = position.x;
+    object.y = position.y;
+    object.states = normalizedRows.map((row) => ({
+      id: row.id || makeId("state"),
+      name: row.name.trim() || `State ${row.value}`,
+      condition: { type: "equals", value: parseStateValue(row.value) },
+      assetId: row.assetId ?? "",
+    }));
+    object.defaultAssetId = normalizedRows[0]?.assetId;
+
+    setObjects((prev) => [...prev, object]);
+    setSelectedObjectIds([object.id]);
+    setActiveObjectId(object.id);
+    setPreviewStateTag(object.tag);
+    setPreviewStateValue(normalizedRows[0]?.value ?? "0");
+    setStateImageWizardOpen(false);
+  };
+
+  const applyNewDraft = (next: LibraryElement, asNew: boolean) => {
+    setDraftElement(next);
+    setSelectedElementId(asNew ? "" : next.id);
+    setDraftIsNew(asNew);
+    setSelectedObjectIds([]);
+    setActiveObjectId(undefined);
+    setStateRulesJson(JSON.stringify(next.stateRules ?? [], null, 2));
+    setPreviewValues(
+      Object.fromEntries((next.parameters ?? []).map((param) => [param.name, String(param.defaultValue ?? "")])),
+    );
+    setDirty(true);
+    history.clear();
+  };
+
+  const openNewElementDialog = (mode: CreateElementMode) => {
+    const current = draftElement;
+    const seed: NewElementFormValues = {
+      name: current?.name || "New Element",
+      elementKey: "",
+      description: "",
+      category: "",
+      width: current?.width ?? 220,
+      height: current?.height ?? 120,
+      creationMode: mode,
+      templateKind: "valve3",
+    };
+    newElementForm.setFieldsValue(seed);
+    setNewElementModalOpen(true);
+  };
+
+  const createNewElement = () => {
+    const values = newElementForm.getFieldsValue();
+    const base = createDefaultElement({
+      name: values.name || "New Element",
+      elementKey: values.elementKey ?? "",
+      description: values.description ?? "",
+      category: values.category ?? "",
+      width: Number(values.width ?? 220),
+      height: Number(values.height ?? 120),
+    });
+    const next =
+      values.creationMode === "template"
+        ? createTemplateElement(base, values.templateKind ?? "valve3", selectedLibraryAssets)
+        : base;
+    applyNewDraft(next, true);
+    setNewElementModalOpen(false);
+    if (values.creationMode === "template") {
+      void message.success("Template draft created");
+    } else {
+      void message.success("Empty element draft created");
+    }
+  };
+
+  const newElement = (mode: CreateElementMode = "empty") => {
     if (dirty) {
       Modal.confirm({
         title: "Unsaved changes",
         content: "Discard current draft and create new element?",
         okText: "Discard",
         cancelText: "Cancel",
-        onOk: () => {
-          const element = createDefaultElement();
-          setDraftElement(element);
-          setSelectedElementId("");
-          setSelectedObjectIds([]);
-          setActiveObjectId(undefined);
-          setStateRulesJson(JSON.stringify([], null, 2));
-          setPreviewValues(
-            Object.fromEntries((element.parameters ?? []).map((param) => [param.name, String(param.defaultValue ?? "")])),
-          );
-          setDirty(true);
-          history.clear();
-        },
+        onOk: () => openNewElementDialog(mode),
       });
       return;
     }
-    const element = createDefaultElement();
-    setDraftElement(element);
-    setSelectedElementId("");
-    setSelectedObjectIds([]);
-    setActiveObjectId(undefined);
-    setStateRulesJson(JSON.stringify([], null, 2));
-    setPreviewValues(
-      Object.fromEntries((element.parameters ?? []).map((param) => [param.name, String(param.defaultValue ?? "")])),
-    );
-    setDirty(true);
-    history.clear();
+    openNewElementDialog(mode);
   };
 
   async function saveElement() {
+    if (!canElementsWrite) {
+      void message.warning("Insufficient permissions: elements.write");
+      return;
+    }
     if (!selectedLibraryId) {
       void message.warning("Select library first");
       return;
@@ -508,44 +1015,188 @@ export function ElementEditorPage() {
       createdAt: draftElement.createdAt || new Date().toISOString(),
     };
 
-    const existing = selectedLibrary?.elements.find((item) => item.id === normalized.id);
-    if (existing) {
-      await api.updateLibraryElement(selectedLibraryId, normalized.id, normalized);
-    } else {
-      await api.createLibraryElement(selectedLibraryId, normalized);
+    try {
+      const existing = selectedLibrary?.elements.find((item) => item.id === normalized.id);
+      if (existing) {
+        await api.updateLibraryElement(selectedLibraryId, normalized.id, normalized);
+      } else {
+        await api.createLibraryElement(selectedLibraryId, normalized);
+      }
+      await loadLibraries();
+      setSelectedElementId(normalized.id);
+      setDraftElement(normalized);
+      setDraftIsNew(false);
+      setDirty(false);
+      void message.success("Element saved");
+    } catch (error) {
+      void message.error(toActionErrorMessage(error) || "Failed to save element");
+      return;
     }
-    await loadLibraries();
-    setSelectedElementId(normalized.id);
-    setDraftElement(normalized);
-    setDirty(false);
-    void message.success("Element saved");
   }
 
-  const deleteElement = async () => {
-    if (!selectedLibraryId || !selectedElementId) {
-      return;
-    }
-    const usageCount = countElementUsages(project, selectedLibraryId, selectedElementId);
-    if (usageCount > 0) {
-      void message.warning(`Element is used ${usageCount} time(s) on screens. Detach references before delete.`);
-      return;
-    }
-    Modal.confirm({
-      title: "Delete element",
-      content: `Delete element "${draftElement?.name ?? selectedElementId}" from library "${selectedLibrary?.name ?? selectedLibraryId}"?`,
-      okText: "Delete",
-      okButtonProps: { danger: true },
-      cancelText: "Cancel",
-      onOk: async () => {
-        await api.deleteLibraryElement(selectedLibraryId, selectedElementId);
-        await loadLibraries();
-        setSelectedElementId("");
-        setDraftElement(null);
-        setDirty(false);
-        history.clear();
-        void message.success("Element deleted");
-      },
+  const deleteCurrentLibraryElement = async () => {
+    // eslint-disable-next-line no-console
+    console.log("[ElementEditor] deleteCurrentLibraryElement start", {
+      selectedElement: selectedPersistedElement,
+      draftElement,
+      selectedLibraryId,
+      draftIsNew,
+      currentPersistedElementId,
+      canElementsDelete,
     });
+    if (!canElementsDelete) {
+      void message.warning("Insufficient permissions: elements.delete");
+      return;
+    }
+    if (!selectedLibraryId) {
+      void message.warning("Select library first");
+      return;
+    }
+
+    if (draftIsNew || !currentPersistedElementId) {
+      if (!draftElement) {
+        void message.warning("No element selected");
+        return;
+      }
+      setDeleteElementDialog({
+        open: true,
+        mode: "discardDraft",
+        libraryId: selectedLibraryId,
+        elementName: draftElement.name,
+      });
+      return;
+    }
+
+    const selectedElement = selectedPersistedElement;
+    if (!selectedElement) {
+      void message.warning("Selected element is not available");
+      return;
+    }
+
+    const localUsageCount = countElementUsages(project, selectedLibraryId, currentPersistedElementId);
+
+    setDeleteElementDialog({
+      open: true,
+      mode: "deletePersisted",
+      libraryId: selectedLibraryId,
+      elementId: currentPersistedElementId,
+      elementName: selectedElement.name,
+      elementKey: selectedElement.elementKey,
+      category: selectedElement.category,
+      localUsageCount,
+    });
+  };
+
+  const confirmDeleteElementDialog = async () => {
+    if (!deleteElementDialog.open) {
+      return;
+    }
+
+    if (deleteElementDialog.mode === "discardDraft") {
+      setDraftElement(null);
+      setDraftIsNew(false);
+      setDirty(false);
+      setSelectedObjectIds([]);
+      setActiveObjectId(undefined);
+      history.clear();
+      setDeleteElementDialog({ open: false });
+      void message.success("Draft discarded");
+      return;
+    }
+
+    const deletingId = deleteElementDialog.elementId;
+    if (!deletingId) {
+      void message.error("Element id is empty");
+      return;
+    }
+
+    const forceDeleteByUsage = (deleteElementDialog.localUsageCount ?? 0) > 0;
+    const url = `/api/libraries/${encodeURIComponent(deleteElementDialog.libraryId)}/elements/${encodeURIComponent(deletingId)}`;
+    // eslint-disable-next-line no-console
+      console.log("[ElementEditor] sending DELETE", {
+        libraryId: deleteElementDialog.libraryId,
+        elementId: deletingId,
+        elementKey: deleteElementDialog.elementKey,
+        elementName: deleteElementDialog.elementName,
+        forceDeleteByUsage,
+        url,
+      });
+
+    setDeletingElement(true);
+    try {
+      const deleteResult = await api.deleteLibraryElement(deleteElementDialog.libraryId, deletingId, {
+        force: forceDeleteByUsage,
+      });
+      // eslint-disable-next-line no-console
+      console.log("[ElementEditor] DELETE success", { elementId: deletingId, deleteResult });
+      const remainingElements = (selectedLibrary?.elements ?? []).filter((item) => item.id !== deletingId);
+      const nextId = remainingElements[0]?.id ?? "";
+      await loadLibraries();
+      setSelectedElementId(nextId);
+      setDraftElement(null);
+      setDraftIsNew(false);
+      setDirty(false);
+      setSelectedObjectIds([]);
+      setActiveObjectId(undefined);
+      history.clear();
+      setDeleteElementDialog({ open: false });
+      if (forceDeleteByUsage) {
+        void message.success(`Element deleted with instances removed: ${deleteResult.removedUsages ?? 0}`);
+      } else {
+        void message.success("Element deleted");
+      }
+    } catch (error) {
+      const knownError = error as Error & {
+        status?: number;
+        details?: { usage?: Array<{ screenName?: string; objectId: string }> };
+      };
+      // eslint-disable-next-line no-console
+      console.error("[ElementEditor] DELETE failed", knownError);
+      if (knownError.status === 409 && Array.isArray(knownError.details?.usage)) {
+        setDeleteElementDialog({ open: false });
+        const lines = knownError.details.usage
+          .slice(0, 12)
+          .map((item, index) => `${index + 1}. ${item.screenName || "Screen"} / ${item.objectId}`);
+        Modal.confirm({
+          title: "Element is used in screens",
+          content: (
+            <div>
+              <div>This element is referenced by instances:</div>
+              <pre style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{lines.join("\n")}</pre>
+              <div style={{ marginTop: 8 }}>
+                Delete element together with all listed instances from project screens?
+              </div>
+            </div>
+          ),
+          okText: "Delete With Instances",
+          okButtonProps: { danger: true },
+          cancelText: "Cancel",
+          onOk: async () => {
+            try {
+              const result = await api.deleteLibraryElement(deleteElementDialog.libraryId, deletingId, { force: true });
+              const nextProject = await api.getProject();
+              updateProjectJson(nextProject);
+              await loadLibraries();
+              setSelectedElementId("");
+              setDraftElement(null);
+              setDraftIsNew(false);
+              setDirty(false);
+              setSelectedObjectIds([]);
+              setActiveObjectId(undefined);
+              history.clear();
+              setDeleteElementDialog({ open: false });
+              void message.success(`Element deleted. Removed usages: ${result.removedUsages ?? 0}`);
+            } catch (forceError) {
+              void message.error(toActionErrorMessage(forceError) || "Failed to force delete element");
+            }
+          },
+        });
+        return;
+      }
+      void message.error(toActionErrorMessage(knownError) || "Failed to delete element");
+    } finally {
+      setDeletingElement(false);
+    }
   };
 
   const duplicateElement = async () => {
@@ -561,22 +1212,34 @@ export function ElementEditorPage() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    await api.createLibraryElement(selectedLibraryId, copy);
-    await loadLibraries();
-    setSelectedElementId(copy.id);
-    void message.success("Element duplicated");
+    try {
+      await api.createLibraryElement(selectedLibraryId, copy);
+      await loadLibraries();
+      setSelectedElementId(copy.id);
+      setDraftIsNew(false);
+      void message.success("Element duplicated");
+    } catch (error) {
+      void message.error(toActionErrorMessage(error) || "Failed to duplicate element");
+    }
   };
 
   const attachLibrary = async () => {
     if (!selectedLibraryId) {
       return;
     }
-    const next = await api.attachLibrary(selectedLibraryId);
-    updateProjectJson(next);
-    void message.success("Library attached to project");
+    try {
+      const next = await api.attachLibrary(selectedLibraryId);
+      updateProjectJson(next);
+      void message.success("Library attached to project");
+    } catch (error) {
+      void message.error(toActionErrorMessage(error) || "Failed to attach library");
+    }
   };
 
   const handleDropAsset = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!canElementsWrite) {
+      return;
+    }
     event.preventDefault();
     const raw = event.dataTransfer.getData("application/web-scada-asset");
     if (!raw) {
@@ -584,10 +1247,13 @@ export function ElementEditorPage() {
     }
     try {
       const payload = JSON.parse(raw) as { assetId: string };
+      const sourceAsset = availableAssetMap.get(payload.assetId);
       const image = createObjectByType("image") as Extract<HmiObject, { type: "image" }>;
       image.assetId = payload.assetId;
-      image.x = Math.max(0, event.nativeEvent.offsetX - image.width / 2);
-      image.y = Math.max(0, event.nativeEvent.offsetY - image.height / 2);
+      image.width = sourceAsset?.width ?? image.width;
+      image.height = sourceAsset?.height ?? image.height;
+      image.x = clamp(Math.max(0, event.nativeEvent.offsetX - image.width / 2), 0, Math.max(0, (draftElement?.width ?? image.width) - image.width));
+      image.y = clamp(Math.max(0, event.nativeEvent.offsetY - image.height / 2), 0, Math.max(0, (draftElement?.height ?? image.height) - image.height));
       setObjects((prev) => [...prev, image]);
       setSelectedObjectIds([image.id]);
       setActiveObjectId(image.id);
@@ -634,18 +1300,62 @@ export function ElementEditorPage() {
             options={categoryOptions.map((item) => ({ label: item === "all" ? "All categories" : item, value: item }))}
           />
           <Space wrap>
-            <Button icon={<PlusOutlined />} onClick={newElement}>New</Button>
+            <Button icon={<PlusOutlined />} onClick={() => newElement("empty")}>New</Button>
+            <Button onClick={() => newElement("template")}>New from Template</Button>
             <Button onClick={() => void duplicateElement()} disabled={!draftElement}>Duplicate</Button>
-            <Button danger onClick={() => void deleteElement()} disabled={!selectedElementId}>Delete</Button>
+            <Tooltip title={draftIsNew ? "Discard unsaved draft" : deleteElementDisabledReason}>
+              <Button
+                danger
+                onClick={() => {
+                  // eslint-disable-next-line no-console
+                  console.log("[ElementEditor] Delete button clicked");
+                  // eslint-disable-next-line no-console
+                  console.log("[ElementEditor] selectedElement", selectedPersistedElement);
+                  // eslint-disable-next-line no-console
+                  console.log("[ElementEditor] draftElement", draftElement);
+                  // eslint-disable-next-line no-console
+                  console.log("[ElementEditor] selectedLibraryId", selectedLibraryId);
+                  // eslint-disable-next-line no-console
+                  console.log("[ElementEditor] permissions", useScadaStore.getState().authUser?.permissions ?? []);
+                  // eslint-disable-next-line no-console
+                  console.log("[ElementEditor] Delete button state", {
+                    disabled: deletingElement,
+                    reason: draftIsNew ? "Discard unsaved draft" : deleteElementDisabledReason,
+                    selectedElementId: selectedPersistedElement?.id,
+                    selectedElementKey: selectedPersistedElement?.elementKey,
+                    hasPermission: canElementsDelete,
+                  });
+                  if (deleteElementDisabledReason && !draftIsNew) {
+                    void message.warning(deleteElementDisabledReason);
+                  }
+                  void deleteCurrentLibraryElement();
+                }}
+                loading={deletingElement}
+                disabled={deletingElement}
+              >
+                {draftIsNew ? "Discard Draft" : "Delete Element"}
+              </Button>
+            </Tooltip>
             <Button onClick={() => void attachLibrary()} disabled={!selectedLibraryId}>Attach Library</Button>
           </Space>
+          {import.meta.env.DEV ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              debug: selectedElementId={selectedElementId || "-"}, draftId={draftElement?.id || "-"}, draftIsNew=
+              {String(draftIsNew)}, deleteReason={deleteElementDisabledReason || "-"}
+            </Typography.Text>
+          ) : null}
           <List
             size="small"
-            dataSource={filteredElements}
+            dataSource={displayElements}
             renderItem={(item) => (
               <List.Item
-                style={{ cursor: "pointer", background: selectedElementId === item.id ? "#e6f4ff" : undefined, borderRadius: 6 }}
+                style={{ cursor: "pointer", background: (item.isDraft ? draftIsNew : selectedElementId === item.id) ? "#e6f4ff" : undefined, borderRadius: 6 }}
                 onClick={() => {
+                  if (item.isDraft) {
+                    setDraftIsNew(true);
+                    setSelectedElementId("");
+                    return;
+                  }
                   if (dirty) {
                     Modal.confirm({
                       title: "Unsaved changes",
@@ -655,15 +1365,18 @@ export function ElementEditorPage() {
                       onOk: async () => {
                         await saveElement();
                         setSelectedElementId(item.id);
+                        setDraftIsNew(false);
                       },
                       onCancel: () => {
                         setDirty(false);
                         setSelectedElementId(item.id);
+                        setDraftIsNew(false);
                       },
                     });
                     return;
                   }
                   setSelectedElementId(item.id);
+                  setDraftIsNew(false);
                 }}
               >
                 <Space direction="vertical" size={0}>
@@ -704,32 +1417,30 @@ export function ElementEditorPage() {
                 }
               }} disabled={!draftElement || !history.canRedo} />
             </Tooltip>
-            <Button type="primary" icon={<SaveOutlined />} onClick={() => void saveElement()} disabled={!draftElement}>
+            <Button
+              type="primary"
+              icon={<SaveOutlined />}
+              onClick={() => void saveElement()}
+              disabled={!draftElement || !canElementsWrite}
+              title={canElementsWrite ? undefined : "Insufficient permissions: elements.write"}
+            >
               Save
             </Button>
             <Tooltip title="Delete selected object Del/Backspace">
-              <Button icon={<DeleteOutlined />} onClick={() => {
-                if (!activeObjectId) {
-                  return;
-                }
-                if (activeObject?.locked) {
-                  void message.warning("Locked objects were not deleted.");
-                  return;
-                }
-                updateDraftWithHistory("Delete object", (current) => ({
-                  ...current,
-                  objects: removeObjectInList(current.objects, activeObjectId),
-                }));
-                setSelectedObjectIds([]);
-                setActiveObjectId(undefined);
-              }} disabled={!activeObjectId} />
+              <Button
+                icon={<DeleteOutlined />}
+                onClick={() => deleteSelectedElementObjects("toolbar")}
+                disabled={(!activeObjectId && selectedObjectIds.length === 0) || !canElementsDelete}
+              />
             </Tooltip>
             <Switch checked={previewMode} onChange={setPreviewMode} checkedChildren="Preview" unCheckedChildren="Edit" />
-            <Button onClick={() => addObject("image")} disabled={!draftElement}>Add Image</Button>
-            <Button onClick={() => addObject("text")} disabled={!draftElement}>Add Text</Button>
-            <Button onClick={() => addObject("line")} disabled={!draftElement}>Add Line</Button>
-            <Button onClick={() => addObject("rectangle")} disabled={!draftElement}>Add Rectangle</Button>
-            <Button onClick={() => addObject("stateImage")} disabled={!draftElement}>Add StateImage</Button>
+            <Button onClick={() => openAssetPicker()} disabled={!draftElement || !canElementsWrite}>Add Image</Button>
+            <Button onClick={() => openStateImageWizard()} disabled={!draftElement || !canElementsWrite}>Add State Image</Button>
+            <Button onClick={() => addObject("text")} disabled={!draftElement || !canElementsWrite}>Add Text</Button>
+            <Button onClick={() => addObject("line")} disabled={!draftElement || !canElementsWrite}>Add Line</Button>
+            <Button onClick={() => addObject("rectangle")} disabled={!draftElement || !canElementsWrite}>Add Rectangle</Button>
+            <Button onClick={() => addObject("button")} disabled={!draftElement || !canElementsWrite}>Add Button</Button>
+            <Button onClick={() => addObject("state-indicator")} disabled={!draftElement || !canElementsWrite}>Add Indicator</Button>
             <Typography.Text type={dirty ? "warning" : "secondary"}>{dirty ? "Unsaved changes" : "Saved"}</Typography.Text>
           </Space>
         </Card>
@@ -746,8 +1457,8 @@ export function ElementEditorPage() {
             style={{ minHeight: 0, overflow: "auto" }}
           >
             {virtualScreen ? (
-              <HmiStage
-                project={project}
+                <HmiStage
+                  project={elementEditorProject ?? project}
                 mode={previewMode ? "runtime" : "editor"}
                 screen={virtualScreen}
                 tags={previewTags}
@@ -791,6 +1502,17 @@ export function ElementEditorPage() {
                   setObjects((objects) =>
                     updateObjectInList(objects, id, (item) => ({ ...item, ...patch } as HmiObject)),
                   );
+                }}
+                onContextMenuObject={({ objectId }) => {
+                  if (previewMode) {
+                    return;
+                  }
+                  const object = findObjectById(objectId);
+                  if (object?.type === "image" || object?.type === "stateImage") {
+                    setSelectedObjectIds([objectId]);
+                    setActiveObjectId(objectId);
+                    openAssetPicker(objectId);
+                  }
                 }}
               />
             ) : (
@@ -941,7 +1663,7 @@ export function ElementEditorPage() {
                 <ObjectPropertyPanel
                   project={project}
                   screen={virtualScreen}
-                  assets={[...assets, ...(selectedLibrary?.assets ?? [])]}
+                  assets={availableAssets}
                   libraries={libraries}
                   object={activeObject}
                   onPatch={(patch) => {
@@ -953,16 +1675,7 @@ export function ElementEditorPage() {
                     );
                   }}
                   onDelete={() => {
-                    if (!activeObject) {
-                      return;
-                    }
-                    if (activeObject.locked) {
-                      void message.warning("Locked objects were not deleted.");
-                      return;
-                    }
-                    setObjects((objects) => removeObjectInList(objects, activeObject.id));
-                    setSelectedObjectIds([]);
-                    setActiveObjectId(undefined);
+                    deleteSelectedElementObjects("properties");
                   }}
                 />
               ) : (
@@ -975,9 +1688,16 @@ export function ElementEditorPage() {
               children: (
                 <Space direction="vertical" style={{ width: "100%" }}>
                   <Typography.Text type="secondary">Drag asset to canvas or click Add</Typography.Text>
+                  <Button
+                    onClick={() => uploadInputRef.current?.click()}
+                    loading={uploadingAsset}
+                    disabled={!selectedLibraryId}
+                  >
+                    Upload Asset
+                  </Button>
                   <List
                     size="small"
-                    dataSource={selectedLibrary?.assets ?? []}
+                    dataSource={availableAssets}
                     renderItem={(asset) => (
                       <List.Item
                         draggable
@@ -1008,6 +1728,21 @@ export function ElementEditorPage() {
                   <Typography.Text type="secondary">
                     JSON rules. Source tag supports relative values like <code>.State</code>.
                   </Typography.Text>
+                  <Button
+                    onClick={() => {
+                      const nextRule: NonNullable<LibraryElement["stateRules"]>[number] = {
+                        id: makeId("rule"),
+                        name: "New Rule",
+                        source: { type: "tag", value: ".State" },
+                        cases: [],
+                      };
+                      const nextRules = [...(draftElement.stateRules ?? []), nextRule];
+                      applyDraftPatch({ stateRules: nextRules });
+                      setStateRulesJson(JSON.stringify(nextRules, null, 2));
+                    }}
+                  >
+                    Add State Rule
+                  </Button>
                   <Input.TextArea rows={12} value={stateRulesJson} onChange={(event) => setStateRulesJson(event.target.value)} />
                   <Button
                     onClick={() => {
@@ -1055,6 +1790,227 @@ export function ElementEditorPage() {
           />
         </div>
       </ResizableDockPanel>
+
+      <Modal
+        open={deleteElementDialog.open}
+        title={deleteElementDialog.open && deleteElementDialog.mode === "discardDraft" ? "Discard unsaved draft" : "Delete element"}
+        onCancel={() => setDeleteElementDialog({ open: false })}
+        onOk={() => void confirmDeleteElementDialog()}
+        okText={
+          deleteElementDialog.open && deleteElementDialog.mode === "discardDraft"
+            ? "Discard"
+            : deleteDialogUsageCount > 0
+              ? "Delete With Instances"
+              : "Delete"
+        }
+        okButtonProps={{ danger: true, loading: deletingElement }}
+        cancelText="Cancel"
+        zIndex={5000}
+      >
+        {deleteElementDialog.open && deleteElementDialog.mode === "discardDraft" ? (
+          <Typography.Text>
+            Discard unsaved element "{deleteElementDialog.elementName}"?
+          </Typography.Text>
+        ) : deleteElementDialog.open ? (
+          <div>
+            <div>Name: {deleteElementDialog.elementName}</div>
+            <div>Element Key: {deleteElementDialog.elementKey || "-"}</div>
+            <div>Library: {selectedLibrary?.name ?? deleteElementDialog.libraryId}</div>
+            <div>Category: {deleteElementDialog.category || "-"}</div>
+            <div>Current local usage count: {deleteDialogUsageCount}</div>
+            <div style={{ marginTop: 8 }}>
+              {deleteDialogUsageCount > 0
+                ? "Element is used in screens. You can delete it together with all instances."
+                : "Delete this element permanently?"}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        title="Create Element"
+        open={newElementModalOpen}
+        onCancel={() => setNewElementModalOpen(false)}
+        onOk={createNewElement}
+        okText="Create"
+      >
+        <Form form={newElementForm} layout="vertical" size="small">
+          <Form.Item name="name" label="Name" rules={[{ required: true, message: "Name is required" }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="elementKey" label="Element Key">
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Description">
+            <Input />
+          </Form.Item>
+          <Form.Item name="category" label="Category">
+            <Input />
+          </Form.Item>
+          <Space style={{ width: "100%" }}>
+            <Form.Item name="width" label="Canvas Width" style={{ flex: 1 }}>
+              <InputNumber min={20} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="height" label="Canvas Height" style={{ flex: 1 }}>
+              <InputNumber min={20} style={{ width: "100%" }} />
+            </Form.Item>
+          </Space>
+          <Form.Item name="creationMode" label="Creation Mode">
+            <Select
+              options={[
+                { label: "Empty", value: "empty" },
+                { label: "From Template", value: "template" },
+              ]}
+            />
+          </Form.Item>
+          {creationMode === "template" ? (
+            <Form.Item name="templateKind" label="Template">
+              <Select
+                options={[
+                  { label: "Valve 3 States", value: "valve3" },
+                  { label: "Pump", value: "pump" },
+                  { label: "Indicator", value: "indicator" },
+                  { label: "Button", value: "button" },
+                  { label: "Custom template", value: "custom" },
+                ]}
+              />
+            </Form.Item>
+          ) : null}
+        </Form>
+      </Modal>
+
+      <Modal
+        title={assetPickerTargetObjectId ? "Replace image" : "Add image"}
+        open={assetPickerOpen}
+        onCancel={() => {
+          setAssetPickerOpen(false);
+          setAssetPickerTargetObjectId(undefined);
+        }}
+        footer={null}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Button onClick={() => uploadInputRef.current?.click()} loading={uploadingAsset} disabled={!selectedLibraryId}>
+            Upload Asset
+          </Button>
+          <List
+            size="small"
+            dataSource={availableAssets}
+            locale={{ emptyText: "No assets in this library. Upload image first." }}
+            renderItem={(asset) => (
+              <List.Item
+                actions={[
+                  <Button key="use" size="small" type="primary" onClick={() => addImageFromAsset(asset.id, assetPickerTargetObjectId)}>
+                    {assetPickerTargetObjectId ? "Replace" : "Add"}
+                  </Button>,
+                ]}
+              >
+                <Space direction="vertical" size={0}>
+                  <Typography.Text>{asset.name}</Typography.Text>
+                  <Typography.Text type="secondary">{asset.fileName}</Typography.Text>
+                </Space>
+              </List.Item>
+            )}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        title="Add State Image"
+        open={stateImageWizardOpen}
+        onCancel={() => setStateImageWizardOpen(false)}
+        onOk={createStateImageFromWizard}
+        okText="Create"
+        width={780}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Form layout="vertical" size="small">
+            <Form.Item label="Object name">
+              <Input value={stateImageWizardName} onChange={(event) => setStateImageWizardName(event.target.value)} />
+            </Form.Item>
+            <Form.Item label="Source tag">
+              <Input value={stateImageWizardTag} onChange={(event) => setStateImageWizardTag(event.target.value)} placeholder=".State" />
+            </Form.Item>
+            <Space style={{ width: "100%" }}>
+              <Form.Item label="Width" style={{ flex: 1 }}>
+                <InputNumber min={20} style={{ width: "100%" }} value={stateImageWizardWidth} onChange={(value) => setStateImageWizardWidth(Number(value ?? 90))} />
+              </Form.Item>
+              <Form.Item label="Height" style={{ flex: 1 }}>
+                <InputNumber min={20} style={{ width: "100%" }} value={stateImageWizardHeight} onChange={(value) => setStateImageWizardHeight(Number(value ?? 56))} />
+              </Form.Item>
+            </Space>
+          </Form>
+          <Button
+            onClick={() =>
+              setStateImageDraftRows((prev) => [...prev, { id: makeId("state"), value: String(prev.length), name: `State ${prev.length}` }])
+            }
+          >
+            Add State
+          </Button>
+          <List
+            size="small"
+            dataSource={stateImageDraftRows}
+            renderItem={(row) => (
+              <List.Item
+                actions={[
+                  <Button key="del" danger size="small" onClick={() => setStateImageDraftRows((prev) => prev.filter((item) => item.id !== row.id))}>
+                    Delete
+                  </Button>,
+                ]}
+              >
+                <Space wrap style={{ width: "100%" }}>
+                  <Input
+                    style={{ width: 110 }}
+                    placeholder="Value"
+                    value={row.value}
+                    onChange={(event) =>
+                      setStateImageDraftRows((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, value: event.target.value } : item)),
+                      )
+                    }
+                  />
+                  <Input
+                    style={{ width: 170 }}
+                    placeholder="State name"
+                    value={row.name}
+                    onChange={(event) =>
+                      setStateImageDraftRows((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, name: event.target.value } : item)),
+                      )
+                    }
+                  />
+                  <Select
+                    style={{ minWidth: 260 }}
+                    value={row.assetId}
+                    placeholder="Select asset"
+                    options={availableAssets.map((asset) => ({ label: asset.name, value: asset.id }))}
+                    onChange={(value) =>
+                      setStateImageDraftRows((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, assetId: value } : item)),
+                      )
+                    }
+                  />
+                </Space>
+              </List.Item>
+            )}
+          />
+        </Space>
+      </Modal>
+
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/svg+xml"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.currentTarget.value = "";
+          if (!file) {
+            return;
+          }
+          void uploadAssetToLibrary(file);
+        }}
+      />
     </div>
   );
 }
+
