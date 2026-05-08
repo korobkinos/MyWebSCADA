@@ -284,12 +284,56 @@ const stateImageObjectSchema = hmiBaseSchema.extend({
   action: runtimeActionSchema.optional(),
 });
 
+const prefixApplyModeSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("none") }),
+  z.object({
+    type: z.literal("segment"),
+    segmentIndex: z.number().int().nonnegative(),
+    position: z.enum(["append", "prepend"]),
+  }),
+  z.object({
+    type: z.literal("segmentByName"),
+    segmentName: z.string().min(1),
+    position: z.enum(["append", "prepend"]),
+  }),
+  z.object({
+    type: z.literal("lastSegment"),
+    position: z.enum(["append", "prepend"]),
+  }),
+]);
+
+const indexApplyModeSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("none") }),
+  z.object({
+    type: z.literal("arrayIndex"),
+    occurrence: z.number().int().nonnegative(),
+    operation: z.literal("add"),
+    valueFrom: z.literal("indexOffset"),
+  }),
+  z.object({
+    type: z.literal("arrayIndexBySegment"),
+    segmentName: z.string().min(1),
+    operation: z.literal("add"),
+    valueFrom: z.literal("indexOffset"),
+  }),
+]);
+
+const elementBindingAssignmentSchema = z.object({
+  baseTag: z.string(),
+  prefix: z.string().optional(),
+  prefixMode: prefixApplyModeSchema.optional(),
+  indexOffset: z.number().int().optional(),
+  indexMode: indexApplyModeSchema.optional(),
+  overrideTag: z.string().optional(),
+});
+
 const libraryElementInstanceSchema = hmiBaseSchema.extend({
   type: z.literal("libraryElementInstance"),
   libraryId: z.string().min(1),
   elementId: z.string().min(1),
   tagPrefix: z.string().optional(),
   parameterValues: z.record(z.unknown()).optional(),
+  bindingAssignments: z.record(elementBindingAssignmentSchema).optional(),
   scaleMode: z.enum(["none", "fit", "stretch"]).optional(),
 });
 
@@ -415,6 +459,18 @@ const elementStateRuleSchema = z.object({
   cases: z.array(elementStateCaseSchema),
 });
 
+const elementBindingDefinitionSchema = z.object({
+  id: z.string().min(1),
+  key: z.string().min(1),
+  displayName: z.string().min(1),
+  description: z.string().optional(),
+  kind: z.enum(["tag", "writeTag", "state", "command", "custom"]),
+  dataType: z.enum(["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"]).optional(),
+  required: z.boolean().optional(),
+  defaultBaseTag: z.string().optional(),
+  overridable: z.boolean().optional(),
+});
+
 export const libraryElementSchema = z.object({
   id: z.string().min(1),
   libraryId: z.string().min(1).optional(),
@@ -426,6 +482,7 @@ export const libraryElementSchema = z.object({
   height: z.number().positive(),
   previewAssetId: z.string().optional(),
   objects: z.array(hmiObjectSchema),
+  bindings: z.array(elementBindingDefinitionSchema).optional(),
   parameters: z.array(libraryParameterSchema).optional(),
   stateRules: z.array(elementStateRuleSchema).optional(),
   createdAt: z.string().min(1),

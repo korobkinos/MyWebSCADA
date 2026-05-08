@@ -189,6 +189,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         minHeight: 40,
         libraryId: "",
         elementId: "",
+        bindingAssignments: {},
         scaleMode: "fit",
       };
     case "valve":

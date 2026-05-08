@@ -1,4 +1,5 @@
 import type { HmiObject } from "./hmi-object-types";
+import type { ExtendedTagDataType } from "./tag-types";
 
 export type AssetType = "png" | "jpg" | "jpeg" | "svg";
 
@@ -43,6 +44,38 @@ export type LibraryParameter = {
   type: "string" | "number" | "boolean" | "color" | "tag" | "tagPrefix" | "index";
   defaultValue?: unknown;
   required?: boolean;
+};
+
+export type PrefixApplyMode =
+  | { type: "none" }
+  | { type: "segment"; segmentIndex: number; position: "append" | "prepend" }
+  | { type: "segmentByName"; segmentName: string; position: "append" | "prepend" }
+  | { type: "lastSegment"; position: "append" | "prepend" };
+
+export type IndexApplyMode =
+  | { type: "none" }
+  | { type: "arrayIndex"; occurrence: number; operation: "add"; valueFrom: "indexOffset" }
+  | { type: "arrayIndexBySegment"; segmentName: string; operation: "add"; valueFrom: "indexOffset" };
+
+export type ElementBindingAssignment = {
+  baseTag: string;
+  prefix?: string;
+  prefixMode?: PrefixApplyMode;
+  indexOffset?: number;
+  indexMode?: IndexApplyMode;
+  overrideTag?: string;
+};
+
+export type ElementBindingDefinition = {
+  id: string;
+  key: string;
+  displayName: string;
+  description?: string;
+  kind: "tag" | "writeTag" | "state" | "command" | "custom";
+  dataType?: ExtendedTagDataType;
+  required?: boolean;
+  defaultBaseTag?: string;
+  overridable?: boolean;
 };
 
 export type ElementStateAction =
@@ -116,6 +149,7 @@ export type LibraryElement = {
   height: number;
   previewAssetId?: string;
   objects: HmiObject[];
+  bindings?: ElementBindingDefinition[];
   parameters?: LibraryParameter[];
   stateRules?: ElementStateRule[];
   createdAt: string;

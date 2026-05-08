@@ -9,3 +9,4 @@ export * from "./asset-library-types";
 export * from "./parameter-resolver";
 export * from "./editor-commands";
 export * from "./auth-types";
+export * from "./element-binding-resolver";

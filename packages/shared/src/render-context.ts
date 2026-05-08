@@ -1,6 +1,7 @@
 export type RenderContext = {
   tagPrefix?: string;
   parameters?: Record<string, unknown>;
+  bindings?: Record<string, string>;
 };
 
 import type { RuntimeAction } from "./hmi-object-types";
@@ -23,6 +24,18 @@ export function combineTagPrefix(parentPrefix?: string, childPrefix?: string): s
 export function resolveTagName(tag: string | undefined, context: RenderContext): string | undefined {
   if (!tag) {
     return tag;
+  }
+
+  if (tag.startsWith("$binding.")) {
+    const bindingKey = tag.slice("$binding.".length).trim();
+    if (!bindingKey) {
+      return undefined;
+    }
+    const bound = context.bindings?.[bindingKey];
+    if (!bound) {
+      return undefined;
+    }
+    return resolveTagName(bound, { ...context, bindings: undefined });
   }
 
   if (!tag.startsWith(".")) {

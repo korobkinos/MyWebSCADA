@@ -1,3 +1,5 @@
+import type { ElementBindingAssignment } from "./asset-library-types";
+
 export type ExpressionBinding = {
   mode: "tag" | "expr";
   source: string;
@@ -264,6 +266,7 @@ export type LibraryElementInstanceObject = HmiObjectBase & {
   elementId: string;
   tagPrefix?: string;
   parameterValues?: Record<string, unknown>;
+  bindingAssignments?: Record<string, ElementBindingAssignment>;
   scaleMode?: "none" | "fit" | "stretch";
 };
 

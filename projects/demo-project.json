@@ -293,7 +293,7 @@
         "collapsedWidth": 36
       },
       "topArea": {
-        "collapsed": false,
+        "collapsed": true,
         "compact": false
       },
       "canvasToolbar": {
@@ -321,15 +321,14 @@
           "id": "elementEditor.right",
           "side": "right",
           "hidden": false,
-          "size": 591,
-          "lastVisibleSize": 591,
-          "detached": false
+          "size": 380,
+          "lastVisibleSize": 380
         }
       }
     },
     "leftPanelWidth": 330,
     "rightPanelWidth": 372,
-    "showObjectFrames": true,
+    "showObjectFrames": false,
     "panels": [
       {
         "id": "screens",
@@ -530,8 +529,8 @@
         {
           "id": "btn_counter",
           "type": "button",
-          "x": 40,
-          "y": 250,
+          "x": 85,
+          "y": 279.5,
           "width": 220,
           "height": 40,
           "text": "Counter++",
@@ -552,8 +551,8 @@
         {
           "id": "btn_popup",
           "type": "button",
-          "x": 40,
-          "y": 300,
+          "x": 329,
+          "y": 279.5,
           "width": 220,
           "height": 40,
           "text": "Управление ПЗК-1",
@@ -585,31 +584,6 @@
           "tag": "Burner_1.StartCmd",
           "onText": "ON",
           "offText": "OFF",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 16,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 4
-          }
-        },
-        {
-          "id": "state_5o7iy4",
-          "type": "state-indicator",
-          "x": 80,
-          "y": 413,
-          "width": 160,
-          "height": 44,
-          "minWidth": 80,
-          "minHeight": 28,
-          "tag": "Burner_1.Flame",
-          "trueText": "ХУЙ",
-          "falseText": "НЕ ХУЙ",
-          "trueColor": "#389e0d",
-          "falseColor": "#595959",
-          "badColor": "#bfbfbf",
           "textStyle": {
             "fontFamily": "Arial",
             "fontSize": 16,
@@ -660,7 +634,7 @@
         {
           "id": "line_uka3i4",
           "type": "line",
-          "x": 425,
+          "x": 429,
           "y": 602,
           "width": 140,
           "height": 20,

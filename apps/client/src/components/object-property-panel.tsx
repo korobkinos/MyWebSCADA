@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Asset, ElementLibrary, HmiObject, HmiScreen, ScadaProject, TextStyle } from "@web-scada/shared";
+import { parseTagSegments, resolveElementBindingAssignment } from "@web-scada/shared";
 import { Button, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 
@@ -629,6 +630,32 @@ function SpecificPropertyFields({
     const elementOptions = (selectedLibrary?.elements ?? []).map((element) => ({ label: element.name, value: element.id }));
     const selectedElement = selectedLibrary?.elements.find((element) => element.id === object.elementId);
     const parameterValues = object.parameterValues ?? {};
+    const bindingAssignments = object.bindingAssignments ?? {};
+    const bindingDefinitions = selectedElement?.bindings ?? [];
+    const knownTags = new Set(project.tags.map((tag) => tag.name));
+
+    const patchBindingAssignment = (bindingKey: string, patch: Partial<NonNullable<typeof bindingAssignments>[string]>) => {
+      const current = bindingAssignments[bindingKey] ?? {
+        baseTag: "",
+        prefixMode: { type: "none" as const },
+        indexMode: { type: "none" as const },
+      };
+      onPatch({
+        bindingAssignments: {
+          ...bindingAssignments,
+          [bindingKey]: {
+            ...current,
+            ...patch,
+          },
+        },
+      } as Partial<HmiObject>);
+    };
+
+    const removeBindingAssignment = (bindingKey: string) => {
+      const next = { ...bindingAssignments };
+      delete next[bindingKey];
+      onPatch({ bindingAssignments: next } as Partial<HmiObject>);
+    };
     return (
       <>
         <Form.Item label="Library">
@@ -659,6 +686,191 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ scaleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
+        {bindingDefinitions.length ? (
+          <>
+            <Divider style={{ margin: "10px 0" }} />
+            <Typography.Text strong>Bindings</Typography.Text>
+            {bindingDefinitions.map((binding) => {
+              const assignment = bindingAssignments[binding.key] ?? {
+                baseTag: binding.defaultBaseTag ?? "",
+                prefixMode: { type: "none" as const },
+                indexMode: { type: "none" as const },
+              };
+              const segments = parseTagSegments(assignment.baseTag || binding.defaultBaseTag || "");
+              const prefixModeValue =
+                assignment.prefixMode?.type === "segment"
+                  ? `segment:${assignment.prefixMode.segmentIndex}:${assignment.prefixMode.position}`
+                  : assignment.prefixMode?.type === "lastSegment"
+                    ? `last:${assignment.prefixMode.position}`
+                    : "none";
+              const arrayTargets = segments.flatMap((segment, segmentIndex) =>
+                /\[-?\d+\]/.test(segment) ? [{ segment, segmentIndex }] : [],
+              );
+              const indexModeValue =
+                assignment.indexMode?.type === "arrayIndex"
+                  ? `arrayIndex:${assignment.indexMode.occurrence}`
+                  : assignment.indexMode?.type === "arrayIndexBySegment"
+                    ? `arrayBySegment:${assignment.indexMode.segmentName}`
+                    : "none";
+              const resolvedTag = resolveElementBindingAssignment(assignment, binding.defaultBaseTag);
+              const tagExists = resolvedTag ? knownTags.has(resolvedTag) : false;
+
+              return (
+                <Space
+                  key={binding.id}
+                  direction="vertical"
+                  style={{ width: "100%", border: "1px solid #f0f0f0", borderRadius: 8, padding: 8 }}
+                >
+                  <Typography.Text>{binding.displayName} ({binding.key})</Typography.Text>
+                  <Input
+                    addonBefore="Base tag"
+                    value={assignment.baseTag}
+                    placeholder={binding.defaultBaseTag ?? ".State"}
+                    onChange={(event) => patchBindingAssignment(binding.key, { baseTag: event.target.value })}
+                  />
+                  <Space wrap style={{ width: "100%" }}>
+                    <Input
+                      style={{ width: 130 }}
+                      addonBefore="Prefix"
+                      value={assignment.prefix ?? ""}
+                      onChange={(event) => patchBindingAssignment(binding.key, { prefix: event.target.value })}
+                    />
+                    <Select
+                      style={{ minWidth: 230 }}
+                      value={prefixModeValue}
+                      options={[
+                        { label: "No prefix", value: "none" },
+                        ...segments.map((segment, segmentIndex) => ({
+                          label: `Segment ${segmentIndex}: ${segment} (append)`,
+                          value: `segment:${segmentIndex}:append`,
+                        })),
+                        ...segments.map((segment, segmentIndex) => ({
+                          label: `Segment ${segmentIndex}: ${segment} (prepend)`,
+                          value: `segment:${segmentIndex}:prepend`,
+                        })),
+                        { label: "Last segment (append)", value: "last:append" },
+                        { label: "Last segment (prepend)", value: "last:prepend" },
+                      ]}
+                      onChange={(value) => {
+                        if (value === "none") {
+                          patchBindingAssignment(binding.key, { prefixMode: { type: "none" } });
+                          return;
+                        }
+                        if (value.startsWith("segment:")) {
+                          const [, indexToken, positionToken] = value.split(":");
+                          patchBindingAssignment(binding.key, {
+                            prefixMode: {
+                              type: "segment",
+                              segmentIndex: Number(indexToken ?? 0),
+                              position: positionToken === "prepend" ? "prepend" : "append",
+                            },
+                          });
+                          return;
+                        }
+                        if (value.startsWith("last:")) {
+                          const [, positionToken] = value.split(":");
+                          patchBindingAssignment(binding.key, {
+                            prefixMode: {
+                              type: "lastSegment",
+                              position: positionToken === "prepend" ? "prepend" : "append",
+                            },
+                          });
+                        }
+                      }}
+                    />
+                  </Space>
+                  <Space wrap style={{ width: "100%" }}>
+                    <InputNumber
+                      style={{ width: 130 }}
+                      placeholder="Index offset"
+                      value={assignment.indexOffset}
+                      onChange={(value) => patchBindingAssignment(binding.key, { indexOffset: Number(value ?? 0) })}
+                    />
+                    <Select
+                      style={{ minWidth: 260 }}
+                      value={indexModeValue}
+                      options={[
+                        { label: "No index transform", value: "none" },
+                        ...arrayTargets.map((target, targetIndex) => ({
+                          label: `Array index ${targetIndex}: ${target.segment}`,
+                          value: `arrayIndex:${targetIndex}`,
+                        })),
+                        ...arrayTargets.map((target) => {
+                          const segmentName = target.segment.split("[")[0] ?? target.segment;
+                          return {
+                            label: `By segment ${segmentName}`,
+                            value: `arrayBySegment:${segmentName}`,
+                          };
+                        }),
+                      ]}
+                      onChange={(value) => {
+                        if (value === "none") {
+                          patchBindingAssignment(binding.key, { indexMode: { type: "none" } });
+                          return;
+                        }
+                        if (value.startsWith("arrayIndex:")) {
+                          const [, occurrenceToken] = value.split(":");
+                          patchBindingAssignment(binding.key, {
+                            indexMode: {
+                              type: "arrayIndex",
+                              occurrence: Number(occurrenceToken ?? 0),
+                              operation: "add",
+                              valueFrom: "indexOffset",
+                            },
+                          });
+                          return;
+                        }
+                        if (value.startsWith("arrayBySegment:")) {
+                          const [, segmentName] = value.split(":");
+                          patchBindingAssignment(binding.key, {
+                            indexMode: {
+                              type: "arrayIndexBySegment",
+                              segmentName: segmentName ?? "",
+                              operation: "add",
+                              valueFrom: "indexOffset",
+                            },
+                          });
+                        }
+                      }}
+                    />
+                  </Space>
+                  <Input
+                    addonBefore="Override"
+                    value={assignment.overrideTag ?? ""}
+                    placeholder="Optional exact resolved tag"
+                    onChange={(event) => patchBindingAssignment(binding.key, { overrideTag: event.target.value })}
+                  />
+                  <Space wrap>
+                    <Typography.Text type="secondary">Resolved:</Typography.Text>
+                    <Typography.Text code>{resolvedTag || "<empty>"}</Typography.Text>
+                    {resolvedTag ? (
+                      <Tag color={tagExists ? "green" : "gold"}>{tagExists ? "Tag found" : "Tag not found"}</Tag>
+                    ) : (
+                      <Tag color="red">Missing tag</Tag>
+                    )}
+                  </Space>
+                  <Button size="small" danger onClick={() => removeBindingAssignment(binding.key)}>
+                    Clear assignment
+                  </Button>
+                </Space>
+              );
+            })}
+            <Form.Item label="Binding Assignments (JSON advanced)">
+              <Input.TextArea
+                rows={5}
+                value={JSON.stringify(bindingAssignments, null, 2)}
+                onChange={(e) => {
+                  try {
+                    const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
+                    onPatch({ bindingAssignments: parsed } as Partial<HmiObject>);
+                  } catch {
+                    // ignore invalid JSON while typing
+                  }
+                }}
+              />
+            </Form.Item>
+          </>
+        ) : null}
         {selectedElement?.parameters?.length ? (
           <>
             <Typography.Text type="secondary">

@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DeleteOutlined, LeftOutlined, PlusOutlined, RedoOutlined, RightOutlined, SaveOutlined, UndoOutlined } from "@ant-design/icons";
 import { Button, Card, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tooltip, Typography, message } from "antd";
-import type { Asset, DockPanelState, HmiObject, HmiScreen, LibraryElement, LibraryParameter, TagValue } from "@web-scada/shared";
+import type {
+  Asset,
+  DockPanelState,
+  ElementBindingDefinition,
+  HmiObject,
+  HmiScreen,
+  LibraryElement,
+  LibraryParameter,
+  TagValue,
+} from "@web-scada/shared";
 import { resolveTagName, resolveTemplateString } from "@web-scada/shared";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { ResizableDockPanel } from "../components/resizable-dock-panel";
@@ -32,6 +41,14 @@ function deepClone<T>(value: T): T {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function createBindingKey(input: string): string {
+  return (input || "binding")
+    .trim()
+    .replace(/[^a-zA-Z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "") || "binding";
 }
 
 function getInsertPosition(
@@ -70,6 +87,8 @@ type StateImageRowDraft = {
   assetId?: string;
 };
 
+type StateImageSourceMode = "manualTag" | "existingBinding" | "newBinding";
+
 type DeleteElementDialogState =
   | {
       open: false;
@@ -100,6 +119,7 @@ function createDefaultElement(input?: Partial<Pick<LibraryElement, "name" | "ele
     width: input?.width ?? 220,
     height: input?.height ?? 120,
     objects: [],
+    bindings: [],
     parameters: [],
     stateRules: [],
     createdAt: now,
@@ -177,7 +197,7 @@ function createTemplateElement(base: LibraryElement, kind: TemplateKind, library
   stateImage.y = 28;
   stateImage.width = 90;
   stateImage.height = 56;
-  stateImage.tag = ".State";
+  stateImage.tag = "$binding.valveVisualState";
   stateImage.defaultAssetId = closed?.id;
   const fallbackAssetId = closed?.id ?? open?.id ?? middle?.id ?? fault?.id ?? "";
   stateImage.states = [
@@ -190,6 +210,18 @@ function createTemplateElement(base: LibraryElement, kind: TemplateKind, library
   return {
     ...base,
     objects: [label, stateImage],
+    bindings: [
+      {
+        id: makeId("binding"),
+        key: "valveVisualState",
+        displayName: "Valve visual state",
+        kind: "state",
+        dataType: "INT",
+        required: true,
+        defaultBaseTag: ".State",
+        overridable: true,
+      },
+    ],
     parameters: [{ name: "label", type: "string", defaultValue: "Valve", description: "Label text" }],
   };
 }
@@ -320,6 +352,10 @@ export function ElementEditorPage() {
     { id: makeId("state"), value: "0", name: "State 0", assetId: undefined },
   ]);
   const [stateImageWizardTag, setStateImageWizardTag] = useState(".State");
+  const [stateImageWizardSourceMode, setStateImageWizardSourceMode] = useState<StateImageSourceMode>("manualTag");
+  const [stateImageWizardBindingKey, setStateImageWizardBindingKey] = useState("stateBinding");
+  const [stateImageWizardBindingDisplayName, setStateImageWizardBindingDisplayName] = useState("State binding");
+  const [stateImageWizardBindingDataType, setStateImageWizardBindingDataType] = useState<"BOOL" | "INT" | "UINT" | "DINT" | "UDINT" | "REAL" | "STRING">("INT");
   const [stateImageWizardName, setStateImageWizardName] = useState("state_image");
   const [stateImageWizardWidth, setStateImageWizardWidth] = useState(90);
   const [stateImageWizardHeight, setStateImageWizardHeight] = useState(56);
@@ -873,6 +909,18 @@ export function ElementEditorPage() {
     setStateImageWizardOpen(true);
     setStateImageWizardName(`state_image_${(draftElement.objects.length ?? 0) + 1}`);
     setStateImageWizardTag(".State");
+    const firstBinding = (draftElement.bindings ?? [])[0];
+    if (firstBinding) {
+      setStateImageWizardSourceMode("existingBinding");
+      setStateImageWizardBindingKey(firstBinding.key);
+      setStateImageWizardBindingDisplayName(firstBinding.displayName);
+      setStateImageWizardBindingDataType(firstBinding.dataType ?? "INT");
+    } else {
+      setStateImageWizardSourceMode("newBinding");
+      setStateImageWizardBindingKey(`stateBinding${(draftElement.bindings?.length ?? 0) + 1}`);
+      setStateImageWizardBindingDisplayName("State binding");
+      setStateImageWizardBindingDataType("INT");
+    }
     setStateImageWizardWidth(90);
     setStateImageWizardHeight(56);
     setStateImageDraftRows([{ id: makeId("state"), value: "0", name: "State 0" }]);
@@ -887,14 +935,18 @@ export function ElementEditorPage() {
       void message.warning("Add at least one state with selected asset");
       return;
     }
+    if (stateImageWizardSourceMode === "existingBinding") {
+      const key = createBindingKey(stateImageWizardBindingKey);
+      const existing = (draftElement.bindings ?? []).find((binding) => binding.key === key);
+      if (!existing) {
+        void message.warning(`Binding "${key}" not found`);
+        return;
+      }
+    }
     const object = createObjectByType("stateImage") as Extract<HmiObject, { type: "stateImage" }>;
     object.name = stateImageWizardName.trim() || "state_image";
-    object.tag = stateImageWizardTag.trim() || ".State";
     object.width = Math.max(20, Number(stateImageWizardWidth || 90));
     object.height = Math.max(20, Number(stateImageWizardHeight || 56));
-    const position = getInsertPosition(draftElement, draftElement.objects.length, object.width, object.height);
-    object.x = position.x;
-    object.y = position.y;
     object.states = normalizedRows.map((row) => ({
       id: row.id || makeId("state"),
       name: row.name.trim() || `State ${row.value}`,
@@ -903,12 +955,52 @@ export function ElementEditorPage() {
     }));
     object.defaultAssetId = normalizedRows[0]?.assetId;
 
-    setObjects((prev) => [...prev, object]);
+    updateDraftWithHistory("Add state image", (current) => {
+      const currentBindings = [...(current.bindings ?? [])];
+      let resolvedTag = stateImageWizardTag.trim() || ".State";
+
+      if (stateImageWizardSourceMode === "existingBinding") {
+        const key = createBindingKey(stateImageWizardBindingKey);
+        resolvedTag = `$binding.${key}`;
+      } else if (stateImageWizardSourceMode === "newBinding") {
+        const baseKey = createBindingKey(stateImageWizardBindingKey);
+        let key = baseKey;
+        let suffix = 2;
+        while (currentBindings.some((binding) => binding.key === key)) {
+          key = `${baseKey}_${suffix}`;
+          suffix += 1;
+        }
+        const definition: ElementBindingDefinition = {
+          id: makeId("binding"),
+          key,
+          displayName: stateImageWizardBindingDisplayName.trim() || key,
+          kind: "state",
+          dataType: stateImageWizardBindingDataType,
+          required: true,
+          defaultBaseTag: (stateImageWizardTag.trim() || ".State"),
+          overridable: true,
+        };
+        currentBindings.push(definition);
+        resolvedTag = `$binding.${key}`;
+      }
+
+      object.tag = resolvedTag;
+      const position = getInsertPosition(current, current.objects.length, object.width, object.height);
+      object.x = position.x;
+      object.y = position.y;
+
+      return {
+        ...current,
+        bindings: currentBindings,
+        objects: [...current.objects, object],
+      };
+    });
     setSelectedObjectIds([object.id]);
     setActiveObjectId(object.id);
     setPreviewStateTag(object.tag);
     setPreviewStateValue(normalizedRows[0]?.value ?? "0");
     setStateImageWizardOpen(false);
+    void message.success("State image added");
   };
 
   const applyNewDraft = (next: LibraryElement, asNew: boolean) => {
@@ -1657,6 +1749,160 @@ export function ElementEditorPage() {
               ),
             },
             {
+              key: "bindings",
+              label: "Bindings",
+              children: draftElement ? (
+                <Space direction="vertical" style={{ width: "100%" }}>
+                  <Typography.Text type="secondary">
+                    Define external connection points used by objects via <code>$binding.key</code>.
+                  </Typography.Text>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const nextIndex = (draftElement.bindings?.length ?? 0) + 1;
+                      const nextBinding: ElementBindingDefinition = {
+                        id: makeId("binding"),
+                        key: `binding${nextIndex}`,
+                        displayName: `Binding ${nextIndex}`,
+                        kind: "state",
+                        dataType: "INT",
+                        required: true,
+                        defaultBaseTag: ".State",
+                        overridable: true,
+                      };
+                      applyDraftPatch({ bindings: [...(draftElement.bindings ?? []), nextBinding] });
+                    }}
+                  >
+                    Add Binding
+                  </Button>
+                  <List
+                    size="small"
+                    dataSource={draftElement.bindings ?? []}
+                    locale={{ emptyText: "No bindings. Add binding and reference it from StateImage tag as $binding.key" }}
+                    renderItem={(binding, index) => (
+                      <List.Item
+                        actions={[
+                          <Button
+                            key="delete"
+                            danger
+                            size="small"
+                            onClick={() =>
+                              applyDraftPatch({
+                                bindings: (draftElement.bindings ?? []).filter((_, itemIndex) => itemIndex !== index),
+                              })
+                            }
+                          >
+                            Delete
+                          </Button>,
+                        ]}
+                      >
+                        <Space direction="vertical" style={{ width: "100%" }}>
+                          <Input
+                            addonBefore="Key"
+                            value={binding.key}
+                            onChange={(event) => {
+                              const next = [...(draftElement.bindings ?? [])];
+                              const current = next[index];
+                              if (!current) {
+                                return;
+                              }
+                              next[index] = { ...current, key: createBindingKey(event.target.value) };
+                              applyDraftPatch({ bindings: next });
+                            }}
+                          />
+                          <Input
+                            addonBefore="Name"
+                            value={binding.displayName}
+                            onChange={(event) => {
+                              const next = [...(draftElement.bindings ?? [])];
+                              const current = next[index];
+                              if (!current) {
+                                return;
+                              }
+                              next[index] = { ...current, displayName: event.target.value };
+                              applyDraftPatch({ bindings: next });
+                            }}
+                          />
+                          <Input
+                            addonBefore="Default Base Tag"
+                            value={binding.defaultBaseTag ?? ""}
+                            onChange={(event) => {
+                              const next = [...(draftElement.bindings ?? [])];
+                              const current = next[index];
+                              if (!current) {
+                                return;
+                              }
+                              next[index] = { ...current, defaultBaseTag: event.target.value };
+                              applyDraftPatch({ bindings: next });
+                            }}
+                          />
+                          <Space wrap>
+                            <Select
+                              style={{ width: 130 }}
+                              value={binding.kind}
+                              options={[
+                                { label: "state", value: "state" },
+                                { label: "tag", value: "tag" },
+                                { label: "writeTag", value: "writeTag" },
+                                { label: "command", value: "command" },
+                                { label: "custom", value: "custom" },
+                              ]}
+                              onChange={(value) => {
+                                const next = [...(draftElement.bindings ?? [])];
+                                const current = next[index];
+                                if (!current) {
+                                  return;
+                                }
+                                next[index] = { ...current, kind: value };
+                                applyDraftPatch({ bindings: next });
+                              }}
+                            />
+                            <Select
+                              style={{ width: 120 }}
+                              value={binding.dataType}
+                              options={[
+                                "BOOL",
+                                "INT",
+                                "UINT",
+                                "DINT",
+                                "UDINT",
+                                "REAL",
+                                "STRING",
+                              ].map((item) => ({ label: item, value: item }))}
+                              onChange={(value) => {
+                                const next = [...(draftElement.bindings ?? [])];
+                                const current = next[index];
+                                if (!current) {
+                                  return;
+                                }
+                                next[index] = { ...current, dataType: value };
+                                applyDraftPatch({ bindings: next });
+                              }}
+                            />
+                            <Switch
+                              checked={binding.required ?? false}
+                              onChange={(checked) => {
+                                const next = [...(draftElement.bindings ?? [])];
+                                const current = next[index];
+                                if (!current) {
+                                  return;
+                                }
+                                next[index] = { ...current, required: checked };
+                                applyDraftPatch({ bindings: next });
+                              }}
+                            />
+                            <Typography.Text type="secondary">Required</Typography.Text>
+                          </Space>
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                </Space>
+              ) : (
+                <Typography.Text type="secondary">Select element</Typography.Text>
+              ),
+            },
+            {
               key: "object",
               label: "Object",
               children: virtualScreen ? (
@@ -1927,6 +2173,48 @@ export function ElementEditorPage() {
             <Form.Item label="Object name">
               <Input value={stateImageWizardName} onChange={(event) => setStateImageWizardName(event.target.value)} />
             </Form.Item>
+            <Form.Item label="Source">
+              <Select
+                value={stateImageWizardSourceMode}
+                options={[
+                  { label: "Manual tag", value: "manualTag" },
+                  { label: "Existing binding", value: "existingBinding" },
+                  { label: "New binding", value: "newBinding" },
+                ]}
+                onChange={(value) => setStateImageWizardSourceMode(value as StateImageSourceMode)}
+              />
+            </Form.Item>
+            {stateImageWizardSourceMode === "existingBinding" ? (
+              <Form.Item label="Binding key">
+                <Select
+                  value={stateImageWizardBindingKey}
+                  options={(draftElement?.bindings ?? []).map((binding) => ({
+                    label: `${binding.displayName} (${binding.key})`,
+                    value: binding.key,
+                  }))}
+                  onChange={setStateImageWizardBindingKey}
+                />
+              </Form.Item>
+            ) : null}
+            {stateImageWizardSourceMode === "newBinding" ? (
+              <>
+                <Form.Item label="Binding key">
+                  <Input value={stateImageWizardBindingKey} onChange={(event) => setStateImageWizardBindingKey(event.target.value)} />
+                </Form.Item>
+                <Form.Item label="Binding name">
+                  <Input value={stateImageWizardBindingDisplayName} onChange={(event) => setStateImageWizardBindingDisplayName(event.target.value)} />
+                </Form.Item>
+                <Form.Item label="Binding data type">
+                  <Select
+                    value={stateImageWizardBindingDataType}
+                    options={["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"].map((item) => ({ label: item, value: item }))}
+                    onChange={(value) =>
+                      setStateImageWizardBindingDataType(value as "BOOL" | "INT" | "UINT" | "DINT" | "UDINT" | "REAL" | "STRING")
+                    }
+                  />
+                </Form.Item>
+              </>
+            ) : null}
             <Form.Item label="Source tag">
               <Input value={stateImageWizardTag} onChange={(event) => setStateImageWizardTag(event.target.value)} placeholder=".State" />
             </Form.Item>

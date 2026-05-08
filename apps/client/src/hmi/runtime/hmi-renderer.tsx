@@ -3,6 +3,7 @@ import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konv
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
   combineTagPrefix,
+  resolveLibraryElementInstanceBindings,
   type ElementStateAction,
   type ElementStateCase,
   type ElementStateRule,
@@ -810,6 +811,7 @@ function FrameNode({
   const context: RenderContext = {
     tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
     parameters: renderContext.parameters,
+    bindings: renderContext.bindings,
   };
 
   if (!screen) {
@@ -910,6 +912,10 @@ function LibraryInstanceNode({
   const context: RenderContext = {
     tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
     parameters: { ...(renderContext.parameters ?? {}), ...instanceParams },
+    bindings: {
+      ...(renderContext.bindings ?? {}),
+      ...resolveLibraryElementInstanceBindings(element, object),
+    },
   };
   const resolvedObjects = useMemo(
     () => applyElementStateRules(element.objects, element.stateRules ?? [], context, tags),
