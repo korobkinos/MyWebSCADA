@@ -152,6 +152,20 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
     confirm: z.boolean().optional(),
     confirmText: z.string().optional(),
   }),
+  z.object({
+    type: z.literal("setLW"),
+    address: z.number().int().nonnegative(),
+    value: z.union([z.boolean(), z.number(), z.string(), z.null()]),
+    confirm: z.boolean().optional(),
+    confirmText: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("setInternalVar"),
+    name: z.string().min(1),
+    value: z.union([z.boolean(), z.number(), z.string(), z.null()]),
+    confirm: z.boolean().optional(),
+    confirmText: z.string().optional(),
+  }),
 ]);
 
 const textObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
@@ -318,13 +332,65 @@ const indexApplyModeSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+const runtimeValueSourceSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("static"),
+    value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+  }),
+  z.object({
+    type: z.literal("tag"),
+    tag: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("lw"),
+    address: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal("internal"),
+    name: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("expression"),
+    expression: z.string().min(1),
+  }),
+]);
+
 const elementBindingAssignmentSchema = z.object({
   baseTag: z.string(),
+  prefixSource: runtimeValueSourceSchema.optional(),
   prefix: z.string().optional(),
   prefixMode: prefixApplyModeSchema.optional(),
+  indexOffsetSource: runtimeValueSourceSchema.optional(),
   indexOffset: z.number().int().optional(),
   indexMode: indexApplyModeSchema.optional(),
+  overrideTagSource: runtimeValueSourceSchema.optional(),
   overrideTag: z.string().optional(),
+});
+
+const valueSelectObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
+  type: z.literal("valueSelect"),
+  options: z.array(
+    z.object({
+      label: z.string().min(1),
+      value: z.union([z.string(), z.number(), z.boolean()]),
+    }),
+  ),
+  target: z.discriminatedUnion("type", [
+    z.object({
+      type: z.literal("internal"),
+      name: z.string().min(1),
+    }),
+    z.object({
+      type: z.literal("lw"),
+      address: z.number().int().nonnegative(),
+    }),
+    z.object({
+      type: z.literal("tag"),
+      tag: z.string().min(1),
+    }),
+  ]),
+  valueType: z.enum(["string", "number", "boolean"]),
+  textStyle: textStyleSchema,
 });
 
 const libraryElementInstanceSchema = hmiBaseSchema.extend({
@@ -384,6 +450,7 @@ export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
     switchObjectSchema,
     imageObjectSchema,
     stateImageObjectSchema,
+    valueSelectObjectSchema,
     libraryElementInstanceSchema,
     valveObjectSchema,
     pumpObjectSchema,

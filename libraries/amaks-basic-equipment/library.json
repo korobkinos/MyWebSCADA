@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-08T09:16:44.484Z",
+  "updatedAt": "2026-05-08T15:35:00.000Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -143,6 +143,235 @@
       "stateRules": [],
       "createdAt": "2026-05-08T06:46:42.460Z",
       "updatedAt": "2026-05-08T09:16:44.484Z"
+    },
+    {
+      "id": "prefix_demo_element",
+      "libraryId": "amaks-basic-equipment",
+      "elementKey": "PREFIX_DEMO",
+      "name": "Prefix Binding Demo",
+      "description": "Demo element for binding prefix transforms",
+      "category": "demo",
+      "width": 360,
+      "height": 150,
+      "objects": [
+        {
+          "id": "txt_prefix_demo_title",
+          "type": "text",
+          "name": "title",
+          "x": 8,
+          "y": 6,
+          "width": 344,
+          "height": 20,
+          "text": "Bindings: base / last-segment prefix / segment prefix",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 12,
+            "fontStyle": "bold",
+            "color": "#d9d9d9",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 0
+          }
+        },
+        {
+          "id": "txt_prefix_demo_base",
+          "type": "text",
+          "name": "label_base",
+          "x": 16,
+          "y": 118,
+          "width": 96,
+          "height": 22,
+          "text": "base",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 12,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 0
+          }
+        },
+        {
+          "id": "txt_prefix_demo_last",
+          "type": "text",
+          "name": "label_last",
+          "x": 132,
+          "y": 118,
+          "width": 96,
+          "height": 22,
+          "text": "last + _PFX",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 12,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 0
+          }
+        },
+        {
+          "id": "txt_prefix_demo_segment",
+          "type": "text",
+          "name": "label_segment",
+          "x": 248,
+          "y": 118,
+          "width": 96,
+          "height": 22,
+          "text": "seg1 prepend DEV_",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 12,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 0
+          }
+        },
+        {
+          "id": "state_prefix_demo_base",
+          "type": "stateImage",
+          "name": "state_base",
+          "x": 24,
+          "y": 34,
+          "width": 80,
+          "height": 74,
+          "minWidth": 40,
+          "minHeight": 40,
+          "tag": "$binding.stateBase",
+          "states": [
+            {
+              "id": "state_prefix_demo_base_0",
+              "name": "Off",
+              "condition": {
+                "type": "equals",
+                "value": 0
+              },
+              "assetId": "valve_closed_svg"
+            },
+            {
+              "id": "state_prefix_demo_base_1",
+              "name": "On",
+              "condition": {
+                "type": "equals",
+                "value": 1
+              },
+              "assetId": "valve_open_svg"
+            }
+          ],
+          "defaultAssetId": "valve_closed_svg",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "state_prefix_demo_last",
+          "type": "stateImage",
+          "name": "state_last_segment",
+          "x": 140,
+          "y": 34,
+          "width": 80,
+          "height": 74,
+          "minWidth": 40,
+          "minHeight": 40,
+          "tag": "$binding.stateLastSegmentPrefixed",
+          "states": [
+            {
+              "id": "state_prefix_demo_last_0",
+              "name": "Off",
+              "condition": {
+                "type": "equals",
+                "value": 0
+              },
+              "assetId": "valve_closed_svg"
+            },
+            {
+              "id": "state_prefix_demo_last_1",
+              "name": "On",
+              "condition": {
+                "type": "equals",
+                "value": 1
+              },
+              "assetId": "valve_open_svg"
+            }
+          ],
+          "defaultAssetId": "valve_closed_svg",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "state_prefix_demo_segment",
+          "type": "stateImage",
+          "name": "state_segment_prefixed",
+          "x": 256,
+          "y": 34,
+          "width": 80,
+          "height": 74,
+          "minWidth": 40,
+          "minHeight": 40,
+          "tag": "$binding.stateSegmentPrefixed",
+          "states": [
+            {
+              "id": "state_prefix_demo_segment_0",
+              "name": "Off",
+              "condition": {
+                "type": "equals",
+                "value": 0
+              },
+              "assetId": "valve_closed_svg"
+            },
+            {
+              "id": "state_prefix_demo_segment_1",
+              "name": "On",
+              "condition": {
+                "type": "equals",
+                "value": 1
+              },
+              "assetId": "valve_open_svg"
+            }
+          ],
+          "defaultAssetId": "valve_closed_svg",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        }
+      ],
+      "bindings": [
+        {
+          "id": "binding_prefix_demo_base",
+          "key": "stateBase",
+          "displayName": "State (base)",
+          "kind": "state",
+          "dataType": "INT",
+          "required": true,
+          "defaultBaseTag": "Burner_1.PZK_1.VisualState",
+          "overridable": true
+        },
+        {
+          "id": "binding_prefix_demo_last",
+          "key": "stateLastSegmentPrefixed",
+          "displayName": "State (last segment prefix)",
+          "kind": "state",
+          "dataType": "INT",
+          "required": true,
+          "defaultBaseTag": "Burner_1.PZK_1.VisualState",
+          "overridable": true
+        },
+        {
+          "id": "binding_prefix_demo_seg",
+          "key": "stateSegmentPrefixed",
+          "displayName": "State (segment prefix)",
+          "kind": "state",
+          "dataType": "INT",
+          "required": true,
+          "defaultBaseTag": "Burner_1.PZK_1.VisualState",
+          "overridable": true
+        }
+      ],
+      "parameters": [],
+      "stateRules": [],
+      "createdAt": "2026-05-08T15:35:00.000Z",
+      "updatedAt": "2026-05-08T15:35:00.000Z"
     }
   ]
 }

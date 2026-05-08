@@ -1,6 +1,15 @@
 import { useState } from "react";
-import type { Asset, ElementLibrary, HmiObject, HmiScreen, ScadaProject, TextStyle } from "@web-scada/shared";
-import { parseTagSegments, resolveElementBindingAssignment } from "@web-scada/shared";
+import type {
+  Asset,
+  ElementBindingDefinition,
+  ElementLibrary,
+  HmiObject,
+  HmiScreen,
+  RuntimeValueSource,
+  ScadaProject,
+  TextStyle,
+} from "@web-scada/shared";
+import { parseTagSegments, resolveElementBindingAssignment, resolveRuntimeValueSync } from "@web-scada/shared";
 import { Button, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 
@@ -10,13 +19,216 @@ type Props = {
   assets: Asset[];
   libraries: ElementLibrary[];
   object: HmiObject | null;
+  elementBindings?: ElementBindingDefinition[];
   onPatch: (patch: Partial<HmiObject>) => void;
   onDelete: () => void;
 };
 
 const fontOptions = ["Arial", "Tahoma", "Verdana", "Consolas", "Segoe UI", "Roboto", "Noto Sans"];
 
-export function ObjectPropertyPanel({ project, assets, libraries, object, onPatch, onDelete }: Props) {
+function extractBindingKey(tag: string | undefined): string | undefined {
+  if (!tag || !tag.startsWith("$binding.")) {
+    return undefined;
+  }
+  const key = tag.slice("$binding.".length).trim();
+  return key || undefined;
+}
+
+function BindingQuickSelect({
+  bindings,
+  value,
+  label = "Binding Source",
+  onChange,
+}: {
+  bindings: ElementBindingDefinition[];
+  value: string | undefined;
+  label?: string;
+  onChange: (nextValue: string) => void;
+}) {
+  if (!bindings.length) {
+    return null;
+  }
+  const selectedBindingKey = extractBindingKey(value);
+  return (
+    <Form.Item label={label}>
+      <Select
+        value={selectedBindingKey ? `binding:${selectedBindingKey}` : "manual"}
+        options={[
+          { label: "Manual tag", value: "manual" },
+          ...bindings.map((binding) => ({
+            label: `${binding.displayName} (${binding.key})`,
+            value: `binding:${binding.key}`,
+          })),
+        ]}
+        onChange={(nextValue) => {
+          if (nextValue === "manual") {
+            if (selectedBindingKey) {
+              onChange("");
+            }
+            return;
+          }
+          if (nextValue.startsWith("binding:")) {
+            const bindingKey = nextValue.slice("binding:".length);
+            onChange(`$binding.${bindingKey}`);
+          }
+        }}
+      />
+    </Form.Item>
+  );
+}
+
+function TagFieldWithBindingSource({
+  project,
+  bindings,
+  value,
+  bindingLabel = "Binding Source",
+  tagLabel = "Tag",
+  onChange,
+}: {
+  project: ScadaProject;
+  bindings: ElementBindingDefinition[];
+  value: string | undefined;
+  bindingLabel?: string;
+  tagLabel?: string;
+  onChange: (nextValue: string) => void;
+}) {
+  return (
+    <>
+      <BindingQuickSelect bindings={bindings} value={value} label={bindingLabel} onChange={onChange} />
+      <Form.Item label={tagLabel}>
+        {extractBindingKey(value) ? (
+          <Input value={value} onChange={(event) => onChange(event.target.value)} />
+        ) : (
+          <TagPicker project={project} value={value ?? ""} onChange={(tag) => onChange(tag ?? "")} />
+        )}
+      </Form.Item>
+    </>
+  );
+}
+
+type RuntimeSourceMode = "none" | "static" | "internal" | "lw" | "tag";
+
+function runtimeSourceModeOf(source: RuntimeValueSource | undefined): RuntimeSourceMode {
+  if (!source) {
+    return "none";
+  }
+  if (source.type === "expression") {
+    return "none";
+  }
+  return source.type;
+}
+
+function buildEditorRuntimeTagValues(project: ScadaProject): Record<string, unknown> {
+  const tagValues: Record<string, unknown> = {};
+  for (const variable of project.variables ?? []) {
+    const value = variable.currentValue ?? variable.initialValue ?? null;
+    const normalized = variable.name.startsWith("LW.") ? variable.name : `LW.${variable.name}`;
+    tagValues[normalized] = value;
+    if (typeof variable.lwAddress === "number" && Number.isFinite(variable.lwAddress)) {
+      tagValues[`LW${Math.max(0, Math.floor(variable.lwAddress))}`] = value;
+    }
+  }
+  for (const [key, value] of Object.entries(project.lwStore?.values ?? {})) {
+    const address = Number(key);
+    if (Number.isFinite(address)) {
+      tagValues[`LW${Math.max(0, Math.floor(address))}`] = value;
+    }
+  }
+  return tagValues;
+}
+
+function RuntimeValueSourceEditor({
+  label,
+  value,
+  valueType,
+  project,
+  onChange,
+}: {
+  label: string;
+  value: RuntimeValueSource | undefined;
+  valueType: "string" | "number";
+  project: ScadaProject;
+  onChange: (next: RuntimeValueSource | undefined) => void;
+}) {
+  const mode = runtimeSourceModeOf(value);
+  const staticValue = value?.type === "static" ? value.value : undefined;
+
+  return (
+    <Space direction="vertical" style={{ width: "100%" }} size={6}>
+      <Typography.Text type="secondary">{label} Source</Typography.Text>
+      <Select
+        value={mode}
+        options={[
+          { label: "Legacy static field", value: "none" },
+          { label: "Static", value: "static" },
+          { label: "From Internal Variable", value: "internal" },
+          { label: "From LW", value: "lw" },
+          { label: "From Tag", value: "tag" },
+        ]}
+        onChange={(nextMode: RuntimeSourceMode) => {
+          if (nextMode === "none") {
+            onChange(undefined);
+            return;
+          }
+          if (nextMode === "static") {
+            onChange({ type: "static", value: valueType === "number" ? 0 : "" });
+            return;
+          }
+          if (nextMode === "internal") {
+            onChange({ type: "internal", name: "" });
+            return;
+          }
+          if (nextMode === "lw") {
+            onChange({ type: "lw", address: 0 });
+            return;
+          }
+          if (nextMode === "tag") {
+            onChange({ type: "tag", tag: "" });
+            return;
+          }
+        }}
+      />
+      {mode === "static" ? (
+        valueType === "number" ? (
+          <InputNumber
+            style={{ width: "100%" }}
+            value={typeof staticValue === "number" ? staticValue : Number(staticValue ?? 0)}
+            onChange={(next) => onChange({ type: "static", value: Number(next ?? 0) })}
+          />
+        ) : (
+          <Input
+            value={typeof staticValue === "string" ? staticValue : String(staticValue ?? "")}
+            onChange={(event) => onChange({ type: "static", value: event.target.value })}
+          />
+        )
+      ) : null}
+      {mode === "internal" ? (
+        <Input
+          placeholder="selectedBurnerPrefix"
+          value={value?.type === "internal" ? value.name : ""}
+          onChange={(event) => onChange({ type: "internal", name: event.target.value })}
+        />
+      ) : null}
+      {mode === "lw" ? (
+        <InputNumber
+          style={{ width: "100%" }}
+          min={0}
+          value={value?.type === "lw" ? value.address : 0}
+          onChange={(next) => onChange({ type: "lw", address: Math.max(0, Math.floor(Number(next ?? 0))) })}
+        />
+      ) : null}
+      {mode === "tag" ? (
+        <TagPicker
+          project={project}
+          value={value?.type === "tag" ? value.tag : ""}
+          onChange={(tag) => onChange({ type: "tag", tag: tag ?? "" })}
+        />
+      ) : null}
+    </Space>
+  );
+}
+
+export function ObjectPropertyPanel({ project, assets, libraries, object, elementBindings, onPatch, onDelete }: Props) {
   if (!object) {
     return <div>Select object</div>;
   }
@@ -61,7 +273,14 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, onPatc
       </Space>
 
       <Divider style={{ margin: "10px 0" }} />
-      <SpecificPropertyFields project={project} assets={assets} libraries={libraries} object={object} onPatch={onPatch} />
+      <SpecificPropertyFields
+        project={project}
+        assets={assets}
+        libraries={libraries}
+        object={object}
+        elementBindings={elementBindings}
+        onPatch={onPatch}
+      />
 
       {hasTextStyle(object) ? (
         <>
@@ -160,15 +379,18 @@ function SpecificPropertyFields({
   assets,
   libraries,
   object,
+  elementBindings,
   onPatch,
 }: {
   project: ScadaProject;
   assets: Asset[];
   libraries: ElementLibrary[];
   object: HmiObject;
+  elementBindings?: ElementBindingDefinition[];
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
   const [stateImagePreviewValue, setStateImagePreviewValue] = useState<string>("0");
+  const templateBindings = elementBindings ?? [];
   if (object.type === "text") {
     return (
       <Form.Item label="Text">
@@ -180,9 +402,12 @@ function SpecificPropertyFields({
   if (object.type === "value-display") {
     return (
       <>
-        <Form.Item label="Tag">
-          <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
-        </Form.Item>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
         <Form.Item label="Suffix">
           <Input value={object.suffix ?? ""} onChange={(e) => onPatch({ suffix: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
@@ -193,9 +418,12 @@ function SpecificPropertyFields({
   if (object.type === "value-input") {
     return (
       <>
-        <Form.Item label="Tag">
-          <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
-        </Form.Item>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
         <Form.Item label="Min">
           <InputNumber style={{ width: "100%" }} value={object.min} onChange={(v) => onPatch({ min: Number(v ?? 0) } as Partial<HmiObject>)} />
         </Form.Item>
@@ -209,9 +437,12 @@ function SpecificPropertyFields({
   if (object.type === "state-indicator") {
     return (
       <>
-        <Form.Item label="Tag">
-          <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
-        </Form.Item>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
         <Form.Item label="True Text">
           <Input value={object.trueText} onChange={(e) => onPatch({ trueText: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
@@ -224,6 +455,13 @@ function SpecificPropertyFields({
 
   if (object.type === "button") {
     const runMacroAction = object.action.type === "runMacro" ? object.action : undefined;
+    const writeAction = object.action.type === "write" ? object.action : undefined;
+    const pulseAction = object.action.type === "pulse" ? object.action : undefined;
+    const toggleAction = object.action.type === "toggle" ? object.action : undefined;
+    const openScreenAction = object.action.type === "openScreen" ? object.action : undefined;
+    const openPopupAction = object.action.type === "openPopup" ? object.action : undefined;
+    const setInternalVarAction = object.action.type === "setInternalVar" ? object.action : undefined;
+    const setLwAction = object.action.type === "setLW" ? object.action : undefined;
     const macro = runMacroAction
       ? (project.macros ?? []).find((item) => item.id === runMacroAction.macroId)
       : undefined;
@@ -256,8 +494,182 @@ function SpecificPropertyFields({
           <Input value={object.backgroundColor ?? "#0958d9"} onChange={(e) => onPatch({ backgroundColor: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Action Type">
-          <Input value={object.action.type} disabled />
+          <Select
+            value={object.action.type}
+            options={[
+              { label: "write", value: "write" },
+              { label: "pulse", value: "pulse" },
+              { label: "toggle", value: "toggle" },
+              { label: "openScreen", value: "openScreen" },
+              { label: "openPopup", value: "openPopup" },
+              { label: "runMacro", value: "runMacro" },
+              { label: "setInternalVar", value: "setInternalVar" },
+              { label: "setLW", value: "setLW" },
+            ]}
+            onChange={(value) => {
+              if (value === "write") {
+                onPatch({ action: { type: "write", tag: "", value: true } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "pulse") {
+                onPatch({ action: { type: "pulse", tag: "", value: true, durationMs: 500 } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "toggle") {
+                onPatch({ action: { type: "toggle", tag: "" } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "openScreen") {
+                onPatch({ action: { type: "openScreen", screenId: project.screens[0]?.id ?? "" } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "openPopup") {
+                const popup = project.screens.find((s) => s.kind === "popup");
+                onPatch({ action: { type: "openPopup", popupScreenId: popup?.id ?? "" } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "setInternalVar") {
+                onPatch({ action: { type: "setInternalVar", name: "selectedBurnerPrefix", value: "_1" } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "setLW") {
+                onPatch({ action: { type: "setLW", address: 20, value: 0 } } as Partial<HmiObject>);
+                return;
+              }
+              onPatch({ action: { type: "runMacro", macroId: "" } } as Partial<HmiObject>);
+            }}
+          />
         </Form.Item>
+        {writeAction ? (
+          <>
+            <TagFieldWithBindingSource
+              project={project}
+              bindings={templateBindings}
+              value={writeAction.tag}
+              bindingLabel="Action Binding"
+              tagLabel="Action Tag"
+              onChange={(nextValue) =>
+                onPatch({
+                  action: {
+                    ...writeAction,
+                    tag: nextValue,
+                  },
+                } as Partial<HmiObject>)
+              }
+            />
+            <Form.Item label="Write Value">
+              <Input
+                value={stringifyRuntimeActionValue(writeAction.value)}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...writeAction,
+                      value: parseRuntimeActionValue(event.target.value),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+          </>
+        ) : null}
+        {pulseAction ? (
+          <>
+            <TagFieldWithBindingSource
+              project={project}
+              bindings={templateBindings}
+              value={pulseAction.tag}
+              bindingLabel="Action Binding"
+              tagLabel="Action Tag"
+              onChange={(nextValue) =>
+                onPatch({
+                  action: {
+                    ...pulseAction,
+                    tag: nextValue,
+                  },
+                } as Partial<HmiObject>)
+              }
+            />
+            <Form.Item label="Pulse Value">
+              <Input
+                value={stringifyRuntimeActionValue(pulseAction.value)}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...pulseAction,
+                      value: parseRuntimeActionValue(event.target.value),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Duration (ms)">
+              <InputNumber
+                style={{ width: "100%" }}
+                min={1}
+                value={pulseAction.durationMs}
+                onChange={(value) =>
+                  onPatch({
+                    action: {
+                      ...pulseAction,
+                      durationMs: Math.max(1, Number(value ?? 1)),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+          </>
+        ) : null}
+        {toggleAction ? (
+          <TagFieldWithBindingSource
+            project={project}
+            bindings={templateBindings}
+            value={toggleAction.tag}
+            bindingLabel="Action Binding"
+            tagLabel="Action Tag"
+            onChange={(nextValue) =>
+              onPatch({
+                action: {
+                  ...toggleAction,
+                  tag: nextValue,
+                },
+              } as Partial<HmiObject>)
+            }
+          />
+        ) : null}
+        {openScreenAction ? (
+          <Form.Item label="Screen">
+            <Select
+              value={openScreenAction.screenId}
+              options={project.screens.map((screen) => ({ label: `${screen.name} (${screen.kind})`, value: screen.id }))}
+              onChange={(value) =>
+                onPatch({
+                  action: {
+                    ...openScreenAction,
+                    screenId: value,
+                  },
+                } as Partial<HmiObject>)
+              }
+            />
+          </Form.Item>
+        ) : null}
+        {openPopupAction ? (
+          <Form.Item label="Popup">
+            <Select
+              value={openPopupAction.popupScreenId}
+              options={project.screens
+                .filter((screen) => screen.kind === "popup")
+                .map((screen) => ({ label: screen.name, value: screen.id }))}
+              onChange={(value) =>
+                onPatch({
+                  action: {
+                    ...openPopupAction,
+                    popupScreenId: value,
+                  },
+                } as Partial<HmiObject>)
+              }
+            />
+          </Form.Item>
+        ) : null}
         {runMacroAction ? (
           <>
             <Form.Item label="Macro">
@@ -287,20 +699,187 @@ function SpecificPropertyFields({
             ) : null}
           </>
         ) : null}
+        {setInternalVarAction ? (
+          <>
+            <Form.Item label="Variable Name">
+              <Input
+                value={setInternalVarAction.name}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...setInternalVarAction,
+                      name: event.target.value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Value">
+              <Input
+                value={stringifyRuntimeActionValue(setInternalVarAction.value)}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...setInternalVarAction,
+                      value: parseRuntimeActionValue(event.target.value),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+          </>
+        ) : null}
+        {setLwAction ? (
+          <>
+            <Form.Item label="LW Address">
+              <InputNumber
+                style={{ width: "100%" }}
+                min={0}
+                value={setLwAction.address}
+                onChange={(value) =>
+                  onPatch({
+                    action: {
+                      ...setLwAction,
+                      address: Math.max(0, Math.floor(Number(value ?? 0))),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Value">
+              <Input
+                value={stringifyRuntimeActionValue(setLwAction.value)}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...setLwAction,
+                      value: parseRuntimeActionValue(event.target.value),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+          </>
+        ) : null}
       </>
     );
   }
 
   if (object.type === "switch") {
     return (
-      <Form.Item label="Tag">
-        <TagPicker project={project} value={object.tag} onChange={(tag) => onPatch({ tag } as Partial<HmiObject>)} />
-      </Form.Item>
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
+      </>
+    );
+  }
+
+  if (object.type === "valueSelect") {
+    const optionsText = object.options.map((item) => `${item.label}|${String(item.value)}`).join("\n");
+    return (
+      <>
+        <Form.Item label="Value Type">
+          <Select
+            value={object.valueType}
+            options={[
+              { label: "string", value: "string" },
+              { label: "number", value: "number" },
+              { label: "boolean", value: "boolean" },
+            ]}
+            onChange={(value) => onPatch({ valueType: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Target Type">
+          <Select
+            value={object.target.type}
+            options={[
+              { label: "internal", value: "internal" },
+              { label: "lw", value: "lw" },
+              { label: "tag", value: "tag" },
+            ]}
+            onChange={(value) => {
+              if (value === "internal") {
+                onPatch({ target: { type: "internal", name: "selectedBurnerPrefix" } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "lw") {
+                onPatch({ target: { type: "lw", address: 20 } } as Partial<HmiObject>);
+                return;
+              }
+              onPatch({ target: { type: "tag", tag: "" } } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+        {object.target.type === "internal" ? (
+          <Form.Item label="Internal Name">
+            <Input
+              value={object.target.name}
+              onChange={(event) => onPatch({ target: { ...object.target, name: event.target.value } } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+        ) : null}
+        {object.target.type === "lw" ? (
+          <Form.Item label="LW Address">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={0}
+              value={object.target.address}
+              onChange={(value) =>
+                onPatch({ target: { ...object.target, address: Math.max(0, Math.floor(Number(value ?? 0))) } } as Partial<HmiObject>)
+              }
+            />
+          </Form.Item>
+        ) : null}
+        {object.target.type === "tag" ? (
+          <TagFieldWithBindingSource
+            project={project}
+            bindings={templateBindings}
+            value={object.target.tag}
+            bindingLabel="Target Binding"
+            tagLabel="Target Tag"
+            onChange={(nextValue) => onPatch({ target: { ...object.target, tag: nextValue } } as Partial<HmiObject>)}
+          />
+        ) : null}
+        <Form.Item label="Options (one per line: label|value)">
+          <Input.TextArea
+            rows={5}
+            value={optionsText}
+            onChange={(event) => {
+              const lines = event.target.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+              const options = lines.map((line, index) => {
+                const [labelToken, valueToken] = line.split("|");
+                const label = (labelToken ?? `Option ${index + 1}`).trim();
+                const rawValue = (valueToken ?? label).trim();
+                let parsed: string | number | boolean = rawValue;
+                if (object.valueType === "number") {
+                  parsed = Number(rawValue);
+                } else if (object.valueType === "boolean") {
+                  parsed = rawValue.toLowerCase() === "true";
+                }
+                return {
+                  label,
+                  value: parsed,
+                };
+              });
+              onPatch({ options } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+      </>
     );
   }
 
   if (object.type === "image") {
     const imageRunMacroAction = object.action?.type === "runMacro" ? object.action : undefined;
+    const imageWriteAction = object.action?.type === "write" ? object.action : undefined;
+    const imagePulseAction = object.action?.type === "pulse" ? object.action : undefined;
+    const imageToggleAction = object.action?.type === "toggle" ? object.action : undefined;
+    const imageOpenScreenAction = object.action?.type === "openScreen" ? object.action : undefined;
+    const imageOpenPopupAction = object.action?.type === "openPopup" ? object.action : undefined;
     return (
       <>
         <Form.Item label="Asset">
@@ -356,6 +935,136 @@ function SpecificPropertyFields({
             }}
           />
         </Form.Item>
+        {imageWriteAction ? (
+          <>
+            <TagFieldWithBindingSource
+              project={project}
+              bindings={templateBindings}
+              value={imageWriteAction.tag}
+              bindingLabel="Action Binding"
+              tagLabel="Action Tag"
+              onChange={(nextValue) =>
+                onPatch({
+                  action: {
+                    ...imageWriteAction,
+                    tag: nextValue,
+                  },
+                } as Partial<HmiObject>)
+              }
+            />
+            <Form.Item label="Write Value">
+              <Input
+                value={stringifyRuntimeActionValue(imageWriteAction.value)}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...imageWriteAction,
+                      value: parseRuntimeActionValue(event.target.value),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+          </>
+        ) : null}
+        {imagePulseAction ? (
+          <>
+            <TagFieldWithBindingSource
+              project={project}
+              bindings={templateBindings}
+              value={imagePulseAction.tag}
+              bindingLabel="Action Binding"
+              tagLabel="Action Tag"
+              onChange={(nextValue) =>
+                onPatch({
+                  action: {
+                    ...imagePulseAction,
+                    tag: nextValue,
+                  },
+                } as Partial<HmiObject>)
+              }
+            />
+            <Form.Item label="Pulse Value">
+              <Input
+                value={stringifyRuntimeActionValue(imagePulseAction.value)}
+                onChange={(event) =>
+                  onPatch({
+                    action: {
+                      ...imagePulseAction,
+                      value: parseRuntimeActionValue(event.target.value),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Duration (ms)">
+              <InputNumber
+                style={{ width: "100%" }}
+                min={1}
+                value={imagePulseAction.durationMs}
+                onChange={(value) =>
+                  onPatch({
+                    action: {
+                      ...imagePulseAction,
+                      durationMs: Math.max(1, Number(value ?? 1)),
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+          </>
+        ) : null}
+        {imageToggleAction ? (
+          <TagFieldWithBindingSource
+            project={project}
+            bindings={templateBindings}
+            value={imageToggleAction.tag}
+            bindingLabel="Action Binding"
+            tagLabel="Action Tag"
+            onChange={(nextValue) =>
+              onPatch({
+                action: {
+                  ...imageToggleAction,
+                  tag: nextValue,
+                },
+              } as Partial<HmiObject>)
+            }
+          />
+        ) : null}
+        {imageOpenScreenAction ? (
+          <Form.Item label="Screen">
+            <Select
+              value={imageOpenScreenAction.screenId}
+              options={project.screens.map((screen) => ({ label: `${screen.name} (${screen.kind})`, value: screen.id }))}
+              onChange={(value) =>
+                onPatch({
+                  action: {
+                    ...imageOpenScreenAction,
+                    screenId: value,
+                  },
+                } as Partial<HmiObject>)
+              }
+            />
+          </Form.Item>
+        ) : null}
+        {imageOpenPopupAction ? (
+          <Form.Item label="Popup">
+            <Select
+              value={imageOpenPopupAction.popupScreenId}
+              options={project.screens
+                .filter((screen) => screen.kind === "popup")
+                .map((screen) => ({ label: screen.name, value: screen.id }))}
+              onChange={(value) =>
+                onPatch({
+                  action: {
+                    ...imageOpenPopupAction,
+                    popupScreenId: value,
+                  },
+                } as Partial<HmiObject>)
+              }
+            />
+          </Form.Item>
+        ) : null}
         {imageRunMacroAction ? (
           <>
             <Form.Item label="Macro">
@@ -441,9 +1150,14 @@ function SpecificPropertyFields({
     const previewAsset = assets.find((asset) => asset.id === previewAssetId);
     return (
       <>
-        <Form.Item label="Source Tag">
-          <Input value={object.tag} onChange={(event) => onPatch({ tag: event.target.value } as Partial<HmiObject>)} />
-        </Form.Item>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag}
+          bindingLabel="Source Binding"
+          tagLabel="Source Tag"
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
         <Form.Item label="Default Asset">
           <Select
             value={object.defaultAssetId}
@@ -633,6 +1347,9 @@ function SpecificPropertyFields({
     const bindingAssignments = object.bindingAssignments ?? {};
     const bindingDefinitions = selectedElement?.bindings ?? [];
     const knownTags = new Set(project.tags.map((tag) => tag.name));
+    const editorRuntimeContext = {
+      tagValues: buildEditorRuntimeTagValues(project),
+    };
 
     const patchBindingAssignment = (bindingKey: string, patch: Partial<NonNullable<typeof bindingAssignments>[string]>) => {
       const current = bindingAssignments[bindingKey] ?? {
@@ -686,11 +1403,11 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ scaleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        {bindingDefinitions.length ? (
-          <>
-            <Divider style={{ margin: "10px 0" }} />
-            <Typography.Text strong>Bindings</Typography.Text>
-            {bindingDefinitions.map((binding) => {
+        <>
+          <Divider style={{ margin: "10px 0" }} />
+          <Typography.Text strong>Bindings</Typography.Text>
+          {bindingDefinitions.length ? (
+            bindingDefinitions.map((binding) => {
               const assignment = bindingAssignments[binding.key] ?? {
                 baseTag: binding.defaultBaseTag ?? "",
                 prefixMode: { type: "none" as const },
@@ -700,9 +1417,12 @@ function SpecificPropertyFields({
               const prefixModeValue =
                 assignment.prefixMode?.type === "segment"
                   ? `segment:${assignment.prefixMode.segmentIndex}:${assignment.prefixMode.position}`
+                  : assignment.prefixMode?.type === "segmentByName"
+                    ? `segmentByName:${assignment.prefixMode.segmentName}:${assignment.prefixMode.position}`
                   : assignment.prefixMode?.type === "lastSegment"
                     ? `last:${assignment.prefixMode.position}`
                     : "none";
+              const segmentNames = [...new Set(segments.map((segment) => segment.split("[")[0] ?? segment).filter(Boolean))];
               const arrayTargets = segments.flatMap((segment, segmentIndex) =>
                 /\[-?\d+\]/.test(segment) ? [{ segment, segmentIndex }] : [],
               );
@@ -712,8 +1432,17 @@ function SpecificPropertyFields({
                   : assignment.indexMode?.type === "arrayIndexBySegment"
                     ? `arrayBySegment:${assignment.indexMode.segmentName}`
                     : "none";
-              const resolvedTag = resolveElementBindingAssignment(assignment, binding.defaultBaseTag);
+              const resolvedTag = resolveElementBindingAssignment(assignment, binding.defaultBaseTag, editorRuntimeContext);
               const tagExists = resolvedTag ? knownTags.has(resolvedTag) : false;
+              const required = binding.required ?? false;
+              const isMissingRequired = required && !resolvedTag;
+              const canOverride = binding.overridable !== false;
+              const prefixCurrentValue = assignment.prefixSource
+                ? resolveRuntimeValueSync(assignment.prefixSource, editorRuntimeContext)
+                : assignment.prefix;
+              const indexCurrentValue = assignment.indexOffsetSource
+                ? resolveRuntimeValueSync(assignment.indexOffsetSource, editorRuntimeContext)
+                : assignment.indexOffset;
 
               return (
                 <Space
@@ -721,9 +1450,19 @@ function SpecificPropertyFields({
                   direction="vertical"
                   style={{ width: "100%", border: "1px solid #f0f0f0", borderRadius: 8, padding: 8 }}
                 >
-                  <Typography.Text>{binding.displayName} ({binding.key})</Typography.Text>
+                  <Space wrap>
+                    <Typography.Text>{binding.displayName} ({binding.key})</Typography.Text>
+                    <Tag color="blue">{binding.kind}</Tag>
+                    {binding.dataType ? <Tag color="geekblue">{binding.dataType}</Tag> : null}
+                    {required ? <Tag color="red">Required</Tag> : <Tag>Optional</Tag>}
+                  </Space>
+                  <Typography.Text type="secondary">Base tag</Typography.Text>
+                  <TagPicker
+                    project={project}
+                    value={assignment.baseTag}
+                    onChange={(tag) => patchBindingAssignment(binding.key, { baseTag: tag ?? "" })}
+                  />
                   <Input
-                    addonBefore="Base tag"
                     value={assignment.baseTag}
                     placeholder={binding.defaultBaseTag ?? ".State"}
                     onChange={(event) => patchBindingAssignment(binding.key, { baseTag: event.target.value })}
@@ -748,6 +1487,14 @@ function SpecificPropertyFields({
                           label: `Segment ${segmentIndex}: ${segment} (prepend)`,
                           value: `segment:${segmentIndex}:prepend`,
                         })),
+                        ...segmentNames.map((segmentName) => ({
+                          label: `Segment "${segmentName}" (append)`,
+                          value: `segmentByName:${segmentName}:append`,
+                        })),
+                        ...segmentNames.map((segmentName) => ({
+                          label: `Segment "${segmentName}" (prepend)`,
+                          value: `segmentByName:${segmentName}:prepend`,
+                        })),
                         { label: "Last segment (append)", value: "last:append" },
                         { label: "Last segment (prepend)", value: "last:prepend" },
                       ]}
@@ -767,6 +1514,17 @@ function SpecificPropertyFields({
                           });
                           return;
                         }
+                        if (value.startsWith("segmentByName:")) {
+                          const [, segmentNameToken, positionToken] = value.split(":");
+                          patchBindingAssignment(binding.key, {
+                            prefixMode: {
+                              type: "segmentByName",
+                              segmentName: segmentNameToken ?? "",
+                              position: positionToken === "prepend" ? "prepend" : "append",
+                            },
+                          });
+                          return;
+                        }
                         if (value.startsWith("last:")) {
                           const [, positionToken] = value.split(":");
                           patchBindingAssignment(binding.key, {
@@ -779,6 +1537,13 @@ function SpecificPropertyFields({
                       }}
                     />
                   </Space>
+                  <RuntimeValueSourceEditor
+                    label="Prefix"
+                    value={assignment.prefixSource}
+                    valueType="string"
+                    project={project}
+                    onChange={(nextSource) => patchBindingAssignment(binding.key, { prefixSource: nextSource })}
+                  />
                   <Space wrap style={{ width: "100%" }}>
                     <InputNumber
                       style={{ width: 130 }}
@@ -834,19 +1599,45 @@ function SpecificPropertyFields({
                       }}
                     />
                   </Space>
+                  <RuntimeValueSourceEditor
+                    label="Index Offset"
+                    value={assignment.indexOffsetSource}
+                    valueType="number"
+                    project={project}
+                    onChange={(nextSource) => patchBindingAssignment(binding.key, { indexOffsetSource: nextSource })}
+                  />
+                  <Typography.Text type="secondary">Override tag</Typography.Text>
+                  <RuntimeValueSourceEditor
+                    label="Override Tag"
+                    value={assignment.overrideTagSource}
+                    valueType="string"
+                    project={project}
+                    onChange={(nextSource) => patchBindingAssignment(binding.key, { overrideTagSource: nextSource })}
+                  />
+                  {canOverride ? (
+                    <TagPicker
+                      project={project}
+                      value={assignment.overrideTag ?? ""}
+                      onChange={(tag) => patchBindingAssignment(binding.key, { overrideTag: tag ?? "" })}
+                    />
+                  ) : null}
                   <Input
-                    addonBefore="Override"
                     value={assignment.overrideTag ?? ""}
-                    placeholder="Optional exact resolved tag"
+                    placeholder={canOverride ? "Optional exact resolved tag" : "Override is disabled for this binding"}
+                    disabled={!canOverride}
                     onChange={(event) => patchBindingAssignment(binding.key, { overrideTag: event.target.value })}
                   />
                   <Space wrap>
                     <Typography.Text type="secondary">Resolved:</Typography.Text>
                     <Typography.Text code>{resolvedTag || "<empty>"}</Typography.Text>
-                    {resolvedTag ? (
+                    <Tag color="blue">prefix: {prefixCurrentValue === undefined ? "<undefined>" : String(prefixCurrentValue)}</Tag>
+                    <Tag color="geekblue">index: {indexCurrentValue === undefined ? "<undefined>" : String(indexCurrentValue)}</Tag>
+                    {isMissingRequired ? (
+                      <Tag color="red">Required binding is missing</Tag>
+                    ) : resolvedTag ? (
                       <Tag color={tagExists ? "green" : "gold"}>{tagExists ? "Tag found" : "Tag not found"}</Tag>
                     ) : (
-                      <Tag color="red">Missing tag</Tag>
+                      <Tag color="default">Not assigned</Tag>
                     )}
                   </Space>
                   <Button size="small" danger onClick={() => removeBindingAssignment(binding.key)}>
@@ -854,23 +1645,27 @@ function SpecificPropertyFields({
                   </Button>
                 </Space>
               );
-            })}
-            <Form.Item label="Binding Assignments (JSON advanced)">
-              <Input.TextArea
-                rows={5}
-                value={JSON.stringify(bindingAssignments, null, 2)}
-                onChange={(e) => {
-                  try {
-                    const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
-                    onPatch({ bindingAssignments: parsed } as Partial<HmiObject>);
-                  } catch {
-                    // ignore invalid JSON while typing
-                  }
-                }}
-              />
-            </Form.Item>
-          </>
-        ) : null}
+            })
+          ) : (
+            <Typography.Text type="secondary">
+              This element has no binding definitions. Add bindings in Element Editor, then return here to map tags.
+            </Typography.Text>
+          )}
+          <Form.Item label="Binding Assignments (JSON advanced)">
+            <Input.TextArea
+              rows={5}
+              value={JSON.stringify(bindingAssignments, null, 2)}
+              onChange={(e) => {
+                try {
+                  const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
+                  onPatch({ bindingAssignments: parsed } as Partial<HmiObject>);
+                } catch {
+                  // ignore invalid JSON while typing
+                }
+              }}
+            />
+          </Form.Item>
+        </>
         {selectedElement?.parameters?.length ? (
           <>
             <Typography.Text type="secondary">
@@ -1081,6 +1876,31 @@ function parseConditionValue(value: string): string | number | boolean {
   return normalized;
 }
 
+function parseRuntimeActionValue(value: string): boolean | number | string | null {
+  const normalized = value.trim();
+  if (normalized.toLowerCase() === "true") {
+    return true;
+  }
+  if (normalized.toLowerCase() === "false") {
+    return false;
+  }
+  if (normalized.toLowerCase() === "null") {
+    return null;
+  }
+  const asNumber = Number(normalized);
+  if (Number.isFinite(asNumber) && normalized !== "") {
+    return asNumber;
+  }
+  return value;
+}
+
+function stringifyRuntimeActionValue(value: boolean | number | string | null): string {
+  if (value === null) {
+    return "null";
+  }
+  return String(value);
+}
+
 function matchStateImageCondition(
   condition: { type: "equals" | "notEquals" | "true" | "false"; value?: string | number | boolean },
   rawValue: string,
@@ -1108,6 +1928,7 @@ function hasTextStyle(
     object.type === "state-indicator" ||
     object.type === "button" ||
     object.type === "switch" ||
+    object.type === "valueSelect" ||
     object.type === "valve" ||
     object.type === "pump"
   );
@@ -1122,6 +1943,7 @@ function hasTextLayout(
     object.type === "value-input" ||
     object.type === "state-indicator" ||
     object.type === "button" ||
-    object.type === "switch"
+    object.type === "switch" ||
+    object.type === "valueSelect"
   );
 }

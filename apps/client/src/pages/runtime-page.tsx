@@ -143,6 +143,16 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       return;
     }
 
+    if (action.type === "setLW") {
+      await writeVariable(`LW${Math.max(0, Math.floor(action.address))}`, action.value);
+      return;
+    }
+
+    if (action.type === "setInternalVar") {
+      await writeVariable(action.name, action.value);
+      return;
+    }
+
     if (action.type === "openScreen") {
       setCurrentScreen(action.screenId);
       return;

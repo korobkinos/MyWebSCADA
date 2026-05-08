@@ -177,6 +177,25 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         fit: "contain",
         preserveAspectRatio: true,
       };
+    case "valueSelect":
+      return {
+        id: id("value_select"),
+        type,
+        x: 100,
+        y: 100,
+        width: 180,
+        height: 44,
+        minWidth: 90,
+        minHeight: 28,
+        valueType: "string",
+        target: { type: "internal", name: "selectedBurnerPrefix" },
+        options: [
+          { label: "Burner 1", value: "_1" },
+          { label: "Burner 2", value: "_2" },
+          { label: "Burner 3", value: "_3" },
+        ],
+        textStyle: { ...defaultTextStyle },
+      };
     case "libraryElementInstance":
       return {
         id: id("lib"),

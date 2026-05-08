@@ -64,14 +64,43 @@ export class MacroService {
     const internalVariableService = this.internalVariableService;
     const tagStore = this.tagStore;
 
-    const api: MacroApi = {
+const api: MacroApi = {
       readTag: (name) => tagStore.getValue(name)?.value ?? null,
       writeTag: async (name, value) => {
         await commandService.writeTag(name, value);
       },
+      getLW: (address) => internalVariableService.get(`LW${Math.max(0, Math.floor(address))}`)?.value ?? null,
+      setLW: (address, value) => {
+        internalVariableService.write(`LW${Math.max(0, Math.floor(address))}`, value);
+      },
+      getVar: (name) => internalVariableService.get(name)?.value ?? null,
+      setVar: (name, value) => {
+        internalVariableService.write(name, value);
+      },
       readVariable: (name) => internalVariableService.get(name)?.value ?? null,
       writeVariable: (name, value) => {
         internalVariableService.write(name, value);
+      },
+      setInstancePrefix: (instanceId, value, bindingKey) => {
+        console.warn(`[macro:${macro.id}] setInstancePrefix is not implemented for runtime object mutation`, {
+          instanceId,
+          value,
+          bindingKey,
+        });
+      },
+      setInstanceIndex: (instanceId, value, bindingKey) => {
+        console.warn(`[macro:${macro.id}] setInstanceIndex is not implemented for runtime object mutation`, {
+          instanceId,
+          value,
+          bindingKey,
+        });
+      },
+      setInstanceBindingAssignment: (instanceId, bindingKey, patch) => {
+        console.warn(`[macro:${macro.id}] setInstanceBindingAssignment is not implemented for runtime object mutation`, {
+          instanceId,
+          bindingKey,
+          patch,
+        });
       },
       log: (...items) => console.log(`[macro:${macro.id}]`, ...items),
     };
@@ -84,7 +113,14 @@ export class MacroService {
 type MacroApi = {
   readTag: (name: string) => TagScalarValue;
   writeTag: (name: string, value: TagScalarValue) => Promise<void>;
+  getLW: (address: number) => TagScalarValue;
+  setLW: (address: number, value: TagScalarValue) => void;
+  getVar: (name: string) => TagScalarValue;
+  setVar: (name: string, value: TagScalarValue) => void;
   readVariable: (name: string) => TagScalarValue;
   writeVariable: (name: string, value: TagScalarValue) => void;
+  setInstancePrefix: (instanceId: string, value: string, bindingKey?: string) => void;
+  setInstanceIndex: (instanceId: string, value: number, bindingKey?: string) => void;
+  setInstanceBindingAssignment: (instanceId: string, bindingKey: string, patch: Record<string, unknown>) => void;
   log: (...items: unknown[]) => void;
 };

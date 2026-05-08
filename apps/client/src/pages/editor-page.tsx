@@ -67,6 +67,7 @@ const basicToolboxTypes: HmiObject["type"][] = [
   "state-indicator",
   "button",
   "switch",
+  "valueSelect",
   "image",
   "stateImage",
   "frame",
@@ -2086,6 +2087,13 @@ function remapTagFields(object: HmiObject, map: (tag: string) => string): HmiObj
 
   if (cloned.type === "button") {
     cloned.action = remapAction(cloned.action);
+  }
+
+  if (cloned.type === "valueSelect" && cloned.target.type === "tag") {
+    cloned.target = {
+      ...cloned.target,
+      tag: map(cloned.target.tag),
+    };
   }
 
   if (cloned.type === "frame" && cloned.tagPrefix) {

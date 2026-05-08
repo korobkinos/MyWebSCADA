@@ -1,10 +1,12 @@
 import type {
+  ElementBindingDefinition,
   ElementBindingAssignment,
   IndexApplyMode,
   LibraryElement,
   PrefixApplyMode,
 } from "./asset-library-types";
 import type { LibraryElementInstanceObject } from "./hmi-object-types";
+import { resolveRuntimeValueSync, type RuntimeResolveContext } from "./runtime-value-resolver";
 
 function getSegmentName(segment: string): string {
   const indexStart = segment.indexOf("[");
@@ -143,7 +145,15 @@ export function applyTagIndexTransform(
 export function resolveElementBindingAssignment(
   assignment: ElementBindingAssignment,
   fallbackBaseTag?: string,
+  runtimeContext?: RuntimeResolveContext,
 ): string {
+  const resolvedOverride = assignment.overrideTagSource
+    ? resolveRuntimeValueSync(assignment.overrideTagSource, runtimeContext ?? {})
+    : undefined;
+  if (typeof resolvedOverride === "string" && resolvedOverride.trim()) {
+    return resolvedOverride.trim();
+  }
+
   if (assignment.overrideTag?.trim()) {
     return assignment.overrideTag.trim();
   }
@@ -153,11 +163,26 @@ export function resolveElementBindingAssignment(
     return "";
   }
 
-  if (assignment.prefix?.trim()) {
-    result = applyTagPrefixTransform(result, assignment.prefix.trim(), assignment.prefixMode ?? { type: "none" });
+  const resolvedPrefix = assignment.prefixSource
+    ? resolveRuntimeValueSync(assignment.prefixSource, runtimeContext ?? {})
+    : undefined;
+  const prefix = resolvedPrefix === undefined || resolvedPrefix === null
+    ? (assignment.prefix ?? "")
+    : String(resolvedPrefix);
+
+  if (prefix.trim()) {
+    result = applyTagPrefixTransform(result, prefix.trim(), assignment.prefixMode ?? { type: "none" });
   }
-  if (assignment.indexOffset !== undefined) {
-    result = applyTagIndexTransform(result, assignment.indexOffset, assignment.indexMode ?? { type: "none" });
+
+  const resolvedIndexOffset = assignment.indexOffsetSource
+    ? resolveRuntimeValueSync(assignment.indexOffsetSource, runtimeContext ?? {})
+    : undefined;
+  const indexOffsetRaw = resolvedIndexOffset === undefined || resolvedIndexOffset === null
+    ? assignment.indexOffset
+    : Number(resolvedIndexOffset);
+
+  if (typeof indexOffsetRaw === "number" && Number.isFinite(indexOffsetRaw)) {
+    result = applyTagIndexTransform(result, indexOffsetRaw, assignment.indexMode ?? { type: "none" });
   }
   return result;
 }
@@ -165,22 +190,134 @@ export function resolveElementBindingAssignment(
 export function resolveLibraryElementInstanceBindings(
   element: Pick<LibraryElement, "bindings">,
   instance: Pick<LibraryElementInstanceObject, "bindingAssignments">,
+  runtimeContext?: RuntimeResolveContext,
 ): Record<string, string> {
-  const resolved: Record<string, string> = {};
+  return resolveLibraryElementInstanceBindingsDetailed(element, instance, runtimeContext).resolvedBindings;
+}
+
+export type BindingResolutionIssue = {
+  key: string;
+  displayName?: string;
+  required: boolean;
+  reason: "missing-required";
+  fallbackBaseTag?: string;
+};
+
+export type ResolvedBindingDebugInfo = {
+  baseTag: string;
+  prefixValue?: string;
+  indexOffsetValue?: number;
+  overrideTagValue?: string;
+  resolvedTag: string;
+  tagExists?: boolean;
+  tagQuality?: string;
+  tagValue?: unknown;
+};
+
+export type BindingResolutionResult = {
+  resolvedBindings: Record<string, string>;
+  issues: BindingResolutionIssue[];
+  debug: Record<string, ResolvedBindingDebugInfo>;
+};
+
+function resolveBindingDefinition(
+  definition: ElementBindingDefinition,
+  assignment: ElementBindingAssignment | undefined,
+  runtimeContext?: RuntimeResolveContext,
+): { tag?: string; issue?: BindingResolutionIssue; debug?: ResolvedBindingDebugInfo } | undefined {
+  if (assignment) {
+    const tag = resolveElementBindingAssignment(assignment, definition.defaultBaseTag, runtimeContext);
+    if (tag) {
+      const debugInfo: ResolvedBindingDebugInfo = {
+        baseTag: assignment.baseTag?.trim() || definition.defaultBaseTag?.trim() || "",
+        prefixValue: resolveResolvedPrefixValue(assignment, runtimeContext),
+        indexOffsetValue: resolveResolvedIndexValue(assignment, runtimeContext),
+        overrideTagValue: resolveResolvedOverrideValue(assignment, runtimeContext),
+        resolvedTag: tag,
+      };
+      return { tag, debug: debugInfo };
+    }
+    if (definition.required) {
+      return {
+        issue: {
+          key: definition.key,
+          displayName: definition.displayName,
+          required: true,
+          reason: "missing-required",
+          fallbackBaseTag: definition.defaultBaseTag,
+        },
+      };
+    }
+    return undefined;
+  }
+
+  if (definition.defaultBaseTag?.trim()) {
+    return {
+      tag: definition.defaultBaseTag.trim(),
+      debug: {
+        baseTag: definition.defaultBaseTag.trim(),
+        resolvedTag: definition.defaultBaseTag.trim(),
+      },
+    };
+  }
+
+  if (definition.required) {
+    return {
+      issue: {
+        key: definition.key,
+        displayName: definition.displayName,
+        required: true,
+        reason: "missing-required",
+        fallbackBaseTag: definition.defaultBaseTag,
+      },
+    };
+  }
+
+  return undefined;
+}
+
+export function resolveLibraryElementInstanceBindingsDetailed(
+  element: Pick<LibraryElement, "bindings">,
+  instance: Pick<LibraryElementInstanceObject, "bindingAssignments">,
+  runtimeContext?: RuntimeResolveContext,
+): BindingResolutionResult {
+  const resolvedBindings: Record<string, string> = {};
+  const issues: BindingResolutionIssue[] = [];
+  const debug: Record<string, ResolvedBindingDebugInfo> = {};
+
   for (const definition of element.bindings ?? []) {
     const assignment = instance.bindingAssignments?.[definition.key];
-    if (assignment) {
-      const tag = resolveElementBindingAssignment(assignment, definition.defaultBaseTag);
-      if (tag) {
-        resolved[definition.key] = tag;
+    const result = resolveBindingDefinition(definition, assignment, runtimeContext);
+    if (!result) {
+      continue;
+    }
+    if (result.tag) {
+      resolvedBindings[definition.key] = result.tag;
+      if (result.debug) {
+        const tagRaw = runtimeContext?.tagValues?.[result.tag];
+        let tagValue: unknown = undefined;
+        let tagQuality: string | undefined;
+        if (tagRaw && typeof tagRaw === "object") {
+          tagValue = "value" in tagRaw ? (tagRaw as { value?: unknown }).value : tagRaw;
+          tagQuality = "quality" in tagRaw ? String((tagRaw as { quality?: unknown }).quality) : undefined;
+        } else {
+          tagValue = tagRaw;
+        }
+        debug[definition.key] = {
+          ...result.debug,
+          tagExists: runtimeContext?.tagValues ? result.tag in runtimeContext.tagValues : undefined,
+          tagValue,
+          tagQuality,
+        };
       }
       continue;
     }
-    if (definition.defaultBaseTag?.trim()) {
-      resolved[definition.key] = definition.defaultBaseTag.trim();
+    if (result.issue) {
+      issues.push(result.issue);
     }
   }
-  return resolved;
+
+  return { resolvedBindings, issues, debug };
 }
 
 export function resolveBindingReferenceTag(
@@ -198,4 +335,47 @@ export function resolveBindingReferenceTag(
     return undefined;
   }
   return resolvedBindings?.[bindingKey];
+}
+
+function resolveResolvedPrefixValue(
+  assignment: ElementBindingAssignment,
+  runtimeContext?: RuntimeResolveContext,
+): string | undefined {
+  if (assignment.prefixSource) {
+    const value = resolveRuntimeValueSync(assignment.prefixSource, runtimeContext ?? {});
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    return String(value);
+  }
+  return assignment.prefix;
+}
+
+function resolveResolvedIndexValue(
+  assignment: ElementBindingAssignment,
+  runtimeContext?: RuntimeResolveContext,
+): number | undefined {
+  if (assignment.indexOffsetSource) {
+    const value = resolveRuntimeValueSync(assignment.indexOffsetSource, runtimeContext ?? {});
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      return undefined;
+    }
+    return num;
+  }
+  return assignment.indexOffset;
+}
+
+function resolveResolvedOverrideValue(
+  assignment: ElementBindingAssignment,
+  runtimeContext?: RuntimeResolveContext,
+): string | undefined {
+  if (assignment.overrideTagSource) {
+    const value = resolveRuntimeValueSync(assignment.overrideTagSource, runtimeContext ?? {});
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    return String(value);
+  }
+  return assignment.overrideTag;
 }

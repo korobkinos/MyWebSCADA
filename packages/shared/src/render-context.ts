@@ -6,6 +6,21 @@ export type RenderContext = {
 
 import type { RuntimeAction } from "./hmi-object-types";
 
+export function isBindingReference(tag: string | undefined): boolean {
+  if (!tag) {
+    return false;
+  }
+  return tag.startsWith("$binding.");
+}
+
+export function extractBindingKey(tag: string | undefined): string | undefined {
+  if (!tag || !isBindingReference(tag)) {
+    return undefined;
+  }
+  const bindingKey = tag.slice("$binding.".length).trim();
+  return bindingKey || undefined;
+}
+
 export function combineTagPrefix(parentPrefix?: string, childPrefix?: string): string | undefined {
   if (!childPrefix) {
     return parentPrefix;
@@ -26,8 +41,8 @@ export function resolveTagName(tag: string | undefined, context: RenderContext):
     return tag;
   }
 
-  if (tag.startsWith("$binding.")) {
-    const bindingKey = tag.slice("$binding.".length).trim();
+  if (isBindingReference(tag)) {
+    const bindingKey = extractBindingKey(tag);
     if (!bindingKey) {
       return undefined;
     }

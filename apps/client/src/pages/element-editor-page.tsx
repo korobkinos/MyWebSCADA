@@ -1912,6 +1912,7 @@ export function ElementEditorPage() {
                   assets={availableAssets}
                   libraries={libraries}
                   object={activeObject}
+                  elementBindings={draftElement?.bindings ?? []}
                   onPatch={(patch) => {
                     if (!activeObject) {
                       return;

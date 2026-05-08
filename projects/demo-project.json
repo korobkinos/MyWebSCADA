@@ -229,6 +229,28 @@
       },
       "writable": true,
       "scanRateMs": 500
+    },
+    {
+      "id": "tag_algk9b",
+      "name": "Counter2",
+      "sourceType": "lw",
+      "dataType": "INT",
+      "lwAddress": 2,
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-05-08T14:29:22.812Z",
+      "updatedAt": "2026-05-08T14:29:22.812Z"
+    },
+    {
+      "id": "tag_xpp9ry",
+      "name": "Counter",
+      "sourceType": "lw",
+      "dataType": "INT",
+      "lwAddress": 1,
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-05-08T14:30:39.314Z",
+      "updatedAt": "2026-05-08T14:30:39.314Z"
     }
   ],
   "variables": [
@@ -278,7 +300,7 @@
     "layout": {
       "leftPanel": {
         "visible": true,
-        "collapsed": true,
+        "collapsed": false,
         "width": 330,
         "minWidth": 240,
         "maxWidth": 520,
@@ -286,18 +308,18 @@
       },
       "rightPanel": {
         "visible": true,
-        "collapsed": true,
-        "width": 372,
+        "collapsed": false,
+        "width": 541,
         "minWidth": 260,
         "maxWidth": 560,
         "collapsedWidth": 36
       },
       "topArea": {
-        "collapsed": true,
+        "collapsed": false,
         "compact": false
       },
       "canvasToolbar": {
-        "collapsed": true,
+        "collapsed": false,
         "compact": true
       },
       "panels": {
@@ -305,7 +327,7 @@
         "currentScreenCollapsed": false,
         "toolboxCollapsed": false,
         "propertiesCollapsed": false,
-        "objectTreeCollapsed": false
+        "objectTreeCollapsed": true
       }
     },
     "dockLayout": {
@@ -327,7 +349,7 @@
       }
     },
     "leftPanelWidth": 330,
-    "rightPanelWidth": 372,
+    "rightPanelWidth": 541,
     "showObjectFrames": false,
     "panels": [
       {
@@ -376,16 +398,16 @@
         "visible": true,
         "collapsed": false,
         "dock": "right",
-        "width": 372,
+        "width": 541,
         "height": 280
       },
       {
         "id": "objectTree",
         "title": "Object Tree / Layers",
         "visible": true,
-        "collapsed": false,
+        "collapsed": true,
         "dock": "right",
-        "width": 372,
+        "width": 541,
         "height": 320
       },
       {
@@ -705,6 +727,34 @@
           "elementId": "element_qkwgwe",
           "tagPrefix": "",
           "parameterValues": {},
+          "scaleMode": "fit"
+        },
+        {
+          "id": "lib_u29sci",
+          "type": "libraryElementInstance",
+          "x": 254.99999084472717,
+          "y": 361.99998522949306,
+          "width": 360,
+          "height": 150,
+          "minWidth": 40,
+          "minHeight": 30,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "prefix_demo_element",
+          "tagPrefix": "",
+          "parameterValues": {},
+          "bindingAssignments": {
+            "stateLastSegmentPrefixed": {
+              "baseTag": "Counter",
+              "prefix": "2",
+              "prefixMode": {
+                "type": "lastSegment",
+                "position": "append"
+              },
+              "indexMode": {
+                "type": "none"
+              }
+            }
+          },
           "scaleMode": "fit"
         }
       ]

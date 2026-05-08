@@ -3,7 +3,9 @@ import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konv
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
   combineTagPrefix,
-  resolveLibraryElementInstanceBindings,
+  resolveLibraryElementInstanceBindingsDetailed,
+  isBindingReference,
+  extractBindingKey,
   type ElementStateAction,
   type ElementStateCase,
   type ElementStateRule,
@@ -20,6 +22,7 @@ import {
   type LibraryElementInstanceObject,
   type RenderContext,
   type RuntimeAction,
+  type RuntimeResolveContext,
   type ScadaProject,
   type StateImageCondition,
   type TagValue,
@@ -27,6 +30,11 @@ import {
 } from "@web-scada/shared";
 
 type TagMap = Record<string, TagValue>;
+type ResolvedTagValue = {
+  resolvedName?: string;
+  value?: TagValue;
+  missingBindingReference: boolean;
+};
 
 export type ObjectSelectPayload = {
   objectId: string;
@@ -205,6 +213,18 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
     case "image":
       candidates.push(object.stateTag);
       break;
+    case "valueSelect":
+      if (object.target.type === "tag") {
+        candidates.push(object.target.tag);
+      } else if (object.target.type === "lw") {
+        candidates.push(`LW${Math.max(0, Math.floor(object.target.address))}`);
+      } else {
+        const normalized = object.target.name.trim().startsWith("LW.")
+          ? object.target.name.trim()
+          : `LW.${object.target.name.trim()}`;
+        candidates.push(normalized);
+      }
+      break;
     case "valve":
       candidates.push(object.openTag, object.closedTag, object.errorTag);
       break;
@@ -258,9 +278,14 @@ function ObjectNode({
     });
   }, [debugPerformance, interactive, resolvedObject.id, resolvedObject.type]);
 
-  const tagValue = (name: string | undefined): TagValue | undefined => {
+  const tagValue = (name: string | undefined): ResolvedTagValue => {
     const resolved = resolveTagName(name, renderContext);
-    return resolved ? tags[resolved] : undefined;
+    const missingBindingReference = isBindingReference(name) && !resolved;
+    return {
+      resolvedName: resolved,
+      value: resolved ? tags[resolved] : undefined,
+      missingBindingReference,
+    };
   };
 
   const selectable = interactive;
@@ -419,8 +444,11 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "value-display") {
-    const value = tagValue(resolvedObject.tag);
-    const text = !value
+    const resolvedTag = tagValue(resolvedObject.tag);
+    const value = resolvedTag.value;
+    const text = resolvedTag.missingBindingReference
+      ? resolvedObject.badQualityText ?? "BAD"
+      : !value
       ? "---"
       : value.quality === "Bad"
         ? resolvedObject.badQualityText ?? "BAD"
@@ -441,7 +469,7 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "value-input") {
-    const value = tagValue(resolvedObject.tag)?.value;
+    const value = tagValue(resolvedObject.tag).value?.value;
     return (
       <Group
         {...commonGroupProps}
@@ -481,8 +509,9 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "state-indicator") {
-    const value = tagValue(resolvedObject.tag);
-    const isBad = !value || value.quality === "Bad";
+    const resolvedTag = tagValue(resolvedObject.tag);
+    const value = resolvedTag.value;
+    const isBad = resolvedTag.missingBindingReference || !value || value.quality === "Bad";
     const boolValue = Boolean(value?.value);
     const fill = isBad ? resolvedObject.badColor : boolValue ? resolvedObject.trueColor : resolvedObject.falseColor;
     const text = isBad ? "BAD" : boolValue ? resolvedObject.trueText : resolvedObject.falseText;
@@ -521,7 +550,7 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "switch") {
-    const isOn = Boolean(tagValue(resolvedObject.tag)?.value);
+    const isOn = Boolean(tagValue(resolvedObject.tag).value?.value);
     return (
       <Group
         {...commonGroupProps}
@@ -556,6 +585,47 @@ function ObjectNode({
     );
   }
 
+  if (resolvedObject.type === "valueSelect") {
+    const currentValue = readValueSelectTargetValue(resolvedObject, tags, renderContext);
+    const currentIndex = resolvedObject.options.findIndex((item) => String(item.value) === String(currentValue));
+    const activeOption = currentIndex >= 0 ? resolvedObject.options[currentIndex] : undefined;
+    const displayText = activeOption?.label ?? (currentValue === undefined ? "--" : String(currentValue));
+
+    return (
+      <Group
+        {...commonGroupProps}
+        onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive) {
+            onSelectObject?.({
+              objectId: resolvedObject.id,
+              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+            });
+            return;
+          }
+          const nextOption = getNextValueSelectOption(resolvedObject.options, currentIndex);
+          if (!nextOption) {
+            return;
+          }
+          const action = buildValueSelectAction(resolvedObject, nextOption.value);
+          if (!action) {
+            return;
+          }
+          onAction?.(action, renderContext);
+        }}
+      >
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#1f2a38" stroke="#5b6b7c" cornerRadius={6} />
+        {renderBoxText(displayText, resolvedObject.textStyle, {
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+          wrap: resolvedObject.wrap,
+          ellipsis: resolvedObject.ellipsis,
+        })}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
   if (resolvedObject.type === "image") {
     return (
       <ImageNode
@@ -576,9 +646,13 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "stateImage") {
-    const tag = tagValue(resolvedObject.tag);
+    const resolvedTag = tagValue(resolvedObject.tag);
+    const tag = resolvedTag.value;
     const stateAssetId = selectStateImageAssetId(resolvedObject.states, tag?.value);
-    const activeAssetId = tag?.quality === "Bad" ? (resolvedObject.badQualityAssetId ?? stateAssetId ?? resolvedObject.defaultAssetId) : (stateAssetId ?? resolvedObject.defaultAssetId);
+    const isBad = resolvedTag.missingBindingReference || tag?.quality === "Bad";
+    const activeAssetId = isBad
+      ? (resolvedObject.badQualityAssetId ?? stateAssetId ?? resolvedObject.defaultAssetId)
+      : (stateAssetId ?? resolvedObject.defaultAssetId);
     return (
       <ImageNode
         object={{
@@ -626,9 +700,9 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "valve") {
-    const open = Boolean(tagValue(resolvedObject.openTag)?.value);
-    const closed = Boolean(tagValue(resolvedObject.closedTag)?.value);
-    const fault = Boolean(tagValue(resolvedObject.errorTag)?.value);
+    const open = Boolean(tagValue(resolvedObject.openTag).value?.value);
+    const closed = Boolean(tagValue(resolvedObject.closedTag).value?.value);
+    const fault = Boolean(tagValue(resolvedObject.errorTag).value?.value);
     const color = fault ? "#d9363e" : open ? "#73d13d" : closed ? "#1677ff" : "#faad14";
 
     return (
@@ -644,8 +718,8 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "pump") {
-    const run = Boolean(tagValue(resolvedObject.runTag)?.value);
-    const fault = Boolean(tagValue(resolvedObject.faultTag)?.value);
+    const run = Boolean(tagValue(resolvedObject.runTag).value?.value);
+    const fault = Boolean(tagValue(resolvedObject.faultTag).value?.value);
     const color = fault ? "#ff4d4f" : run ? "#52c41a" : "#8c8c8c";
 
     return (
@@ -909,12 +983,37 @@ function LibraryInstanceNode({
   }
 
   const instanceParams = toResolvedParameterMap(element, object.parameterValues);
+  const mergedParameters = useMemo(
+    () => ({ ...(renderContext.parameters ?? {}), ...instanceParams }),
+    [instanceParams, renderContext.parameters],
+  );
+  const runtimeResolveContext: RuntimeResolveContext = useMemo(
+    () => ({
+      tagValues: tags,
+      warn: (warning) => {
+        if (mode === "runtime") {
+          // eslint-disable-next-line no-console
+          console.warn("[Runtime] Runtime value resolver warning", {
+            instanceId: object.id,
+            libraryId: library.id,
+            elementId: element.id,
+            ...warning,
+          });
+        }
+      },
+    }),
+    [element.id, library.id, mergedParameters, mode, object.id, tags],
+  );
+  const bindingResolution = useMemo(
+    () => resolveLibraryElementInstanceBindingsDetailed(element, object, runtimeResolveContext),
+    [element, object, runtimeResolveContext],
+  );
   const context: RenderContext = {
     tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
-    parameters: { ...(renderContext.parameters ?? {}), ...instanceParams },
+    parameters: mergedParameters,
     bindings: {
       ...(renderContext.bindings ?? {}),
-      ...resolveLibraryElementInstanceBindings(element, object),
+      ...bindingResolution.resolvedBindings,
     },
   };
   const resolvedObjects = useMemo(
@@ -934,6 +1033,33 @@ function LibraryInstanceNode({
     background: "transparent",
     objects: resolvedObjects,
   };
+
+  useEffect(() => {
+    if (mode !== "runtime") {
+      return;
+    }
+    if (!bindingResolution.issues.length) {
+      return;
+    }
+    warnLibraryBindingIssuesOnce(library.id, element.id, object.id, bindingResolution.issues);
+  }, [bindingResolution.issues, element.id, library.id, mode, object.id]);
+
+  const missingBindingReferences = useMemo(() => {
+    const references = new Set<string>();
+    collectMissingBindingReferencesFromObjects(element.objects, context.bindings, references);
+    collectMissingBindingReferencesFromRules(element.stateRules ?? [], context.bindings, references);
+    return [...references];
+  }, [context.bindings, element.objects, element.stateRules]);
+
+  useEffect(() => {
+    if (mode !== "runtime") {
+      return;
+    }
+    if (!missingBindingReferences.length) {
+      return;
+    }
+    warnMissingBindingReferencesOnce(library.id, element.id, object.id, missingBindingReferences);
+  }, [element.id, library.id, missingBindingReferences, mode, object.id]);
 
   return (
     <Group {...commonGroupProps}>
@@ -1172,6 +1298,143 @@ function MissingNode({ commonGroupProps, message }: { commonGroupProps: Record<s
       <Text text={message} fill="#ff7875" width={120} height={42} align="center" verticalAlign="middle" />
     </Group>
   );
+}
+
+const warnedBindingIssues = new Set<string>();
+const warnedBindingReferenceMisses = new Set<string>();
+
+function warnLibraryBindingIssuesOnce(
+  libraryId: string,
+  elementId: string,
+  instanceId: string,
+  issues: Array<{ key: string; displayName?: string; required: boolean; reason: string; fallbackBaseTag?: string }>,
+) {
+  const key = `${libraryId}:${elementId}:${instanceId}:${issues
+    .map((item) => `${item.key}:${item.reason}:${item.required ? 1 : 0}`)
+    .sort()
+    .join("|")}`;
+  if (warnedBindingIssues.has(key)) {
+    return;
+  }
+  warnedBindingIssues.add(key);
+  // eslint-disable-next-line no-console
+  console.warn("[Runtime] Library binding issues", {
+    libraryId,
+    elementId,
+    instanceId,
+    issues,
+  });
+}
+
+function warnMissingBindingReferencesOnce(
+  libraryId: string,
+  elementId: string,
+  instanceId: string,
+  refs: string[],
+) {
+  const key = `${libraryId}:${elementId}:${instanceId}:${refs.slice().sort().join("|")}`;
+  if (warnedBindingReferenceMisses.has(key)) {
+    return;
+  }
+  warnedBindingReferenceMisses.add(key);
+  // eslint-disable-next-line no-console
+  console.warn("[Runtime] Missing binding references in library element", {
+    libraryId,
+    elementId,
+    instanceId,
+    references: refs,
+  });
+}
+
+function collectMissingBindingReference(
+  tag: string | undefined,
+  resolvedBindings: Record<string, string> | undefined,
+  output: Set<string>,
+) {
+  if (!isBindingReference(tag)) {
+    return;
+  }
+  const bindingKey = extractBindingKey(tag);
+  if (!bindingKey) {
+    return;
+  }
+  if (!resolvedBindings?.[bindingKey]) {
+    output.add(bindingKey);
+  }
+}
+
+function collectMissingBindingReferencesFromAction(
+  action: RuntimeAction | undefined,
+  resolvedBindings: Record<string, string> | undefined,
+  output: Set<string>,
+) {
+  if (!action) {
+    return;
+  }
+  if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+    collectMissingBindingReference(action.tag, resolvedBindings, output);
+    return;
+  }
+  if ((action.type === "writeConst" || action.type === "writeNumberPrompt") && action.target === "tag") {
+    collectMissingBindingReference(action.name, resolvedBindings, output);
+  }
+}
+
+function collectMissingBindingReferencesFromObjects(
+  objects: HmiObject[],
+  resolvedBindings: Record<string, string> | undefined,
+  output: Set<string>,
+) {
+  for (const object of objects) {
+    if (object.type === "group") {
+      collectMissingBindingReferencesFromObjects(object.objects, resolvedBindings, output);
+      continue;
+    }
+    if (
+      object.type === "value-display" ||
+      object.type === "value-input" ||
+      object.type === "state-indicator" ||
+      object.type === "switch" ||
+      object.type === "stateImage"
+    ) {
+      collectMissingBindingReference(object.tag, resolvedBindings, output);
+    }
+    if (object.type === "image") {
+      collectMissingBindingReference(object.stateTag, resolvedBindings, output);
+      collectMissingBindingReferencesFromAction(object.action, resolvedBindings, output);
+    }
+    if (object.type === "valueSelect" && object.target.type === "tag") {
+      collectMissingBindingReference(object.target.tag, resolvedBindings, output);
+    }
+    if (object.type === "button") {
+      collectMissingBindingReferencesFromAction(object.action, resolvedBindings, output);
+    }
+    if (object.type === "valve") {
+      collectMissingBindingReference(object.openTag, resolvedBindings, output);
+      collectMissingBindingReference(object.closedTag, resolvedBindings, output);
+      collectMissingBindingReference(object.errorTag, resolvedBindings, output);
+      collectMissingBindingReference(object.commandOpenTag, resolvedBindings, output);
+      collectMissingBindingReference(object.commandCloseTag, resolvedBindings, output);
+    }
+    if (object.type === "pump") {
+      collectMissingBindingReference(object.runTag, resolvedBindings, output);
+      collectMissingBindingReference(object.faultTag, resolvedBindings, output);
+      collectMissingBindingReference(object.commandStartTag, resolvedBindings, output);
+      collectMissingBindingReference(object.commandStopTag, resolvedBindings, output);
+    }
+  }
+}
+
+function collectMissingBindingReferencesFromRules(
+  rules: ElementStateRule[],
+  resolvedBindings: Record<string, string> | undefined,
+  output: Set<string>,
+) {
+  for (const rule of rules) {
+    if (rule.source.type === "tag") {
+      collectMissingBindingReference(rule.source.value, resolvedBindings, output);
+    }
+  }
 }
 
 function toResolvedParameterMap(element: LibraryElement, values?: Record<string, unknown>): Record<string, unknown> {
@@ -1480,6 +1743,72 @@ function selectStateImageAssetId(
     }
   }
   return undefined;
+}
+
+function toInternalRuntimeTag(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  return trimmed.startsWith("LW.") ? trimmed : `LW.${trimmed}`;
+}
+
+function toLwRuntimeTag(address: number): string {
+  return `LW${Math.max(0, Math.floor(address))}`;
+}
+
+function readValueSelectTargetValue(
+  object: Extract<HmiObject, { type: "valueSelect" }>,
+  tags: TagMap,
+  context: RenderContext,
+): unknown {
+  if (object.target.type === "tag") {
+    const resolvedTag = resolveTagName(object.target.tag, context);
+    return resolvedTag ? tags[resolvedTag]?.value : undefined;
+  }
+  if (object.target.type === "lw") {
+    return tags[toLwRuntimeTag(object.target.address)]?.value;
+  }
+  const normalized = toInternalRuntimeTag(object.target.name);
+  return tags[normalized]?.value ?? tags[object.target.name]?.value;
+}
+
+function getNextValueSelectOption(
+  options: Array<{ label: string; value: string | number | boolean }>,
+  currentIndex: number,
+): { label: string; value: string | number | boolean } | undefined {
+  if (!options.length) {
+    return undefined;
+  }
+  if (currentIndex < 0) {
+    return options[0];
+  }
+  return options[(currentIndex + 1) % options.length];
+}
+
+function buildValueSelectAction(
+  object: Extract<HmiObject, { type: "valueSelect" }>,
+  value: string | number | boolean,
+): RuntimeAction | undefined {
+  if (object.target.type === "internal") {
+    return {
+      type: "setInternalVar",
+      name: object.target.name,
+      value,
+    };
+  }
+  if (object.target.type === "lw") {
+    return {
+      type: "setLW",
+      address: object.target.address,
+      value,
+    };
+  }
+  return {
+    type: "write",
+    tag: object.target.tag,
+    value,
+  };
 }
 
 function resolveObjectParameters(object: HmiObject, params: Record<string, unknown>): HmiObject {

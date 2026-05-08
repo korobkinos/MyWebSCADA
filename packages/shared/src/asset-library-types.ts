@@ -57,12 +57,37 @@ export type IndexApplyMode =
   | { type: "arrayIndex"; occurrence: number; operation: "add"; valueFrom: "indexOffset" }
   | { type: "arrayIndexBySegment"; segmentName: string; operation: "add"; valueFrom: "indexOffset" };
 
+export type RuntimeValueSource =
+  | {
+      type: "static";
+      value: string | number | boolean | null;
+    }
+  | {
+      type: "tag";
+      tag: string;
+    }
+  | {
+      type: "lw";
+      address: number;
+    }
+  | {
+      type: "internal";
+      name: string;
+    }
+  | {
+      type: "expression";
+      expression: string;
+    };
+
 export type ElementBindingAssignment = {
   baseTag: string;
+  prefixSource?: RuntimeValueSource;
   prefix?: string;
   prefixMode?: PrefixApplyMode;
+  indexOffsetSource?: RuntimeValueSource;
   indexOffset?: number;
   indexMode?: IndexApplyMode;
+  overrideTagSource?: RuntimeValueSource;
   overrideTag?: string;
 };
 

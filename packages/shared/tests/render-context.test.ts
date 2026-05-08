@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineTagPrefix, resolveTagName } from "../src/render-context";
+import { combineTagPrefix, extractBindingKey, isBindingReference, resolveTagName } from "../src/render-context";
 
 describe("combineTagPrefix", () => {
   it("combines relative child with parent", () => {
@@ -27,6 +27,16 @@ describe("resolveTagName", () => {
   it("returns relative without dot when prefix missing", () => {
     expect(resolveTagName(".Opened", {})).toBe("Opened");
   });
+
+  it("resolves binding reference from context", () => {
+    expect(resolveTagName("$binding.visualState", { bindings: { visualState: "Burner_1.PZK_1.VisualState" } })).toBe(
+      "Burner_1.PZK_1.VisualState",
+    );
+  });
+
+  it("returns undefined for missing binding reference", () => {
+    expect(resolveTagName("$binding.visualState", { bindings: {} })).toBeUndefined();
+  });
 });
 
 describe("frame nested resolving", () => {
@@ -34,5 +44,17 @@ describe("frame nested resolving", () => {
     const nestedPrefix = combineTagPrefix("Burner_1", ".PZK_1");
     const leafPrefix = combineTagPrefix(nestedPrefix, ".Valve");
     expect(resolveTagName(".OpenCmd", { tagPrefix: leafPrefix })).toBe("Burner_1.PZK_1.Valve.OpenCmd");
+  });
+});
+
+describe("binding helpers", () => {
+  it("detects binding references and extracts key", () => {
+    expect(isBindingReference("$binding.opened")).toBe(true);
+    expect(extractBindingKey("$binding.opened")).toBe("opened");
+  });
+
+  it("returns undefined for non-binding tag", () => {
+    expect(isBindingReference("Burner_1.PZK_1.Opened")).toBe(false);
+    expect(extractBindingKey("Burner_1.PZK_1.Opened")).toBeUndefined();
   });
 });

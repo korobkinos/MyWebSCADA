@@ -85,6 +85,27 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     example: "setVar(\"SelectedValveName\", \"ПЗК-1\");",
   },
   {
+    name: "setInstancePrefix",
+    category: "Динамические prefix/index для элементов",
+    signature: "setInstancePrefix(instanceId: string, value: string, bindingKey?: string): void",
+    description: "Планируемый API прямого изменения prefix у экземпляра (рекомендуется через setVar/setLW).",
+    example: "setInstancePrefix(\"valve_instance_1\", \"_2\");",
+  },
+  {
+    name: "setInstanceIndex",
+    category: "Динамические prefix/index для элементов",
+    signature: "setInstanceIndex(instanceId: string, value: number, bindingKey?: string): void",
+    description: "Планируемый API прямого изменения indexOffset у экземпляра (рекомендуется через setVar/setLW).",
+    example: "setInstanceIndex(\"valve_instance_1\", 10);",
+  },
+  {
+    name: "setInstanceBindingAssignment",
+    category: "Динамические prefix/index для элементов",
+    signature: "setInstanceBindingAssignment(instanceId: string, bindingKey: string, patch: object): void",
+    description: "Планируемый API patch assignment конкретного binding (рекомендуется через setVar/setLW).",
+    example: "setInstanceBindingAssignment(\"valve_instance_1\", \"visualState\", { prefix: \"_2\" });",
+  },
+  {
     name: "openScreen",
     category: "Работа с экранами",
     signature: "openScreen(screenKey: string): void",
@@ -299,6 +320,12 @@ export const macroExamples: MacroExample[] = [
     title: "Открытие popup с tagPrefix",
     description: "Динамический префикс из LW.",
     code: `const selectedBurner = getLW(20);\nconst selectedValve = getLW(10);\n\nconst prefix = "Burner_" + selectedBurner + ".Valve_" + selectedValve;\n\nopenPopup("valve_control_popup", {\n  title: "Управление арматурой",\n  x: 300,\n  y: 200,\n  tagPrefix: prefix\n});`,
+  },
+  {
+    id: "dynamic-binding-prefix",
+    title: "Динамический prefix через internal var",
+    description: "Переключение burner для LibraryElementInstance через setVar.",
+    code: `setVar("selectedBurnerPrefix", "_2");`,
   },
   {
     id: "set-object-text",

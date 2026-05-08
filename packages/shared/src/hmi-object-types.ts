@@ -45,6 +45,7 @@ export type HmiObjectBase = {
     | "switch"
     | "image"
     | "stateImage"
+    | "valueSelect"
     | "libraryElementInstance"
     | "valve"
     | "pump"
@@ -192,6 +193,20 @@ export type RuntimeAction =
       args?: Record<string, unknown>;
       confirm?: boolean;
       confirmText?: string;
+    }
+  | {
+      type: "setLW";
+      address: number;
+      value: boolean | number | string | null;
+      confirm?: boolean;
+      confirmText?: string;
+    }
+  | {
+      type: "setInternalVar";
+      name: string;
+      value: boolean | number | string | null;
+      confirm?: boolean;
+      confirmText?: string;
     };
 
 export type ButtonObject = HmiObjectBase & {
@@ -260,6 +275,29 @@ export type StateImageObject = HmiObjectBase & {
   action?: RuntimeAction;
 };
 
+export type ValueSelectObject = HmiObjectBase & {
+  type: "valueSelect";
+  options: Array<{
+    label: string;
+    value: string | number | boolean;
+  }>;
+  target:
+    | {
+        type: "internal";
+        name: string;
+      }
+    | {
+        type: "lw";
+        address: number;
+      }
+    | {
+        type: "tag";
+        tag: string;
+      };
+  valueType: "string" | "number" | "boolean";
+  textStyle: TextStyle;
+} & TextLayout;
+
 export type LibraryElementInstanceObject = HmiObjectBase & {
   type: "libraryElementInstance";
   libraryId: string;
@@ -318,6 +356,7 @@ export type HmiObject =
   | SwitchObject
   | ImageObject
   | StateImageObject
+  | ValueSelectObject
   | LibraryElementInstanceObject
   | ValveObject
   | PumpObject
