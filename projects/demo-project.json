@@ -13130,7 +13130,7 @@
       "id": "inc_counter",
       "name": "Increment Counter",
       "language": "javascript-lite",
-      "code": "const current = Number(api.readVariable('Counter') ?? 0); api.writeVariable('Counter', current + 1);",
+      "code": "const current = Number(api.readVariable('Counter') ?? 0); \napi.writeVariable('Counter', current + 1);",
       "enabled": true,
       "triggers": [
         {
@@ -13144,7 +13144,7 @@
       "name": "Newmacro_1",
       "description": "",
       "language": "javascript-lite",
-      "code": "const current = Number(api.readVariable('Counter2') ?? 0); api.writeVariable('Counter2', current + 1);",
+      "code": "const current = Number(api.readVariable('Counter2') ?? 0); \napi.writeVariable('Counter2', current + 1);",
       "enabled": true,
       "triggers": [
         {
@@ -13617,7 +13617,7 @@
           "type": "libraryElementInstance",
           "name": "ПЗК-2",
           "x": 360,
-          "y": 550,
+          "y": 557.9999995117187,
           "width": 220,
           "height": 120,
           "libraryId": "amaks-basic-equipment",

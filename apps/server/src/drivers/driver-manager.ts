@@ -75,62 +75,114 @@ export class DriverManager {
     return driver.readTag(tag);
   }
 
-  public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
-    if (tags.length === 0) {
-      return [];
+
+public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
+  if (tags.length === 0) {
+    return [];
+  }
+
+  type IndexedTag = {
+    tag: TagDefinition;
+    index: number;
+  };
+
+  const timestamp = Date.now();
+  const result: Array<TagValue | undefined> = new Array(tags.length);
+  const byDriver = new Map<string, IndexedTag[]>();
+
+  for (let index = 0; index < tags.length; index += 1) {
+    const tag = tags[index]!;
+
+    if (!tag.driverId) {
+      result[index] = {
+        name: tag.name,
+        value: null,
+        quality: "Bad",
+        timestamp,
+        source: "none",
+      };
+      continue;
     }
 
-    const result: TagValue[] = [];
-    const byDriver = new Map<string, TagDefinition[]>();
+    const group = byDriver.get(tag.driverId);
+    if (group) {
+      group.push({ tag, index });
+    } else {
+      byDriver.set(tag.driverId, [{ tag, index }]);
+    }
+  }
 
-    for (const tag of tags) {
-      if (!tag.driverId) {
-        result.push({
-          name: tag.name,
+  for (const [driverId, indexedTags] of byDriver.entries()) {
+    const driver = this.drivers.get(driverId);
+
+    if (!driver) {
+      const driverTimestamp = Date.now();
+      for (const item of indexedTags) {
+        result[item.index] = {
+          name: item.tag.name,
+          value: null,
+          quality: "Bad",
+          timestamp: driverTimestamp,
+          source: driverId,
+        };
+      }
+      continue;
+    }
+
+    const driverTags = indexedTags.map((item) => item.tag);
+
+    if (driver.readTags) {
+      const values = await driver.readTags(driverTags);
+
+      // Основной путь: драйвер вернул значения в том же порядке, что и получил теги.
+      // Дополнительная защита: если порядок нарушен, пытаемся сопоставить по имени тега.
+      const valuesByName = new Map(values.map((value) => [value.name, value]));
+
+      for (let localIndex = 0; localIndex < indexedTags.length; localIndex += 1) {
+        const item = indexedTags[localIndex]!;
+        const valueByPosition = values[localIndex];
+        const valueByName = valuesByName.get(item.tag.name);
+
+        result[item.index] = valueByName ?? valueByPosition ?? {
+          name: item.tag.name,
           value: null,
           quality: "Bad",
           timestamp: Date.now(),
-          source: "none",
-        });
-        continue;
+          source: driverId,
+        };
       }
-
-      const group = byDriver.get(tag.driverId);
-      if (group) {
-        group.push(tag);
-      } else {
-        byDriver.set(tag.driverId, [tag]);
-      }
+      continue;
     }
 
-    for (const [driverId, driverTags] of byDriver.entries()) {
-      const driver = this.drivers.get(driverId);
-      if (!driver) {
-        const timestamp = Date.now();
-        result.push(
-          ...driverTags.map((tag) => ({
-            name: tag.name,
-            value: null,
-            quality: "Bad" as const,
-            timestamp,
-            source: driverId,
-          })),
-        );
-        continue;
-      }
-
-      if (driver.readTags) {
-        const values = await driver.readTags(driverTags);
-        result.push(...values);
-        continue;
-      }
-
-      const values = await Promise.all(driverTags.map((tag) => driver.readTag(tag)));
-      result.push(...values);
+    const values = await Promise.all(driverTags.map((tag) => driver.readTag(tag)));
+    for (let localIndex = 0; localIndex < indexedTags.length; localIndex += 1) {
+      const item = indexedTags[localIndex]!;
+      result[item.index] = values[localIndex] ?? {
+        name: item.tag.name,
+        value: null,
+        quality: "Bad",
+        timestamp: Date.now(),
+        source: driverId,
+      };
     }
-
-    return result;
   }
+
+  return result.map((value, index) => {
+    if (value) {
+      return value;
+    }
+
+    const tag = tags[index]!;
+    return {
+      name: tag.name,
+      value: null,
+      quality: "Bad",
+      timestamp: Date.now(),
+      source: tag.driverId ?? "none",
+    };
+  });
+}
+
 
   public async writeTag(tag: TagDefinition, value: TagScalarValue): Promise<void> {
     if (!tag.driverId) {

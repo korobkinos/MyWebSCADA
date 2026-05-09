@@ -1,5 +1,6 @@
 import {
   combineTagPrefix,
+  getRuntimeValueSourceDependencies,
   resolveLibraryElementInstanceBindingsDetailed,
   resolveParameters,
   resolveTemplateString,
@@ -10,6 +11,7 @@ import {
   type HmiScreen,
   type RenderContext,
   type RuntimeAction,
+  type RuntimeDependency,
   type ScadaProject,
 } from "@web-scada/shared";
 
@@ -147,6 +149,9 @@ function collectObjectTags(
         ...resolveObjectParameters((resolvedObject.parameterValues ?? {}) as Record<string, unknown>, context.parameters ?? {}),
       } as Record<string, unknown>;
 
+      collectBindingAssignmentDependencies(resolvedObject.bindingAssignments, out);
+
+
       const resolvedBindings = resolveLibraryElementInstanceBindingsDetailed(
         element,
         resolvedObject,
@@ -188,6 +193,53 @@ function collectActionTags(action: RuntimeAction, context: RenderContext, out: S
     addTag(out, resolved.name, context);
   }
 }
+
+function collectBindingAssignmentDependencies(
+  assignments: HmiObject extends infer _T ? Record<string, unknown> | undefined : never,
+  out: Set<string>,
+): void {
+  if (!assignments) {
+    return;
+  }
+
+  for (const assignment of Object.values(assignments)) {
+    if (!assignment || typeof assignment !== "object") {
+      continue;
+    }
+
+    const item = assignment as {
+      prefixSource?: Parameters<typeof getRuntimeValueSourceDependencies>[0];
+      indexOffsetSource?: Parameters<typeof getRuntimeValueSourceDependencies>[0];
+      overrideTagSource?: Parameters<typeof getRuntimeValueSourceDependencies>[0];
+    };
+
+    addRuntimeDependencies(out, getRuntimeValueSourceDependencies(item.prefixSource));
+    addRuntimeDependencies(out, getRuntimeValueSourceDependencies(item.indexOffsetSource));
+    addRuntimeDependencies(out, getRuntimeValueSourceDependencies(item.overrideTagSource));
+  }
+}
+
+function addRuntimeDependencies(out: Set<string>, dependencies: RuntimeDependency[]): void {
+  for (const dependency of dependencies) {
+    if (dependency.type === "tag") {
+      if (dependency.tag.trim()) {
+        out.add(dependency.tag.trim());
+      }
+      continue;
+    }
+
+    if (dependency.type === "lw") {
+      out.add(toLwRuntimeTag(dependency.address));
+      continue;
+    }
+
+    const name = dependency.name.trim();
+    if (name) {
+      out.add(toInternalRuntimeTag(name));
+    }
+  }
+}
+
 
 function addTag(out: Set<string>, tag: string | undefined, context: RenderContext): void {
   const resolved = resolveTagName(tag, context);

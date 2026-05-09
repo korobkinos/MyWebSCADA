@@ -32,12 +32,26 @@ describe("resolveRuntimeValueSync", () => {
     ).toBe(10);
   });
 
-  it("warns for expression source", () => {
+  it("evaluates expression source", () => {
     const warn = vi.fn();
+
     const result = resolveRuntimeValueSync(
       { type: "expression", expression: "1+1" },
       { warn },
     );
+
+    expect(result).toBe(2);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("warns for invalid expression source", () => {
+    const warn = vi.fn();
+
+    const result = resolveRuntimeValueSync(
+      { type: "expression", expression: "unknownFn(1)" },
+      { warn },
+    );
+
     expect(result).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
   });
@@ -49,5 +63,21 @@ describe("getRuntimeValueSourceDependencies", () => {
       { type: "internal", name: "selectedBurnerPrefix" },
     ]);
   });
-});
 
+  it("returns dependencies for expression source", () => {
+    expect(
+      getRuntimeValueSourceDependencies({
+        type: "expression",
+        expression: "tag('Burner.Selected') + lw(20) + internal('ValveIndex')",
+      }),
+    ).toEqual([
+      { type: "tag", tag: "Burner.Selected" },
+      { type: "lw", address: 20 },
+      { type: "internal", name: "ValveIndex" },
+    ]);
+  });
+
+  it("returns no dependencies for static source", () => {
+    expect(getRuntimeValueSourceDependencies({ type: "static", value: 123 })).toEqual([]);
+  });
+});

@@ -163,6 +163,7 @@ export class RuntimeService {
     return this.activeTagNames.has(name);
   }
 
+
   private async pollRate(rate: number): Promise<void> {
     if (!this.state.running) {
       return;
@@ -184,12 +185,14 @@ export class RuntimeService {
     this.inFlightRates.add(rate);
     try {
       const values = await this.driverManager.readTags(targets);
-      for (let index = 0; index < values.length; index += 1) {
-        const value = values[index]!;
-        const definition = targets[index];
+      const definitionsByName = new Map(targets.map((tag) => [tag.name, tag]));
+
+      for (const value of values) {
+        const definition = definitionsByName.get(value.name);
         if (!definition) {
           continue;
         }
+
         const scaledValue = this.applyScale(definition.scale, definition.offset, value.value);
         this.tagStore.upsertValue({
           ...value,
@@ -200,6 +203,7 @@ export class RuntimeService {
       this.inFlightRates.delete(rate);
     }
   }
+
 
   private applyScale(scale: number | undefined, offset: number | undefined, value: TagScalarValue): TagScalarValue {
     if (typeof value !== "number") {
