@@ -7,11 +7,12 @@ import type {
   HmiObject,
   HmiScreen,
   RuntimeAction,
+  RuntimeResolveContext,
   RuntimeValueSource,
   ScadaProject,
   TextStyle,
 } from "@web-scada/shared";
-import { parseTagSegments, resolveElementBindingAssignment, resolveRuntimeValueSync } from "@web-scada/shared";
+import { parseTagSegments, resolveElementBindingAssignment, resolveLibraryElementInstanceBindingsDetailed, resolveRuntimeValueSync } from "@web-scada/shared";
 import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 
@@ -147,13 +148,10 @@ function TagFieldWithBindingSource({
   );
 }
 
-type RuntimeSourceMode = "none" | "static" | "internal" | "lw" | "tag";
+type RuntimeSourceMode = "none" | "static" | "internal" | "lw" | "tag" | "expression";
 
 function runtimeSourceModeOf(source: RuntimeValueSource | undefined): RuntimeSourceMode {
   if (!source) {
-    return "none";
-  }
-  if (source.type === "expression") {
     return "none";
   }
   return source.type;
@@ -193,6 +191,60 @@ function RuntimeValueSourceEditor({
 }) {
   const mode = runtimeSourceModeOf(value);
   const staticValue = value?.type === "static" ? value.value : undefined;
+  const previewContext: RuntimeResolveContext = {
+    tagValues: buildEditorRuntimeTagValues(project),
+  };
+  const previewWarnings: string[] = [];
+  const previewValue = value
+    ? resolveRuntimeValueSync(value, {
+        ...previewContext,
+        warn(warning) {
+          previewWarnings.push(warning.message);
+        },
+      })
+    : undefined;
+
+  const expressionTemplates = valueType === "number"
+    ? [
+        {
+          label: "Burner/valve index: lw(20) * 32 + lw(10)",
+          value: "lw(20) * 32 + lw(10)",
+        },
+        {
+          label: "Burner base index: lw(20) * 32",
+          value: "lw(20) * 32",
+        },
+        {
+          label: "Selected LW value: lw(20)",
+          value: "lw(20)",
+        },
+        {
+          label: "Tag numeric value: tag('Selected.Index')",
+          value: "tag('Selected.Index')",
+        },
+        {
+          label: "Internal numeric value: internal('SelectedIndex')",
+          value: "internal('SelectedIndex')",
+        },
+      ]
+    : [
+        {
+          label: "Burner prefix: 'Burner_' + str(lw(20))",
+          value: "'Burner_' + str(lw(20))",
+        },
+        {
+          label: "Suffix from LW: '_' + str(lw(20))",
+          value: "'_' + str(lw(20))",
+        },
+        {
+          label: "Tag string value: str(tag('Selected.Prefix'))",
+          value: "str(tag('Selected.Prefix'))",
+        },
+        {
+          label: "Internal string value: str(internal('SelectedPrefix'))",
+          value: "str(internal('SelectedPrefix'))",
+        },
+      ];
 
   return (
     <Space direction="vertical" style={{ width: "100%" }} size={6}>
@@ -205,6 +257,7 @@ function RuntimeValueSourceEditor({
           { label: "From Internal Variable", value: "internal" },
           { label: "From LW", value: "lw" },
           { label: "From Tag", value: "tag" },
+          { label: "Expression", value: "expression" },
         ]}
         onChange={(nextMode: RuntimeSourceMode) => {
           if (nextMode === "none") {
@@ -225,6 +278,13 @@ function RuntimeValueSourceEditor({
           }
           if (nextMode === "tag") {
             onChange({ type: "tag", tag: "" });
+            return;
+          }
+          if (nextMode === "expression") {
+            onChange({
+              type: "expression",
+              expression: valueType === "number" ? "lw(20) * 32 + lw(10)" : "'Prefix_' + str(lw(20))",
+            });
             return;
           }
         }}
@@ -264,6 +324,47 @@ function RuntimeValueSourceEditor({
           value={value?.type === "tag" ? value.tag : ""}
           onChange={(tag) => onChange({ type: "tag", tag: tag ?? "" })}
         />
+      ) : null}
+      {mode === "expression" ? (
+        <Space direction="vertical" style={{ width: "100%" }} size={4}>
+          <Select
+            placeholder="Insert expression template"
+            value={undefined}
+            options={expressionTemplates}
+            onChange={(template) => {
+              if (!template) {
+                return;
+              }
+              onChange({
+                type: "expression",
+                expression: template,
+              });
+            }}
+          />
+          <Input.TextArea
+            rows={3}
+            value={value?.type === "expression" ? value.expression : ""}
+            placeholder={valueType === "number" ? "lw(20) * 32 + lw(10)" : "'Prefix_' + str(lw(20))"}
+            onChange={(event) =>
+              onChange({
+                type: "expression",
+                expression: event.target.value,
+              })
+            }
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Available: lw(20), tag('Tag.Name'), internal('Name'), str(...), num(...), floor(...), ceil(...), round(...)
+          </Typography.Text>
+          {previewWarnings.length > 0 ? (
+            <Typography.Text type="danger" style={{ fontSize: 12 }}>
+              Expression error: {previewWarnings[0]}
+            </Typography.Text>
+          ) : (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              Preview result: {previewValue === undefined ? "—" : String(previewValue)}
+            </Typography.Text>
+          )}
+        </Space>
       ) : null}
     </Space>
   );
@@ -1652,9 +1753,16 @@ function SpecificPropertyFields({
     const bindingAssignments = object.bindingAssignments ?? {};
     const bindingDefinitions = selectedElement?.bindings ?? [];
     const knownTags = new Set(project.tags.map((tag) => tag.name));
+    const editorTagValues = buildEditorRuntimeTagValues(project);
     const editorRuntimeContext = {
-      tagValues: buildEditorRuntimeTagValues(project),
+      tagValues: editorTagValues,
     };
+    const runtimeResolveContext: RuntimeResolveContext = {
+      tagValues: editorTagValues,
+    };
+    const bindingDebug = selectedElement
+      ? resolveLibraryElementInstanceBindingsDetailed(selectedElement, object, runtimeResolveContext)
+      : undefined;
 
     const patchBindingAssignment = (bindingKey: string, patch: Partial<NonNullable<typeof bindingAssignments>[string]>) => {
       const current = bindingAssignments[bindingKey] ?? {
@@ -1678,6 +1786,41 @@ function SpecificPropertyFields({
       delete next[bindingKey];
       onPatch({ bindingAssignments: next } as Partial<HmiObject>);
     };
+
+    function createValveBindingAssignment(baseTag: string) {
+      return {
+        baseTag,
+        indexOffsetSource: {
+          type: "expression" as const,
+          expression: "lw(20) * 32 + lw(10)",
+        },
+        indexMode: {
+          type: "arrayIndex" as const,
+          occurrence: 0,
+          operation: "add" as const,
+          valueFrom: "indexOffset" as const,
+        },
+      };
+    }
+
+    function createValveUniversalBindingAssignments() {
+      return {
+        visualState: createValveBindingAssignment("GVL_VALVE.valves[0].VisualState"),
+        commandState: createValveBindingAssignment("GVL_VALVE.valves[0].CommandState"),
+        openCmd: createValveBindingAssignment("GVL_VALVE.valves[0].OpenCmd"),
+        closeCmd: createValveBindingAssignment("GVL_VALVE.valves[0].CloseCmd"),
+        fault: createValveBindingAssignment("GVL_VALVE.valves[0].Fault"),
+      };
+    }
+
+    const bindingKeys = new Set((selectedElement?.bindings ?? []).map((b) => b.key));
+    const looksLikeValveElement =
+      bindingKeys.has("visualState") ||
+      bindingKeys.has("commandState") ||
+      bindingKeys.has("openCmd") ||
+      bindingKeys.has("closeCmd") ||
+      bindingKeys.has("fault");
+
     return (
       <>
         <Form.Item label="Library">
@@ -1708,6 +1851,43 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ scaleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
+        {looksLikeValveElement ? (
+          <>
+            <Divider orientation="left" style={{ marginTop: 16 }}>Binding Presets</Divider>
+            <Space direction="vertical" style={{ width: "100%" }}>
+              <Button
+                onClick={() => {
+                  onPatch({
+                    bindingAssignments: {
+                      ...(object.bindingAssignments ?? {}),
+                      ...createValveUniversalBindingAssignments(),
+                    },
+                  } as Partial<HmiObject>);
+                }}
+                block
+              >
+                Fill ValveUniversal bindings
+              </Button>
+              <Button
+                onClick={() => {
+                  const preset = createValveUniversalBindingAssignments();
+                  onPatch({
+                    bindingAssignments: {
+                      ...preset,
+                      ...(object.bindingAssignments ?? {}),
+                    },
+                  } as Partial<HmiObject>);
+                }}
+                block
+              >
+                Fill missing ValveUniversal bindings
+              </Button>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Uses index expression: lw(20) * 32 + lw(10)
+              </Typography.Text>
+            </Space>
+          </>
+        ) : null}
         <>
           <Divider style={{ margin: "10px 0" }} />
           <Typography.Text strong>Bindings</Typography.Text>
@@ -1749,6 +1929,8 @@ function SpecificPropertyFields({
                 ? resolveRuntimeValueSync(assignment.indexOffsetSource, editorRuntimeContext)
                 : assignment.indexOffset;
 
+              const debug = bindingDebug?.debug[binding.key];
+              const issue = bindingDebug?.issues.find((item) => item.key === binding.key);
               return (
                 <Space
                   key={binding.id}
@@ -1761,6 +1943,28 @@ function SpecificPropertyFields({
                     {binding.dataType ? <Tag color="geekblue">{binding.dataType}</Tag> : null}
                     {required ? <Tag color="red">Required</Tag> : <Tag>Optional</Tag>}
                   </Space>
+                  {debug ? (
+                    <Typography.Text copyable={Boolean(debug.resolvedTag)} type="secondary" style={{ fontSize: 12 }}>
+                      Resolved: {debug.resolvedTag || "—"}
+                    </Typography.Text>
+                  ) : issue ? (
+                    <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                      Missing required binding
+                    </Typography.Text>
+                  ) : (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      Resolved: —
+                    </Typography.Text>
+                  )}
+                  {debug ? (
+                    <Space size={6} wrap>
+                      <Tag color={debug.tagExists === false ? "orange" : debug.tagExists === true ? "green" : "default"}>
+                        {debug.tagExists === false ? "missing" : debug.tagExists === true ? "exists" : "unknown"}
+                      </Tag>
+                      {debug.tagQuality ? <Tag>{debug.tagQuality}</Tag> : null}
+                      {debug.indexOffsetValue !== undefined ? <Tag>index {debug.indexOffsetValue}</Tag> : null}
+                    </Space>
+                  ) : null}
                   <Typography.Text type="secondary">Base tag</Typography.Text>
                   <TagPicker
                     project={project}
@@ -1971,6 +2175,64 @@ function SpecificPropertyFields({
             />
           </Form.Item>
         </>
+        <Divider orientation="left" style={{ marginTop: 16 }}>Resolved Bindings Debug</Divider>
+        {!selectedElement ? (
+          <Typography.Text type="secondary">Library element not found</Typography.Text>
+        ) : null}
+        {bindingDebug?.issues.length ? (
+          <Space direction="vertical" style={{ width: "100%" }} size={4}>
+            {bindingDebug.issues.map((issue) => (
+              <Typography.Text key={issue.key} type="danger" style={{ fontSize: 12 }}>
+                Missing required binding: {issue.displayName ?? issue.key}
+              </Typography.Text>
+            ))}
+          </Space>
+        ) : null}
+        {bindingDebug && Object.keys(bindingDebug.debug).length > 0 ? (
+          <Space direction="vertical" style={{ width: "100%" }} size={8}>
+            {Object.entries(bindingDebug.debug).map(([key, debug]) => (
+              <div
+                key={key}
+                style={{
+                  border: "1px solid #303030",
+                  borderRadius: 6,
+                  padding: 8,
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
+                <Space direction="vertical" style={{ width: "100%" }} size={2}>
+                  <Typography.Text strong>{key}</Typography.Text>
+                  <Typography.Text style={{ fontSize: 12 }}>Base: {debug.baseTag || "—"}</Typography.Text>
+                  {debug.prefixValue !== undefined ? (
+                    <Typography.Text style={{ fontSize: 12 }}>Prefix: {String(debug.prefixValue)}</Typography.Text>
+                  ) : null}
+                  {debug.indexOffsetValue !== undefined ? (
+                    <Typography.Text style={{ fontSize: 12 }}>Index offset: {String(debug.indexOffsetValue)}</Typography.Text>
+                  ) : null}
+                  {debug.overrideTagValue !== undefined ? (
+                    <Typography.Text style={{ fontSize: 12 }}>Override: {String(debug.overrideTagValue)}</Typography.Text>
+                  ) : null}
+                  <Typography.Text copyable style={{ fontSize: 12 }}>
+                    Resolved: {debug.resolvedTag || "—"}
+                  </Typography.Text>
+                  <Typography.Text style={{ fontSize: 12 }}>
+                    Exists: {debug.tagExists === undefined ? "unknown" : debug.tagExists ? "yes" : "no"}
+                  </Typography.Text>
+                  <Typography.Text style={{ fontSize: 12 }}>
+                    Quality: {debug.tagQuality ?? "—"}
+                  </Typography.Text>
+                  <Typography.Text style={{ fontSize: 12 }}>
+                    Value: {debug.tagValue === undefined ? "—" : JSON.stringify(debug.tagValue)}
+                  </Typography.Text>
+                </Space>
+              </div>
+            ))}
+          </Space>
+        ) : selectedElement ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            No resolved bindings yet. Check binding assignments and defaultBaseTag.
+          </Typography.Text>
+        ) : null}
         {selectedElement?.parameters?.length ? (
           <>
             <Typography.Text type="secondary">

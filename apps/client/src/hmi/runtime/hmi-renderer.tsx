@@ -6,11 +6,9 @@ import {
   resolveLibraryElementInstanceBindingsDetailed,
   isBindingReference,
   extractBindingKey,
-  type ElementStateAction,
-  type ElementStateCase,
+  resolveRuntimeValueSync,
   type ElementStateRule,
   resolveParameters,
-  resolveTemplateString,
   resolveTagName,
   type Asset,
   type ElementLibrary,
@@ -28,6 +26,7 @@ import {
   type TagValue,
   type TextStyle,
 } from "@web-scada/shared";
+import { applyElementStateRules } from "./element-state-rules";
 
 type TagMap = Record<string, TagValue>;
 type ResolvedTagValue = {
@@ -1051,7 +1050,7 @@ function LibraryInstanceNode({
     },
   };
   const resolvedObjects = useMemo(
-    () => applyElementStateRules(element.objects, element.stateRules ?? [], context, tags),
+    () => applyElementStateRules(element.objects, element.stateRules, { tags, renderContext: context, parameters: context.parameters ?? {} }),
     [context, element.objects, element.stateRules, tags],
   );
 
@@ -1504,142 +1503,6 @@ function toResolvedParameterMap(element: LibraryElement, values?: Record<string,
   return { ...defaults, ...(values ?? {}) };
 }
 
-function applyElementStateRules(
-  objects: HmiObject[],
-  rules: ElementStateRule[],
-  context: RenderContext,
-  tags: TagMap,
-): HmiObject[] {
-  if (!rules.length) {
-    return objects;
-  }
-
-  const cloned = structuredClone(objects) as HmiObject[];
-  for (const rule of rules) {
-    const sourceValue = resolveRuleSourceValue(rule, context, tags);
-    const matchingCase = rule.cases.find((candidate) => matchesStateCase(candidate, sourceValue));
-    if (!matchingCase) {
-      continue;
-    }
-    for (const action of matchingCase.actions) {
-      applyStateAction(cloned, action, context);
-    }
-  }
-
-  return cloned;
-}
-
-function resolveRuleSourceValue(rule: ElementStateRule, context: RenderContext, tags: TagMap): unknown {
-  if (rule.source.type === "parameter") {
-    return context.parameters?.[rule.source.value];
-  }
-
-  if (rule.source.type === "expression") {
-    return context.parameters?.[rule.source.value];
-  }
-
-  const resolvedTagTemplate = resolveTemplateString(rule.source.value, context.parameters ?? {});
-  const tagName = resolveTagName(resolvedTagTemplate, context);
-  if (!tagName) {
-    return undefined;
-  }
-  return tags[tagName]?.value;
-}
-
-function matchesStateCase(stateCase: ElementStateCase, sourceValue: unknown): boolean {
-  const condition = stateCase.condition;
-
-  if (condition.type === "true") {
-    return Boolean(sourceValue);
-  }
-  if (condition.type === "false") {
-    return !Boolean(sourceValue);
-  }
-  if (condition.type === "equals") {
-    return String(sourceValue) === String(condition.value);
-  }
-  if (condition.type === "notEquals") {
-    return String(sourceValue) !== String(condition.value);
-  }
-
-  const numericValue = Number(sourceValue);
-  if (!Number.isFinite(numericValue)) {
-    return false;
-  }
-
-  if (condition.type === "greaterThan") {
-    return numericValue > condition.value;
-  }
-  if (condition.type === "lessThan") {
-    return numericValue < condition.value;
-  }
-  if (condition.type === "between") {
-    return numericValue >= condition.min && numericValue <= condition.max;
-  }
-
-  return false;
-}
-
-function applyStateAction(objects: HmiObject[], action: ElementStateAction, context: RenderContext): boolean {
-  for (let index = 0; index < objects.length; index += 1) {
-    const current = objects[index]!;
-    if (current.id === action.objectId) {
-      objects[index] = patchObjectByStateAction(current, action, context);
-      return true;
-    }
-    if (current.type === "group") {
-      const foundInChildren = applyStateAction(current.objects, action, context);
-      if (foundInChildren) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-function patchObjectByStateAction(object: HmiObject, action: ElementStateAction, context: RenderContext): HmiObject {
-  if (action.type === "setVisible") {
-    return { ...object, visible: action.visible };
-  }
-
-  if (action.type === "setAsset") {
-    const nextAssetId = resolveTemplateString(action.assetId, context.parameters ?? {});
-    if (object.type === "image") {
-      return { ...object, assetId: nextAssetId };
-    }
-    if (object.type === "stateImage") {
-      return { ...object, defaultAssetId: nextAssetId };
-    }
-    return object;
-  }
-
-  if (action.type === "setText") {
-    const nextText = resolveTemplateString(action.text, context.parameters ?? {});
-    if ("text" in object) {
-      return { ...object, text: nextText } as HmiObject;
-    }
-    return object;
-  }
-
-  if (action.type === "setFill") {
-    if (object.type === "rectangle") {
-      return { ...object, fill: action.color };
-    }
-    return object;
-  }
-
-  if (action.type === "setStroke") {
-    if (object.type === "rectangle") {
-      return { ...object, stroke: action.color };
-    }
-    if (object.type === "line") {
-      return { ...object, stroke: action.color };
-    }
-    return object;
-  }
-
-  return object;
-}
 
 function toAssetMap(assets: Asset[]): Record<string, Asset> {
   return Object.fromEntries(assets.map((item) => [item.id, item]));

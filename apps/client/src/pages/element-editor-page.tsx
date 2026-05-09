@@ -372,6 +372,312 @@ function toActionErrorMessage(error: unknown): string {
   return text;
 }
 
+function StateRulesEditor({
+  stateRules,
+  objects,
+  bindings,
+  assets,
+  onChange,
+}: {
+  stateRules: NonNullable<LibraryElement["stateRules"]>;
+  objects: HmiObject[];
+  bindings: ElementBindingDefinition[];
+  assets: Asset[];
+  onChange: (next: NonNullable<LibraryElement["stateRules"]>) => void;
+}) {
+  const firstBindingKey = bindings[0]?.key ?? "visualState";
+
+  const setRule = (ruleIndex: number, rule: any) => {
+    const next = [...stateRules];
+    next[ruleIndex] = rule;
+    onChange(next);
+  };
+
+  return (
+    <Space direction="vertical" style={{ width: "100%" }} size={8}>
+      <Typography.Text type="secondary">
+        Define visual behavior based on binding values. Source supports <code>$binding.key</code> or direct tag.
+      </Typography.Text>
+      <Button
+        size="small"
+        onClick={() => {
+          const nextRule: NonNullable<LibraryElement["stateRules"]>[number] = {
+            id: makeId("rule"),
+            name: "New Rule",
+            source: { type: "tag", value: `$binding.${firstBindingKey}` },
+            cases: [],
+          };
+          onChange([...stateRules, nextRule]);
+        }}
+      >
+        Add State Rule
+      </Button>
+      {stateRules.length === 0 ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>No state rules defined.</Typography.Text>
+      ) : (
+        stateRules.map((rule, ruleIndex) => (
+          <div key={rule.id} style={{ border: "1px solid #303030", borderRadius: 6, padding: 8 }}>
+            <Space direction="vertical" style={{ width: "100%" }} size={6}>
+              <Space wrap style={{ width: "100%" }}>
+                <Input
+                  style={{ width: 160 }}
+                  value={rule.name}
+                  placeholder="Rule name"
+                  onChange={(event) => setRule(ruleIndex, { ...rule, name: event.target.value })}
+                />
+                <Select
+                  style={{ width: 130 }}
+                  value={rule.source.type}
+                  options={[
+                    { label: "Tag", value: "tag" },
+                    { label: "Parameter", value: "parameter" },
+                    { label: "Expression", value: "expression" },
+                  ]}
+                  onChange={(value) => setRule(ruleIndex, { ...rule, source: { type: value as "tag" | "parameter" | "expression", value: rule.source.value } })}
+                />
+                <Input
+                  style={{ width: 200 }}
+                  value={rule.source.value}
+                  placeholder={`$$binding.${firstBindingKey}`}
+                  onChange={(event) => setRule(ruleIndex, { ...rule, source: { ...rule.source, value: event.target.value } })}
+                />
+                <Button size="small" danger onClick={() => onChange(stateRules.filter((_, i) => i !== ruleIndex))}>Delete Rule</Button>
+              </Space>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Cases
+              </Typography.Text>
+              <Button size="small" onClick={() => {
+                const newCase = {
+                  id: makeId("case"),
+                  name: "New case",
+                  condition: { type: "equals" as const, value: 0 },
+                  actions: [],
+                };
+                setRule(ruleIndex, { ...rule, cases: [...(rule.cases ?? []), newCase] });
+              }}>Add Case</Button>
+              {(!rule.cases || rule.cases.length === 0) ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>No cases. Add at least one case with actions.</Typography.Text>
+              ) : (
+                rule.cases.map((stateCase, caseIndex) => (
+                  <div key={stateCase.id} style={{ border: "1px solid #434343", borderRadius: 4, padding: 6, marginLeft: 8 }}>
+                    <Space direction="vertical" style={{ width: "100%" }} size={4}>
+                      <Space wrap style={{ width: "100%" }}>
+                        <Input
+                          style={{ width: 140 }}
+                          value={stateCase.name}
+                          placeholder="Case name"
+                          onChange={(event) => {
+                            const nextCases: any[] = [...(rule.cases ?? [])];
+                            nextCases[caseIndex] = { ...nextCases[caseIndex], name: event.target.value };
+                            setRule(ruleIndex, { ...rule, cases: nextCases });
+                          }}
+                        />
+                        <Select
+                          style={{ width: 130 }}
+                          value={stateCase.condition.type}
+                          options={[
+                            { label: "equals", value: "equals" },
+                            { label: "notEquals", value: "notEquals" },
+                            { label: "greaterThan", value: "greaterThan" },
+                            { label: "lessThan", value: "lessThan" },
+                            { label: "between", value: "between" },
+                            { label: "true", value: "true" },
+                            { label: "false", value: "false" },
+                          ]}
+                          onChange={(value) => {
+                            const nextCases: any[] = [...(rule.cases ?? [])];
+                            const current = nextCases[caseIndex];
+                            if (value === "true" || value === "false") {
+                              nextCases[caseIndex] = { ...current, condition: { type: value } } as NonNullable<LibraryElement["stateRules"]>[number]["cases"][number];
+                            } else if (value === "between") {
+                              nextCases[caseIndex] = { ...current, condition: { type: value, min: 0, max: 10 } } as NonNullable<LibraryElement["stateRules"]>[number]["cases"][number];
+                            } else {
+                              nextCases[caseIndex] = { ...current, condition: { type: value, value: 0 } } as NonNullable<LibraryElement["stateRules"]>[number]["cases"][number];
+                            }
+                            setRule(ruleIndex, { ...rule, cases: nextCases });
+                          }}
+                        />
+                        {(stateCase.condition.type === "equals" || stateCase.condition.type === "notEquals") && (
+                          <InputNumber
+                            style={{ width: 100 }}
+                            value={Number(stateCase.condition.value ?? 0)}
+                            onChange={(val) => {
+                              const nextCases: any[] = [...(rule.cases ?? [])];
+                              nextCases[caseIndex] = { ...nextCases[caseIndex], condition: { type: stateCase.condition.type, value: Number(val ?? 0) } };
+                              setRule(ruleIndex, { ...rule, cases: nextCases });
+                            }}
+                          />
+                        )}
+                        {(stateCase.condition.type === "greaterThan" || stateCase.condition.type === "lessThan") && (
+                          <InputNumber
+                            style={{ width: 100 }}
+                            value={Number(stateCase.condition.value ?? 0)}
+                            onChange={(val) => {
+                              const nextCases: any[] = [...(rule.cases ?? [])];
+                              nextCases[caseIndex] = { ...nextCases[caseIndex], condition: { type: stateCase.condition.type, value: Number(val ?? 0) } };
+                              setRule(ruleIndex, { ...rule, cases: nextCases });
+                            }}
+                          />
+                        )}
+                        {stateCase.condition.type === "between" && (
+                          <Space>
+                            <InputNumber
+                              style={{ width: 80 }}
+                              value={(stateCase.condition as { type: "between"; min: number; max: number }).min ?? 0}
+                              onChange={(val) => {
+                                const nextCases: any[] = [...(rule.cases ?? [])];
+                                nextCases[caseIndex] = { ...nextCases[caseIndex], condition: { type: "between", min: Number(val ?? 0), max: (stateCase.condition as any).max ?? 10 } };
+                                setRule(ruleIndex, { ...rule, cases: nextCases });
+                              }}
+                            />
+                            <Typography.Text>—</Typography.Text>
+                            <InputNumber
+                              style={{ width: 80 }}
+                              value={(stateCase.condition as { type: "between"; min: number; max: number }).max ?? 10}
+                              onChange={(val) => {
+                                const nextCases: any[] = [...(rule.cases ?? [])];
+                                nextCases[caseIndex] = { ...nextCases[caseIndex], condition: { type: "between", min: (stateCase.condition as any).min ?? 0, max: Number(val ?? 0) } };
+                                setRule(ruleIndex, { ...rule, cases: nextCases });
+                              }}
+                            />
+                          </Space>
+                        )}
+                        <Button size="small" danger onClick={() => {
+                          setRule(ruleIndex, { ...rule, cases: (rule.cases ?? []).filter((_, i) => i !== caseIndex) });
+                        }}>Delete Case</Button>
+                      </Space>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>Actions</Typography.Text>
+                      <Button size="small" onClick={() => {
+                        const newAction = {
+                          type: "setVisible" as const,
+                          objectId: objects[0]?.id ?? "",
+                          visible: true,
+                        };
+                        const nextCases: any[] = [...(rule.cases ?? [])];
+                        nextCases[caseIndex] = { ...nextCases[caseIndex], actions: [...((nextCases[caseIndex] as any)?.actions ?? []), newAction] };
+                        setRule(ruleIndex, { ...rule, cases: nextCases });
+                      }}>Add Action</Button>
+                      {(!stateCase.actions || stateCase.actions.length === 0) ? (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>No actions.</Typography.Text>
+                      ) : (
+                        stateCase.actions.map((action, actionIndex) => (
+                          <div key={actionIndex} style={{ border: "1px solid #555", borderRadius: 4, padding: 4, marginLeft: 12 }}>
+                            <Space wrap style={{ width: "100%" }}>
+                              <Select
+                                style={{ width: 120 }}
+                                value={action.type}
+                                options={[
+                                  { label: "setVisible", value: "setVisible" },
+                                  { label: "setAsset", value: "setAsset" },
+                                  { label: "setText", value: "setText" },
+                                  { label: "setFill", value: "setFill" },
+                                  { label: "setStroke", value: "setStroke" },
+                                ]}
+                                onChange={(value) => {
+                                  const nextCases: any[] = [...(rule.cases ?? [])];
+                                  const nextActions: any[] = [...((nextCases[caseIndex] as any)?.actions ?? [])];
+                                  if (value === "setVisible") {
+                                    nextActions[actionIndex] = { type: "setVisible", objectId: action.objectId, visible: true };
+                                  } else if (value === "setAsset") {
+                                    nextActions[actionIndex] = { type: "setAsset", objectId: action.objectId, assetId: "" };
+                                  } else if (value === "setText") {
+                                    nextActions[actionIndex] = { type: "setText", objectId: action.objectId, text: "" };
+                                  } else {
+                                    nextActions[actionIndex] = { type: value as "setFill" | "setStroke", objectId: action.objectId, color: "" };
+                                  }
+                                  nextCases[caseIndex] = { ...nextCases[caseIndex], actions: nextActions };
+                                  setRule(ruleIndex, { ...rule, cases: nextCases });
+                                }}
+                              />
+                              <Select
+                                style={{ minWidth: 160 }}
+                                value={action.objectId}
+                                options={objects.map((obj) => ({ label: obj.name || obj.id, value: obj.id }))}
+                                placeholder="Select object"
+                                onChange={(value) => {
+                                  const nextCases: any[] = [...(rule.cases ?? [])];
+                                  const nextActions: any[] = [...((nextCases[caseIndex] as any)?.actions ?? [])];
+                                  nextActions[actionIndex] = { ...nextActions[actionIndex], objectId: value };
+                                  nextCases[caseIndex] = { ...nextCases[caseIndex], actions: nextActions };
+                                  setRule(ruleIndex, { ...rule, cases: nextCases });
+                                }}
+                              />
+                              {action.type === "setVisible" && (
+                                <Switch
+                                  checked={"visible" in action ? action.visible : true}
+                                  onChange={(checked) => {
+                                    const nextCases: any[] = [...(rule.cases ?? [])];
+                                    const nextActions: any[] = [...((nextCases[caseIndex] as any)?.actions ?? [])];
+                                    nextActions[actionIndex] = { ...nextActions[actionIndex], visible: checked };
+                                    nextCases[caseIndex] = { ...nextCases[caseIndex], actions: nextActions };
+                                    setRule(ruleIndex, { ...rule, cases: nextCases });
+                                  }}
+                                />
+                              )}
+                              {action.type === "setAsset" && (
+                                <Select
+                                  style={{ minWidth: 160 }}
+                                  value={"assetId" in action ? action.assetId : ""}
+                                  options={assets.map((a) => ({ label: a.name, value: a.id }))}
+                                  placeholder="Select asset"
+                                  onChange={(value) => {
+                                    const nextCases: any[] = [...(rule.cases ?? [])];
+                                    const nextActions: any[] = [...((nextCases[caseIndex] as any)?.actions ?? [])];
+                                    nextActions[actionIndex] = { ...nextActions[actionIndex], assetId: value };
+                                    nextCases[caseIndex] = { ...nextCases[caseIndex], actions: nextActions };
+                                    setRule(ruleIndex, { ...rule, cases: nextCases });
+                                  }}
+                                />
+                              )}
+                              {action.type === "setText" && (
+                                <Input
+                                  style={{ width: 160 }}
+                                  value={"text" in action ? action.text : ""}
+                                  placeholder="Text value"
+                                  onChange={(event) => {
+                                    const nextCases: any[] = [...(rule.cases ?? [])];
+                                    const nextActions: any[] = [...((nextCases[caseIndex] as any)?.actions ?? [])];
+                                    nextActions[actionIndex] = { ...nextActions[actionIndex], text: event.target.value };
+                                    nextCases[caseIndex] = { ...nextCases[caseIndex], actions: nextActions };
+                                    setRule(ruleIndex, { ...rule, cases: nextCases });
+                                  }}
+                                />
+                              )}
+                              {(action.type === "setFill" || action.type === "setStroke") && (
+                                <Input
+                                  style={{ width: 120 }}
+                                  value={"color" in action ? action.color : ""}
+                                  placeholder="#ffffff"
+                                  onChange={(event) => {
+                                    const nextCases: any[] = [...(rule.cases ?? [])];
+                                    const nextActions: any[] = [...((nextCases[caseIndex] as any)?.actions ?? [])];
+                                    nextActions[actionIndex] = { ...nextActions[actionIndex], color: event.target.value };
+                                    nextCases[caseIndex] = { ...nextCases[caseIndex], actions: nextActions };
+                                    setRule(ruleIndex, { ...rule, cases: nextCases });
+                                  }}
+                                />
+                              )}
+                              <Button size="small" danger onClick={() => {
+                                const nextCases: any[] = [...(rule.cases ?? [])];
+                                nextCases[caseIndex] = { ...nextCases[caseIndex], actions: ((nextCases[caseIndex] as any)?.actions ?? []).filter((_: unknown, i: number) => i !== actionIndex) };
+                                setRule(ruleIndex, { ...rule, cases: nextCases });
+                              }}>Del</Button>
+                            </Space>
+                          </div>
+                        ))
+                      )}
+                    </Space>
+                  </div>
+                ))
+              )}
+            </Space>
+          </div>
+        ))
+      )}
+    </Space>
+  );
+}
+
 export function ElementEditorPage() {
   const project = useScadaStore((s) => s.project);
   const tags = useScadaStore((s) => s.tags);
@@ -2088,40 +2394,15 @@ export function ElementEditorPage() {
               key: "stateRules",
               label: "State Rules",
               children: draftElement ? (
-                <Space direction="vertical" style={{ width: "100%" }}>
-                  <Typography.Text type="secondary">
-                    JSON rules. Source tag supports relative values like <code>.State</code>.
-                  </Typography.Text>
-                  <Button
-                    onClick={() => {
-                      const nextRule: NonNullable<LibraryElement["stateRules"]>[number] = {
-                        id: makeId("rule"),
-                        name: "New Rule",
-                        source: { type: "tag", value: ".State" },
-                        cases: [],
-                      };
-                      const nextRules = [...(draftElement.stateRules ?? []), nextRule];
-                      applyDraftPatch({ stateRules: nextRules });
-                      setStateRulesJson(JSON.stringify(nextRules, null, 2));
-                    }}
-                  >
-                    Add State Rule
-                  </Button>
-                  <Input.TextArea rows={12} value={stateRulesJson} onChange={(event) => setStateRulesJson(event.target.value)} />
-                  <Button
-                    onClick={() => {
-                      try {
-                        const parsed = JSON.parse(stateRulesJson) as NonNullable<LibraryElement["stateRules"]>;
-                        applyDraftPatch({ stateRules: parsed });
-                        void message.success("State rules applied to draft");
-                      } catch {
-                        void message.error("Invalid state rules JSON");
-                      }
-                    }}
-                  >
-                    Apply Rules
-                  </Button>
-                </Space>
+                <StateRulesEditor
+                  stateRules={draftElement.stateRules ?? []}
+                  objects={draftElement.objects}
+                  bindings={draftElement.bindings ?? []}
+                  assets={selectedLibraryAssets}
+                  onChange={(nextRules) => {
+                    applyDraftPatch({ stateRules: nextRules });
+                  }}
+                />
               ) : (
                 <Typography.Text type="secondary">Select element</Typography.Text>
               ),

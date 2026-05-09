@@ -322,4 +322,97 @@ describe("resolveLibraryElementInstanceBindings", () => {
       },
     ]);
   });
+
+  it("resolves all ValveUniversal bindings with burner and valve expression index", () => {
+    const valveElement = {
+      bindings: [
+        {
+          id: "binding-visual-state",
+          key: "visualState",
+          displayName: "Visual state",
+          kind: "state" as const,
+          dataType: "INT" as const,
+          required: true,
+          defaultBaseTag: "GVL_VALVE.valves[0].VisualState",
+        },
+        {
+          id: "binding-command-state",
+          key: "commandState",
+          displayName: "Command state",
+          kind: "state" as const,
+          dataType: "INT" as const,
+          required: false,
+          defaultBaseTag: "GVL_VALVE.valves[0].CommandState",
+        },
+        {
+          id: "binding-open-cmd",
+          key: "openCmd",
+          displayName: "Open command",
+          kind: "command" as const,
+          dataType: "BOOL" as const,
+          required: false,
+          defaultBaseTag: "GVL_VALVE.valves[0].OpenCmd",
+        },
+        {
+          id: "binding-close-cmd",
+          key: "closeCmd",
+          displayName: "Close command",
+          kind: "command" as const,
+          dataType: "BOOL" as const,
+          required: false,
+          defaultBaseTag: "GVL_VALVE.valves[0].CloseCmd",
+        },
+        {
+          id: "binding-fault",
+          key: "fault",
+          displayName: "Fault",
+          kind: "tag" as const,
+          dataType: "BOOL" as const,
+          required: false,
+          defaultBaseTag: "GVL_VALVE.valves[0].Fault",
+        },
+      ],
+    };
+
+    const makeAssignment = (baseTag: string) => ({
+      baseTag,
+      indexOffsetSource: {
+        type: "expression" as const,
+        expression: "lw(20) * 32 + lw(10)",
+      },
+      indexMode: {
+        type: "arrayIndex" as const,
+        occurrence: 0,
+        operation: "add" as const,
+        valueFrom: "indexOffset" as const,
+      },
+    });
+
+    const resolved = resolveLibraryElementInstanceBindings(
+      valveElement,
+      {
+        bindingAssignments: {
+          visualState: makeAssignment("GVL_VALVE.valves[0].VisualState"),
+          commandState: makeAssignment("GVL_VALVE.valves[0].CommandState"),
+          openCmd: makeAssignment("GVL_VALVE.valves[0].OpenCmd"),
+          closeCmd: makeAssignment("GVL_VALVE.valves[0].CloseCmd"),
+          fault: makeAssignment("GVL_VALVE.valves[0].Fault"),
+        },
+      },
+      {
+        tagValues: {
+          LW20: 2,
+          LW10: 5,
+        },
+      },
+    );
+
+    expect(resolved).toEqual({
+      visualState: "GVL_VALVE.valves[69].VisualState",
+      commandState: "GVL_VALVE.valves[69].CommandState",
+      openCmd: "GVL_VALVE.valves[69].OpenCmd",
+      closeCmd: "GVL_VALVE.valves[69].CloseCmd",
+      fault: "GVL_VALVE.valves[69].Fault",
+    });
+  });
 });

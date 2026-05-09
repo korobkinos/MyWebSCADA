@@ -13183,7 +13183,7 @@
       "leftPanel": {
         "visible": true,
         "collapsed": false,
-        "width": 378,
+        "width": 296,
         "minWidth": 240,
         "maxWidth": 520,
         "collapsedWidth": 36
@@ -13191,7 +13191,7 @@
       "rightPanel": {
         "visible": true,
         "collapsed": false,
-        "width": 361,
+        "width": 260,
         "minWidth": 260,
         "maxWidth": 560,
         "collapsedWidth": 36
@@ -13230,8 +13230,8 @@
         }
       }
     },
-    "leftPanelWidth": 378,
-    "rightPanelWidth": 361,
+    "leftPanelWidth": 296,
+    "rightPanelWidth": 260,
     "showObjectFrames": false,
     "panels": [
       {
@@ -13240,7 +13240,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 378,
+        "width": 296,
         "height": 240
       },
       {
@@ -13271,7 +13271,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 378,
+        "width": 296,
         "height": 220
       },
       {
@@ -13280,7 +13280,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "right",
-        "width": 361,
+        "width": 260,
         "height": 280
       },
       {
@@ -13289,7 +13289,7 @@
         "visible": true,
         "collapsed": true,
         "dock": "right",
-        "width": 361,
+        "width": 260,
         "height": 320
       },
       {
@@ -13298,7 +13298,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 378,
+        "width": 296,
         "height": 220
       },
       {
@@ -13307,7 +13307,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 378,
+        "width": 296,
         "height": 220
       },
       {
@@ -13316,7 +13316,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 378,
+        "width": 296,
         "height": 220
       }
     ]

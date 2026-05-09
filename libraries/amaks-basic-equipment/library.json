@@ -372,6 +372,158 @@
       "stateRules": [],
       "createdAt": "2026-05-08T15:35:00.000Z",
       "updatedAt": "2026-05-08T15:35:00.000Z"
+    },
+    {
+      "id": "valve-universal",
+      "libraryId": "amaks-basic-equipment",
+      "elementKey": "VALVE_UNIVERSAL",
+      "name": "ValveUniversal",
+      "description": "Универсальный элемент арматуры/клапана с динамическими привязками",
+      "category": "Armature",
+      "width": 140,
+      "height": 90,
+      "objects": [
+        {
+          "id": "valve-state-image",
+          "type": "stateImage",
+          "name": "Valve state image",
+          "x": 15,
+          "y": 5,
+          "width": 80,
+          "height": 60,
+          "tag": "$binding.visualState",
+          "states": [
+            {
+              "id": "valve-state-closed",
+              "name": "Closed",
+              "condition": { "type": "equals", "value": 0 },
+              "assetId": "valve_closed_svg"
+            },
+            {
+              "id": "valve-state-open",
+              "name": "Open",
+              "condition": { "type": "equals", "value": 1 },
+              "assetId": "valve_open_svg"
+            }
+          ],
+          "defaultAssetId": "valve_closed_svg",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "valve-command-indicator",
+          "type": "state-indicator",
+          "name": "Command indicator",
+          "x": 104,
+          "y": 8,
+          "width": 26,
+          "height": 26,
+          "tag": "$binding.commandState",
+          "trueText": "ON",
+          "falseText": "OFF",
+          "trueColor": "#52c41a",
+          "falseColor": "#595959",
+          "badColor": "#8c8c8c",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 9,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 0
+          }
+        },
+        {
+          "id": "valve-label",
+          "type": "text",
+          "name": "Valve label",
+          "x": 0,
+          "y": 68,
+          "width": 140,
+          "height": 20,
+          "text": "{label}",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 12,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 0
+          }
+        }
+      ],
+      "bindings": [
+        {
+          "id": "binding-visual-state",
+          "key": "visualState",
+          "displayName": "Visual state",
+          "description": "Состояние положения арматуры: закрыто/промежуточно/открыто/авария",
+          "kind": "state",
+          "dataType": "INT",
+          "required": true,
+          "defaultBaseTag": "GVL_VALVE.valves[0].VisualState",
+          "overridable": true
+        },
+        {
+          "id": "binding-command-state",
+          "key": "commandState",
+          "displayName": "Command state",
+          "description": "Состояние команды/питания на исполнительный механизм",
+          "kind": "state",
+          "dataType": "INT",
+          "required": false,
+          "defaultBaseTag": "GVL_VALVE.valves[0].CommandState",
+          "overridable": true
+        },
+        {
+          "id": "binding-open-cmd",
+          "key": "openCmd",
+          "displayName": "Open command",
+          "description": "Команда открытия арматуры",
+          "kind": "command",
+          "dataType": "BOOL",
+          "required": false,
+          "defaultBaseTag": "GVL_VALVE.valves[0].OpenCmd",
+          "overridable": true
+        },
+        {
+          "id": "binding-close-cmd",
+          "key": "closeCmd",
+          "displayName": "Close command",
+          "description": "Команда закрытия арматуры",
+          "kind": "command",
+          "dataType": "BOOL",
+          "required": false,
+          "defaultBaseTag": "GVL_VALVE.valves[0].CloseCmd",
+          "overridable": true
+        },
+        {
+          "id": "binding-fault",
+          "key": "fault",
+          "displayName": "Fault",
+          "description": "Авария/неисправность арматуры",
+          "kind": "tag",
+          "dataType": "BOOL",
+          "required": false,
+          "defaultBaseTag": "GVL_VALVE.valves[0].Fault",
+          "overridable": true
+        }
+      ],
+      "parameters": [
+        {
+          "name": "label",
+          "displayName": "Label",
+          "description": "Подпись арматуры",
+          "type": "string",
+          "defaultValue": "Valve",
+          "required": false
+        }
+      ],
+      "stateRules": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
     }
   ]
 }
