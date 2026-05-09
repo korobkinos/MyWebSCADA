@@ -54,8 +54,8 @@ const SOURCE_LABELS: Record<TagSourceType, string> = {
   computed: "Computed",
 };
 
-const DEFAULT_ALLOWED_SOURCES: TagSourceType[] = ["opcua", "modbus", "simulated", "internal", "lw", "computed"];
-const GROUP_ORDER = ["OPC UA", "Modbus", "LW", "Internal", "Simulated", "Computed"];
+const DEFAULT_ALLOWED_SOURCES: TagSourceType[] = ["opcua", "simulated", "internal", "lw", "computed"];
+const GROUP_ORDER = ["OPC UA", "LW", "Internal", "Simulated", "Computed"];
 
 function normalizeSourceType(tag: TagDefinition): TagSourceType {
   return (tag.sourceType ?? "simulated") as TagSourceType;

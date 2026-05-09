@@ -29,7 +29,7 @@ type Props = {
       name: string;
       description?: string;
       enabled: boolean;
-      language: "ts" | "javascript-lite" | "expression" | "blockly";
+      language: "javascript-lite";
       code: string;
       triggers?: unknown[];
     },
@@ -37,11 +37,7 @@ type Props = {
 };
 
 type TriggerDraft = {
-  type: MacroTrigger["type"];
-  screenKey?: string;
-  objectId?: string;
-  tag?: string;
-  condition?: string;
+  type: "interval";
   intervalMs?: number;
 };
 
@@ -59,7 +55,7 @@ type MacroReference = {
 };
 
 const macroDockDefaults = [
-  { id: "macros.list", side: "left", hidden: false, size: 320, lastVisibleSize: 320 },
+  { id: "macros.list", side: "left", hidden: false, size: 360, lastVisibleSize: 360 },
   { id: "macros.help", side: "right", hidden: false, size: 360, lastVisibleSize: 360 },
   { id: "macros.logs", side: "bottom", hidden: false, size: 140, lastVisibleSize: 140 },
 ] as const;
@@ -85,30 +81,6 @@ function defaultMacro(): MacroDefinition {
 }
 
 function buildTriggerFromDraft(draft: TriggerDraft): MacroTrigger | null {
-  if (draft.type === "onScreenOpen") {
-    return { type: "onScreenOpen", screenKey: draft.screenKey ?? "" };
-  }
-  if (draft.type === "onScreenClose") {
-    return { type: "onScreenClose", screenKey: draft.screenKey ?? "" };
-  }
-  if (draft.type === "onButtonClick") {
-    if (!draft.objectId) {
-      return null;
-    }
-    return { type: "onButtonClick", objectId: draft.objectId, screenKey: draft.screenKey };
-  }
-  if (draft.type === "onTagChange") {
-    if (!draft.tag) {
-      return null;
-    }
-    return { type: "onTagChange", tag: draft.tag };
-  }
-  if (draft.type === "onCondition") {
-    if (!draft.condition) {
-      return null;
-    }
-    return { type: "onCondition", condition: draft.condition };
-  }
   if (!draft.intervalMs || draft.intervalMs <= 0) {
     return null;
   }
@@ -198,7 +170,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
   const [selectedId, setSelectedId] = useState<string>(() => project.macros?.[0]?.id ?? "");
   const [logs, setLogs] = useState<MacroLogEntry[]>([]);
   const [helpCategory, setHelpCategory] = useState<string>("Quick Start");
-  const [triggerDraft, setTriggerDraft] = useState<TriggerDraft>({ type: "onButtonClick" });
+  const [triggerDraft, setTriggerDraft] = useState<TriggerDraft>({ type: "interval", intervalMs: 1000 });
   const [newLwAddress, setNewLwAddress] = useState<number>(10);
   const [newLwValue, setNewLwValue] = useState<number>(0);
   const [newVarName, setNewVarName] = useState<string>("Var1");
@@ -521,7 +493,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
         {helpCategory === "Quick Start" ? (
           <Space direction="vertical" style={{ width: "100%" }}>
             <Typography.Text>1. Выберите/создайте макрос.</Typography.Text>
-            <Typography.Text>2. Добавьте trigger и код.</Typography.Text>
+            <Typography.Text>2. Добавьте код и trigger `interval`.</Typography.Text>
             <Typography.Text>3. Нажмите Check Syntax, затем Run Test.</Typography.Text>
             <Typography.Text>4. Сохраните проект.</Typography.Text>
           </Space>
@@ -531,12 +503,8 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
           <List
             size="small"
             dataSource={[
-              "onScreenOpen: при открытии экрана",
-              "onScreenClose: при закрытии экрана",
-              "onButtonClick: по action runMacro",
-              "onTagChange: при изменении тега",
-              "onCondition: при выполнении условия",
-              "interval: периодический запуск",
+              "interval: периодический автозапуск (работает сейчас)",
+              "onButtonClick: запускайте макрос действием RuntimeAction runMacro",
             ]}
             renderItem={(item) => <List.Item>{item}</List.Item>}
           />
@@ -592,10 +560,10 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
         hidden={listPanel.hidden}
         size={clamp(listPanel.size, 0, 520)}
         lastVisibleSize={listPanel.lastVisibleSize}
-        minSize={240}
+        minSize={300}
         maxSize={520}
         autoHideThreshold={80}
-        restoreSize={320}
+        restoreSize={360}
         workspaceRef={workspaceRef}
         restoreTooltip="Show macro list"
         restoreIcon={<RightOutlined />}
@@ -633,25 +601,29 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
                     setSelectedId(macro.id);
                   }
                 }}
-                style={{ cursor: "pointer", background: selectedId === macro.id ? "#f0f5ff" : undefined }}
-                actions={[
-                  <Button
-                    key={`usage-${macro.id}`}
-                    size="small"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setUsageMacroId(macro.id);
-                    }}
-                  >
-                    Usage
-                  </Button>,
-                ]}
+                className={selectedId === macro.id ? "scada-list-item-selected" : undefined}
+                style={{ cursor: "pointer", alignItems: "flex-start" }}
               >
-                <Space>
-                  <span>{macro.name}</span>
-                  <Tag color={macro.enabled ?? true ? "green" : "default"}>{macro.enabled ?? true ? "EN" : "DIS"}</Tag>
-                  <Tag color="blue">{`Used by ${findMacroReferences(project, macro.id).length}`}</Tag>
-                </Space>
+                <div style={{ width: "100%", minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <Typography.Text strong style={{ whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.25 }}>
+                      {macro.name}
+                    </Typography.Text>
+                    <Button
+                      size="small"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setUsageMacroId(macro.id);
+                      }}
+                    >
+                      Usage
+                    </Button>
+                  </div>
+                  <Space size={6} wrap style={{ marginTop: 6 }}>
+                    <Tag color={macro.enabled ?? true ? "green" : "default"}>{macro.enabled ?? true ? "EN" : "DIS"}</Tag>
+                    <Tag color="blue">{`Used by ${findMacroReferences(project, macro.id).length}`}</Tag>
+                  </Space>
+                </div>
               </List.Item>
             )}
           />
@@ -665,17 +637,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
             <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0 }}>
               <Space wrap style={{ flex: "0 0 auto" }}>
                 <Input style={{ width: 200 }} value={selectedMacro.name} onChange={(e) => mutateMacro({ name: e.target.value })} placeholder="Macro name" />
-                <Select
-                  style={{ width: 160 }}
-                  value={selectedMacro.language}
-                  options={[
-                    { label: "javascript-lite", value: "javascript-lite" },
-                    { label: "expression", value: "expression" },
-                    { label: "blockly", value: "blockly" },
-                    { label: "ts", value: "ts" },
-                  ]}
-                  onChange={(value) => mutateMacro({ language: value })}
-                />
+                <Tag color="blue">javascript-lite</Tag>
                 <Switch checked={selectedMacro.enabled ?? true} onChange={(checked) => mutateMacro({ enabled: checked })} checkedChildren="Enabled" unCheckedChildren="Disabled" />
               </Space>
 
@@ -718,63 +680,16 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
                   value={triggerDraft.type}
                   onChange={(value) => setTriggerDraft((prev) => ({ ...prev, type: value }))}
                   options={[
-                    { label: "onScreenOpen", value: "onScreenOpen" },
-                    { label: "onScreenClose", value: "onScreenClose" },
-                    { label: "onButtonClick", value: "onButtonClick" },
-                    { label: "onTagChange", value: "onTagChange" },
-                    { label: "onCondition", value: "onCondition" },
                     { label: "interval", value: "interval" },
                   ]}
                 />
-
-                {triggerDraft.type === "onScreenOpen" || triggerDraft.type === "onScreenClose" || triggerDraft.type === "onButtonClick" ? (
-                  <Select
-                    style={{ width: 180 }}
-                    placeholder="screen"
-                    value={triggerDraft.screenKey}
-                    onChange={(value) => setTriggerDraft((prev) => ({ ...prev, screenKey: value }))}
-                    options={project.screens.map((screen) => ({ label: `${screen.name} (${screen.kind})`, value: screen.id }))}
-                  />
-                ) : null}
-
-                {triggerDraft.type === "onButtonClick" ? (
-                  <Select
-                    style={{ width: 220 }}
-                    placeholder="objectId"
-                    value={triggerDraft.objectId}
-                    onChange={(value) => setTriggerDraft((prev) => ({ ...prev, objectId: value }))}
-                    options={objectCandidates.map((object) => ({ label: `${object.id} (${object.type})`, value: object.id }))}
-                  />
-                ) : null}
-
-                {triggerDraft.type === "onTagChange" ? (
-                  <Select
-                    style={{ width: 220 }}
-                    placeholder="tag"
-                    value={triggerDraft.tag}
-                    onChange={(value) => setTriggerDraft((prev) => ({ ...prev, tag: value }))}
-                    options={project.tags.map((tag) => ({ label: tag.name, value: tag.name }))}
-                  />
-                ) : null}
-
-                {triggerDraft.type === "onCondition" ? (
-                  <Input
-                    style={{ width: 260 }}
-                    placeholder="condition"
-                    value={triggerDraft.condition}
-                    onChange={(e) => setTriggerDraft((prev) => ({ ...prev, condition: e.target.value }))}
-                  />
-                ) : null}
-
-                {triggerDraft.type === "interval" ? (
-                  <InputNumber
-                    min={50}
-                    style={{ width: 180 }}
-                    value={triggerDraft.intervalMs}
-                    placeholder="interval ms"
-                    onChange={(value) => setTriggerDraft((prev) => ({ ...prev, intervalMs: Number(value ?? 0) }))}
-                  />
-                ) : null}
+                <InputNumber
+                  min={50}
+                  style={{ width: 180 }}
+                  value={triggerDraft.intervalMs}
+                  placeholder="interval ms"
+                  onChange={(value) => setTriggerDraft((prev) => ({ ...prev, intervalMs: Number(value ?? 0) }))}
+                />
 
                 <Button onClick={addTrigger}>Add Trigger</Button>
               </Space>

@@ -14,16 +14,23 @@ import type { Driver, DriverStatus } from "./driver.js";
 type OpcUaAddress = { nodeId: string };
 
 function extractAddress(tag: TagDefinition): OpcUaAddress {
-  if (!tag.address || typeof tag.address !== "object") {
-    throw new Error(`Tag ${tag.name} requires OPC UA nodeId`);
+  const inlineNodeId = typeof tag.nodeId === "string" ? tag.nodeId.trim() : "";
+  if (inlineNodeId.length > 0) {
+    return { nodeId: inlineNodeId };
   }
 
-  const nodeId = (tag.address as Record<string, unknown>).nodeId;
-  if (typeof nodeId !== "string") {
-    throw new Error(`Tag ${tag.name} has invalid nodeId`);
+  if (tag.address && typeof tag.address === "object") {
+    const nodeId = (tag.address as Record<string, unknown>).nodeId;
+    if (typeof nodeId === "string" && nodeId.trim().length > 0) {
+      return { nodeId: nodeId.trim() };
+    }
+    const raw = (tag.address as Record<string, unknown>).raw;
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      return { nodeId: raw.trim() };
+    }
   }
 
-  return { nodeId };
+  throw new Error(`Tag ${tag.name} requires OPC UA nodeId`);
 }
 
 function toScalar(value: DataValue): TagScalarValue {

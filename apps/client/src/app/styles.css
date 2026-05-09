@@ -1,5 +1,32 @@
 :root {
   font-family: "Segoe UI", "Tahoma", sans-serif;
+  --scada-bg: #f4f6f8;
+  --scada-panel-bg: #ffffff;
+  --scada-border: #d9d9d9;
+  --scada-text: #111827;
+  --scada-text-secondary: #6b7280;
+  --scada-header-bg: #ffffff;
+  --scada-ribbon-bg: linear-gradient(180deg, #f8fafc 0%, #f0f4f9 100%);
+  --scada-ribbon-border: #d5dbe6;
+  --scada-canvas-bg: #0f1720;
+  --scada-canvas-border: #2f4050;
+  --scada-selected-row-bg: #e6f4ff;
+  --scada-selected-row-text: #102a43;
+}
+
+.app-theme-dark {
+  --scada-bg: #191a1b;
+  --scada-panel-bg: #202224;
+  --scada-border: #34383d;
+  --scada-text: #e5e7eb;
+  --scada-text-secondary: #9aa1a9;
+  --scada-header-bg: #202224;
+  --scada-ribbon-bg: linear-gradient(180deg, #22262b 0%, #1d2024 100%);
+  --scada-ribbon-border: #34383d;
+  --scada-canvas-bg: #131619;
+  --scada-canvas-border: #3b4148;
+  --scada-selected-row-bg: #2a3440;
+  --scada-selected-row-text: #e8edf3;
 }
 
 *,
@@ -20,6 +47,8 @@ body,
 
 body {
   overscroll-behavior: none;
+  background: var(--scada-bg);
+  color: var(--scada-text);
 }
 
 .app-shell {
@@ -46,6 +75,8 @@ body {
 .app-header {
   flex: 0 0 auto;
   line-height: normal;
+  background: var(--scada-header-bg) !important;
+  border-bottom: 1px solid var(--scada-border);
 }
 
 .app-content {
@@ -56,6 +87,8 @@ body {
   display: flex;
   flex-direction: column;
   padding: 16px;
+  background: var(--scada-bg);
+  color: var(--scada-text);
 }
 
 .app-content-inner {
@@ -104,11 +137,45 @@ body {
 }
 
 .editor-ribbon-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
   max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
-  padding-bottom: 2px;
+  padding: 2px 2px 6px 2px;
+}
+
+.editor-ribbon-group {
+  flex: 0 0 auto;
+  min-width: 160px;
+  max-width: 360px;
+  border: 1px solid var(--scada-ribbon-border);
+  border-radius: 6px;
+  background: var(--scada-ribbon-bg);
+  padding: 6px 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editor-ribbon-group-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.editor-ribbon-group-title {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.1;
+  letter-spacing: 0.2px;
+  border-top: 1px solid var(--scada-ribbon-border);
+  padding-top: 4px;
 }
 
 .editor-workspace {
@@ -140,6 +207,19 @@ body {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  padding-left: 10px;
+}
+
+.scada-list-item-selected {
+  background: var(--scada-selected-row-bg) !important;
+  border-radius: 6px;
+}
+
+.scada-list-item-selected > .ant-list-item-meta-content,
+.scada-list-item-selected .ant-typography,
+.scada-list-item-selected > span,
+.scada-list-item-selected .scada-list-item-title {
+  color: var(--scada-selected-row-text) !important;
 }
 
 .dock-header {
@@ -149,9 +229,9 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 4px 6px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--scada-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--scada-panel-bg);
   margin-bottom: 8px;
 }
 
@@ -162,9 +242,9 @@ body {
   align-items: flex-start;
   justify-content: center;
   padding-top: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--scada-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--scada-panel-bg);
 }
 
 .dock-restore-button {
@@ -180,6 +260,12 @@ body {
   transition: opacity 0.2s ease;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
   cursor: pointer;
+}
+
+.editor-workspace > .dock-restore-button.dock-restore-left,
+.editor-workspace > .dock-restore-button.dock-restore-right {
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .dock-restore-button:hover {
@@ -243,6 +329,20 @@ body {
   width: 100%;
   height: 10px;
   cursor: row-resize;
+}
+
+.editor-context-menu {
+  background: var(--scada-panel-bg);
+  border: 1px solid var(--scada-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  padding: 8px;
+  min-width: 152px;
+}
+
+.editor-context-menu .ant-btn {
+  justify-content: flex-start;
+  color: var(--scada-text);
 }
 
 .dock-resize-handle {
@@ -438,7 +538,7 @@ body {
 
 .tag-option-row__meta {
   grid-column: 1 / -1;
-  color: #666;
+  color: var(--scada-text-secondary);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -471,10 +571,76 @@ body {
 }
 
 .canvas-wrap {
-  border: 1px solid #2f4050;
-  background: #0f1720;
+  border: 1px solid var(--scada-canvas-border);
+  background: var(--scada-canvas-bg);
   max-width: 100%;
   max-height: 100%;
+}
+
+.app-theme-dark .app-sidebar {
+  border-right: 1px solid var(--scada-border);
+}
+
+.app-theme-dark .ant-btn {
+  border-color: #3a3f45;
+}
+
+.app-theme-dark .anticon {
+  color: #cfd5dc;
+}
+
+.app-theme-dark .dock-restore-button {
+  border-color: #4b535d;
+  background: rgba(32, 36, 40, 0.94);
+  color: #d8dee6;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.app-theme-dark * {
+  scrollbar-color: #4a525a #1d2024;
+}
+
+.app-theme-dark *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.app-theme-dark *::-webkit-scrollbar-track {
+  background: #1d2024;
+}
+
+.app-theme-dark *::-webkit-scrollbar-thumb {
+  background: #4a525a;
+  border-radius: 8px;
+  border: 2px solid #1d2024;
+}
+
+.app-theme-dark *::-webkit-scrollbar-thumb:hover {
+  background: #5a6672;
+}
+
+/* Editor-specific dark scrollbars: thinner and softer contrast */
+.app-theme-dark .editor-page * {
+  scrollbar-color: #3f454c #1c2024;
+}
+
+.app-theme-dark .editor-page *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.app-theme-dark .editor-page *::-webkit-scrollbar-track {
+  background: #1c2024;
+}
+
+.app-theme-dark .editor-page *::-webkit-scrollbar-thumb {
+  background: #3f454c;
+  border-radius: 8px;
+  border: 1px solid #1c2024;
+}
+
+.app-theme-dark .editor-page *::-webkit-scrollbar-thumb:hover {
+  background: #4a535c;
 }
 
 .element-editor-right-panel {

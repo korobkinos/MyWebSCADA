@@ -9,7 +9,6 @@ import { useScadaStore } from "../store/scada-store";
 
 const sourceTypeOptions: Array<{ label: string; value: TagSourceType }> = [
   { label: "OPC UA", value: "opcua" },
-  { label: "Modbus", value: "modbus" },
   { label: "LW", value: "lw" },
   { label: "Internal", value: "internal" },
   { label: "Computed", value: "computed" },
@@ -297,9 +296,6 @@ export function TagsPage() {
     if (sourceType === "opcua") {
       return driver.type === "opcua";
     }
-    if (sourceType === "modbus") {
-      return driver.type === "modbus-tcp" || driver.type === "modbus-rtu";
-    }
     if (sourceType === "simulated") {
       return driver.type === "simulated";
     }
@@ -575,36 +571,6 @@ export function TagsPage() {
               <Form.Item name="nodeId" label="NodeId" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
-            </>
-          ) : null}
-
-          {sourceType === "modbus" ? (
-            <>
-              <Form.Item name="driverId" label="Modbus Driver" rules={[{ required: true }]}>
-                <Select options={driverOptions.map((driver) => ({ label: driver.name ?? driver.id, value: driver.id }))} />
-              </Form.Item>
-              <Space style={{ width: "100%" }}>
-                <Form.Item name="area" label="Area" style={{ width: 180 }}>
-                  <Select options={["coil", "discreteInput", "holdingRegister", "inputRegister"].map((area) => ({ label: area, value: area }))} />
-                </Form.Item>
-                <Form.Item name="address" label="Address" style={{ width: 180 }}>
-                  <Input />
-                </Form.Item>
-                <Form.Item name="unitId" label="UnitId" style={{ width: 120 }}>
-                  <InputNumber style={{ width: "100%" }} />
-                </Form.Item>
-              </Space>
-              <Space style={{ width: "100%" }}>
-                <Form.Item name="bit" label="Bit" style={{ width: 120 }}>
-                  <InputNumber style={{ width: "100%" }} />
-                </Form.Item>
-                <Form.Item name="wordOrder" label="Word Order" style={{ width: 160 }}>
-                  <Select options={["ABCD", "CDAB", "BADC", "DCBA"].map((item) => ({ label: item, value: item }))} />
-                </Form.Item>
-                <Form.Item name="byteOrder" label="Byte Order" style={{ width: 120 }}>
-                  <Select options={["AB", "BA"].map((item) => ({ label: item, value: item }))} />
-                </Form.Item>
-              </Space>
             </>
           ) : null}
 

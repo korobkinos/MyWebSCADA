@@ -1,16 +1,18 @@
 import { useState } from "react";
 import type {
+  AppRole,
   Asset,
   ElementBindingDefinition,
   ElementLibrary,
   HmiObject,
   HmiScreen,
+  RuntimeAction,
   RuntimeValueSource,
   ScadaProject,
   TextStyle,
 } from "@web-scada/shared";
 import { parseTagSegments, resolveElementBindingAssignment, resolveRuntimeValueSync } from "@web-scada/shared";
-import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
+import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 
 type Props = {
@@ -25,6 +27,12 @@ type Props = {
 };
 
 const fontOptions = ["Arial", "Tahoma", "Verdana", "Consolas", "Segoe UI", "Roboto", "Noto Sans"];
+const roleOptions: Array<{ label: string; value: AppRole }> = [
+  { label: "admin", value: "admin" },
+  { label: "engineer", value: "engineer" },
+  { label: "operator", value: "operator" },
+  { label: "viewer", value: "viewer" },
+];
 
 function ColorField({
   label,
@@ -261,6 +269,36 @@ function RuntimeValueSourceEditor({
   );
 }
 
+function ActionAccessFields({
+  action,
+  onChange,
+}: {
+  action: RuntimeAction | undefined;
+  onChange: (nextAction: RuntimeAction) => void;
+}) {
+  if (!action) {
+    return null;
+  }
+  return (
+    <>
+      <Form.Item label="Action Access Roles">
+        <Select
+          mode="multiple"
+          allowClear
+          value={action.requiredRoles ?? []}
+          options={roleOptions}
+          placeholder="empty = everyone"
+          onChange={(value) => onChange({ ...action, requiredRoles: value as AppRole[] })}
+        />
+      </Form.Item>
+      <Space style={{ marginBottom: 8 }}>
+        <span>Action requires auth</span>
+        <Switch checked={action.requireAuth ?? false} onChange={(checked) => onChange({ ...action, requireAuth: checked })} />
+      </Space>
+    </>
+  );
+}
+
 export function ObjectPropertyPanel({ project, assets, libraries, object, elementBindings, onPatch, onDelete }: Props) {
   if (!object) {
     return <div>Select object</div>;
@@ -273,8 +311,8 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
     onPatch({ textStyle: { ...object.textStyle, ...patch } } as Partial<HmiObject>);
   };
 
-  return (
-    <Form layout="vertical" size="small">
+  const generalContent = (
+    <>
       <Form.Item label="ID">
         <Input value={object.id} disabled />
       </Form.Item>
@@ -304,6 +342,16 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
         <span>Locked</span>
         <Switch checked={object.locked ?? false} onChange={(checked) => onPatch({ locked: checked })} />
       </Space>
+      <Form.Item label="Visible For Roles" style={{ marginTop: 8 }}>
+        <Select
+          mode="multiple"
+          allowClear
+          value={object.visibleForRoles ?? []}
+          options={roleOptions}
+          placeholder="empty = visible for everyone"
+          onChange={(value) => onPatch({ visibleForRoles: value as AppRole[] } as Partial<HmiObject>)}
+        />
+      </Form.Item>
       <Form.Item label="Opacity (0..1)" style={{ marginTop: 8 }}>
         <InputNumber
           style={{ width: "100%" }}
@@ -314,103 +362,124 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
           onChange={(value) => onPatch({ opacity: clampOpacity(value) })}
         />
       </Form.Item>
+    </>
+  );
 
-      <Divider style={{ margin: "10px 0" }} />
-      <SpecificPropertyFields
-        project={project}
-        assets={assets}
-        libraries={libraries}
-        object={object}
-        elementBindings={elementBindings}
-        onPatch={onPatch}
-      />
+  const objectContent = (
+    <SpecificPropertyFields
+      project={project}
+      assets={assets}
+      libraries={libraries}
+      object={object}
+      elementBindings={elementBindings}
+      onPatch={onPatch}
+    />
+  );
 
-      {hasTextStyle(object) ? (
+  const textContent = hasTextStyle(object) ? (
+    <>
+      <Form.Item label="Text Font">
+        <Select
+          value={object.textStyle.fontFamily}
+          options={fontOptions.map((font) => ({ label: font, value: font }))}
+          onChange={(value) => applyTextStyle({ fontFamily: value })}
+        />
+      </Form.Item>
+      <Form.Item label="Text Size">
+        <InputNumber
+          style={{ width: "100%" }}
+          value={object.textStyle.fontSize}
+          onChange={(value) => applyTextStyle({ fontSize: Number(value ?? 12) })}
+        />
+      </Form.Item>
+      <ColorField label="Text Color" value={object.textStyle.color} fallback="#ffffff" onChange={(next) => applyTextStyle({ color: next })} />
+      <Form.Item label="Font Style">
+        <Select
+          value={object.textStyle.fontStyle ?? "normal"}
+          options={[
+            { label: "normal", value: "normal" },
+            { label: "bold", value: "bold" },
+            { label: "italic", value: "italic" },
+            { label: "bold italic", value: "bold italic" },
+          ]}
+          onChange={(value) => applyTextStyle({ fontStyle: value })}
+        />
+      </Form.Item>
+      <Form.Item label="Horizontal Align">
+        <Select
+          value={object.textStyle.horizontalAlign}
+          options={[
+            { label: "left", value: "left" },
+            { label: "center", value: "center" },
+            { label: "right", value: "right" },
+          ]}
+          onChange={(value) => applyTextStyle({ horizontalAlign: value })}
+        />
+      </Form.Item>
+      <Form.Item label="Vertical Align">
+        <Select
+          value={object.textStyle.verticalAlign}
+          options={[
+            { label: "top", value: "top" },
+            { label: "middle", value: "middle" },
+            { label: "bottom", value: "bottom" },
+          ]}
+          onChange={(value) => applyTextStyle({ verticalAlign: value })}
+        />
+      </Form.Item>
+      <Form.Item label="Padding">
+        <InputNumber
+          style={{ width: "100%" }}
+          value={object.textStyle.padding ?? 0}
+          onChange={(value) => applyTextStyle({ padding: Number(value ?? 0) })}
+        />
+      </Form.Item>
+
+      {hasTextLayout(object) ? (
         <>
-          <Divider style={{ margin: "10px 0" }} />
-          <Form.Item label="Text Font">
+          <Form.Item label="Wrap">
             <Select
-              value={object.textStyle.fontFamily}
-              options={fontOptions.map((font) => ({ label: font, value: font }))}
-              onChange={(value) => applyTextStyle({ fontFamily: value })}
-            />
-          </Form.Item>
-          <Form.Item label="Text Size">
-            <InputNumber
-              style={{ width: "100%" }}
-              value={object.textStyle.fontSize}
-              onChange={(value) => applyTextStyle({ fontSize: Number(value ?? 12) })}
-            />
-          </Form.Item>
-          <ColorField label="Text Color" value={object.textStyle.color} fallback="#ffffff" onChange={(next) => applyTextStyle({ color: next })} />
-          <Form.Item label="Font Style">
-            <Select
-              value={object.textStyle.fontStyle ?? "normal"}
+              value={object.wrap ?? "word"}
               options={[
-                { label: "normal", value: "normal" },
-                { label: "bold", value: "bold" },
-                { label: "italic", value: "italic" },
-                { label: "bold italic", value: "bold italic" },
+                { label: "none", value: "none" },
+                { label: "word", value: "word" },
+                { label: "char", value: "char" },
               ]}
-              onChange={(value) => applyTextStyle({ fontStyle: value })}
+              onChange={(value) => onPatch({ wrap: value } as Partial<HmiObject>)}
             />
           </Form.Item>
-          <Form.Item label="Horizontal Align">
-            <Select
-              value={object.textStyle.horizontalAlign}
-              options={[
-                { label: "left", value: "left" },
-                { label: "center", value: "center" },
-                { label: "right", value: "right" },
-              ]}
-              onChange={(value) => applyTextStyle({ horizontalAlign: value })}
-            />
-          </Form.Item>
-          <Form.Item label="Vertical Align">
-            <Select
-              value={object.textStyle.verticalAlign}
-              options={[
-                { label: "top", value: "top" },
-                { label: "middle", value: "middle" },
-                { label: "bottom", value: "bottom" },
-              ]}
-              onChange={(value) => applyTextStyle({ verticalAlign: value })}
-            />
-          </Form.Item>
-          <Form.Item label="Padding">
-            <InputNumber
-              style={{ width: "100%" }}
-              value={object.textStyle.padding ?? 0}
-              onChange={(value) => applyTextStyle({ padding: Number(value ?? 0) })}
-            />
-          </Form.Item>
-
-          {hasTextLayout(object) ? (
-            <>
-              <Form.Item label="Wrap">
-                <Select
-                  value={object.wrap ?? "word"}
-                  options={[
-                    { label: "none", value: "none" },
-                    { label: "word", value: "word" },
-                    { label: "char", value: "char" },
-                  ]}
-                  onChange={(value) => onPatch({ wrap: value } as Partial<HmiObject>)}
-                />
-              </Form.Item>
-              <Space>
-                <span>Ellipsis</span>
-                <Switch checked={object.ellipsis ?? false} onChange={(checked) => onPatch({ ellipsis: checked } as Partial<HmiObject>)} />
-              </Space>
-            </>
-          ) : null}
+          <Space>
+            <span>Ellipsis</span>
+            <Switch checked={object.ellipsis ?? false} onChange={(checked) => onPatch({ ellipsis: checked } as Partial<HmiObject>)} />
+          </Space>
         </>
       ) : null}
+    </>
+  ) : (
+    <Typography.Text type="secondary">This object has no text style settings.</Typography.Text>
+  );
 
+  const advancedContent = (
+    <>
+      <Typography.Text type="secondary">Danger zone</Typography.Text>
       <Divider style={{ margin: "10px 0" }} />
       <Button danger onClick={onDelete} block>
         Delete Object
       </Button>
+    </>
+  );
+
+  return (
+    <Form layout="vertical" size="small">
+      <Tabs
+        defaultActiveKey="general"
+        items={[
+          { key: "general", label: "General", children: generalContent },
+          { key: "object", label: "Object", children: objectContent },
+          { key: "text", label: "Text", children: textContent },
+          { key: "advanced", label: "Advanced", children: advancedContent },
+        ]}
+      />
     </Form>
   );
 }
@@ -661,6 +730,10 @@ function SpecificPropertyFields({
             }}
           />
         </Form.Item>
+        <ActionAccessFields
+          action={object.action}
+          onChange={(nextAction) => onPatch({ action: nextAction } as Partial<HmiObject>)}
+        />
         {writeAction ? (
           <>
             <TagFieldWithBindingSource
@@ -1122,6 +1195,10 @@ function SpecificPropertyFields({
             }}
           />
         </Form.Item>
+        <ActionAccessFields
+          action={object.action}
+          onChange={(nextAction) => onPatch({ action: nextAction } as Partial<HmiObject>)}
+        />
         {imageWriteAction ? (
           <>
             <TagFieldWithBindingSource
@@ -1530,6 +1607,10 @@ function SpecificPropertyFields({
             }}
           />
         </Form.Item>
+        <ActionAccessFields
+          action={object.action}
+          onChange={(nextAction) => onPatch({ action: nextAction } as Partial<HmiObject>)}
+        />
         {stateImageRunMacroAction ? (
           <>
             <Form.Item label="Macro">

@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   Asset,
   EditorPanelState,
   EditorLayoutSettings,
   EditorCommand,
+  HmiScreen,
   HmiObject,
   InternalVariableDefinition,
   LibraryElement,
   ProjectLibraryRef,
   RuntimeAction,
+  ScadaProject,
   ScreenKind,
 } from "@web-scada/shared";
 import { normalizeObjectsToGroup } from "@web-scada/shared";
@@ -18,6 +20,7 @@ import {
   Card,
   Checkbox,
   Col,
+  ColorPicker,
   Divider,
   Form,
   Input,
@@ -35,18 +38,35 @@ import {
   message,
 } from "antd";
 import {
+  AppstoreOutlined,
   BorderOutlined,
+  CaretUpOutlined,
+  BuildOutlined,
+  CopyOutlined,
   DeleteOutlined,
+  DownloadOutlined,
+  DribbbleOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
+  FontSizeOutlined,
+  FolderOpenOutlined,
   LeftOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  MinusOutlined,
+  NumberOutlined,
+  PlayCircleOutlined,
+  PoweroffOutlined,
   ReloadOutlined,
   RedoOutlined,
   RightOutlined,
+  ScissorOutlined,
   SaveOutlined,
+  SettingOutlined,
+  SnippetsOutlined,
+  StopOutlined,
   UndoOutlined,
+  UploadOutlined,
   VerticalAlignTopOutlined,
 } from "@ant-design/icons";
 import { api } from "../services/api";
@@ -59,21 +79,6 @@ import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { useScadaStore } from "../store/scada-store";
 import { isTextEditingTarget } from "../utils/keyboard";
-
-const basicToolboxTypes: HmiObject["type"][] = [
-  "text",
-  "line",
-  "rectangle",
-  "value-display",
-  "value-input",
-  "state-indicator",
-  "button",
-  "switch",
-  "valueSelect",
-  "image",
-  "stateImage",
-  "frame",
-];
 
 type CloneOptions = {
   count: number;
@@ -289,6 +294,14 @@ export function EditorPage() {
     y: 0,
     visible: false,
   });
+  const [objectClipboard, setObjectClipboard] = useState<HmiObject[]>([]);
+  const [pasteIteration, setPasteIteration] = useState(0);
+  const [screenSearch, setScreenSearch] = useState("");
+  const [screenKindFilter, setScreenKindFilter] = useState<"all" | ScreenKind>("all");
+  const [screenViewMode, setScreenViewMode] = useState<"grid" | "list">("grid");
+  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [saveStatusText, setSaveStatusText] = useState("Loaded");
+  const [savedProjectSignature, setSavedProjectSignature] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const panelDropRef = useRef<HTMLDivElement | null>(null);
@@ -336,6 +349,7 @@ export function EditorPage() {
     () => screen?.objects.filter((obj) => selection.selectedObjectIds.includes(obj.id)) ?? [],
     [screen?.objects, selection.selectedObjectIds],
   );
+  const currentProjectSignature = useMemo(() => buildProjectSaveSignature(project), [project]);
   const selectedUnlocked = selectedObjects.filter((obj) => !obj.locked);
   const selectedGroups = selectedObjects.filter((obj) => obj.type === "group");
   const activeObject =
@@ -372,6 +386,60 @@ export function EditorPage() {
     },
     [captureObjects, history, screen],
   );
+
+  const copySelectionToClipboard = useCallback(() => {
+    if (!selectedObjects.length) {
+      return;
+    }
+    setObjectClipboard(selectedObjects.map((item) => structuredClone(item)));
+    setPasteIteration(0);
+    void message.success(`Copied ${selectedObjects.length} object(s)`);
+  }, [selectedObjects]);
+
+  const pasteFromClipboard = useCallback(() => {
+    if (!screen) {
+      return;
+    }
+    if (!objectClipboard.length) {
+      void message.warning("Clipboard is empty");
+      return;
+    }
+    const nextIteration = pasteIteration + 1;
+    const offset = 22 * nextIteration;
+    const pasted = objectClipboard.map((item) => cloneForPaste(item, offset, offset));
+    runWithHistory("Paste objects", () => {
+      for (const object of pasted) {
+        addObject(screen.id, object);
+      }
+    });
+    setSelectedObjects(
+      pasted.map((item) => item.id),
+      pasted[pasted.length - 1]?.id,
+    );
+    setPasteIteration(nextIteration);
+  }, [addObject, objectClipboard, pasteIteration, runWithHistory, screen, setSelectedObjects]);
+
+  const adjustPrimitiveStrokeWidth = useCallback((delta: number) => {
+    if (!screen) {
+      return;
+    }
+    const targets = selectedUnlocked.filter((item) => item.type === "line" || item.type === "rectangle");
+    if (!targets.length) {
+      void message.info("Select line/rectangle primitive first");
+      return;
+    }
+    runWithHistory("Adjust primitive stroke width", () => {
+      for (const target of targets) {
+        if (target.type === "line") {
+          const nextStroke = Math.max(0, Number(target.strokeWidth ?? 1) + delta);
+          updateObject(screen.id, target.id, { strokeWidth: nextStroke } as Partial<HmiObject>);
+          continue;
+        }
+        const nextStroke = Math.max(0, Number(target.strokeWidth ?? 0) + delta);
+        updateObject(screen.id, target.id, { strokeWidth: nextStroke } as Partial<HmiObject>);
+      }
+    });
+  }, [runWithHistory, screen, selectedUnlocked, updateObject]);
 
   const enabledLibraryRefs = useMemo(
     () => (project?.libraries ?? []).filter((ref) => ref.enabled),
@@ -545,7 +613,17 @@ export function EditorPage() {
 
       if (ctrlOrMeta && key === "s") {
         event.preventDefault();
-        void saveProject();
+        void handleSaveProject();
+        return;
+      }
+      if (ctrlOrMeta && key === "c" && !editing) {
+        event.preventDefault();
+        copySelectionToClipboard();
+        return;
+      }
+      if (ctrlOrMeta && key === "v" && !editing) {
+        event.preventDefault();
+        pasteFromClipboard();
         return;
       }
 
@@ -616,7 +694,7 @@ export function EditorPage() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [applyObjects, captureObjects, executeCommand, history, removeSelectedUnlocked, saveProject, screen, selectedObjects]);
+  }, [applyObjects, captureObjects, copySelectionToClipboard, executeCommand, handleSaveProject, history, pasteFromClipboard, removeSelectedUnlocked, screen, selectedObjects]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -655,6 +733,16 @@ export function EditorPage() {
   useEffect(() => {
     history.clear();
   }, [screen?.id]);
+
+  useEffect(() => {
+    if (!project) {
+      return;
+    }
+    if (savedProjectSignature === null) {
+      setSavedProjectSignature(currentProjectSignature);
+      return;
+    }
+  }, [currentProjectSignature, project, savedProjectSignature]);
 
   if (!project || !screen) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -733,6 +821,11 @@ export function EditorPage() {
       await api.uploadAsset(file, assetUploadName || file.name);
       setAssetUploadName("");
       await Promise.all([loadAssets(), loadProject()]);
+      const latestProject = useScadaStore.getState().project;
+      if (latestProject) {
+        setSavedProjectSignature(buildProjectSaveSignature(latestProject));
+        setSaveStatusText(`Saved at ${new Date().toLocaleTimeString()}`);
+      }
       void message.success("Asset загружен");
     } catch (error) {
       void message.error(error instanceof Error ? error.message : "Ошибка загрузки asset");
@@ -775,6 +868,8 @@ export function EditorPage() {
     try {
       const nextProject = await api.attachLibrary(libraryId);
       updateProjectJson(nextProject);
+      setSavedProjectSignature(buildProjectSaveSignature(nextProject));
+      setSaveStatusText(`Saved at ${new Date().toLocaleTimeString()}`);
       await loadLibraries();
       void message.success("Библиотека подключена");
     } catch (error) {
@@ -786,6 +881,8 @@ export function EditorPage() {
     try {
       const nextProject = await api.detachLibrary(libraryId);
       updateProjectJson(nextProject);
+      setSavedProjectSignature(buildProjectSaveSignature(nextProject));
+      setSaveStatusText(`Saved at ${new Date().toLocaleTimeString()}`);
       await loadLibraries();
       void message.success("Библиотека отключена");
     } catch (error) {
@@ -798,6 +895,8 @@ export function EditorPage() {
       const created = await api.createLibrary({ id: newLibraryId, name: newLibraryName });
       const nextProject = await api.attachLibrary(created.id);
       updateProjectJson(nextProject);
+      setSavedProjectSignature(buildProjectSaveSignature(nextProject));
+      setSaveStatusText(`Saved at ${new Date().toLocaleTimeString()}`);
       await loadLibraries();
       void message.success("Библиотека создана");
     } catch (error) {
@@ -964,6 +1063,87 @@ export function EditorPage() {
   const canLock = selectedObjects.length > 0;
   const canUnlock = selectedObjects.some((item) => item.locked);
   const canDelete = selectedUnlocked.length > 0;
+  const canCopy = selectedObjects.length > 0;
+  const canPaste = objectClipboard.length > 0;
+  const isProjectDirty = savedProjectSignature === null ? false : currentProjectSignature !== savedProjectSignature;
+  const statusObject = activeObject ?? null;
+  const selectedCount = selection.selectedObjectIds.length;
+  const filteredScreens = project.screens.filter((item) => {
+    const kindOk = screenKindFilter === "all" ? true : item.kind === screenKindFilter;
+    const term = screenSearch.trim().toLowerCase();
+    const searchOk = !term || item.name.toLowerCase().includes(term) || item.id.toLowerCase().includes(term);
+    return kindOk && searchOk;
+  });
+
+  const setStartScreen = (screenId: string) => {
+    updateProjectJson({ ...project, startScreenId: screenId });
+  };
+
+  const duplicateScreenLocal = (source: HmiScreen) => {
+    const copyId = `${source.kind}_${Math.random().toString(36).slice(2, 7)}`;
+    const copy: HmiScreen = {
+      ...structuredClone(source),
+      id: copyId,
+      name: `${source.name} Copy`,
+    };
+    updateProjectJson({
+      ...project,
+      screens: [...project.screens, copy],
+    });
+    setCurrentScreen(copy.id);
+  };
+
+  const deleteScreenLocal = (screenId: string) => {
+    if (project.screens.length <= 1) {
+      void message.warning("At least one screen must remain");
+      return;
+    }
+    const target = project.screens.find((item) => item.id === screenId);
+    Modal.confirm({
+      title: "Delete screen",
+      content: `Delete "${target?.name ?? screenId}"?`,
+      okButtonProps: { danger: true },
+      onOk: () => {
+        const nextScreens = project.screens.filter((item) => item.id !== screenId);
+        const fallback = nextScreens[0];
+        if (!fallback) {
+          return;
+        }
+        const nextStart =
+          project.startScreenId === screenId
+            ? fallback.id
+            : (project.startScreenId ?? fallback.id);
+        updateProjectJson({
+          ...project,
+          screens: nextScreens,
+          startScreenId: nextStart,
+        });
+        if (screen.id === screenId) {
+          setCurrentScreen(fallback.id);
+        }
+      },
+    });
+  };
+  const ribbonGroup = (title: string, controls: ReactNode) => (
+    <div className="editor-ribbon-group" key={title}>
+      <div className="editor-ribbon-group-controls">{controls}</div>
+      <Typography.Text className="editor-ribbon-group-title" type="secondary">
+        {title}
+      </Typography.Text>
+    </div>
+  );
+  const ribbonIconButton = (tooltip: string, icon: ReactNode, onClick: () => void, options?: { disabled?: boolean; danger?: boolean; type?: "primary" | "default" }) => (
+    <Tooltip title={tooltip}>
+      <Button
+        size="small"
+        icon={icon}
+        onClick={onClick}
+        disabled={options?.disabled}
+        danger={options?.danger}
+        type={options?.type ?? "default"}
+      />
+    </Tooltip>
+  );
   const debugPerformance =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -991,6 +1171,27 @@ export function EditorPage() {
       applyObjects(previous);
     }
   };
+
+  async function handleSaveProject(): Promise<void> {
+    if (!project || isSavingProject) {
+      return;
+    }
+    setIsSavingProject(true);
+    setSaveStatusText("Saving...");
+    try {
+      await saveProject();
+      const latestProject = useScadaStore.getState().project;
+      const latestSignature = buildProjectSaveSignature(latestProject ?? project);
+      setSavedProjectSignature(latestSignature);
+      setSaveStatusText(`Saved at ${new Date().toLocaleTimeString()}`);
+      void message.success("Project saved");
+    } catch (error) {
+      setSaveStatusText("Save failed");
+      void message.error(error instanceof Error ? error.message : "Failed to save project");
+    } finally {
+      setIsSavingProject(false);
+    }
+  }
 
   const addSvgAssetAsPrimitives = async (asset: Asset, x = 100, y = 100): Promise<void> => {
     try {
@@ -1044,7 +1245,7 @@ export function EditorPage() {
               <Button size="small" icon={<DeleteOutlined />} onClick={deleteSelectionWithHistory} disabled={!canDelete} />
             </Tooltip>
             <Tooltip title="Save Ctrl+S">
-              <Button size="small" icon={<SaveOutlined />} onClick={() => void saveProject()} />
+              <Button size="small" icon={<SaveOutlined />} onClick={() => void handleSaveProject()} disabled={!isProjectDirty || isSavingProject} />
             </Tooltip>
             <Tooltip title={leftPanelHidden ? "Show left panel" : "Hide left panel"}>
               <Button
@@ -1084,12 +1285,15 @@ export function EditorPage() {
             <Tooltip title="Reset layout">
               <Button size="small" icon={<ReloadOutlined />} onClick={resetLayout} />
             </Tooltip>
+            <Tag color={isProjectDirty ? "gold" : "green"}>{isProjectDirty ? "Unsaved changes" : saveStatusText}</Tag>
           </Space>
         }
       >
         {topAreaCollapsed ? (
           <Space wrap>
-            <Button size="small" type="primary" onClick={() => void saveProject()}>Save</Button>
+            <Button size="small" type="primary" onClick={() => void handleSaveProject()} disabled={!isProjectDirty || isSavingProject}>
+              {isSavingProject ? "Saving..." : "Save"}
+            </Button>
             <Button size="small" onClick={() => navigate("/runtime")}>Run Preview</Button>
             <Button size="small" onClick={() => setFloatingAssets(true)}>Assets</Button>
             <Button size="small" onClick={() => setFloatingLibraries(true)}>Libraries</Button>
@@ -1103,89 +1307,168 @@ export function EditorPage() {
             items={[
             {
               key: "file",
-              label: "File",
+              label: "Home",
               children: (
-                <Space wrap>
-                  <Button type="primary" onClick={() => void saveProject()}>Save</Button>
-                  <Button onClick={() => void saveProject()}>Save As</Button>
-                  <Button onClick={() => void loadProject()}>Import Project</Button>
-                  <Button onClick={() => void saveProject()}>Export Project</Button>
-                  <Button onClick={() => navigate("/project")}>Project Settings</Button>
-                </Space>
+                <div className="editor-ribbon-toolbar">
+                  {ribbonGroup("Project", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Save", <SaveOutlined />, () => void handleSaveProject(), { type: "primary", disabled: !isProjectDirty || isSavingProject })}
+                      {ribbonIconButton("Save As", <SaveOutlined />, () => void handleSaveProject(), { disabled: !isProjectDirty || isSavingProject })}
+                      {ribbonIconButton("Import Project", <UploadOutlined />, () => void loadProject())}
+                      {ribbonIconButton("Export Project", <DownloadOutlined />, () => void handleSaveProject(), { disabled: !isProjectDirty || isSavingProject })}
+                    </Space>
+                  ))}
+                  {ribbonGroup("Settings", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Project Settings", <SettingOutlined />, () => navigate("/project"))}
+                      {ribbonIconButton("Run Preview", <PlayCircleOutlined />, () => navigate("/runtime"))}
+                    </Space>
+                  ))}
+                </div>
               ),
             },
             {
               key: "edit",
-              label: "Edit",
+              label: "Clipboard",
               children: (
-                <Space wrap>
-                  <Button disabled>Undo</Button>
-                  <Button disabled>Redo</Button>
-                  <Button disabled>Cut</Button>
-                  <Button disabled>Copy</Button>
-                  <Button disabled>Paste</Button>
-                  <Button danger disabled={!selectedUnlocked.length} onClick={deleteSelectionWithHistory}>Delete</Button>
-                  <Button disabled={!selectedUnlocked.length} onClick={() => setCloneOpen(true)}>Clone</Button>
-                </Space>
+                <div className="editor-ribbon-toolbar">
+                  {ribbonGroup("History", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Undo", <UndoOutlined />, undo, { disabled: !history.canUndo })}
+                      {ribbonIconButton("Redo", <RedoOutlined />, redo, { disabled: !history.canRedo })}
+                    </Space>
+                  ))}
+                  {ribbonGroup("Clipboard", (
+                    <Space wrap size={6}>
+                      <Tooltip title="Cut">
+                        <Button
+                          size="small"
+                          icon={<ScissorOutlined />}
+                          disabled={!canCopy}
+                          onClick={() => {
+                            copySelectionToClipboard();
+                            deleteSelectionWithHistory();
+                          }}
+                        />
+                      </Tooltip>
+                      <Tooltip title="Copy">
+                        <Button size="small" icon={<CopyOutlined />} disabled={!canCopy} onClick={copySelectionToClipboard} />
+                      </Tooltip>
+                      <Tooltip title="Paste">
+                        <Button size="small" icon={<SnippetsOutlined />} disabled={!canPaste} onClick={pasteFromClipboard} />
+                      </Tooltip>
+                    </Space>
+                  ))}
+                  {ribbonGroup("Selection", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Delete Selection", <DeleteOutlined />, deleteSelectionWithHistory, { disabled: !selectedUnlocked.length, danger: true })}
+                      {ribbonIconButton("Clone Selection", <CopyOutlined />, () => setCloneOpen(true), { disabled: !selectedUnlocked.length })}
+                    </Space>
+                  ))}
+                </div>
               ),
             },
             {
               key: "arrange",
               label: "Arrange",
               children: (
-                <Space wrap>
-                  <Button onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>Group</Button>
-                  <Button onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</Button>
-                  <Button onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign}>Align Left</Button>
-                  <Button onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign}>Align Center</Button>
-                  <Button onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign}>Align Right</Button>
-                </Space>
+                <div className="editor-ribbon-toolbar">
+                  {ribbonGroup("Group", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Group Selected", <AppstoreOutlined />, () => runCommand({ type: "groupSelected" }), { disabled: !canGroup })}
+                      {ribbonIconButton("Ungroup Selected", <BuildOutlined />, () => runCommand({ type: "ungroupSelected" }), { disabled: !canUngroup })}
+                      {ribbonIconButton("Lock Selected", <EyeInvisibleOutlined />, () => runCommand({ type: "lockSelected" }), { disabled: !canLock })}
+                      {ribbonIconButton("Unlock Selected", <EyeOutlined />, () => runCommand({ type: "unlockSelected" }), { disabled: !canUnlock })}
+                    </Space>
+                  ))}
+                  {ribbonGroup("Align", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Align Left", <LeftOutlined />, () => runCommand({ type: "alignLeft" }), { disabled: !canAlign })}
+                      {ribbonIconButton("Align H-Center", <BorderOutlined />, () => runCommand({ type: "alignHorizontalCenter" }), { disabled: !canAlign })}
+                      {ribbonIconButton("Align Right", <RightOutlined />, () => runCommand({ type: "alignRight" }), { disabled: !canAlign })}
+                      {ribbonIconButton("Align Top", <VerticalAlignTopOutlined />, () => runCommand({ type: "alignTop" }), { disabled: !canAlign })}
+                      {ribbonIconButton("Align V-Center", <BorderOutlined />, () => runCommand({ type: "alignVerticalCenter" }), { disabled: !canAlign })}
+                      {ribbonIconButton("Align Bottom", <VerticalAlignTopOutlined style={{ transform: "rotate(180deg)" }} />, () => runCommand({ type: "alignBottom" }), { disabled: !canAlign })}
+                    </Space>
+                  ))}
+                </div>
               ),
             },
             {
               key: "insert",
-              label: "Insert",
+              label: "Objects",
               children: (
-                <Space wrap>
-                  {basicToolboxTypes.map((type) => (
-                    <Button key={type} size="small" onClick={() => addObjectWithHistory(createObjectByType(type))}>
-                      {type}
-                    </Button>
+                <div className="editor-ribbon-toolbar">
+                  {ribbonGroup("Primitives", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Text", <FontSizeOutlined />, () => addObjectWithHistory(createObjectByType("text")))}
+                      {ribbonIconButton("Line", <MinusOutlined />, () => addObjectWithHistory(createObjectByType("line")))}
+                      {ribbonIconButton("Rectangle", <BorderOutlined />, () => addObjectWithHistory(createObjectByType("rectangle")))}
+                      {ribbonIconButton("Square", <StopOutlined />, () => addObjectWithHistory(createPrimitiveShape("square")))}
+                      {ribbonIconButton("Circle", <DribbbleOutlined />, () => addObjectWithHistory(createPrimitiveShape("circle")))}
+                      {ribbonIconButton("Triangle", <CaretUpOutlined />, () => addObjectWithHistory(createPrimitiveShape("triangle")))}
+                    </Space>
                   ))}
-                  <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("square"))}>Square</Button>
-                  <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("circle"))}>Circle</Button>
-                  <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("triangle"))}>Triangle</Button>
-                </Space>
+                  {ribbonGroup("Stroke", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Stroke -1", <MinusOutlined />, () => adjustPrimitiveStrokeWidth(-1), { disabled: !selectedUnlocked.length })}
+                      {ribbonIconButton("Stroke +1", <NumberOutlined />, () => adjustPrimitiveStrokeWidth(1), { disabled: !selectedUnlocked.length })}
+                    </Space>
+                  ))}
+                  {ribbonGroup("Controls", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Button", <PlayCircleOutlined />, () => addObjectWithHistory(createObjectByType("button")))}
+                      {ribbonIconButton("Switch", <PoweroffOutlined />, () => addObjectWithHistory(createObjectByType("switch")))}
+                      {ribbonIconButton("Value Display", <NumberOutlined />, () => addObjectWithHistory(createObjectByType("value-display")))}
+                      {ribbonIconButton("Indicator", <BuildOutlined />, () => addObjectWithHistory(createObjectByType("state-indicator")))}
+                    </Space>
+                  ))}
+                  {ribbonGroup("Assets", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Asset Manager", <UploadOutlined />, () => setFloatingAssets(true))}
+                      {ribbonIconButton("Library Directory", <FolderOpenOutlined />, () => setFloatingLibraries(true))}
+                    </Space>
+                  ))}
+                </div>
               ),
             },
             {
               key: "runtime",
               label: "Runtime",
               children: (
-                <Space wrap>
-                  <Button onClick={() => navigate("/runtime")}>Preview</Button>
-                  <Button onClick={() => navigate("/runtime")}>Open Runtime</Button>
-                  <Button onClick={() => updateProjectJson({ ...project, startScreenId: screen.id })}>Set Start Screen</Button>
-                </Space>
+                <div className="editor-ribbon-toolbar">
+                  {ribbonGroup("Runtime", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Runtime Preview", <PlayCircleOutlined />, () => navigate("/runtime"))}
+                      {ribbonIconButton("Set Start Screen", <SettingOutlined />, () => updateProjectJson({ ...project, startScreenId: screen.id }))}
+                    </Space>
+                  ))}
+                </div>
               ),
             },
             {
               key: "tools",
-              label: "Tools",
+              label: "View",
               children: (
-                <Space wrap>
-                  <Button onClick={() => setLeftTab("screens")}>Screens</Button>
-                  <Button onClick={() => setLeftTab("assets")}>Assets</Button>
-                  <Button onClick={() => setLeftTab("libraries")}>Libraries</Button>
-                  <Button onClick={() => setLeftTab("tags")}>Tags</Button>
-                  <Button onClick={() => setLeftTab("macros")}>Macros</Button>
-                  <Button onClick={() => setFloatingAssets(true)}>Open Asset Manager</Button>
-                  <Button onClick={() => setFloatingLibraries(true)}>Open Library Directory</Button>
-                  <Space>
-                    <span>Show Object Frames</span>
-                    <Switch checked={showObjectFrames} onChange={setShowObjectFrames} />
-                  </Space>
-                </Space>
+                <div className="editor-ribbon-toolbar">
+                  {ribbonGroup("Panels", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton("Project", <AppstoreOutlined />, () => setLeftTab("screens"))}
+                      {ribbonIconButton("Assets", <UploadOutlined />, () => setLeftTab("assets"))}
+                      {ribbonIconButton("Libraries", <AppstoreOutlined />, () => setLeftTab("libraries"))}
+                      {ribbonIconButton("Tags", <BorderOutlined />, () => setLeftTab("tags"))}
+                      {ribbonIconButton("Macros", <BuildOutlined />, () => setLeftTab("macros"))}
+                    </Space>
+                  ))}
+                  {ribbonGroup("Layout", (
+                    <Space wrap size={6}>
+                      {ribbonIconButton(leftPanelHidden ? "Show Left Panel" : "Hide Left Panel", leftPanelHidden ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />, () => setLeftCollapsed((prev) => !prev))}
+                      {ribbonIconButton(rightPanelHidden ? "Show Right Panel" : "Hide Right Panel", rightPanelHidden ? <MenuUnfoldOutlined /> : <MenuFoldOutlined style={{ transform: "scaleX(-1)" }} />, () => setRightCollapsed((prev) => !prev))}
+                      {ribbonIconButton(canvasToolbarCollapsed ? "Show Toolbar" : "Hide Toolbar", canvasToolbarCollapsed ? <EyeOutlined /> : <EyeInvisibleOutlined />, () => setCanvasToolbarCollapsed((prev) => !prev))}
+                      <Switch checked={showObjectFrames} onChange={setShowObjectFrames} checkedChildren="Frames" unCheckedChildren="Frames" />
+                    </Space>
+                  ))}
+                </div>
               ),
             },
             ]}
@@ -1287,7 +1570,7 @@ export function EditorPage() {
             />
           </Card>
           <Card
-            title="Screens"
+            title="Screens Manager"
             size="small"
             style={{ display: leftTab === "screens" ? "block" : "none", overflow: "auto", minHeight: 0 }}
             extra={
@@ -1313,18 +1596,112 @@ export function EditorPage() {
             }
           >
             {collapsedPanels.screens ? null : (
-            <List
-              size="small"
-              dataSource={project.screens}
-              renderItem={(item) => (
-                <List.Item
-                  onClick={() => setCurrentScreen(item.id)}
-                  style={{ cursor: "pointer", fontWeight: item.id === screen.id ? 700 : 400 }}
-                >
-                  {`${item.name} (${item.kind})`}
-                </List.Item>
-              )}
-            />
+              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                <Space wrap>
+                  <Input
+                    style={{ width: 170 }}
+                    placeholder="Search screens"
+                    value={screenSearch}
+                    onChange={(event) => setScreenSearch(event.target.value)}
+                  />
+                  <Select
+                    size="small"
+                    style={{ width: 120 }}
+                    value={screenKindFilter}
+                    onChange={(value) => setScreenKindFilter(value)}
+                    options={[
+                      { label: "All", value: "all" },
+                      { label: "Screen", value: "screen" },
+                      { label: "Popup", value: "popup" },
+                      { label: "Template", value: "template" },
+                    ]}
+                  />
+                  <Select
+                    size="small"
+                    style={{ width: 96 }}
+                    value={screenViewMode}
+                    onChange={(value) => setScreenViewMode(value)}
+                    options={[
+                      { label: "Grid", value: "grid" },
+                      { label: "List", value: "list" },
+                    ]}
+                  />
+                </Space>
+
+                {screenViewMode === "grid" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 8 }}>
+                    {filteredScreens.map((item) => {
+                      const isActive = item.id === screen.id;
+                      const isStart = project.startScreenId === item.id;
+                      return (
+                        <Card
+                          key={item.id}
+                          size="small"
+                          hoverable
+                          onClick={() => setCurrentScreen(item.id)}
+                          style={{
+                            borderColor: isActive ? "var(--scada-selected-row-bg)" : undefined,
+                            background: isActive ? "var(--scada-selected-row-bg)" : undefined,
+                            cursor: "pointer",
+                          }}
+                          bodyStyle={{ padding: 8 }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
+                            <Typography.Text strong ellipsis style={{ maxWidth: 120 }}>
+                              {item.name}
+                            </Typography.Text>
+                            <Tag color={item.kind === "popup" ? "purple" : item.kind === "template" ? "cyan" : "blue"}>
+                              {item.kind}
+                            </Tag>
+                          </div>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {item.width}x{item.height} | obj: {item.objects.length}
+                          </Typography.Text>
+                          <Space size={4} style={{ marginTop: 6 }} wrap>
+                            {isStart ? <Tag color="green">Start</Tag> : null}
+                            {isActive ? <Tag color="gold">Active</Tag> : null}
+                          </Space>
+                          <Space size={4} style={{ marginTop: 6 }} wrap>
+                            <Button size="small" onClick={(event) => { event.stopPropagation(); setCurrentScreen(item.id); }}>Open</Button>
+                            <Button size="small" onClick={(event) => { event.stopPropagation(); duplicateScreenLocal(item); }}>Duplicate</Button>
+                            <Button size="small" onClick={(event) => { event.stopPropagation(); setStartScreen(item.id); }}>Set Start</Button>
+                            <Button size="small" danger onClick={(event) => { event.stopPropagation(); deleteScreenLocal(item.id); }}>Delete</Button>
+                          </Space>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <List
+                    size="small"
+                    dataSource={filteredScreens}
+                    renderItem={(item) => (
+                      <List.Item
+                        onClick={() => setCurrentScreen(item.id)}
+                        style={{
+                          cursor: "pointer",
+                          background: item.id === screen.id ? "var(--scada-selected-row-bg)" : "transparent",
+                          borderRadius: 6,
+                        }}
+                        actions={[
+                          <Button key={`open-${item.id}`} size="small" onClick={() => setCurrentScreen(item.id)}>Open</Button>,
+                          <Button key={`dup-${item.id}`} size="small" onClick={() => duplicateScreenLocal(item)}>Duplicate</Button>,
+                          <Button key={`start-${item.id}`} size="small" onClick={() => setStartScreen(item.id)}>Start</Button>,
+                          <Button key={`del-${item.id}`} size="small" danger onClick={() => deleteScreenLocal(item.id)}>Delete</Button>,
+                        ]}
+                      >
+                        <Space>
+                          <Typography.Text strong>{item.name}</Typography.Text>
+                          <Tag color={item.kind === "popup" ? "purple" : item.kind === "template" ? "cyan" : "blue"}>
+                            {item.kind}
+                          </Tag>
+                          {project.startScreenId === item.id ? <Tag color="green">Start</Tag> : null}
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                )}
+              </Space>
             )}
           </Card>
 
@@ -1339,27 +1716,19 @@ export function EditorPage() {
               <Input value={screen.name} onChange={(e) => updateScreen(screen.id, { name: e.target.value })} />
               <InputNumber style={{ width: "100%" }} value={screen.width} onChange={(value) => updateScreen(screen.id, { width: Number(value ?? 320) })} />
               <InputNumber style={{ width: "100%" }} value={screen.height} onChange={(value) => updateScreen(screen.id, { height: Number(value ?? 200) })} />
-              <Input placeholder="background" value={screen.background ?? ""} onChange={(e) => updateScreen(screen.id, { background: e.target.value })} />
-            </Space>
-            )}
-          </Card>
-
-          <Card
-            title="Toolbox (Basic)"
-            size="small"
-            style={{ marginTop: 12, display: leftTab === "screens" ? "block" : "none", overflow: "auto", minHeight: 0 }}
-            extra={<Button size="small" onClick={() => setCollapsedPanels((prev) => ({ ...prev, toolbox: !prev.toolbox }))}>{collapsedPanels.toolbox ? "Expand" : "Collapse"}</Button>}
-          >
-            {collapsedPanels.toolbox ? null : (
-            <Space wrap>
-              {basicToolboxTypes.map((type) => (
-                <Button key={type} size="small" onClick={() => addObjectWithHistory(createObjectByType(type))}>
-                  {type}
-                </Button>
-              ))}
-              <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("square"))}>Square</Button>
-              <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("circle"))}>Circle</Button>
-              <Button size="small" onClick={() => addObjectWithHistory(createPrimitiveShape("triangle"))}>Triangle</Button>
+              <Space wrap>
+                <ColorPicker
+                  value={screen.background ?? "#1e1e1e"}
+                  showText
+                  onChange={(_, css) => updateScreen(screen.id, { background: css })}
+                />
+                <Input
+                  style={{ width: 160 }}
+                  placeholder="#1e1e1e"
+                  value={screen.background ?? ""}
+                  onChange={(e) => updateScreen(screen.id, { background: e.target.value })}
+                />
+              </Space>
             </Space>
             )}
           </Card>
@@ -1439,10 +1808,6 @@ export function EditorPage() {
             title={`Editor: ${screen.name}`}
             extra={
               <Space>
-                <Button onClick={() => void saveProject()} type="primary">
-                  Save
-                </Button>
-                <Button onClick={() => navigate("/runtime")}>Run Preview</Button>
                 <Tooltip title={canvasToolbarCollapsed ? "Show toolbar" : "Hide toolbar"}>
                   <Button
                     onClick={() => setCanvasToolbarCollapsed((prev) => !prev)}
@@ -1450,51 +1815,12 @@ export function EditorPage() {
                     icon={canvasToolbarCollapsed ? <EyeOutlined /> : <EyeInvisibleOutlined />}
                   />
                 </Tooltip>
-                <Tooltip title={canvasToolbarCompact ? "Toolbar normal" : "Toolbar compact"}>
-                  <Button
-                    onClick={() => setCanvasToolbarCompact((prev) => !prev)}
-                    size="small"
-                    icon={<BorderOutlined />}
-                  />
-                </Tooltip>
               </Space>
             }
           >
             <div className="editor-stage-toolbar" style={{ marginBottom: canvasToolbarCollapsed ? 6 : 10 }}>
-            {canvasToolbarCollapsed ? (
-              <Button size="small" onClick={() => setCanvasToolbarCollapsed(false)}>Show Canvas Commands</Button>
-            ) : (
+            {canvasToolbarCollapsed ? null : (
             <Space wrap size={canvasToolbarCompact ? 4 : 8}>
-              <Button onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>
-                Group
-              </Button>
-              <Button onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>
-                Ungroup
-              </Button>
-              <Button onClick={() => runCommand({ type: "lockSelected" })} disabled={!canLock}>
-                Lock
-              </Button>
-              <Button onClick={() => runCommand({ type: "unlockSelected" })} disabled={!canUnlock}>
-                Unlock
-              </Button>
-              <Button onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign}>
-                Align Left
-              </Button>
-              <Button onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign}>
-                Align H-Center
-              </Button>
-              <Button onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign}>
-                Align Right
-              </Button>
-              <Button onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign}>
-                Align Top
-              </Button>
-              <Button onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign}>
-                Align V-Center
-              </Button>
-              <Button onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign}>
-                Align Bottom
-              </Button>
               <Button onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize}>
                 Same Width
               </Button>
@@ -1778,9 +2104,9 @@ export function EditorPage() {
                   dataSource={screen.objects}
                   renderItem={(item) => (
                     <List.Item
+                      className={selection.selectedObjectIds.includes(item.id) ? "scada-list-item-selected" : undefined}
                       style={{
                         cursor: "pointer",
-                        background: selection.selectedObjectIds.includes(item.id) ? "#e6f4ff" : "transparent",
                         borderRadius: 6,
                         paddingInline: 8,
                       }}
@@ -1843,6 +2169,31 @@ export function EditorPage() {
 	          </div>
         </ResizableDockPanel>
 	      </div>
+
+        <Card
+          size="small"
+          bodyStyle={{ padding: "6px 10px" }}
+          style={{ marginTop: 8 }}
+        >
+          <Space size={14} wrap>
+            <Typography.Text type="secondary">{`Screen: ${screen.name} (${screen.width}x${screen.height})`}</Typography.Text>
+            <Typography.Text type="secondary">{`Objects: ${screen.objects.length}`}</Typography.Text>
+            <Typography.Text type="secondary">{`Selected: ${selectedCount}`}</Typography.Text>
+            <Typography.Text type="secondary">{`Left panel: ${leftPanelHidden ? "hidden" : "visible"}`}</Typography.Text>
+            <Typography.Text type="secondary">{`Right panel: ${rightPanelHidden ? "hidden" : "visible"}`}</Typography.Text>
+            <Typography.Text type="secondary">{`Canvas toolbar: ${canvasToolbarCollapsed ? "hidden" : "visible"}`}</Typography.Text>
+            <Typography.Text type={isProjectDirty ? "warning" : "secondary"}>
+              {isProjectDirty ? "Save: unsaved changes" : `Save: ${saveStatusText}`}
+            </Typography.Text>
+            {statusObject ? (
+              <Typography.Text type="secondary">
+                {`Object: ${statusObject.id} (${statusObject.type}) x=${Math.round(statusObject.x)} y=${Math.round(statusObject.y)} w=${Math.round(statusObject.width)} h=${Math.round(statusObject.height)} opacity=${Number(statusObject.opacity ?? 1).toFixed(2)}`}
+              </Typography.Text>
+            ) : (
+              <Typography.Text type="secondary">Object: -</Typography.Text>
+            )}
+          </Space>
+        </Card>
 
 	      {focusMode ? (
         <div className="focus-exit-button">
@@ -2063,30 +2414,30 @@ export function EditorPage() {
 
       {contextMenu.visible ? (
         <div
+          className="editor-context-menu"
           style={{
             position: "fixed",
             top: contextMenu.y,
             left: contextMenu.x,
             zIndex: 2000,
-            background: "#ffffff",
-            border: "1px solid #d9d9d9",
-            borderRadius: 6,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-            padding: 8,
           }}
           onMouseLeave={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
         >
-          <Space direction="vertical">
-            <Button size="small" onClick={() => setPropertiesOpen(true)} disabled={!activeObject}>Properties</Button>
-            <Button size="small" onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length}>Clone...</Button>
-            <Button size="small" danger onClick={deleteSelectionWithHistory} disabled={!selectedUnlocked.length}>Delete</Button>
-            <Button size="small" onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>Group</Button>
-            <Button size="small" onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</Button>
-            <Button size="small" onClick={() => runCommand({ type: "lockSelected" })} disabled={!canLock}>Lock</Button>
-            <Button size="small" onClick={() => runCommand({ type: "unlockSelected" })} disabled={!canUnlock}>Unlock</Button>
-            <Button size="small" onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign}>Align Left</Button>
-            <Button size="small" onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize}>Same Size</Button>
-            <Button size="small" onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute}>Distribute H</Button>
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <Button type="text" size="small" block onClick={() => setPropertiesOpen(true)} disabled={!activeObject}>Properties</Button>
+            <Button type="text" size="small" block onClick={copySelectionToClipboard} disabled={!canCopy}>Copy</Button>
+            <Button type="text" size="small" block onClick={pasteFromClipboard} disabled={!canPaste}>Paste</Button>
+            <Button type="text" size="small" block onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length}>Clone...</Button>
+            <Button type="text" size="small" danger block onClick={deleteSelectionWithHistory} disabled={!selectedUnlocked.length}>Delete</Button>
+            <Button type="text" size="small" block onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>Group</Button>
+            <Button type="text" size="small" block onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</Button>
+            <Button type="text" size="small" block onClick={() => runCommand({ type: "lockSelected" })} disabled={!canLock}>Lock</Button>
+            <Button type="text" size="small" block onClick={() => runCommand({ type: "unlockSelected" })} disabled={!canUnlock}>Unlock</Button>
+            <Button type="text" size="small" block onClick={() => adjustPrimitiveStrokeWidth(-1)} disabled={!selectedUnlocked.length}>Stroke -1</Button>
+            <Button type="text" size="small" block onClick={() => adjustPrimitiveStrokeWidth(1)} disabled={!selectedUnlocked.length}>Stroke +1</Button>
+            <Button type="text" size="small" block onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign}>Align Left</Button>
+            <Button type="text" size="small" block onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize}>Same Size</Button>
+            <Button type="text" size="small" block onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute}>Distribute H</Button>
           </Space>
         </div>
       ) : null}
@@ -2110,6 +2461,29 @@ function cloneObject(
     name: cloned.name ? `${cloned.name}_${index}` : cloned.name,
   });
   return remapTagFields(withId, (tag) => applyTagRule(tag, options, index));
+}
+
+function buildProjectSaveSignature(project: ScadaProject | null | undefined): string {
+  if (!project) {
+    return "";
+  }
+  const snapshot = {
+    ...project,
+    // Exclude editor workspace layout/autosave state from "unsaved changes" indicator.
+    editorSettings: undefined,
+  };
+  return JSON.stringify(snapshot);
+}
+
+function cloneForPaste(source: HmiObject, offsetX: number, offsetY: number): HmiObject {
+  const cloned = structuredClone(source) as HmiObject;
+  const shifted: HmiObject = {
+    ...cloned,
+    id: id(cloned.type),
+    x: cloned.x + offsetX,
+    y: cloned.y + offsetY,
+  };
+  return regenerateIds(shifted);
 }
 
 function regenerateIds(object: HmiObject): HmiObject {

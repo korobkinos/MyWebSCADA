@@ -158,7 +158,8 @@ export function LibrariesPage() {
             const attached = (project.libraries ?? []).some((item) => item.libraryId === library.id && item.enabled);
             return (
               <List.Item
-                style={{ cursor: "pointer", background: selected?.id === library.id ? "#f0f5ff" : undefined }}
+                className={selected?.id === library.id ? "scada-list-item-selected" : undefined}
+                style={{ cursor: "pointer" }}
                 onClick={() => setSelectedId(library.id)}
                 actions={[
                   <Button key="attach" type={attached ? "default" : "primary"} onClick={() => void attachToggle(library.id, attached)}>

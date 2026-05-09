@@ -1554,7 +1554,8 @@ export function ElementEditorPage() {
             dataSource={displayElements}
             renderItem={(item) => (
               <List.Item
-                style={{ cursor: "pointer", background: (item.isDraft ? draftIsNew : selectedElementId === item.id) ? "#e6f4ff" : undefined, borderRadius: 6 }}
+                className={(item.isDraft ? draftIsNew : selectedElementId === item.id) ? "scada-list-item-selected" : undefined}
+                style={{ cursor: "pointer", borderRadius: 6 }}
                 onClick={() => {
                   if (item.isDraft) {
                     setDraftIsNew(true);

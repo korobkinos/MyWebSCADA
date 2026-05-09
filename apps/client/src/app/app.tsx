@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   DashboardOutlined,
@@ -13,9 +13,9 @@ import {
   TagsOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Button, Dropdown, Layout, Menu, Space, Spin, Typography, message } from "antd";
+import { Button, ConfigProvider, Dropdown, Layout, Menu, Space, Spin, Typography, message, theme as antdTheme } from "antd";
 import type { MenuProps } from "antd";
-import type { AppPermission } from "@web-scada/shared";
+import type { AppPermission, ProjectTheme } from "@web-scada/shared";
 import { createRuntimeSocket } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
 
@@ -60,6 +60,13 @@ export function App() {
     }
     return window.localStorage.getItem("scada.mainMenuHidden") === "1";
   });
+  const [uiTheme, setUiTheme] = useState<ProjectTheme>(() => {
+    if (typeof window === "undefined") {
+      return "light";
+    }
+    const saved = window.localStorage.getItem("scada.uiTheme");
+    return saved === "dark" ? "dark" : "light";
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -68,19 +75,26 @@ export function App() {
     window.localStorage.setItem("scada.mainMenuHidden", mainMenuHidden ? "1" : "0");
   }, [mainMenuHidden]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("scada.uiTheme", uiTheme);
+  }, [uiTheme]);
+
   const bootstrapApp = useCallback(async () => {
     setBootError(null);
     await initializeAuth();
 
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 8; attempt += 1) {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await loadProject();
         await Promise.all([loadTags(), loadDrivers(), loadMacros(), loadAssets(), loadLibraries()]);
         return;
       } catch (error) {
         lastError = error;
-        await new Promise((resolve) => setTimeout(resolve, 450));
+        await new Promise((resolve) => setTimeout(resolve, 900));
       }
     }
 
@@ -107,6 +121,42 @@ export function App() {
     window.addEventListener("scada-auth-invalid", onInvalidAuth);
     return () => window.removeEventListener("scada-auth-invalid", onInvalidAuth);
   }, [logout, navigate]);
+
+  useEffect(() => {
+    const projectTheme = project?.uiSettings?.theme;
+    if (projectTheme === "dark" || projectTheme === "light") {
+      setUiTheme(projectTheme);
+    }
+  }, [project?.uiSettings?.theme]);
+
+  useEffect(() => {
+    if (typeof project?.uiSettings?.hideMainMenu === "boolean") {
+      setMainMenuHidden(project.uiSettings.hideMainMenu);
+    }
+  }, [project?.uiSettings?.hideMainMenu]);
+
+  const themeConfig = useMemo(() => {
+    if (uiTheme === "dark") {
+      return {
+        algorithm: antdTheme.darkAlgorithm,
+        token: {
+          colorBgBase: "#191A1B",
+          colorBgContainer: "#202224",
+          colorBgElevated: "#26292c",
+          colorBorder: "#34383d",
+          colorText: "#d7dbe0",
+          colorTextSecondary: "#9aa1a9",
+          colorPrimary: "#4b77ff",
+        },
+      } as const;
+    }
+    return {
+      algorithm: antdTheme.defaultAlgorithm,
+      token: {
+        colorPrimary: "#1677ff",
+      },
+    } as const;
+  }, [uiTheme]);
 
   if (!authResolved) {
     return (
@@ -154,6 +204,10 @@ export function App() {
         label: "Open Editor",
         icon: <EditOutlined />,
         onClick: () => {
+          if (!authUser) {
+            navigate("/login");
+            return;
+          }
           if (!hasPermission("editor.view")) {
             void message.warning("Insufficient permissions: editor.view");
             return;
@@ -204,7 +258,11 @@ export function App() {
     ];
 
     return (
-      <div style={{ width: "100vw", height: "100vh", background: "#0b1016", overflow: "hidden", position: "relative" }}>
+      <ConfigProvider theme={themeConfig}>
+      <div
+        className={`app-theme-${uiTheme}`}
+        style={{ width: "100vw", height: "100vh", background: uiTheme === "dark" ? "#191A1B" : "#0b1016", overflow: "hidden", position: "relative" }}
+      >
         <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 1200 }}>
           <div style={{ position: "fixed", top: 12, right: 16, pointerEvents: "auto" }}>
             <Dropdown
@@ -241,11 +299,12 @@ export function App() {
 
         <Suspense fallback={<CenteredSpinner />}>
           <Routes>
-            <Route path="/" element={<RequirePermission permission="runtime.view"><RuntimePage fullscreen /></RequirePermission>} />
-            <Route path="/runtime" element={<RequirePermission permission="runtime.view"><RuntimePage fullscreen /></RequirePermission>} />
+            <Route path="/" element={<RuntimePage fullscreen />} />
+            <Route path="/runtime" element={<RuntimePage fullscreen />} />
           </Routes>
         </Suspense>
       </div>
+      </ConfigProvider>
     );
   }
 
@@ -264,16 +323,19 @@ export function App() {
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   return (
-    <Layout className="app-shell">
+    <ConfigProvider theme={themeConfig}>
+    <Layout className={`app-shell app-theme-${uiTheme}`}>
       {!mainMenuHidden ? (
         <Sider className="app-sidebar" theme="dark" width={240}>
-          <div style={{ color: "#fff", padding: 16, fontWeight: 600 }}>Web SCADA Lite</div>
+          <div style={{ color: "#f3f5f8", padding: 16, fontWeight: 600 }}>
+            {project.projectInfo?.title?.trim() || "Web SCADA Lite"}
+          </div>
           <Menu theme="dark" mode="inline" selectedKeys={[location.pathname]} items={menuItems} />
         </Sider>
       ) : null}
 
       <Layout className="app-root-layout">
-        <Header className="app-header" style={{ background: "#fff", paddingInline: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Header className="app-header" style={{ paddingInline: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Space align="center">
             <Button
               icon={mainMenuHidden ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
@@ -281,9 +343,18 @@ export function App() {
               title={mainMenuHidden ? "Show main menu" : "Hide main menu"}
             />
             <Typography.Title style={{ margin: 0 }} level={4}>
-              {project.name}
+              {project.projectInfo?.title?.trim() || project.name}
             </Typography.Title>
           </Space>
+          <Space align="center">
+            {project.projectInfo?.subtitle ? <Typography.Text type="secondary">{project.projectInfo.subtitle}</Typography.Text> : null}
+            <Button
+              size="small"
+              onClick={() => setUiTheme((prev) => (prev === "light" ? "dark" : "light"))}
+              title={uiTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            >
+              {uiTheme === "dark" ? "Dark" : "Light"}
+            </Button>
           <Button
             icon={<LogoutOutlined />}
             onClick={() => {
@@ -293,6 +364,7 @@ export function App() {
           >
             Logout ({authUser?.username ?? "anonymous"})
           </Button>
+          </Space>
         </Header>
         <Content className="app-content">
           <Suspense fallback={<CenteredSpinner />}>
@@ -316,6 +388,7 @@ export function App() {
         </Content>
       </Layout>
     </Layout>
+    </ConfigProvider>
   );
 }
 

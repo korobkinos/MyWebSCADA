@@ -1,28 +1,11 @@
 import type { DriverConfig, TagDefinition, TagScalarValue, TagValue } from "@web-scada/shared";
 import type { Driver, DriverStatus } from "./driver.js";
-import { ModbusDriver } from "./modbus-driver.js";
 import { OpcUaDriver } from "./opcua-driver.js";
 import { SimulatedDriver } from "./simulated-driver.js";
 
 function createDriver(config: DriverConfig): Driver {
   if (config.type === "simulated") {
     return new SimulatedDriver(config);
-  }
-  if (config.type === "modbus-tcp") {
-    return new ModbusDriver(config);
-  }
-  if (config.type === "modbus-rtu") {
-    return new ModbusDriver({
-      id: config.id,
-      type: "modbus-tcp",
-      enabled: config.enabled,
-      name: config.name,
-      host: "127.0.0.1",
-      port: 502,
-      unitId: config.unitId,
-      timeoutMs: config.timeoutMs ?? 1000,
-      reconnectMs: config.timeoutMs ?? 2000,
-    });
   }
   return new OpcUaDriver(config);
 }

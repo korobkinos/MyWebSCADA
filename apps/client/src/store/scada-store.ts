@@ -59,7 +59,7 @@ type ScadaState = {
     name: string;
     description?: string;
     enabled: boolean;
-    language: "ts" | "javascript-lite" | "expression" | "blockly";
+    language: "javascript-lite";
     code: string;
     triggers?: unknown[];
   }) => Promise<MacroDefinition>;

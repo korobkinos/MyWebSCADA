@@ -14,34 +14,13 @@ export type DriverStatus = {
 
 export type DriverBaseConfig = {
   id: string;
-  type: "simulated" | "modbus-tcp" | "modbus-rtu" | "opcua";
+  type: "simulated" | "opcua";
   enabled: boolean;
   name?: string;
 };
 
 export type SimulatedDriverConfig = DriverBaseConfig & {
   type: "simulated";
-};
-
-export type ModbusTcpDriverConfig = DriverBaseConfig & {
-  type: "modbus-tcp";
-  host: string;
-  port: number;
-  unitId: number;
-  timeoutMs?: number;
-  reconnectMs?: number;
-};
-
-export type ModbusRtuDriverConfig = DriverBaseConfig & {
-  type: "modbus-rtu";
-  serialPort: string;
-  baudRate: number;
-  dataBits: 7 | 8;
-  stopBits: 1 | 2;
-  parity: "none" | "even" | "odd";
-  unitId: number;
-  timeoutMs?: number;
-  pollIntervalMs?: number;
 };
 
 export type OpcUaDriverConfig = DriverBaseConfig & {
@@ -51,9 +30,11 @@ export type OpcUaDriverConfig = DriverBaseConfig & {
   securityMode?: "None" | "Sign" | "SignAndEncrypt";
   username?: string;
   password?: string;
+  timeoutMs?: number;
+  reconnectMs?: number;
 };
 
-export type DriverConfig = SimulatedDriverConfig | ModbusTcpDriverConfig | ModbusRtuDriverConfig | OpcUaDriverConfig;
+export type DriverConfig = SimulatedDriverConfig | OpcUaDriverConfig;
 
 export type ScreenKind = "screen" | "popup" | "template";
 
@@ -97,7 +78,7 @@ export type MacroDefinition = {
   id: string;
   name: string;
   description?: string;
-  language: "ts" | "javascript-lite" | "expression" | "blockly";
+  language: "javascript-lite";
   code: string;
   enabled?: boolean;
   triggers?: MacroTrigger[];
@@ -241,9 +222,28 @@ export type EditorLayoutSettings = {
   };
 };
 
+export type ProjectTheme = "light" | "dark";
+
+export type ProjectInfo = {
+  title?: string;
+  subtitle?: string;
+  customer?: string;
+  site?: string;
+  author?: string;
+  description?: string;
+  notes?: string;
+};
+
+export type ProjectUiSettings = {
+  theme?: ProjectTheme;
+  hideMainMenu?: boolean;
+};
+
 export type ScadaProject = {
   version: number;
   name: string;
+  projectInfo?: ProjectInfo;
+  uiSettings?: ProjectUiSettings;
   assets?: Asset[];
   assetGroups?: AssetGroup[];
   libraries?: ProjectLibraryRef[];

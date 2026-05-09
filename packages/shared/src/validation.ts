@@ -41,6 +41,7 @@ const hmiBaseSchema = z.object({
   height: z.number().positive(),
   rotation: z.number().optional(),
   visible: z.boolean().optional(),
+  visibleForRoles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),
   locked: z.boolean().optional(),
   opacity: z.number().min(0).max(1).optional(),
   minWidth: z.number().positive().optional(),
@@ -49,6 +50,11 @@ const hmiBaseSchema = z.object({
 });
 
 const assetTypeSchema = z.enum(["png", "jpg", "jpeg", "svg"]);
+const appRoleSchema = z.enum(["admin", "engineer", "operator", "viewer"]);
+const runtimeActionAccessSchema = z.object({
+  requireAuth: z.boolean().optional(),
+  requiredRoles: z.array(appRoleSchema).optional(),
+});
 
 export const assetSchema = z.object({
   id: z.string().min(1),
@@ -168,7 +174,7 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
     confirm: z.boolean().optional(),
     confirmText: z.string().optional(),
   }),
-]);
+]).and(runtimeActionAccessSchema);
 
 const textObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   type: z.literal("text"),
@@ -647,7 +653,7 @@ const macroSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
-  language: z.enum(["ts", "javascript-lite", "expression", "blockly"]),
+  language: z.literal("javascript-lite"),
   code: z.string().min(1),
   enabled: z.boolean().optional(),
   triggers: z
@@ -675,33 +681,6 @@ const simulatedDriverSchema = z.object({
   name: z.string().optional(),
 });
 
-const modbusDriverSchema = z.object({
-  id: z.string().min(1),
-  type: z.literal("modbus-tcp"),
-  enabled: z.boolean(),
-  name: z.string().optional(),
-  host: z.string().min(1),
-  port: z.number().int().positive(),
-  unitId: z.number().int().nonnegative(),
-  timeoutMs: z.number().int().positive().optional(),
-  reconnectMs: z.number().int().positive().optional(),
-});
-
-const modbusRtuDriverSchema = z.object({
-  id: z.string().min(1),
-  type: z.literal("modbus-rtu"),
-  enabled: z.boolean(),
-  name: z.string().optional(),
-  serialPort: z.string().min(1),
-  baudRate: z.number().int().positive(),
-  dataBits: z.union([z.literal(7), z.literal(8)]),
-  stopBits: z.union([z.literal(1), z.literal(2)]),
-  parity: z.enum(["none", "even", "odd"]),
-  unitId: z.number().int().nonnegative(),
-  timeoutMs: z.number().int().positive().optional(),
-  pollIntervalMs: z.number().int().positive().optional(),
-});
-
 const opcuaDriverSchema = z.object({
   id: z.string().min(1),
   type: z.literal("opcua"),
@@ -712,6 +691,8 @@ const opcuaDriverSchema = z.object({
   securityMode: z.enum(["None", "Sign", "SignAndEncrypt"]).optional(),
   username: z.string().optional(),
   password: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  reconnectMs: z.number().int().positive().optional(),
 });
 
 const popupOptionsSchema = z.object({
@@ -736,15 +717,30 @@ const screenSchema = z.object({
   popupOptions: popupOptionsSchema.optional(),
 });
 
+const projectInfoSchema = z.object({
+  title: z.string().optional(),
+  subtitle: z.string().optional(),
+  customer: z.string().optional(),
+  site: z.string().optional(),
+  author: z.string().optional(),
+  description: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const projectUiSettingsSchema = z.object({
+  theme: z.enum(["light", "dark"]).optional(),
+  hideMainMenu: z.boolean().optional(),
+});
+
 export const projectSchema = z.object({
   version: z.number().int().positive(),
   name: z.string().min(1),
+  projectInfo: projectInfoSchema.optional(),
+  uiSettings: projectUiSettingsSchema.optional(),
   assets: z.array(assetSchema).optional(),
   assetGroups: z.array(assetGroupSchema).optional(),
   libraries: z.array(projectLibraryRefSchema).optional(),
-  drivers: z.array(
-    z.discriminatedUnion("type", [simulatedDriverSchema, modbusDriverSchema, modbusRtuDriverSchema, opcuaDriverSchema]),
-  ),
+  drivers: z.array(z.discriminatedUnion("type", [simulatedDriverSchema, opcuaDriverSchema])),
   tags: z.array(tagSchema),
   variables: z.array(variableSchema).optional(),
   lwStore: z

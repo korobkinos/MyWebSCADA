@@ -32,6 +32,7 @@ export function AssetsPage() {
   const right = dock.getPanelState("assets.right") ?? defaultRightPanel;
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [brokenPreviewIds, setBrokenPreviewIds] = useState<Record<string, true>>({});
 
   if (!project) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -87,6 +88,10 @@ export function AssetsPage() {
     });
   };
 
+  const markPreviewBroken = (assetId: string) => {
+    setBrokenPreviewIds((prev) => (prev[assetId] ? prev : { ...prev, [assetId]: true }));
+  };
+
   const leftPanelBody = (
     <Card
       size="small"
@@ -140,7 +145,30 @@ export function AssetsPage() {
     >
       {selected ? (
         <Space direction="vertical" style={{ width: "100%" }}>
-          <img src={selected.previewUrl} alt={selected.name} style={{ width: "100%", maxHeight: 180, objectFit: "contain" }} />
+          {brokenPreviewIds[selected.id] ? (
+            <div
+              style={{
+                width: "100%",
+                maxHeight: 180,
+                minHeight: 120,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px dashed var(--scada-border)",
+                borderRadius: 6,
+                color: "var(--scada-text-secondary)",
+              }}
+            >
+              preview unavailable
+            </div>
+          ) : (
+            <img
+              src={selected.previewUrl}
+              alt={selected.name}
+              style={{ width: "100%", maxHeight: 180, objectFit: "contain" }}
+              onError={() => markPreviewBroken(selected.id)}
+            />
+          )}
           <Input defaultValue={selected.name} onBlur={(e) => renameSelected(e.target.value)} />
           <Typography.Text type="secondary">{selected.fileName}</Typography.Text>
           <Typography.Text type="secondary">{selected.mimeType}</Typography.Text>
@@ -180,14 +208,32 @@ export function AssetsPage() {
           dataSource={filtered}
           renderItem={(asset) => (
             <List.Item
-              style={{ cursor: "pointer", background: selected?.id === asset.id ? "#f0f5ff" : undefined }}
+              className={selected?.id === asset.id ? "scada-list-item-selected" : undefined}
+              style={{ cursor: "pointer" }}
               onClick={() => setSelectedId(asset.id)}
               actions={[
                 <Button key="delete" danger onClick={() => void api.deleteAsset(asset.id).then(async () => Promise.all([loadAssets(), loadProject()]))}>Delete</Button>,
               ]}
             >
               <Space>
-                <img src={asset.previewUrl} alt={asset.name} style={{ width: 28, height: 28, objectFit: "cover" }} />
+                {brokenPreviewIds[asset.id] ? (
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      border: "1px dashed var(--scada-border)",
+                      borderRadius: 4,
+                    }}
+                    title="preview unavailable"
+                  />
+                ) : (
+                  <img
+                    src={asset.previewUrl}
+                    alt={asset.name}
+                    style={{ width: 28, height: 28, objectFit: "cover" }}
+                    onError={() => markPreviewBroken(asset.id)}
+                  />
+                )}
                 <span>{asset.name}</span>
               </Space>
             </List.Item>

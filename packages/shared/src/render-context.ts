@@ -6,6 +6,8 @@ export type RenderContext = {
   parameters?: Record<string, unknown>;
   bindings?: Record<string, string>;
   args?: Record<string, unknown>;
+  userRoles?: string[];
+  isAuthenticated?: boolean;
 };
 
 import type { RuntimeAction } from "./hmi-object-types";

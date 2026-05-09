@@ -289,6 +289,10 @@ function ObjectNode({
   };
 
   const selectable = interactive;
+  const visibleByRole = isObjectVisibleByRole(resolvedObject, mode, renderContext);
+  if (!visibleByRole && mode === "runtime") {
+    return null;
+  }
 
   const commonGroupProps = {
     id: `hmi-${resolvedObject.id}`,
@@ -296,7 +300,7 @@ function ObjectNode({
     y: resolvedObject.y,
     rotation: resolvedObject.rotation ?? 0,
     opacity: resolvedObject.opacity ?? 1,
-    visible: resolvedObject.visible ?? true,
+    visible: (resolvedObject.visible ?? true) && visibleByRole,
     draggable: interactive && !resolvedObject.locked,
     onClick: (evt: KonvaEventObject<MouseEvent>) => {
       if (!selectable) {
@@ -782,6 +786,21 @@ function ObjectNode({
   }
 
   return <Group {...commonGroupProps} />;
+}
+
+function isObjectVisibleByRole(object: HmiObject, mode: "editor" | "runtime", context: RenderContext): boolean {
+  if (mode !== "runtime") {
+    return true;
+  }
+  const roles = (object.visibleForRoles ?? []).map((role) => role.trim()).filter(Boolean);
+  if (roles.length === 0) {
+    return true;
+  }
+  if (!context.isAuthenticated) {
+    return false;
+  }
+  const userRoles = (context.userRoles ?? []).map((role) => role.trim());
+  return roles.some((role) => userRoles.includes(role));
 }
 
 function GroupNode({

@@ -18,6 +18,30 @@ import type {
   UpdateUserRequest,
 } from "@web-scada/shared";
 
+export type OpcUaBrowseItem = {
+  nodeId: string;
+  browseName: string;
+  displayName: string;
+  nodeClass: string;
+  dataType?: string;
+  writable?: boolean;
+  hasChildren: boolean;
+};
+
+export type OpcUaDriverConfigInput = {
+  id: string;
+  type: "opcua";
+  enabled?: boolean;
+  name?: string;
+  endpointUrl: string;
+  securityPolicy?: "None" | "Basic256Sha256";
+  securityMode?: "None" | "Sign" | "SignAndEncrypt";
+  username?: string;
+  password?: string;
+  timeoutMs?: number;
+  reconnectMs?: number;
+};
+
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
 
 function getEngineerToken(): string | null {
@@ -127,6 +151,48 @@ export const api = {
     }),
   getTags: () => request<TagSnapshot[]>("/api/tags"),
   getDrivers: () => request<DriverStatus[]>("/api/drivers"),
+  opcUaTest: (config: OpcUaDriverConfigInput) =>
+    request<{ ok: boolean; message?: string }>("/api/drivers/opcua/test", {
+      method: "POST",
+      body: JSON.stringify({ config }),
+    }),
+  opcUaBrowse: (payload: { driverId?: string; config?: OpcUaDriverConfigInput; nodeId?: string; search?: string }) =>
+    request<{ ok: boolean; nodeId: string; nodes: OpcUaBrowseItem[]; message?: string }>("/api/drivers/opcua/browse", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  opcUaRead: (payload: { driverId?: string; config?: OpcUaDriverConfigInput; nodeId: string }) =>
+    request<{ ok: boolean; nodeId: string; value: boolean | number | string | null; quality: "Good" | "Bad" | "Uncertain"; timestamp: number; dataType?: string; message?: string }>(
+      "/api/drivers/opcua/read",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+  opcUaImportTags: (payload: {
+    driverId: string;
+    overwrite?: boolean;
+    items: Array<{ nodeId: string; name: string; dataTypeNodeId?: string; writable?: boolean; scanRateMs?: number }>;
+  }) =>
+    request<{ ok: boolean; created: number; updated: number; total: number; message?: string }>("/api/drivers/opcua/import-tags", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  opcUaImportSubtree: (payload: {
+    driverId: string;
+    nodeId: string;
+    rootName?: string;
+    overwrite?: boolean;
+    scanRateMs?: number;
+    maxNodes?: number;
+  }) =>
+    request<{ ok: boolean; created: number; updated: number; total: number; scanned: number; message?: string }>(
+      "/api/drivers/opcua/import-subtree",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
   getVariables: () => request<TagValue[]>("/api/variables"),
   writeVariable: (name: string, value: boolean | number | string | null) =>
     request<{ ok: boolean }>(`/api/variables/${encodeURIComponent(name)}/write`, {
@@ -139,7 +205,7 @@ export const api = {
     name: string;
     description?: string;
     enabled: boolean;
-    language: "ts" | "javascript-lite" | "expression" | "blockly";
+    language: "javascript-lite";
     code: string;
     triggers?: unknown[];
     options?: Record<string, unknown>;

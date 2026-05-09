@@ -9,6 +9,7 @@ import {
   type CreateUserRequest,
   type MacroDefinition,
   type MacroTrigger,
+  type OpcUaDriverConfig,
   type ScadaProject,
   type UpdateUserRequest,
   libraryElementSchema,
@@ -18,6 +19,13 @@ import { z } from "zod";
 import { AuthService } from "../auth/auth-service.js";
 import { AssetService } from "../assets/asset-service.js";
 import { DriverManager } from "../drivers/driver-manager.js";
+import {
+  browseOpcUaNode,
+  collectOpcUaSubtreeVariables,
+  opcUaDataTypeToTagDataType,
+  readOpcUaNode,
+  withOpcUaSession,
+} from "../drivers/opcua-inspector.js";
 import { LibraryService } from "../libraries/library-service.js";
 import { ProjectService } from "../project/project-service.js";
 import { CommandService } from "../runtime/command-service.js";
@@ -117,7 +125,7 @@ const macroUpdateSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   enabled: z.boolean(),
-  language: z.enum(["ts", "javascript-lite", "expression", "blockly"]),
+  language: z.literal("javascript-lite"),
   code: z.string(),
   triggers: z.array(z.record(z.unknown())).optional(),
   options: z.record(z.unknown()).optional(),
@@ -129,6 +137,54 @@ const createLibrarySchema = z.object({
   version: z.string().optional(),
 });
 const attachLibrarySchema = z.object({ libraryId: z.string().min(1) });
+const opcUaDriverConfigSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("opcua"),
+  enabled: z.boolean().optional(),
+  name: z.string().optional(),
+  endpointUrl: z.string().min(1),
+  securityPolicy: z.enum(["None", "Basic256Sha256"]).optional(),
+  securityMode: z.enum(["None", "Sign", "SignAndEncrypt"]).optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  reconnectMs: z.number().int().positive().optional(),
+});
+const opcUaTestSchema = z.object({
+  config: opcUaDriverConfigSchema,
+});
+const opcUaBrowseSchema = z.object({
+  driverId: z.string().min(1).optional(),
+  config: opcUaDriverConfigSchema.optional(),
+  nodeId: z.string().min(1).optional(),
+  search: z.string().optional(),
+});
+const opcUaReadSchema = z.object({
+  driverId: z.string().min(1).optional(),
+  config: opcUaDriverConfigSchema.optional(),
+  nodeId: z.string().min(1),
+});
+const opcUaImportSchema = z.object({
+  driverId: z.string().min(1),
+  overwrite: z.boolean().optional(),
+  items: z.array(
+    z.object({
+      nodeId: z.string().min(1),
+      name: z.string().min(1),
+      dataTypeNodeId: z.string().optional(),
+      writable: z.boolean().optional(),
+      scanRateMs: z.number().int().positive().optional(),
+    }),
+  ).min(1),
+});
+const opcUaImportSubtreeSchema = z.object({
+  driverId: z.string().min(1),
+  nodeId: z.string().min(1),
+  rootName: z.string().optional(),
+  overwrite: z.boolean().optional(),
+  scanRateMs: z.number().int().positive().optional(),
+  maxNodes: z.number().int().positive().max(100_000).optional(),
+});
 
 type AuthContext = {
   userId: string;
@@ -178,6 +234,30 @@ async function requirePermission(
     return null;
   }
   return auth;
+}
+
+function resolveOpcUaConfigFromPayload(
+  project: ScadaProject,
+  payload: { driverId?: string; config?: z.infer<typeof opcUaDriverConfigSchema> },
+): OpcUaDriverConfig {
+  if (payload.config) {
+    return {
+      ...payload.config,
+      type: "opcua",
+      enabled: payload.config.enabled ?? true,
+    };
+  }
+  if (!payload.driverId) {
+    throw new Error("driverId or config is required");
+  }
+  const driver = project.drivers.find((item) => item.id === payload.driverId);
+  if (!driver) {
+    throw new Error(`Driver ${payload.driverId} not found`);
+  }
+  if (driver.type !== "opcua") {
+    throw new Error(`Driver ${payload.driverId} is not OPC UA`);
+  }
+  return driver;
 }
 
 async function parseUpload(request: FastifyRequest): Promise<{
@@ -464,6 +544,212 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       context: payload.context,
     });
     return reply.send({ ok: true, ...result });
+  });
+
+  app.post("/api/drivers/opcua/test", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.view");
+    if (!auth) {
+      return;
+    }
+    const payload = opcUaTestSchema.parse(request.body ?? {});
+    try {
+      await withOpcUaSession(
+        {
+          ...payload.config,
+          enabled: payload.config.enabled ?? true,
+          type: "opcua",
+        },
+        async () => undefined,
+      );
+      return reply.send({ ok: true });
+    } catch (error) {
+      return reply.code(400).send({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/drivers/opcua/browse", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.view");
+    if (!auth) {
+      return;
+    }
+    const payload = opcUaBrowseSchema.parse(request.body ?? {});
+    const project = deps.projectService.getProject();
+    try {
+      const config = resolveOpcUaConfigFromPayload(project, payload);
+      const nodeId = payload.nodeId?.trim() || "RootFolder";
+      const nodes = await withOpcUaSession(config, async (session) => browseOpcUaNode(session, nodeId, payload.search));
+      return reply.send({ ok: true, nodeId, nodes });
+    } catch (error) {
+      return reply.code(400).send({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/drivers/opcua/read", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.view");
+    if (!auth) {
+      return;
+    }
+    const payload = opcUaReadSchema.parse(request.body ?? {});
+    const project = deps.projectService.getProject();
+    try {
+      const config = resolveOpcUaConfigFromPayload(project, payload);
+      const result = await withOpcUaSession(config, async (session) => readOpcUaNode(session, payload.nodeId));
+      return reply.send({ ok: true, nodeId: payload.nodeId, ...result });
+    } catch (error) {
+      return reply.code(400).send({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/drivers/opcua/import-tags", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    const payload = opcUaImportSchema.parse(request.body ?? {});
+    const project = deps.projectService.getProject();
+    const driver = project.drivers.find((item) => item.id === payload.driverId);
+    if (!driver || driver.type !== "opcua") {
+      return reply.code(400).send({ ok: false, message: `OPC UA driver ${payload.driverId} not found` });
+    }
+
+    const existingByName = new Map(project.tags.map((tag) => [tag.name, tag]));
+    const overwrite = payload.overwrite ?? false;
+    let created = 0;
+    let updated = 0;
+    const nextTags = [...project.tags];
+
+    for (const item of payload.items) {
+      const nextTag = {
+        ...existingByName.get(item.name),
+        name: item.name,
+        sourceType: "opcua" as const,
+        dataType: opcUaDataTypeToTagDataType(item.dataTypeNodeId),
+        driverId: payload.driverId,
+        nodeId: item.nodeId,
+        address: { nodeId: item.nodeId },
+        writable: item.writable ?? existingByName.get(item.name)?.writable ?? false,
+        scanRateMs: item.scanRateMs ?? existingByName.get(item.name)?.scanRateMs ?? 500,
+      };
+      const existingIndex = nextTags.findIndex((tag) => tag.name === item.name);
+      if (existingIndex >= 0) {
+        if (!overwrite) {
+          continue;
+        }
+        nextTags[existingIndex] = nextTag;
+        updated += 1;
+      } else {
+        nextTags.push(nextTag);
+        created += 1;
+      }
+    }
+
+    const nextProject: ScadaProject = {
+      ...project,
+      tags: nextTags,
+    };
+    const saved = await deps.projectService.saveProject(nextProject);
+    const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
+    deps.tagStore.setDefinitions([...(saved.tags ?? []), ...variableDefinitions]);
+    deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
+    deps.macroService.configure(saved);
+    if (deps.runtimeService.getState().running) {
+      await deps.runtimeService.stop();
+      await deps.runtimeService.start(saved);
+    }
+    return reply.send({ ok: true, created, updated, total: payload.items.length });
+  });
+
+  app.post("/api/drivers/opcua/import-subtree", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    const payload = opcUaImportSubtreeSchema.parse(request.body ?? {});
+    const project = deps.projectService.getProject();
+    const driver = project.drivers.find((item) => item.id === payload.driverId);
+    if (!driver || driver.type !== "opcua") {
+      return reply.code(400).send({ ok: false, message: `OPC UA driver ${payload.driverId} not found` });
+    }
+
+    const discovered = await withOpcUaSession(driver, async (session) =>
+      collectOpcUaSubtreeVariables(session, payload.nodeId, payload.rootName, payload.maxNodes ?? 20_000),
+    );
+
+    if (discovered.length === 0) {
+      return reply.send({ ok: true, created: 0, updated: 0, total: 0, scanned: 0 });
+    }
+
+    const existingByName = new Map(project.tags.map((tag) => [tag.name, tag]));
+    const overwrite = payload.overwrite ?? false;
+    let created = 0;
+    let updated = 0;
+    const nextTags = [...project.tags];
+
+    for (const item of discovered) {
+      const tagNameBase = item.browsePath;
+      let tagName = tagNameBase;
+      if (!overwrite) {
+        let suffix = 2;
+        while (existingByName.has(tagName) || nextTags.some((tag) => tag.name === tagName)) {
+          tagName = `${tagNameBase}_${suffix}`;
+          suffix += 1;
+        }
+      }
+      const prevTag = existingByName.get(tagName);
+      const nextTag = {
+        ...prevTag,
+        name: tagName,
+        sourceType: "opcua" as const,
+        dataType: opcUaDataTypeToTagDataType(item.dataType),
+        driverId: payload.driverId,
+        nodeId: item.nodeId,
+        address: { nodeId: item.nodeId },
+        writable: item.writable ?? prevTag?.writable ?? false,
+        scanRateMs: payload.scanRateMs ?? prevTag?.scanRateMs ?? 500,
+      };
+      const existingIndex = nextTags.findIndex((tag) => tag.name === tagName);
+      if (existingIndex >= 0) {
+        if (!overwrite) {
+          continue;
+        }
+        nextTags[existingIndex] = nextTag;
+        updated += 1;
+      } else {
+        nextTags.push(nextTag);
+        created += 1;
+      }
+    }
+
+    const nextProject: ScadaProject = {
+      ...project,
+      tags: nextTags,
+    };
+    const saved = await deps.projectService.saveProject(nextProject);
+    const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
+    deps.tagStore.setDefinitions([...(saved.tags ?? []), ...variableDefinitions]);
+    deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
+    deps.macroService.configure(saved);
+    if (deps.runtimeService.getState().running) {
+      await deps.runtimeService.stop();
+      await deps.runtimeService.start(saved);
+    }
+
+    return reply.send({
+      ok: true,
+      created,
+      updated,
+      total: created + updated,
+      scanned: discovered.length,
+    });
   });
 
   app.get("/api/drivers", async () => deps.driverManager.getStatuses());

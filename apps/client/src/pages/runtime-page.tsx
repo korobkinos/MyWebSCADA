@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
+  type AppRole,
   createInitialPopupState,
   popupReducer,
   resolveRuntimeAction,
@@ -27,6 +28,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const macros = useScadaStore((s) => s.macros);
   const startRuntime = useScadaStore((s) => s.startRuntime);
   const stopRuntime = useScadaStore((s) => s.stopRuntime);
+  const authUser = useScadaStore((s) => s.authUser);
 
   const [popupState, dispatchPopup] = useReducer(popupReducer, undefined, createInitialPopupState);
   const dragRefs = useRef<Record<string, { dx: number; dy: number }>>({});
@@ -76,6 +78,20 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   const executeAction = async (inputAction: RuntimeAction, context: RenderContext): Promise<void> => {
     const action = resolveRuntimeAction(inputAction, context);
+    const userRoles = ((authUser?.roles ?? []) as AppRole[]).map((role) => role.trim()).filter(Boolean);
+    const requiredRoles = (action.requiredRoles ?? []).map((role) => role.trim()).filter(Boolean);
+    const requiresAuth = action.requireAuth === true || requiredRoles.length > 0;
+    if (requiresAuth && !authUser) {
+      void message.warning("Авторизуйтесь для выполнения этого действия");
+      return;
+    }
+    if (requiredRoles.length > 0) {
+      const allowed = requiredRoles.some((role) => userRoles.includes(role as AppRole));
+      if (!allowed) {
+        void message.warning(`Недостаточно прав. Требуются роли: ${requiredRoles.join(", ")}`);
+        return;
+      }
+    }
 
     if ("confirm" in action && action.confirm) {
       setConfirmState({
@@ -215,7 +231,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       tags={tags}
       libraries={libraries}
       fullscreenRuntime={fullscreen}
-      renderContext={{ screenId: screen.id }}
+      renderContext={{ screenId: screen.id, userRoles: authUser?.roles ?? [], isAuthenticated: Boolean(authUser) }}
       onAction={(action, context) => {
         void executeAction(action, context);
       }}
@@ -312,6 +328,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
               tagPrefix: item.tagPrefix,
               parameters: item.args,
               args: item.args,
+              userRoles: authUser?.roles ?? [],
+              isAuthenticated: Boolean(authUser),
             }}
             onAction={(action, context) => {
               void executeAction(action, context);

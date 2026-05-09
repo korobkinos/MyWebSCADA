@@ -59,6 +59,10 @@ export class MacroService {
       `const {\n` +
       `  readTag,\n` +
       `  writeTag,\n` +
+      `  pulseTag,\n` +
+      `  toggleTag,\n` +
+      `  getTagQuality,\n` +
+      `  tagExists,\n` +
       `  getLW,\n` +
       `  setLW,\n` +
       `  getVar,\n` +
@@ -71,10 +75,9 @@ export class MacroService {
       `  getCurrentTagPrefix,\n` +
       `  getContext,\n` +
       `  resolveTag,\n` +
-      `  setInstancePrefix,\n` +
-      `  setInstanceIndex,\n` +
-      `  setInstanceBindingAssignment,\n` +
       `  log,\n` +
+      `  warn,\n` +
+      `  error,\n` +
       `} = api;\n` +
       `${jsCode}\n` +
       `})`;
@@ -100,6 +103,19 @@ export class MacroService {
       writeTag: async (name, value) => {
         await commandService.writeTag(name, value);
       },
+      pulseTag: async (name, value, durationMs, resetValue) => {
+        await commandService.writeTag(name, value);
+        const rollback = resetValue === undefined ? false : resetValue;
+        const delay = Math.max(1, Math.floor(durationMs));
+        setTimeout(() => {
+          void commandService.writeTag(name, rollback).catch(() => undefined);
+        }, delay);
+      },
+      toggleTag: async (name) => {
+        await commandService.toggleTag(name);
+      },
+      getTagQuality: (name) => tagStore.getValue(name)?.quality ?? (tagStore.getDefinition(name) ? "Uncertain" : "Bad"),
+      tagExists: (name) => Boolean(tagStore.getDefinition(name)),
       getLW: (address) => internalVariableService.get(`LW${Math.max(0, Math.floor(address))}`)?.value ?? null,
       setLW: (address, value) => {
         internalVariableService.write(`LW${Math.max(0, Math.floor(address))}`, value);
@@ -147,28 +163,9 @@ export class MacroService {
         }
         return `${effectivePrefix}${relativeOrAbsoluteTag}`;
       },
-      setInstancePrefix: (instanceId, value, bindingKey) => {
-        console.warn(`[macro:${macro.id}] setInstancePrefix is not implemented for runtime object mutation`, {
-          instanceId,
-          value,
-          bindingKey,
-        });
-      },
-      setInstanceIndex: (instanceId, value, bindingKey) => {
-        console.warn(`[macro:${macro.id}] setInstanceIndex is not implemented for runtime object mutation`, {
-          instanceId,
-          value,
-          bindingKey,
-        });
-      },
-      setInstanceBindingAssignment: (instanceId, bindingKey, patch) => {
-        console.warn(`[macro:${macro.id}] setInstanceBindingAssignment is not implemented for runtime object mutation`, {
-          instanceId,
-          bindingKey,
-          patch,
-        });
-      },
       log: (...items) => console.log(`[macro:${macro.id}]`, ...items),
+      warn: (...items) => console.warn(`[macro:${macro.id}]`, ...items),
+      error: (...items) => console.error(`[macro:${macro.id}]`, ...items),
     };
 
     await fn(api, args ?? {});
@@ -179,6 +176,10 @@ export class MacroService {
 type MacroApi = {
   readTag: (name: string) => TagScalarValue;
   writeTag: (name: string, value: TagScalarValue) => Promise<void>;
+  pulseTag: (name: string, value: TagScalarValue, durationMs: number, resetValue?: TagScalarValue) => Promise<void>;
+  toggleTag: (name: string) => Promise<void>;
+  getTagQuality: (name: string) => "Good" | "Bad" | "Uncertain";
+  tagExists: (name: string) => boolean;
   getLW: (address: number) => TagScalarValue;
   setLW: (address: number, value: TagScalarValue) => void;
   getVar: (name: string) => TagScalarValue;
@@ -197,10 +198,9 @@ type MacroApi = {
   getCurrentTagPrefix: () => string | undefined;
   getContext: () => MacroRuntimeContext;
   resolveTag: (relativeOrAbsoluteTag: string, tagPrefix?: string) => string;
-  setInstancePrefix: (instanceId: string, value: string, bindingKey?: string) => void;
-  setInstanceIndex: (instanceId: string, value: number, bindingKey?: string) => void;
-  setInstanceBindingAssignment: (instanceId: string, bindingKey: string, patch: Record<string, unknown>) => void;
   log: (...items: unknown[]) => void;
+  warn: (...items: unknown[]) => void;
+  error: (...items: unknown[]) => void;
 };
 
 function toMacroRuntimeContext(input: Record<string, unknown> | undefined): MacroRuntimeContext {
