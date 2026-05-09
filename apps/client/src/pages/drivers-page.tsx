@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Key } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Key, MouseEvent as ReactMouseEvent } from "react";
 import type { DockPanelState, DriverConfig, DriverHealth, OpcUaDriverConfig, TagDefinition } from "@web-scada/shared";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Tree, Typography, message } from "antd";
 import type { DataNode } from "antd/es/tree";
 import { api, type OpcUaBrowseItem } from "../services/api";
 import { FloatingPanel } from "../components/floating-panel";
+import { useResizableTableColumns, type ResizableColumn } from "../components/resizable-table";
 import { ResizableDockPanel } from "../components/resizable-dock-panel";
 import { useDockLayout } from "../hooks/use-dock-layout";
 import { useScadaStore } from "../store/scada-store";
@@ -21,6 +22,19 @@ const defaultRightPanel = dockDefaults[1]!;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function readStoredNumber(key: string, fallback: number): number {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function createDriverId(type: DriverType): string {
@@ -117,6 +131,7 @@ export function DriversPage() {
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
   const saveProject = useScadaStore((s) => s.saveProject);
   const loadProject = useScadaStore((s) => s.loadProject);
+  const liveTagValues = useScadaStore((s) => s.tags);
   const tagSnapshots = useScadaStore((s) => s.tagSnapshots);
   const loadTags = useScadaStore((s) => s.loadTags);
   const runtime = useScadaStore((s) => s.runtime);
@@ -153,9 +168,25 @@ export function DriversPage() {
   const [form] = Form.useForm<DriverConfig>();
 
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const runtimeSplitWrapRef = useRef<HTMLDivElement | null>(null);
+  const liveStatusTableViewportRef = useRef<HTMLDivElement | null>(null);
+  const browserSplitWrapRef = useRef<HTMLDivElement | null>(null);
+  const opcuaDetailsSplitWrapRef = useRef<HTMLDivElement | null>(null);
   const dock = useDockLayout(dockDefaults, { autoSaveMs: 900 });
   const leftPanel = dock.getPanelState("drivers.left") ?? defaultLeftPanel;
   const rightPanel = dock.getPanelState("drivers.right") ?? defaultRightPanel;
+  const [opcuaBrowserTreeWidth, setOpcuaBrowserTreeWidth] = useState<number>(() =>
+    clamp(readStoredNumber("scada.drivers.opcua.treeWidth", 380), 240, 980),
+  );
+  const [opcuaBrowserHeight, setOpcuaBrowserHeight] = useState<number>(() =>
+    clamp(readStoredNumber("scada.drivers.opcua.browserHeight", 370), 240, 980),
+  );
+  const [driversRuntimeTableHeight, setDriversRuntimeTableHeight] = useState<number>(() =>
+    clamp(readStoredNumber("scada.drivers.runtimeTableHeight", 132), 110, 640),
+  );
+  const [liveStatusTableMaxY, setLiveStatusTableMaxY] = useState(300);
+  const [liveStatusPage, setLiveStatusPage] = useState(1);
+  const [liveStatusPageSize, setLiveStatusPageSize] = useState(20);
 
   if (!project) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -196,8 +227,122 @@ export function DriversPage() {
         return false;
       }
       return tag.sourceType === "opcua" || Boolean(tag.nodeId) || Boolean((tag.address as Record<string, unknown> | undefined)?.nodeId);
-    });
-  }, [selectedOpcUa, tagSnapshots]);
+    }).map((snapshot) => ({
+      ...snapshot,
+      value: liveTagValues[snapshot.definition.name] ?? snapshot.value,
+    }));
+  }, [liveTagValues, selectedOpcUa, tagSnapshots]);
+  type LiveOpcUaRow = (typeof tagSnapshots)[number];
+
+  const driverColumns = useMemo<ResizableColumn<DriverConfig>[]>(() => ([
+    { id: "id", title: "id", dataIndex: "id", defaultWidth: 170, minWidth: 140 },
+    { id: "name", title: "name", dataIndex: "name", defaultWidth: 260, minWidth: 160 },
+    { id: "type", title: "type", dataIndex: "type", defaultWidth: 110, minWidth: 90 },
+    {
+      id: "enabled",
+      title: "enabled",
+      defaultWidth: 104,
+      minWidth: 90,
+      autoSize: (row) => (row.enabled ? "enabled" : "disabled"),
+      render: (_, row: DriverConfig) => <Switch checked={row.enabled} onChange={(checked) => void toggleEnabled(row, checked)} />,
+    },
+    {
+      id: "status",
+      title: "status",
+      defaultWidth: 130,
+      minWidth: 100,
+      autoSize: (row) => statusById.get(row.id)?.health ?? (row.enabled ? "stopped" : "disabled"),
+      render: (_, row: DriverConfig) => {
+        const status = statusById.get(row.id);
+        return <Tag color={driverStatusColor(status?.health)}>{status?.health ?? (row.enabled ? "stopped" : "disabled")}</Tag>;
+      },
+    },
+    {
+      id: "lastError",
+      title: "last error",
+      defaultWidth: 240,
+      minWidth: 130,
+      autoSize: (row) => statusById.get(row.id)?.message ?? "",
+      render: (_, row: DriverConfig) => statusById.get(row.id)?.message ?? "",
+    },
+    {
+      id: "tags",
+      title: "tags",
+      defaultWidth: 90,
+      minWidth: 70,
+      autoSize: (row) => String((tagsByDriver.get(row.id) ?? []).length),
+      render: (_, row: DriverConfig) => String((tagsByDriver.get(row.id) ?? []).length),
+    },
+    {
+      id: "actions",
+      title: "actions",
+      defaultWidth: 240,
+      minWidth: 180,
+      autoSize: () => "Edit Test Start Delete",
+      render: (_, row: DriverConfig) => (
+        <Space>
+          <Button size="small" onClick={() => openEdit(row)}>Edit</Button>
+          {row.type === "opcua" ? <Button size="small" onClick={() => void testOpcUa(row)}>Test</Button> : null}
+          <Button size="small" onClick={() => void toggleEnabled(row, !row.enabled)}>{row.enabled ? "Stop" : "Start"}</Button>
+          <Button size="small" danger onClick={() => deleteDriver(row)}>Delete</Button>
+        </Space>
+      ),
+    },
+  ]), [statusById, tagsByDriver]);
+
+  const liveOpcUaColumns = useMemo<ResizableColumn<LiveOpcUaRow>[]>(() => ([
+    { id: "tag", title: "Tag", dataIndex: ["definition", "name"], defaultWidth: 260, minWidth: 160, autoSize: (row) => row.definition.name },
+    {
+      id: "nodeId",
+      title: "NodeId",
+      defaultWidth: 360,
+      minWidth: 210,
+      autoSize: (row) => row.definition.nodeId ?? String((row.definition.address as Record<string, unknown> | undefined)?.nodeId ?? "-"),
+      render: (_, row) => row.definition.nodeId ?? String((row.definition.address as Record<string, unknown> | undefined)?.nodeId ?? "-"),
+    },
+    {
+      id: "value",
+      title: "Value",
+      defaultWidth: 200,
+      minWidth: 120,
+      autoSize: (row) => String(row.value?.value ?? "-"),
+      render: (_, row) => String(row.value?.value ?? "-"),
+    },
+    {
+      id: "quality",
+      title: "Quality",
+      defaultWidth: 120,
+      minWidth: 90,
+      autoSize: (row) => row.value?.quality ?? "-",
+      render: (_, row) => <Tag color={row.value?.quality === "Good" ? "green" : row.value?.quality === "Bad" ? "red" : "gold"}>{row.value?.quality ?? "-"}</Tag>,
+    },
+    {
+      id: "time",
+      title: "Time",
+      defaultWidth: 150,
+      minWidth: 100,
+      autoSize: (row) => (row.value?.timestamp ? new Date(row.value.timestamp).toLocaleTimeString() : "-"),
+      render: (_, row) => (row.value?.timestamp ? new Date(row.value.timestamp).toLocaleTimeString() : "-"),
+    },
+  ]), []);
+
+  const { columns: resizedDriverColumns, components: resizedDriverComponents } = useResizableTableColumns<DriverConfig>({
+    tableId: "drivers.table.main",
+    columns: driverColumns,
+    rows: filteredDrivers,
+  });
+  const { columns: resizedLiveOpcUaColumns, components: resizedLiveOpcuaComponents } = useResizableTableColumns<LiveOpcUaRow>({
+    tableId: "drivers.table.opcuaLive",
+    columns: liveOpcUaColumns,
+    rows: liveOpcUaTagRows,
+  });
+
+  const runtimeTableMaxY = selectedOpcUa ? Math.max(68, driversRuntimeTableHeight - 54) : 520;
+  const runtimeRowsVisible = Math.max(1, filteredDrivers.length);
+  const runtimeRowsContentY = runtimeRowsVisible * 40 + 2;
+  const runtimeTableScrollY = Math.max(52, Math.min(runtimeTableMaxY, runtimeRowsContentY));
+
+  const liveStatusTableScrollY = Math.max(140, liveStatusTableMaxY);
 
   const openAdd = (type: DriverType): void => {
     setEditingId(null);
@@ -286,6 +431,143 @@ export function DriversPage() {
       window.clearInterval(timer);
     };
   }, [loadTags, selectedOpcUa?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("scada.drivers.opcua.treeWidth", String(Math.round(opcuaBrowserTreeWidth)));
+  }, [opcuaBrowserTreeWidth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("scada.drivers.opcua.browserHeight", String(Math.round(opcuaBrowserHeight)));
+  }, [opcuaBrowserHeight]);
+
+  useEffect(() => {
+    const viewport = liveStatusTableViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const recalc = () => {
+      const current = liveStatusTableViewportRef.current;
+      if (!current) {
+        return;
+      }
+      // Table body height fits the card viewport minus table header/pagination area.
+      const totalHeight = current.clientHeight;
+      const paginationHeight = current.querySelector<HTMLElement>(".ant-pagination")?.offsetHeight ?? 40;
+      const headerHeight = current.querySelector<HTMLElement>(".ant-table-thead")?.offsetHeight ?? 40;
+      const reserve = 18;
+      const next = Math.max(140, totalHeight - paginationHeight - headerHeight - reserve);
+      setLiveStatusTableMaxY((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+    };
+
+    recalc();
+    const rafId = window.requestAnimationFrame(recalc);
+    const observer = new ResizeObserver(recalc);
+    observer.observe(viewport);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [liveOpcUaTagRows.length, liveStatusPage, liveStatusPageSize, selectedOpcUa?.id]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(liveOpcUaTagRows.length / liveStatusPageSize));
+    if (liveStatusPage > maxPage) {
+      setLiveStatusPage(maxPage);
+    }
+  }, [liveOpcUaTagRows.length, liveStatusPage, liveStatusPageSize]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("scada.drivers.runtimeTableHeight", String(Math.round(driversRuntimeTableHeight)));
+  }, [driversRuntimeTableHeight]);
+
+  const startTreeWidthResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const wrap = browserSplitWrapRef.current;
+    if (!wrap) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const wrapRect = wrap.getBoundingClientRect();
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const next = clamp(moveEvent.clientX - wrapRect.left, 240, Math.max(240, wrapRect.width - 260));
+      setOpcuaBrowserTreeWidth(next);
+    };
+    const onUp = () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
+
+  const startBrowserHeightResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const wrap = opcuaDetailsSplitWrapRef.current;
+    if (!wrap) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const wrapRect = wrap.getBoundingClientRect();
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const next = clamp(moveEvent.clientY - wrapRect.top, 240, Math.max(240, wrapRect.height - 220));
+      setOpcuaBrowserHeight(next);
+    };
+    const onUp = () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
+
+  const startRuntimeTableHeightResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const wrap = runtimeSplitWrapRef.current;
+    if (!wrap) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const wrapRect = wrap.getBoundingClientRect();
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const next = clamp(moveEvent.clientY - wrapRect.top, 110, Math.max(110, wrapRect.height - 260));
+      setDriversRuntimeTableHeight(next);
+    };
+    const onUp = () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
 
   const browseOpcUa = async (nodeId?: string): Promise<OpcUaBrowseItem[]> => {
     if (!selectedOpcUa) return [];
@@ -562,116 +844,170 @@ export function DriversPage() {
         size="small"
         title="Drivers Runtime"
         style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
-        bodyStyle={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 10 }}
+        bodyStyle={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 10 }}
       >
-        <Table
-          size="small"
-          rowKey="id"
-          dataSource={filteredDrivers}
-          pagination={false}
-          onRow={(row) => ({ onClick: () => setSelectedId(row.id) })}
-          columns={[
-            { title: "id", dataIndex: "id", width: 150 },
-            { title: "name", dataIndex: "name" },
-            { title: "type", dataIndex: "type", width: 120 },
-            {
-              title: "enabled",
-              width: 90,
-              render: (_, row: DriverConfig) => <Switch checked={row.enabled} onChange={(checked) => void toggleEnabled(row, checked)} />,
-            },
-            {
-              title: "status",
-              width: 130,
-              render: (_, row: DriverConfig) => {
-                const status = statusById.get(row.id);
-                return <Tag color={driverStatusColor(status?.health)}>{status?.health ?? (row.enabled ? "stopped" : "disabled")}</Tag>;
-              },
-            },
-            { title: "last error", render: (_, row: DriverConfig) => statusById.get(row.id)?.message ?? "" },
-            { title: "tags", width: 80, render: (_, row: DriverConfig) => String((tagsByDriver.get(row.id) ?? []).length) },
-            {
-              title: "actions",
-              width: 220,
-              render: (_, row: DriverConfig) => (
-                <Space>
-                  <Button size="small" onClick={() => openEdit(row)}>Edit</Button>
-                  {row.type === "opcua" ? <Button size="small" onClick={() => void testOpcUa(row)}>Test</Button> : null}
-                  <Button size="small" onClick={() => void toggleEnabled(row, !row.enabled)}>{row.enabled ? "Stop" : "Start"}</Button>
-                  <Button size="small" danger onClick={() => deleteDriver(row)}>Delete</Button>
-                </Space>
-              ),
-            },
-          ]}
-        />
-
-        {selectedOpcUa ? (
-          <>
-            <Card size="small" title="OPC UA Browser" style={{ flex: "1 1 auto", minHeight: 260 }}>
-            <Space direction="vertical" style={{ width: "100%" }} size={8}>
-              <Space wrap>
-                <Input style={{ width: 240 }} value={browseNodeId} onChange={(e) => setBrowseNodeId(e.target.value)} placeholder="NodeId" />
-                <Input style={{ width: 220 }} value={browseSearch} onChange={(e) => setBrowseSearch(e.target.value)} placeholder="Search text" />
-                <Button onClick={() => void browseFromInput()} loading={browseLoading}>Browse</Button>
-                <Button onClick={() => void browseRoot()} loading={browseLoading}>Root</Button>
-                <Button onClick={() => void readSelectedNode()} disabled={!selectedBrowseItem}>Read Value</Button>
-                <Button onClick={() => void importSelectedNode()} disabled={!selectedBrowseItem} loading={importing}>Import Tag</Button>
-                <Button onClick={() => void importSelectedBranch()} disabled={!selectedTreeKeys.length} loading={importing}>
-                  Import Branch
-                </Button>
-              </Space>
-              <Typography.Text type="secondary">
-                Selected: {selectedBrowseItem?.nodeId ?? String(selectedTreeKeys[0] ?? "-")} | Value: {readValue}
-              </Typography.Text>
-              <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 12, minHeight: 360 }}>
-                <Card size="small" title="Address Tree" bodyStyle={{ maxHeight: 500, overflow: "auto", padding: 8 }}>
-                  <Tree
-                    treeData={treeData}
-                    selectedKeys={selectedTreeKeys}
-                    expandedKeys={expandedKeys}
-                    onExpand={(keys) => setExpandedKeys(keys)}
-                    loadData={async (node) => {
-                      const asNode = node as unknown as OpcUaTreeNode;
-                      if (asNode.isLeaf) {
-                        return;
-                      }
-                      if ((asNode.children?.length ?? 0) > 0) {
-                        return;
-                      }
-                      await loadTreeChildren(asNode.nodeId);
-                    }}
-                    onSelect={(keys) => {
-                      setSelectedTreeKeys(keys);
-                      const key = keys[0];
-                      if (!key) {
-                        setSelectedBrowseItem(null);
-                        return;
-                      }
-                      const found = findTreeNode(treeData, String(key));
-                      setSelectedBrowseItem(found?.browseItem ?? null);
-                    }}
-                  />
-                </Card>
-                <Card size="small" title="Selected Node">
-                  {selectedBrowseItem ? (
-                    <Space direction="vertical" style={{ width: "100%" }}>
-                      <Typography.Text><strong>Name:</strong> {selectedBrowseItem.browseName}</Typography.Text>
-                      <Typography.Text><strong>NodeId:</strong> {selectedBrowseItem.nodeId}</Typography.Text>
-                      <Typography.Text><strong>Class:</strong> {selectedBrowseItem.nodeClass}</Typography.Text>
-                      <Typography.Text><strong>DataType:</strong> {selectedBrowseItem.dataType ?? "-"}</Typography.Text>
-                      <Typography.Text><strong>Writable:</strong> {selectedBrowseItem.writable ? "Yes" : "No"}</Typography.Text>
-                      <Typography.Text type="secondary">
-                        Tip: select folder node and click "Import Branch" to auto-import all nested variables.
-                      </Typography.Text>
-                    </Space>
-                  ) : (
-                    <Typography.Text type="secondary">Select node in tree</Typography.Text>
-                  )}
-                </Card>
+        <div
+          ref={runtimeSplitWrapRef}
+          style={{ flex: "1 1 auto", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
+        >
+          <div
+            style={{
+              flex: selectedOpcUa ? `0 0 ${driversRuntimeTableHeight}px` : "1 1 auto",
+              minHeight: selectedOpcUa ? 140 : 0,
+              minWidth: 0,
+              overflow: "hidden",
+              position: "relative",
+            }}
+          >
+            <Table
+              virtual
+              size="small"
+              rowKey="id"
+              dataSource={filteredDrivers}
+              components={resizedDriverComponents}
+              scroll={{ x: "max-content", y: runtimeTableScrollY }}
+              pagination={false}
+              onRow={(row) => ({ onClick: () => setSelectedId(row.id) })}
+              columns={resizedDriverColumns}
+            />
+            {selectedOpcUa ? (
+              <div
+                onMouseDown={startRuntimeTableHeightResize}
+                onDoubleClick={() => setDriversRuntimeTableHeight(132)}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  bottom: 1,
+                  height: 10,
+                  cursor: "row-resize",
+                  zIndex: 3,
+                }}
+              >
+                <div style={{ position: "absolute", left: 8, right: 8, top: 4, height: 2, borderRadius: 3, background: "rgba(145, 202, 255, 0.45)" }} />
               </div>
-            </Space>
+            ) : null}
+          </div>
+
+          {selectedOpcUa ? (
+            <div
+              ref={opcuaDetailsSplitWrapRef}
+              style={{ flex: "1 1 auto", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}
+            >
+            <Card
+              size="small"
+              title="OPC UA Browser"
+              style={{ flex: `0 0 ${opcuaBrowserHeight}px`, minHeight: 220, minWidth: 0, overflow: "hidden" }}
+              bodyStyle={{ height: "100%", minHeight: 0, overflow: "hidden" }}
+            >
+              <Space direction="vertical" style={{ width: "100%", height: "100%" }} size={8}>
+                <Space wrap>
+                  <Input style={{ width: 240 }} value={browseNodeId} onChange={(e) => setBrowseNodeId(e.target.value)} placeholder="NodeId" />
+                  <Input style={{ width: 220 }} value={browseSearch} onChange={(e) => setBrowseSearch(e.target.value)} placeholder="Search text" />
+                  <Button onClick={() => void browseFromInput()} loading={browseLoading}>Browse</Button>
+                  <Button onClick={() => void browseRoot()} loading={browseLoading}>Root</Button>
+                  <Button onClick={() => void readSelectedNode()} disabled={!selectedBrowseItem}>Read Value</Button>
+                  <Button onClick={() => void importSelectedNode()} disabled={!selectedBrowseItem} loading={importing}>Import Tag</Button>
+                  <Button onClick={() => void importSelectedBranch()} disabled={!selectedTreeKeys.length} loading={importing}>
+                    Import Branch
+                  </Button>
+                </Space>
+                <Typography.Text type="secondary">
+                  Selected: {selectedBrowseItem?.nodeId ?? String(selectedTreeKeys[0] ?? "-")} | Value: {readValue}
+                </Typography.Text>
+                <div
+                  ref={browserSplitWrapRef}
+                  style={{ flex: "1 1 auto", minHeight: 240, minWidth: 0, display: "flex", overflow: "hidden" }}
+                >
+                  <Card
+                    size="small"
+                    title="Address Tree"
+                    style={{ flex: `0 0 ${opcuaBrowserTreeWidth}px`, minWidth: 220, maxWidth: "85%", overflow: "hidden" }}
+                    bodyStyle={{ height: "100%", overflow: "auto", padding: 8 }}
+                  >
+                    <Tree
+                      treeData={treeData}
+                      selectedKeys={selectedTreeKeys}
+                      expandedKeys={expandedKeys}
+                      onExpand={(keys) => setExpandedKeys(keys)}
+                      loadData={async (node) => {
+                        const asNode = node as unknown as OpcUaTreeNode;
+                        if (asNode.isLeaf) {
+                          return;
+                        }
+                        if ((asNode.children?.length ?? 0) > 0) {
+                          return;
+                        }
+                        await loadTreeChildren(asNode.nodeId);
+                      }}
+                      onSelect={(keys) => {
+                        setSelectedTreeKeys(keys);
+                        const key = keys[0];
+                        if (!key) {
+                          setSelectedBrowseItem(null);
+                          return;
+                        }
+                        const found = findTreeNode(treeData, String(key));
+                        setSelectedBrowseItem(found?.browseItem ?? null);
+                      }}
+                    />
+                  </Card>
+
+                  <div
+                    onMouseDown={startTreeWidthResize}
+                    onDoubleClick={() => setOpcuaBrowserTreeWidth(380)}
+                    style={{
+                      flex: "0 0 10px",
+                      width: 10,
+                      cursor: "col-resize",
+                      position: "relative",
+                      margin: "0 4px",
+                    }}
+                  >
+                    <div style={{ position: "absolute", inset: "6px 3px", borderRadius: 3, background: "rgba(145, 202, 255, 0.45)" }} />
+                  </div>
+
+                  <Card size="small" title="Selected Node" style={{ flex: "1 1 auto", minWidth: 240, overflow: "auto" }}>
+                    {selectedBrowseItem ? (
+                      <Space direction="vertical" style={{ width: "100%" }}>
+                        <Typography.Text><strong>Name:</strong> {selectedBrowseItem.browseName}</Typography.Text>
+                        <Typography.Text><strong>NodeId:</strong> {selectedBrowseItem.nodeId}</Typography.Text>
+                        <Typography.Text><strong>Class:</strong> {selectedBrowseItem.nodeClass}</Typography.Text>
+                        <Typography.Text><strong>DataType:</strong> {selectedBrowseItem.dataType ?? "-"}</Typography.Text>
+                        <Typography.Text><strong>Writable:</strong> {selectedBrowseItem.writable ? "Yes" : "No"}</Typography.Text>
+                        <Typography.Text type="secondary">
+                          Tip: select folder node and click "Import Branch" to auto-import all nested variables.
+                        </Typography.Text>
+                      </Space>
+                    ) : (
+                      <Typography.Text type="secondary">Select node in tree</Typography.Text>
+                    )}
+                  </Card>
+                </div>
+              </Space>
             </Card>
-            <Card size="small" title="OPC UA Live Status">
-              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+
+            <div
+              onMouseDown={startBrowserHeightResize}
+              onDoubleClick={() => setOpcuaBrowserHeight(370)}
+              style={{
+                flex: "0 0 10px",
+                height: 10,
+                cursor: "row-resize",
+                position: "relative",
+                margin: "4px 0",
+              }}
+            >
+              <div style={{ position: "absolute", inset: "3px 6px", borderRadius: 3, background: "rgba(145, 202, 255, 0.45)" }} />
+            </div>
+
+            <Card
+              size="small"
+              title="OPC UA Live Status"
+              style={{ flex: "1 1 auto", minHeight: 200, minWidth: 0, overflow: "hidden" }}
+              bodyStyle={{ height: "100%", minHeight: 0, minWidth: 0, overflow: "auto" }}
+            >
+              <Space direction="vertical" style={{ width: "100%", height: "100%" }} size={8}>
                 <Space>
                   <Typography.Text type="secondary">
                     Runtime: {runtime.running ? "running" : "stopped"}
@@ -685,23 +1021,36 @@ export function DriversPage() {
                     Refresh values
                   </Button>
                 </Space>
-                <Table
-                  size="small"
-                  rowKey={(row) => row.definition.name}
-                  dataSource={liveOpcUaTagRows}
-                  pagination={{ pageSize: 8 }}
-                  columns={[
-                    { title: "Tag", dataIndex: ["definition", "name"] },
-                    { title: "NodeId", width: 280, render: (_, row) => row.definition.nodeId ?? String((row.definition.address as Record<string, unknown> | undefined)?.nodeId ?? "-") },
-                    { title: "Value", width: 180, render: (_, row) => String(row.value?.value ?? "-") },
-                    { title: "Quality", width: 100, render: (_, row) => <Tag color={row.value?.quality === "Good" ? "green" : row.value?.quality === "Bad" ? "red" : "gold"}>{row.value?.quality ?? "-"}</Tag> },
-                    { title: "Time", width: 180, render: (_, row) => (row.value?.timestamp ? new Date(row.value.timestamp).toLocaleTimeString() : "-") },
-                  ]}
-                />
+                <div ref={liveStatusTableViewportRef} style={{ flex: "1 1 auto", minHeight: 0, minWidth: 0, overflow: "visible" }}>
+                  <Table
+                    size="small"
+                    rowKey={(row) => row.definition.name}
+                    dataSource={liveOpcUaTagRows}
+                    components={resizedLiveOpcuaComponents}
+                    scroll={{ x: 1300, y: liveStatusTableScrollY }}
+                    pagination={{
+                      current: liveStatusPage,
+                      pageSize: liveStatusPageSize,
+                      total: liveOpcUaTagRows.length,
+                      position: ["topRight"],
+                      showSizeChanger: true,
+                      pageSizeOptions: ["20", "50", "100"],
+                      onChange: (page, pageSize) => {
+                        setLiveStatusPage(page);
+                        if (pageSize && pageSize !== liveStatusPageSize) {
+                          setLiveStatusPageSize(pageSize);
+                        }
+                      },
+                      hideOnSinglePage: false,
+                    }}
+                    columns={resizedLiveOpcUaColumns}
+                  />
+                </div>
               </Space>
             </Card>
-          </>
-        ) : null}
+          </div>
+          ) : null}
+        </div>
       </Card>
 
       {!rightPanel.detached ? (

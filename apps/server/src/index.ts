@@ -44,7 +44,7 @@ async function bootstrap(): Promise<void> {
     username: defaultAdminUsername,
     password: defaultAdminPassword,
   });
-  const wsGateway = new WebSocketGateway(tagStore, commandService);
+  const wsGateway = new WebSocketGateway(tagStore, commandService, runtimeService);
 
   const project = await projectService.loadProject();
   await authService.initialize();
@@ -67,7 +67,6 @@ async function bootstrap(): Promise<void> {
   });
 
   await wsGateway.register(app);
-  await runtimeService.start(project);
 
   app.addHook("onClose", async () => {
     await wsGateway.close();
@@ -76,6 +75,9 @@ async function bootstrap(): Promise<void> {
 
   await app.listen({ host: "0.0.0.0", port });
   app.log.info(`Server is listening on port ${port}`);
+  void runtimeService.start(project).catch((error) => {
+    app.log.error(error, "Runtime failed to start");
+  });
   if (!process.env.DEFAULT_ADMIN_PASSWORD) {
     app.log.warn(
       "DEFAULT_ADMIN_PASSWORD is not set. Insecure default password is used. Set DEFAULT_ADMIN_PASSWORD and change the admin password.",

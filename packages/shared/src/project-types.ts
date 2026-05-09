@@ -239,11 +239,17 @@ export type ProjectUiSettings = {
   hideMainMenu?: boolean;
 };
 
+export type ProjectRuntimeSettings = {
+  // Tags that must stay active even when they are not visible on the current runtime screen.
+  alwaysActiveTags?: string[];
+};
+
 export type ScadaProject = {
   version: number;
   name: string;
   projectInfo?: ProjectInfo;
   uiSettings?: ProjectUiSettings;
+  runtimeSettings?: ProjectRuntimeSettings;
   assets?: Asset[];
   assetGroups?: AssetGroup[];
   libraries?: ProjectLibraryRef[];

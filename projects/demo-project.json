@@ -13158,7 +13158,7 @@
       "name": "Open valve popup",
       "description": "Open valve popup",
       "language": "javascript-lite",
-      "code": "// 1) ???????? ????????? ?? action args (?? ???????? ???????)\nconst prefix = String(args.prefix ?? \"\").trim();\nconst name = String(args.name ?? \"\").trim();\nconst index = Number(args.index ?? 0);\nconst valveId = String(args.valveId ?? \"\").trim();\n\n// 2) ??? prefix ?????????? ??????, ?????? ?????? ?????????\nif (!prefix) {\n  log(\"openValvePopup: prefix is empty\");\n  return;\n}\n\n// 3) ????????? ????????? ?????? ? internal vars (??? ???????????/???????????)\nsetVar(\"SelectedValvePrefix\", prefix);\nsetVar(\"SelectedValveName\", name || prefix);\nsetVar(\"SelectedValveIndex\", index || 0);\n\n// 4) ????????? ????? popup-???? ? ???????? ??? ???????? ???????\nopenPopup(\"Popup_ValveControl\", {\n  title: \"??????????: \" + (name || prefix),\n  tagPrefix: prefix,\n  args: {\n    valveId: valveId || prefix,\n    valveName: name || prefix,\n    valvePrefix: prefix,\n    valveIndex: index || 0,\n  },\n});",
+      "code": "// 1) Read input parameters from action args\nconst prefix = String(args.prefix ?? \"\").trim();\nconst name = String(args.name ?? \"\").trim();\nconst index = Number(args.index ?? 0);\nconst valveId = String(args.valveId ?? \"\").trim();\n\n// 2) Prefix is required to build tag names\nif (!prefix) {\n  log(\"openValvePopup: prefix is empty\");\n  return;\n}\n\n// 3) Save selected valve context to internal vars\nsetVar(\"SelectedValvePrefix\", prefix);\nsetVar(\"SelectedValveName\", name || prefix);\nsetVar(\"SelectedValveIndex\", index || 0);\n\n// 4) Open popup and pass runtime args\nopenPopup(\"Popup_ValveControl\", {\n  title: \"Valve Control: \" + (name || prefix),\n  tagPrefix: prefix,\n  args: {\n    valveId: valveId || prefix,\n    valveName: name || prefix,\n    valvePrefix: prefix,\n    valveIndex: index || 0,\n  },\n});",
       "enabled": true
     },
     {
@@ -13166,7 +13166,7 @@
       "name": "Valve open command",
       "description": "Valve open command",
       "language": "javascript-lite",
-      "code": "// 1) ?????? runtime-???????? popup\nconst ctx = getContext();\nconst params = (ctx && typeof ctx.parameters === \"object\" && ctx.parameters) ? ctx.parameters : {};\n\n// 2) ????? prefix ??????? ?? args popup, ????? fallback ?? tagPrefix popup\nconst paramPrefix = typeof params.valvePrefix === \"string\" ? params.valvePrefix.trim() : \"\";\nconst popupPrefix = typeof getCurrentTagPrefix() === \"string\" ? String(getCurrentTagPrefix()).trim() : \"\";\nconst prefix = paramPrefix || popupPrefix;\n\n// 3) ???? prefix ?????? ? ?? ????????? ??????, ????? ?? ?????? ? ???????? ???\nif (!prefix) {\n  log(\"valveOpen: prefix is empty\");\n  return;\n}\n\n// 4) ??????? ? ????????? ????????? \"??????\"\nawait writeTag(prefix + \".OpenCmd\", true);\nawait writeTag(prefix + \".CloseCmd\", false);\nawait writeTag(prefix + \".Opened\", true);\nawait writeTag(prefix + \".Closed\", false);\nawait writeTag(prefix + \".State\", 2);",
+      "code": "// 1) Read popup runtime context\nconst ctx = getContext();\nconst params = (ctx && typeof ctx.parameters === \"object\" && ctx.parameters) ? ctx.parameters : {};\n\n// 2) Resolve valve prefix from popup args/context\nconst paramPrefix = typeof params.valvePrefix === \"string\" ? params.valvePrefix.trim() : \"\";\nconst popupPrefix = typeof getCurrentTagPrefix() === \"string\" ? String(getCurrentTagPrefix()).trim() : \"\";\nconst prefix = paramPrefix || popupPrefix;\n\n// 3) Prefix is required to control target valve\nif (!prefix) {\n  log(\"valveOpen: prefix is empty\");\n  return;\n}\n\n// 4) Send open command and update runtime feedback\nawait writeTag(prefix + \".OpenCmd\", true);\nawait writeTag(prefix + \".CloseCmd\", false);\nawait writeTag(prefix + \".Opened\", true);\nawait writeTag(prefix + \".Closed\", false);\nawait writeTag(prefix + \".State\", 2);",
       "enabled": true
     },
     {
@@ -13174,7 +13174,7 @@
       "name": "Valve close command",
       "description": "Valve close command",
       "language": "javascript-lite",
-      "code": "// 1) ?????? runtime-???????? popup\nconst ctx = getContext();\nconst params = (ctx && typeof ctx.parameters === \"object\" && ctx.parameters) ? ctx.parameters : {};\n\n// 2) ????? prefix ??????? ?? args popup, ????? fallback ?? tagPrefix popup\nconst paramPrefix = typeof params.valvePrefix === \"string\" ? params.valvePrefix.trim() : \"\";\nconst popupPrefix = typeof getCurrentTagPrefix() === \"string\" ? String(getCurrentTagPrefix()).trim() : \"\";\nconst prefix = paramPrefix || popupPrefix;\n\n// 3) ???? prefix ?????? ? ?? ????????? ??????, ????? ?? ?????? ? ???????? ???\nif (!prefix) {\n  log(\"valveClose: prefix is empty\");\n  return;\n}\n\n// 4) ??????? ? ????????? ????????? \"??????\"\nawait writeTag(prefix + \".CloseCmd\", true);\nawait writeTag(prefix + \".OpenCmd\", false);\nawait writeTag(prefix + \".Closed\", true);\nawait writeTag(prefix + \".Opened\", false);\nawait writeTag(prefix + \".State\", 0);",
+      "code": "// 1) Read popup runtime context\nconst ctx = getContext();\nconst params = (ctx && typeof ctx.parameters === \"object\" && ctx.parameters) ? ctx.parameters : {};\n\n// 2) Resolve valve prefix from popup args/context\nconst paramPrefix = typeof params.valvePrefix === \"string\" ? params.valvePrefix.trim() : \"\";\nconst popupPrefix = typeof getCurrentTagPrefix() === \"string\" ? String(getCurrentTagPrefix()).trim() : \"\";\nconst prefix = paramPrefix || popupPrefix;\n\n// 3) Prefix is required to control target valve\nif (!prefix) {\n  log(\"valveClose: prefix is empty\");\n  return;\n}\n\n// 4) Send close command and update runtime feedback\nawait writeTag(prefix + \".CloseCmd\", true);\nawait writeTag(prefix + \".OpenCmd\", false);\nawait writeTag(prefix + \".Closed\", true);\nawait writeTag(prefix + \".Opened\", false);\nawait writeTag(prefix + \".State\", 0);",
       "enabled": true
     }
   ],
@@ -13183,7 +13183,7 @@
       "leftPanel": {
         "visible": true,
         "collapsed": false,
-        "width": 395,
+        "width": 378,
         "minWidth": 240,
         "maxWidth": 520,
         "collapsedWidth": 36
@@ -13230,7 +13230,7 @@
         }
       }
     },
-    "leftPanelWidth": 395,
+    "leftPanelWidth": 378,
     "rightPanelWidth": 361,
     "showObjectFrames": false,
     "panels": [
@@ -13240,7 +13240,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 395,
+        "width": 378,
         "height": 240
       },
       {
@@ -13271,7 +13271,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 395,
+        "width": 378,
         "height": 220
       },
       {
@@ -13298,7 +13298,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 395,
+        "width": 378,
         "height": 220
       },
       {
@@ -13307,7 +13307,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 395,
+        "width": 378,
         "height": 220
       },
       {
@@ -13316,7 +13316,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 395,
+        "width": 378,
         "height": 220
       }
     ]
@@ -13328,7 +13328,7 @@
       "kind": "screen",
       "width": 1800,
       "height": 1000,
-      "background": "#1e1e1e",
+      "background": "rgb(40,28,72)",
       "objects": [
         {
           "id": "title",
@@ -13375,8 +13375,8 @@
           "y": 95,
           "width": 180,
           "height": 30,
-          "tag": "Boiler.Pressure",
-          "suffix": " кПа",
+          "tag": "GVL_BURNER_RUNTIME.burner_count",
+          "suffix": " ",
           "badQualityText": "BAD",
           "textStyle": {
             "fontFamily": "Consolas",

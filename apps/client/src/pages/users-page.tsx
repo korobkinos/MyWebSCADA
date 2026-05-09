@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import type { AppRole, AppUser } from "@web-scada/shared";
 import { api } from "../services/api";
+import { useResizableTableColumns, type ResizableColumn } from "../components/resizable-table";
 import { useScadaStore } from "../store/scada-store";
 
 type UserFormValues = {
@@ -49,6 +50,73 @@ export function UsersPage() {
   }, []);
 
   const sortedUsers = useMemo(() => [...users].sort((a, b) => a.username.localeCompare(b.username)), [users]);
+  const userColumns = useMemo<ResizableColumn<AppUser>[]>(() => ([
+    { id: "username", title: "Username", dataIndex: "username", defaultWidth: 170, minWidth: 130 },
+    {
+      id: "displayName",
+      title: "Name",
+      dataIndex: "displayName",
+      defaultWidth: 220,
+      minWidth: 140,
+      render: (value?: string) => value || "-",
+    },
+    {
+      id: "roles",
+      title: "Roles",
+      dataIndex: "roles",
+      defaultWidth: 260,
+      minWidth: 180,
+      autoSize: (row) => row.roles.join(", "),
+      render: (roles: AppRole[]) => (
+        <Space size={4} wrap>
+          {roles.map((role) => (
+            <Tag key={role}>{role}</Tag>
+          ))}
+        </Space>
+      ),
+    },
+    {
+      id: "enabled",
+      title: "Enabled",
+      dataIndex: "enabled",
+      defaultWidth: 110,
+      minWidth: 90,
+      render: (enabled: boolean) => (enabled ? "Yes" : "No"),
+    },
+    {
+      id: "actions",
+      title: "Actions",
+      defaultWidth: 240,
+      minWidth: 180,
+      autoSize: () => "Edit Password Delete",
+      render: (_, user) => (
+        <Space>
+          <Button size="small" onClick={() => openEdit(user)} disabled={!canWrite}>
+            Edit
+          </Button>
+          <Button
+            size="small"
+            onClick={() => {
+              setPasswordTarget(user);
+              setPasswordModalOpen(true);
+              passwordForm.resetFields();
+            }}
+            disabled={!canChangePassword}
+          >
+            Password
+          </Button>
+          <Button size="small" danger onClick={() => removeUser(user)} disabled={!canDelete}>
+            Delete
+          </Button>
+        </Space>
+      ),
+    },
+  ]), [canChangePassword, canDelete, canWrite, passwordForm]);
+  const { columns: resizedUserColumns, components: resizedUserComponents } = useResizableTableColumns<AppUser>({
+    tableId: "users.table.main",
+    columns: userColumns,
+    rows: sortedUsers,
+  });
 
   const openCreate = () => {
     setEditingUser(null);
@@ -158,51 +226,10 @@ export function UsersPage() {
           rowKey="id"
           loading={loading}
           dataSource={sortedUsers}
+          components={resizedUserComponents}
           pagination={false}
-          columns={[
-            { title: "Username", dataIndex: "username" },
-            { title: "Name", dataIndex: "displayName", render: (value?: string) => value || "-" },
-            {
-              title: "Roles",
-              dataIndex: "roles",
-              render: (roles: AppRole[]) => (
-                <Space size={4} wrap>
-                  {roles.map((role) => (
-                    <Tag key={role}>{role}</Tag>
-                  ))}
-                </Space>
-              ),
-            },
-            {
-              title: "Enabled",
-              dataIndex: "enabled",
-              render: (enabled: boolean) => (enabled ? "Yes" : "No"),
-            },
-            {
-              title: "Actions",
-              render: (_, user) => (
-                <Space>
-                  <Button size="small" onClick={() => openEdit(user)} disabled={!canWrite}>
-                    Edit
-                  </Button>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setPasswordTarget(user);
-                      setPasswordModalOpen(true);
-                      passwordForm.resetFields();
-                    }}
-                    disabled={!canChangePassword}
-                  >
-                    Password
-                  </Button>
-                  <Button size="small" danger onClick={() => removeUser(user)} disabled={!canDelete}>
-                    Delete
-                  </Button>
-                </Space>
-              ),
-            },
-          ]}
+          scroll={{ x: 980 }}
+          columns={resizedUserColumns}
         />
       </Space>
 

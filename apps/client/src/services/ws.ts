@@ -1,36 +1,145 @@
 import type { RuntimeWsClientMessage, RuntimeWsServerMessage, TagValue } from "@web-scada/shared";
 
 type WsCallbacks = {
-  onTagValue: (value: TagValue) => void;
+  onTagValues: (values: TagValue[]) => void;
 };
 
-export function createRuntimeSocket(callbacks: WsCallbacks): { close: () => void; writeTag: (name: string, value: TagValue["value"]) => void } {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
+type RuntimeSocketController = {
+  close: () => void;
+  writeTag: (name: string, value: TagValue["value"]) => void;
+  subscribeTags: (tags: string[]) => void;
+};
 
-  socket.onmessage = (event) => {
+let activeSocketController: RuntimeSocketController | null = null;
+let pendingGlobalSubscriptions: string[] | null = null;
+
+function normalizeTags(tags: string[]): string[] {
+  return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+}
+
+export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketController {
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const url = `${protocol}://${window.location.host}/ws`;
+  let socket: WebSocket | null = null;
+  let closedByUser = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let reconnectAttempt = 0;
+  let isOpen = false;
+  let pendingTags: string[] | null = null;
+  let lastSentSignature = "";
+  const queuedMessages: RuntimeWsClientMessage[] = [];
+
+  const scheduleReconnect = () => {
+    if (closedByUser || reconnectTimer) {
+      return;
+    }
+    reconnectAttempt += 1;
+    const baseDelay = Math.min(10_000, 500 * Math.pow(2, Math.min(reconnectAttempt, 6)));
+    const jitter = Math.floor(Math.random() * 250);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = undefined;
+      connect();
+    }, baseDelay + jitter);
+  };
+
+  const sendWhenOpen = (payload: RuntimeWsClientMessage) => {
+    if (!isOpen || !socket || socket.readyState !== WebSocket.OPEN) {
+      if (queuedMessages.length > 1000) {
+        queuedMessages.shift();
+      }
+      queuedMessages.push(payload);
+      return;
+    }
+    socket.send(JSON.stringify(payload));
+  };
+
+  const flushQueue = () => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    while (queuedMessages.length > 0) {
+      const item = queuedMessages.shift();
+      if (!item) {
+        break;
+      }
+      socket.send(JSON.stringify(item));
+    }
+  };
+
+  const onSocketMessage = (event: MessageEvent<string>) => {
     const parsed = JSON.parse(event.data) as RuntimeWsServerMessage;
 
     if (parsed.type === "tag-update") {
-      callbacks.onTagValue({
+      callbacks.onTagValues([{
         ...parsed.payload,
         source: parsed.payload.source ?? "ws",
-      });
+      }]);
       return;
     }
 
     if (parsed.type === "tag-batch") {
-      for (const update of parsed.payload.updates) {
-        callbacks.onTagValue({
-          ...update,
-          source: update.source ?? "ws",
-        });
-      }
+      callbacks.onTagValues(parsed.payload.updates.map((update) => ({
+        ...update,
+        source: update.source ?? "ws",
+      })));
     }
   };
 
-  return {
-    close: () => socket.close(),
+  const connect = () => {
+    socket = new WebSocket(url);
+
+    socket.onmessage = onSocketMessage;
+    socket.onopen = () => {
+      isOpen = true;
+      reconnectAttempt = 0;
+      if (pendingTags) {
+        sendSubscription(pendingTags);
+      }
+      flushQueue();
+    };
+
+    socket.onclose = () => {
+      isOpen = false;
+      if (closedByUser) {
+        if (activeSocketController === controller) {
+          activeSocketController = null;
+        }
+        return;
+      }
+      scheduleReconnect();
+    };
+
+    socket.onerror = () => {
+      // Let onclose handle reconnect scheduling.
+    };
+  };
+
+  const sendSubscription = (tags: string[]) => {
+    const normalized = normalizeTags(tags);
+    const signature = normalized.join("|");
+    if (signature === lastSentSignature) {
+      return;
+    }
+    lastSentSignature = signature;
+
+    const payload: RuntimeWsClientMessage = {
+      type: "subscribe-tags",
+      payload: { tags: normalized },
+    };
+    sendWhenOpen(payload);
+  };
+
+  const controller: RuntimeSocketController = {
+    close: () => {
+      closedByUser = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = undefined;
+      }
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+        socket.close();
+      }
+    },
     writeTag: (name, value) => {
       const payload: RuntimeWsClientMessage = {
         type: "write-tag",
@@ -39,7 +148,24 @@ export function createRuntimeSocket(callbacks: WsCallbacks): { close: () => void
           value,
         },
       };
-      socket.send(JSON.stringify(payload));
+      sendWhenOpen(payload);
+    },
+    subscribeTags: (tags) => {
+      const normalized = normalizeTags(tags);
+      pendingTags = normalized;
+      sendSubscription(normalized);
     },
   };
+
+  connect();
+  activeSocketController = controller;
+  if (pendingGlobalSubscriptions) {
+    controller.subscribeTags(pendingGlobalSubscriptions);
+  }
+  return controller;
+}
+
+export function updateRuntimeTagSubscriptions(tags: string[]): void {
+  pendingGlobalSubscriptions = normalizeTags(tags);
+  activeSocketController?.subscribeTags(pendingGlobalSubscriptions);
 }

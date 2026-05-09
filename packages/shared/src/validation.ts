@@ -732,11 +732,16 @@ const projectUiSettingsSchema = z.object({
   hideMainMenu: z.boolean().optional(),
 });
 
+const projectRuntimeSettingsSchema = z.object({
+  alwaysActiveTags: z.array(z.string().min(1)).max(10000).optional(),
+});
+
 export const projectSchema = z.object({
   version: z.number().int().positive(),
   name: z.string().min(1),
   projectInfo: projectInfoSchema.optional(),
   uiSettings: projectUiSettingsSchema.optional(),
+  runtimeSettings: projectRuntimeSettingsSchema.optional(),
   assets: z.array(assetSchema).optional(),
   assetGroups: z.array(assetGroupSchema).optional(),
   libraries: z.array(projectLibraryRefSchema).optional(),
@@ -851,5 +856,14 @@ export const writeTagMessageSchema = z.object({
     value: z.union([z.boolean(), z.number(), z.string(), z.null()]),
   }),
 });
+
+export const subscribeTagsMessageSchema = z.object({
+  type: z.literal("subscribe-tags"),
+  payload: z.object({
+    tags: z.array(z.string().min(1)).max(10000),
+  }),
+});
+
+export const runtimeWsClientMessageSchema = z.union([writeTagMessageSchema, subscribeTagsMessageSchema]);
 
 export type ProjectSchema = z.infer<typeof projectSchema>;

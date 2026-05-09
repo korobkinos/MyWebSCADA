@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DockPanelState, TagDefinition, TagSourceType } from "@web-scada/shared";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { Button, Card, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import { FloatingPanel } from "../components/floating-panel";
+import { useResizableTableColumns, type ResizableColumn } from "../components/resizable-table";
 import { ResizableDockPanel } from "../components/resizable-dock-panel";
 import { useDockLayout } from "../hooks/use-dock-layout";
 import { useScadaStore } from "../store/scada-store";
@@ -54,9 +55,11 @@ export function TagsPage() {
   const [form] = Form.useForm<TagDefinition>();
 
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const tagsTableViewportRef = useRef<HTMLDivElement | null>(null);
   const dock = useDockLayout(dockDefaults, { autoSaveMs: 900 });
   const leftPanel = dock.getPanelState("tags.left") ?? defaultLeftPanel;
   const rightPanel = dock.getPanelState("tags.right") ?? defaultRightPanel;
+  const [tagsTableScrollY, setTagsTableScrollY] = useState(560);
 
   if (!project) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -402,6 +405,87 @@ export function TagsPage() {
     </Card>
   );
 
+  const tagColumns = useMemo<ResizableColumn<TagDefinition>[]>(() => ([
+    { id: "name", title: "name", dataIndex: "name", defaultWidth: 260, minWidth: 170, autoSize: (row) => row.name },
+    {
+      id: "source",
+      title: "source",
+      defaultWidth: 120,
+      minWidth: 95,
+      autoSize: (row) => row.sourceType ?? "simulated",
+      render: (_, row: TagDefinition) => <Tag>{row.sourceType ?? "simulated"}</Tag>,
+    },
+    { id: "dataType", title: "dataType", dataIndex: "dataType", defaultWidth: 100, minWidth: 85 },
+    { id: "driverId", title: "driverId", dataIndex: "driverId", defaultWidth: 180, minWidth: 130 },
+    {
+      id: "nodeAddress",
+      title: "node/address",
+      defaultWidth: 260,
+      minWidth: 160,
+      autoSize: (row) => row.nodeId ?? String(row.address ?? row.lwAddress ?? row.internalVariableName ?? ""),
+      render: (_, row: TagDefinition) =>
+        row.nodeId ?? String(row.address ?? row.lwAddress ?? row.internalVariableName ?? ""),
+    },
+    { id: "group", title: "group", dataIndex: "group", defaultWidth: 140, minWidth: 90 },
+    {
+      id: "writable",
+      title: "w",
+      defaultWidth: 56,
+      minWidth: 50,
+      autoSize: (row) => (row.writable ? "Y" : "N"),
+      render: (_, row: TagDefinition) => (row.writable ? "Y" : "N"),
+    },
+    {
+      id: "actions",
+      title: "actions",
+      defaultWidth: 220,
+      minWidth: 170,
+      autoSize: () => "Edit Duplicate Delete",
+      render: (_, row: TagDefinition) => (
+        <Space>
+          <Button size="small" onClick={() => openEdit(row)}>Edit</Button>
+          <Button size="small" onClick={() => duplicateTag(row)}>Duplicate</Button>
+          <Button size="small" danger onClick={() => deleteTag(row)}>Delete</Button>
+        </Space>
+      ),
+    },
+  ]), [openEdit, duplicateTag, deleteTag]);
+  const { columns: resizedTagColumns, components: resizedTagComponents } = useResizableTableColumns<TagDefinition>({
+    tableId: "tags.table.main",
+    columns: tagColumns,
+    rows: pageRows,
+  });
+
+  useEffect(() => {
+    const viewport = tagsTableViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const recalc = () => {
+      const current = tagsTableViewportRef.current;
+      if (!current) {
+        return;
+      }
+      const totalHeight = current.clientHeight;
+      const paginationHeight = current.querySelector<HTMLElement>(".ant-pagination")?.offsetHeight ?? 36;
+      const headerHeight = current.querySelector<HTMLElement>(".ant-table-thead")?.offsetHeight ?? 40;
+      const reserve = 24;
+      const next = Math.max(120, totalHeight - paginationHeight - headerHeight - reserve);
+      setTagsTableScrollY((prev) => (Math.abs(prev - next) > 1 ? next : prev));
+    };
+
+    recalc();
+    const rafId = window.requestAnimationFrame(recalc);
+    const observer = new ResizeObserver(recalc);
+    observer.observe(viewport);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [filtered.length, page]);
+
   return (
     <div
       ref={workspaceRef}
@@ -432,55 +516,28 @@ export function TagsPage() {
         size="small"
         title="Tags"
         style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
-        bodyStyle={{ flex: 1, minHeight: 0, overflow: "auto" }}
+        bodyStyle={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}
       >
-        <Table
-          size="small"
-          rowKey={(tag) => tag.id ?? tag.name}
-          dataSource={pageRows}
-          pagination={{
-            current: page,
-            pageSize: 50,
-            total: filtered.length,
-            onChange: setPage,
-          }}
-          onRow={(row) => ({
-            onClick: () => setSelectedId(row.id ?? row.name),
-          })}
-          columns={[
-            { title: "name", dataIndex: "name" },
-            {
-              title: "source",
-              width: 120,
-              render: (_, row: TagDefinition) => <Tag>{row.sourceType ?? "simulated"}</Tag>,
-            },
-            { title: "dataType", dataIndex: "dataType", width: 90 },
-            { title: "driverId", dataIndex: "driverId", width: 140 },
-            {
-              title: "node/address",
-              width: 190,
-              render: (_, row: TagDefinition) =>
-                row.nodeId ?? String(row.address ?? row.lwAddress ?? row.internalVariableName ?? ""),
-            },
-            { title: "group", dataIndex: "group", width: 120 },
-            {
-              title: "w",
-              width: 40,
-              render: (_, row: TagDefinition) => (row.writable ? "Y" : "N"),
-            },
-            {
-              title: "actions",
-              width: 170,
-              render: (_, row: TagDefinition) => (
-                <Space>
-                  <Button size="small" onClick={() => openEdit(row)}>Edit</Button>
-                  <Button size="small" onClick={() => duplicateTag(row)}>Duplicate</Button>
-                  <Button size="small" danger onClick={() => deleteTag(row)}>Delete</Button>
-                </Space>
-              ),
-            },
-          ]}
-        />
+        <div ref={tagsTableViewportRef} style={{ flex: "1 1 auto", minHeight: 0, minWidth: 0, overflow: "hidden" }}>
+          <Table
+            virtual
+            size="small"
+            rowKey={(tag) => tag.id ?? tag.name}
+            dataSource={pageRows}
+            components={resizedTagComponents}
+            scroll={{ x: 1400, y: tagsTableScrollY }}
+            pagination={{
+              current: page,
+              pageSize: 50,
+              total: filtered.length,
+              onChange: setPage,
+            }}
+            onRow={(row) => ({
+              onClick: () => setSelectedId(row.id ?? row.name),
+            })}
+            columns={resizedTagColumns}
+          />
+        </div>
       </Card>
 
       {!rightPanel.detached ? (

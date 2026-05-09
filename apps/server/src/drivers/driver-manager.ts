@@ -75,6 +75,63 @@ export class DriverManager {
     return driver.readTag(tag);
   }
 
+  public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
+    if (tags.length === 0) {
+      return [];
+    }
+
+    const result: TagValue[] = [];
+    const byDriver = new Map<string, TagDefinition[]>();
+
+    for (const tag of tags) {
+      if (!tag.driverId) {
+        result.push({
+          name: tag.name,
+          value: null,
+          quality: "Bad",
+          timestamp: Date.now(),
+          source: "none",
+        });
+        continue;
+      }
+
+      const group = byDriver.get(tag.driverId);
+      if (group) {
+        group.push(tag);
+      } else {
+        byDriver.set(tag.driverId, [tag]);
+      }
+    }
+
+    for (const [driverId, driverTags] of byDriver.entries()) {
+      const driver = this.drivers.get(driverId);
+      if (!driver) {
+        const timestamp = Date.now();
+        result.push(
+          ...driverTags.map((tag) => ({
+            name: tag.name,
+            value: null,
+            quality: "Bad" as const,
+            timestamp,
+            source: driverId,
+          })),
+        );
+        continue;
+      }
+
+      if (driver.readTags) {
+        const values = await driver.readTags(driverTags);
+        result.push(...values);
+        continue;
+      }
+
+      const values = await Promise.all(driverTags.map((tag) => driver.readTag(tag)));
+      result.push(...values);
+    }
+
+    return result;
+  }
+
   public async writeTag(tag: TagDefinition, value: TagScalarValue): Promise<void> {
     if (!tag.driverId) {
       throw new Error(`Tag ${tag.name} has no driver`);

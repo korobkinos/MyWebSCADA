@@ -16,6 +16,7 @@ export interface Driver {
   start(): Promise<void>;
   stop(): Promise<void>;
   readTag(tag: TagDefinition): Promise<TagValue>;
+  readTags?(tags: TagDefinition[]): Promise<TagValue[]>;
   writeTag(tag: TagDefinition, value: TagScalarValue): Promise<void>;
   getStatus(): DriverStatus;
 }

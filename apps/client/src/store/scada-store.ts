@@ -69,6 +69,7 @@ type ScadaState = {
   logoutEngineer: () => void;
   hasPermission: (permission: AppPermission) => boolean;
   setTagValue: (value: TagValue) => void;
+  setTagValues: (values: TagValue[]) => void;
   setCurrentScreen: (screenId: string) => void;
   setSelectedObjects: (objectIds: string[], activeObjectId?: string) => void;
   toggleSelectedObject: (objectId: string) => void;
@@ -303,27 +304,61 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
   },
 
   setTagValue(value) {
+    get().setTagValues([value]);
+  },
+
+  setTagValues(values) {
+    if (values.length === 0) {
+      return;
+    }
     set((state) => {
-      const existingSnapshot = state.tagSnapshots.some((item) => item.definition.name === value.name);
-      const nextSnapshots = existingSnapshot
-        ? state.tagSnapshots.map((item) => (item.definition.name === value.name ? { ...item, value } : item))
-        : [
+      const nextTags: TagMap = { ...state.tags };
+      let tagsChanged = false;
+      const missing: TagValue[] = [];
+      let snapshotNames: Set<string> | undefined;
+
+      for (const value of values) {
+        const prev = state.tags[value.name];
+        if (
+          prev &&
+          prev.value === value.value &&
+          prev.quality === value.quality &&
+          prev.source === value.source
+        ) {
+          continue;
+        }
+        tagsChanged = true;
+        nextTags[value.name] = value;
+        if (!Object.prototype.hasOwnProperty.call(state.tags, value.name)) {
+          if (!snapshotNames) {
+            snapshotNames = new Set(state.tagSnapshots.map((item) => item.definition.name));
+          }
+          if (!snapshotNames.has(value.name)) {
+            missing.push(value);
+          }
+        }
+      }
+
+      if (!tagsChanged) {
+        return state;
+      }
+
+      const nextSnapshots = missing.length > 0
+        ? [
             ...state.tagSnapshots,
-            {
+            ...missing.map((value) => ({
               definition: {
                 name: value.name,
                 dataType: "REAL" as TagDataType,
                 writable: true,
               },
               value,
-            },
-          ];
+            })),
+          ]
+        : state.tagSnapshots;
 
       return {
-        tags: {
-          ...state.tags,
-          [value.name]: value,
-        },
+        tags: nextTags,
         tagSnapshots: nextSnapshots,
       };
     });

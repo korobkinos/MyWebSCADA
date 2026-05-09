@@ -123,6 +123,82 @@ export class OpcUaDriver implements Driver {
     }
   }
 
+  public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
+    if (tags.length === 0) {
+      return [];
+    }
+
+    const now = Date.now();
+    try {
+      await this.ensureConnected();
+
+      const valid: Array<{ tag: TagDefinition; nodeId: string }> = [];
+      const invalid: TagDefinition[] = [];
+      for (const tag of tags) {
+        try {
+          const address = extractAddress(tag);
+          valid.push({ tag, nodeId: address.nodeId });
+        } catch {
+          invalid.push(tag);
+        }
+      }
+
+      const values: TagValue[] = [];
+      if (valid.length > 0) {
+        const dataValues = await this.session!.read(
+          valid.map((item) => ({
+            nodeId: item.nodeId,
+            attributeId: AttributeIds.Value,
+          })),
+        );
+
+        for (let index = 0; index < valid.length; index += 1) {
+          const item = valid[index]!;
+          const dataValue = dataValues[index];
+          if (!dataValue) {
+            values.push({
+              name: item.tag.name,
+              value: null,
+              quality: "Bad",
+              timestamp: now,
+              source: this.id,
+            });
+            continue;
+          }
+
+          values.push({
+            name: item.tag.name,
+            value: toScalar(dataValue),
+            quality: dataValue.statusCode.isGood() ? "Good" : "Bad",
+            timestamp: now,
+            source: this.id,
+          });
+        }
+      }
+
+      for (const tag of invalid) {
+        values.push({
+          name: tag.name,
+          value: null,
+          quality: "Bad",
+          timestamp: now,
+          source: this.id,
+        });
+      }
+
+      return values;
+    } catch (error) {
+      this.scheduleReconnect(error instanceof Error ? error.message : "OPC UA read error");
+      return tags.map((tag) => ({
+        name: tag.name,
+        value: null,
+        quality: "Bad" as const,
+        timestamp: now,
+        source: this.id,
+      }));
+    }
+  }
+
   public async writeTag(tag: TagDefinition, value: TagScalarValue): Promise<void> {
     if (!tag.writable) {
       throw new Error(`Tag ${tag.name} is not writable`);
@@ -167,6 +243,13 @@ export class OpcUaDriver implements Driver {
         securityPolicy:
           this.config.securityPolicy === "Basic256Sha256" ? SecurityPolicy.Basic256Sha256 : SecurityPolicy.None,
         endpointMustExist: false,
+        transportTimeout: this.config.timeoutMs ?? 5000,
+        connectionStrategy: {
+          // Fail fast on initial startup; reconnection is handled separately below.
+          maxRetry: 0,
+          initialDelay: 500,
+          maxDelay: 1000,
+        },
       });
 
       await this.client.connect(this.config.endpointUrl);
@@ -201,7 +284,7 @@ export class OpcUaDriver implements Driver {
       } catch {
         this.scheduleReconnect(message);
       }
-    }, 3000);
+    }, this.config.reconnectMs ?? 3000);
   }
 
   private setStatus(health: DriverStatus["health"], message?: string): void {

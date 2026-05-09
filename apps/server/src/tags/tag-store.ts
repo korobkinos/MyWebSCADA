@@ -72,7 +72,7 @@ export class TagStore {
       existing &&
       existing.value === value.value &&
       existing.quality === value.quality &&
-      Math.abs(existing.timestamp - value.timestamp) < 5
+      existing.source === value.source
     ) {
       return;
     }

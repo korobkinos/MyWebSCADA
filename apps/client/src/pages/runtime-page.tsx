@@ -10,6 +10,8 @@ import {
 } from "@web-scada/shared";
 import { Button, Card, Form, InputNumber, Modal, Space, Typography, message } from "antd";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
+import { collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
+import { updateRuntimeTagSubscriptions } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
 
 type RuntimePageProps = {
@@ -71,6 +73,43 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       });
     }
   }, [fullscreen, popupState.items.length, screen?.id, screen?.width, screen?.height]);
+
+  const popupScreens = useMemo(
+    () =>
+      project
+        ? popupState.items
+          .map((item) => ({
+            item,
+            screen: project.screens.find((s) => s.id === item.popupScreenId),
+          }))
+          .filter((entry): entry is { item: PopupInstance; screen: NonNullable<typeof entry.screen> } => Boolean(entry.screen))
+        : [],
+    [popupState.items, project],
+  );
+
+  useEffect(() => {
+    if (!project || !screen) {
+      updateRuntimeTagSubscriptions([]);
+      return;
+    }
+    const tags = collectRuntimeTagSubscriptions({
+      project,
+      libraries,
+      screen,
+      popups: popupScreens.map(({ item, screen: popupScreen }) => ({
+        screen: popupScreen,
+        tagPrefix: item.tagPrefix,
+        args: item.args,
+      })),
+    });
+    updateRuntimeTagSubscriptions(tags);
+  }, [libraries, popupScreens, project, screen]);
+
+  useEffect(() => {
+    return () => {
+      updateRuntimeTagSubscriptions([]);
+    };
+  }, []);
 
   if (!project || !screen) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -238,14 +277,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     />
   );
 
-  const popups = popupState.items
-    .map((item) => ({ item, screen: project.screens.find((s) => s.id === item.popupScreenId) }))
-    .filter((entry): entry is { item: PopupInstance; screen: NonNullable<typeof entry.screen> } => Boolean(entry.screen));
-
   const popupOverlay = (
     <>
       {modalOpen ? <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 1000 }} /> : null}
-      {popups.map(({ item, screen: popupScreen }) => (
+      {popupScreens.map(({ item, screen: popupScreen }) => (
         <div
           key={item.id}
           style={{

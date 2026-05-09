@@ -44,7 +44,7 @@ export function App() {
   const loadAssets = useScadaStore((s) => s.loadAssets);
   const loadLibraries = useScadaStore((s) => s.loadLibraries);
   const initializeAuth = useScadaStore((s) => s.initializeAuth);
-  const setTagValue = useScadaStore((s) => s.setTagValue);
+  const setTagValues = useScadaStore((s) => s.setTagValues);
   const project = useScadaStore((s) => s.project);
   const authUser = useScadaStore((s) => s.authUser);
   const authResolved = useScadaStore((s) => s.authResolved);
@@ -107,11 +107,14 @@ export function App() {
   }, [bootstrapApp]);
 
   useEffect(() => {
+    if (!isRuntimeRoute) {
+      return;
+    }
     const socket = createRuntimeSocket({
-      onTagValue: (value) => setTagValue(value),
+      onTagValues: (values) => setTagValues(values),
     });
     return () => socket.close();
-  }, [setTagValue]);
+  }, [isRuntimeRoute, setTagValues]);
 
   useEffect(() => {
     const onInvalidAuth = () => {

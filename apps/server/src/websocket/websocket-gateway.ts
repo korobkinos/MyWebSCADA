@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
-import { writeTagMessageSchema, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
+import { runtimeWsClientMessageSchema, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
 import { CommandService } from "../runtime/command-service.js";
+import { RuntimeService } from "../runtime/runtime-service.js";
 import { TagStore } from "../tags/tag-store.js";
 
 export class WebSocketGateway {
   private readonly clients = new Set<WebSocket>();
+  private readonly subscriptions = new Map<WebSocket, Set<string>>();
   private readonly queue = new Map<string, TagValue>();
   private flushTimer: NodeJS.Timeout | undefined;
   private unsubscribeTagListener: (() => void) | undefined;
@@ -13,18 +15,23 @@ export class WebSocketGateway {
   public constructor(
     private readonly tagStore: TagStore,
     private readonly commandService: CommandService,
+    private readonly runtimeService: RuntimeService,
   ) {}
 
   public async register(app: FastifyInstance): Promise<void> {
     app.get("/ws", { websocket: true }, (socket) => {
       this.clients.add(socket);
+      this.subscriptions.set(socket, new Set<string>());
+      this.syncRuntimeSubscriptions();
 
       socket.on("message", (payload: unknown) => {
-        void this.handleClientMessage(String(payload));
+        this.handleClientMessage(socket, String(payload));
       });
 
       socket.on("close", () => {
         this.clients.delete(socket);
+        this.subscriptions.delete(socket);
+        this.syncRuntimeSubscriptions();
       });
     });
 
@@ -46,6 +53,8 @@ export class WebSocketGateway {
     }
 
     this.queue.clear();
+    this.subscriptions.clear();
+    this.runtimeService.clearActiveTags();
     for (const client of this.clients) {
       try {
         client.close(1001, "Server shutdown");
@@ -106,12 +115,40 @@ export class WebSocketGateway {
     }
   }
 
-  private async handleClientMessage(raw: string): Promise<void> {
+  private handleClientMessage(client: WebSocket, raw: string): void {
     try {
-      const parsed = writeTagMessageSchema.parse(JSON.parse(raw));
-      await this.commandService.writeTag(parsed.payload.name, parsed.payload.value);
+      const parsed = runtimeWsClientMessageSchema.parse(JSON.parse(raw));
+      if (parsed.type === "write-tag") {
+        void this.commandService.writeTag(parsed.payload.name, parsed.payload.value);
+        return;
+      }
+
+      const nextTags = new Set<string>();
+      for (const item of parsed.payload.tags) {
+        const trimmed = item.trim();
+        if (trimmed) {
+          nextTags.add(trimmed);
+        }
+      }
+      this.subscriptions.set(client, nextTags);
+      this.syncRuntimeSubscriptions();
     } catch {
       // ignore invalid client payloads
     }
+  }
+
+  private syncRuntimeSubscriptions(): void {
+    if (this.subscriptions.size === 0) {
+      this.runtimeService.setActiveTags([]);
+      return;
+    }
+
+    const union = new Set<string>();
+    for (const set of this.subscriptions.values()) {
+      for (const tag of set) {
+        union.add(tag);
+      }
+    }
+    this.runtimeService.setActiveTags(union);
   }
 }

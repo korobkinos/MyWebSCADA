@@ -24,5 +24,12 @@ export type WriteTagMessage = {
   };
 };
 
+export type SubscribeTagsMessage = {
+  type: "subscribe-tags";
+  payload: {
+    tags: string[];
+  };
+};
+
 export type RuntimeWsServerMessage = TagUpdateMessage | TagBatchUpdateMessage;
-export type RuntimeWsClientMessage = WriteTagMessage;
+export type RuntimeWsClientMessage = WriteTagMessage | SubscribeTagsMessage;
