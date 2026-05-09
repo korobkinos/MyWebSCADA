@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DeleteOutlined, LeftOutlined, PlusOutlined, RedoOutlined, RightOutlined, SaveOutlined, UndoOutlined } from "@ant-design/icons";
+import { DeleteOutlined, RedoOutlined, SaveOutlined, UndoOutlined } from "@ant-design/icons";
 import { Button, Card, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tooltip, Typography, message } from "antd";
 import type {
   Asset,
-  DockPanelState,
   ElementBindingDefinition,
   HmiObject,
   HmiScreen,
@@ -13,20 +12,21 @@ import type {
 } from "@web-scada/shared";
 import { normalizeObjectsToGroup, resolveTagName, resolveTemplateString } from "@web-scada/shared";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
-import { ResizableDockPanel } from "../components/resizable-dock-panel";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
 import { importSvgAssetToPrimitives } from "../hmi/editor/svg-primitive-import";
 import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
-import { useDockLayout } from "../hooks/use-dock-layout";
 import { api } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 import { isTextEditingTarget } from "../utils/keyboard";
-
-const defaultDockPanels: DockPanelState[] = [
-  { id: "elementEditor.left", side: "left", hidden: false, size: 340, lastVisibleSize: 340 },
-  { id: "elementEditor.right", side: "right", hidden: false, size: 380, lastVisibleSize: 380 },
-];
+import {
+  ScadaWorkbenchLayout,
+  WorkbenchButton,
+  WorkbenchPanelToolbar,
+  WorkbenchSection,
+  WorkbenchTabs,
+  WorkbenchTreeItem,
+} from "../components/workbench";
 
 function createElementId(name: string): string {
   return (name || "element")
@@ -687,9 +687,6 @@ export function ElementEditorPage() {
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
   const canElementsWrite = useScadaStore((s) => s.hasPermission("elements.write"));
   const canElementsDelete = useScadaStore((s) => s.hasPermission("elements.delete"));
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const dockLayout = useDockLayout(defaultDockPanels, { autoSaveMs: 900 });
-
   const [selectedLibraryId, setSelectedLibraryId] = useState<string>("");
   const [selectedElementId, setSelectedElementId] = useState<string>("");
   const [draftElement, setDraftElement] = useState<LibraryElement | null>(null);
@@ -727,9 +724,6 @@ export function ElementEditorPage() {
   const [newElementForm] = Form.useForm<NewElementFormValues>();
   const creationMode = Form.useWatch("creationMode", newElementForm);
   const history = useSnapshotHistory<LibraryElement>({ maxSteps: 50 });
-
-  const leftPanel = dockLayout.getPanelState("elementEditor.left") ?? defaultDockPanels[0]!;
-  const rightPanel = dockLayout.getPanelState("elementEditor.right") ?? defaultDockPanels[1]!;
 
   const selectedLibrary = libraries.find((library) => library.id === selectedLibraryId) ?? null;
   const selectedLibraryAssets = selectedLibrary?.assets ?? [];
@@ -1775,919 +1769,561 @@ export function ElementEditorPage() {
 
   const virtualScreen = draftElement ? createVirtualScreen(draftElement) : null;
 
-  return (
-    <div ref={workspaceRef} className="route-page-fill" style={{ display: "flex", minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative", gap: 10 }}>
-      <ResizableDockPanel
-        id="elementEditor.left"
-        side="left"
-        hidden={leftPanel.hidden}
-        size={clamp(leftPanel.size, 0, 620)}
-        lastVisibleSize={leftPanel.lastVisibleSize}
-        minSize={250}
-        maxSize={620}
-        autoHideThreshold={80}
-        restoreSize={340}
-        workspaceRef={workspaceRef}
-        restoreTooltip="Show element list"
-        restoreIcon={<RightOutlined />}
-        onStateChange={(state) => dockLayout.setPanelState("elementEditor.left", () => state)}
-      >
-        <Card
-          size="small"
-          title="Element List"
-          style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}
-          bodyStyle={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 0, overflow: "auto" }}
-        >
-          <Select
-            value={selectedLibraryId || undefined}
-            onChange={requestSwitchLibrary}
-            placeholder="Select library"
-            options={libraries.map((item) => ({ label: item.name, value: item.id }))}
-          />
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search elements" />
-          <Select
-            value={categoryFilter}
-            onChange={setCategoryFilter}
-            options={categoryOptions.map((item) => ({ label: item === "all" ? "All categories" : item, value: item }))}
-          />
-          <Space wrap>
-            <Button icon={<PlusOutlined />} onClick={() => newElement("empty")}>New</Button>
-            <Button onClick={() => newElement("template")}>New from Template</Button>
-            <Button onClick={() => void duplicateElement()} disabled={!draftElement}>Duplicate</Button>
-            <Tooltip title={draftIsNew ? "Discard unsaved draft" : deleteElementDisabledReason}>
-              <Button
-                danger
-                onClick={() => {
-                  // eslint-disable-next-line no-console
-                  console.log("[ElementEditor] Delete button clicked");
-                  // eslint-disable-next-line no-console
-                  console.log("[ElementEditor] selectedElement", selectedPersistedElement);
-                  // eslint-disable-next-line no-console
-                  console.log("[ElementEditor] draftElement", draftElement);
-                  // eslint-disable-next-line no-console
-                  console.log("[ElementEditor] selectedLibraryId", selectedLibraryId);
-                  // eslint-disable-next-line no-console
-                  console.log("[ElementEditor] permissions", useScadaStore.getState().authUser?.permissions ?? []);
-                  // eslint-disable-next-line no-console
-                  console.log("[ElementEditor] Delete button state", {
-                    disabled: deletingElement,
-                    reason: draftIsNew ? "Discard unsaved draft" : deleteElementDisabledReason,
-                    selectedElementId: selectedPersistedElement?.id,
-                    selectedElementKey: selectedPersistedElement?.elementKey,
-                    hasPermission: canElementsDelete,
-                  });
-                  if (deleteElementDisabledReason && !draftIsNew) {
-                    void message.warning(deleteElementDisabledReason);
-                  }
-                  void deleteCurrentLibraryElement();
-                }}
-                loading={deletingElement}
-                disabled={deletingElement}
-              >
-                {draftIsNew ? "Discard Draft" : "Delete Element"}
-              </Button>
-            </Tooltip>
-            <Button onClick={() => void attachLibrary()} disabled={!selectedLibraryId}>Attach Library</Button>
-          </Space>
-          {import.meta.env.DEV ? (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              debug: selectedElementId={selectedElementId || "-"}, draftId={draftElement?.id || "-"}, draftIsNew=
-              {String(draftIsNew)}, deleteReason={deleteElementDisabledReason || "-"}
-            </Typography.Text>
-          ) : null}
-          <List
-            size="small"
-            dataSource={displayElements}
-            renderItem={(item) => (
-              <List.Item
-                className={(item.isDraft ? draftIsNew : selectedElementId === item.id) ? "scada-list-item-selected" : undefined}
-                style={{ cursor: "pointer", borderRadius: 6 }}
-                onClick={() => {
-                  if (item.isDraft) {
-                    setDraftIsNew(true);
-                    setSelectedElementId("");
-                    return;
-                  }
-                  if (dirty) {
-                    Modal.confirm({
-                      title: "Unsaved changes",
-                      content: "Save current element before switching?",
-                      okText: "Save and switch",
-                      cancelText: "Discard",
-                      onOk: async () => {
-                        await saveElement();
-                        setSelectedElementId(item.id);
-                        setDraftIsNew(false);
-                      },
-                      onCancel: () => {
-                        setDirty(false);
-                        setSelectedElementId(item.id);
-                        setDraftIsNew(false);
-                      },
-                    });
-                    return;
-                  }
-                  setSelectedElementId(item.id);
-                  setDraftIsNew(false);
-                }}
-              >
-                <Space direction="vertical" size={0}>
-                  <Typography.Text>{item.name}</Typography.Text>
-                  <Typography.Text type="secondary">{item.elementKey ?? item.id}</Typography.Text>
-                  <Typography.Text type="secondary">{item.category || "General"} · {new Date(item.updatedAt).toLocaleString()}</Typography.Text>
-                </Space>
-              </List.Item>
-            )}
-          />
-        </Card>
-      </ResizableDockPanel>
+  const activityItems = [
+    { id: "elements", title: "Elements", icon: "🧩", active: true },
+    { id: "assets", title: "Assets", icon: "📦" },
+    { id: "states", title: "States", icon: "🔀" },
+    { id: "preview", title: "Preview", icon: "▶️" },
+  ];
 
-      <div style={{ flex: "1 1 auto", minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", gap: 10 }}>
-        <Card size="small" bodyStyle={{ padding: 10 }}>
-          <Space wrap>
-            <Tooltip title="Undo Ctrl+Z">
-              <Button icon={<UndoOutlined />} onClick={() => {
-                if (!draftElement) {
-                  return;
-                }
-                const previous = history.undo(draftElement);
-                if (previous) {
-                  setDraftElement(previous);
-                  setDirty(true);
-                }
-              }} disabled={!draftElement || !history.canUndo} />
-            </Tooltip>
-            <Tooltip title="Redo Ctrl+Y">
-              <Button icon={<RedoOutlined />} onClick={() => {
-                if (!draftElement) {
-                  return;
-                }
-                const next = history.redo(draftElement);
-                if (next) {
-                  setDraftElement(next);
-                  setDirty(true);
-                }
-              }} disabled={!draftElement || !history.canRedo} />
-            </Tooltip>
-            <Button
-              type="primary"
-              icon={<SaveOutlined />}
-              onClick={() => void saveElement()}
-              disabled={!draftElement || !canElementsWrite}
-              title={canElementsWrite ? undefined : "Insufficient permissions: elements.write"}
-            >
-              Save
-            </Button>
-            <Tooltip title="Delete selected object Del/Backspace">
-              <Button
-                icon={<DeleteOutlined />}
-                onClick={() => deleteSelectedElementObjects("toolbar")}
-                disabled={(!activeObjectId && selectedObjectIds.length === 0) || !canElementsDelete}
+  return (
+    <div className="element-editor-workbench-page">
+      <ScadaWorkbenchLayout
+        autoSaveId="my-web-scada-element-editor"
+        leftTitle="Elements"
+        rightTitle="Properties"
+        bottomTitle="Validation"
+        activityItems={activityItems}
+        leftPanel={{
+          defaultSize: 22,
+          minSize: 14,
+          maxSize: 36,
+          collapsible: true,
+          collapsedSize: 0,
+        }}
+        rightPanel={{
+          defaultSize: 26,
+          minSize: 16,
+          maxSize: 42,
+          collapsible: true,
+          collapsedSize: 0,
+        }}
+        bottomPanel={{
+          defaultSize: 22,
+          minSize: 10,
+          maxSize: 38,
+          collapsible: true,
+          collapsedSize: 0,
+        }}
+        left={
+          <div className="element-editor-side-panel">
+            <WorkbenchSection title="ELEMENTS">
+              <Select
+                value={selectedLibraryId || undefined}
+                onChange={requestSwitchLibrary}
+                placeholder="Select library"
+                options={libraries.map((item) => ({ label: item.name, value: item.id }))}
               />
-            </Tooltip>
-            <Switch checked={previewMode} onChange={setPreviewMode} checkedChildren="Preview" unCheckedChildren="Edit" />
-            <Button onClick={() => openAssetPicker()} disabled={!draftElement || !canElementsWrite}>Add Image</Button>
-            <Button onClick={() => openStateImageWizard()} disabled={!draftElement || !canElementsWrite}>Add State Image</Button>
-            <Button onClick={() => addObject("text")} disabled={!draftElement || !canElementsWrite}>Add Text</Button>
-            <Button onClick={() => addObject("line")} disabled={!draftElement || !canElementsWrite}>Add Line</Button>
-            <Button onClick={() => addObject("rectangle")} disabled={!draftElement || !canElementsWrite}>Add Rectangle</Button>
-            <Button onClick={() => addPrimitiveShape("square")} disabled={!draftElement || !canElementsWrite}>Add Square</Button>
-            <Button onClick={() => addPrimitiveShape("circle")} disabled={!draftElement || !canElementsWrite}>Add Circle</Button>
-            <Button onClick={() => addPrimitiveShape("triangle")} disabled={!draftElement || !canElementsWrite}>Add Triangle</Button>
-            <Button onClick={() => addObject("button")} disabled={!draftElement || !canElementsWrite}>Add Button</Button>
-            <Button onClick={() => addObject("state-indicator")} disabled={!draftElement || !canElementsWrite}>Add Indicator</Button>
-            <Typography.Text type={dirty ? "warning" : "secondary"}>{dirty ? "Unsaved changes" : "Saved"}</Typography.Text>
-          </Space>
-        </Card>
-        <Card
-          size="small"
-          title={draftElement ? `Element Canvas: ${draftElement.name}` : "Element Canvas"}
-          className="editor-stage-card"
-          bodyStyle={{ padding: 10 }}
-        >
-          <div
-            className="canvas-viewport"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={handleDropAsset}
-            style={{ minHeight: 0, overflow: "auto" }}
-          >
-            {virtualScreen ? (
+              <div style={{ height: 4 }} />
+              <input
+                className="workbench-input"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search elements"
+              />
+              <div style={{ height: 4 }} />
+              <select
+                className="workbench-select"
+                value={categoryFilter}
+                onChange={(event) => setCategoryFilter(event.target.value)}
+              >
+                {categoryOptions.map((item) => (
+                  <option key={item} value={item}>{item === "all" ? "All categories" : item}</option>
+                ))}
+              </select>
+              <div style={{ height: 4 }} />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "0 10px" }}>
+                <WorkbenchButton onClick={() => newElement("empty")}>New</WorkbenchButton>
+                <WorkbenchButton onClick={() => newElement("template")}>Template</WorkbenchButton>
+                <WorkbenchButton onClick={() => void duplicateElement()} disabled={!draftElement}>Duplicate</WorkbenchButton>
+                <WorkbenchButton
+                  variant="danger"
+                  onClick={() => void deleteCurrentLibraryElement()}
+                  disabled={deletingElement || !draftElement}
+                >
+                  {draftIsNew ? "Discard" : "Delete"}
+                </WorkbenchButton>
+                <WorkbenchButton onClick={() => void attachLibrary()} disabled={!selectedLibraryId}>Attach</WorkbenchButton>
+              </div>
+            </WorkbenchSection>
+            <WorkbenchSection title="ELEMENT LIST">
+              {displayElements.map((item) => (
+                <WorkbenchTreeItem
+                  key={item.id}
+                  active={item.isDraft ? draftIsNew : selectedElementId === item.id}
+                  onClick={() => {
+                    if (item.isDraft) {
+                      setDraftIsNew(true);
+                      setSelectedElementId("");
+                      return;
+                    }
+                    if (dirty) {
+                      Modal.confirm({
+                        title: "Unsaved changes",
+                        content: "Save current element before switching?",
+                        okText: "Save and switch",
+                        cancelText: "Discard",
+                        onOk: async () => {
+                          await saveElement();
+                          setSelectedElementId(item.id);
+                          setDraftIsNew(false);
+                        },
+                        onCancel: () => {
+                          setDirty(false);
+                          setSelectedElementId(item.id);
+                          setDraftIsNew(false);
+                        },
+                      });
+                      return;
+                    }
+                    setSelectedElementId(item.id);
+                    setDraftIsNew(false);
+                  }}
+                >
+                  {item.name}
+                </WorkbenchTreeItem>
+              ))}
+            </WorkbenchSection>
+          </div>
+        }
+        center={
+          <div className="element-editor-center">
+            <WorkbenchTabs
+              items={[
+                {
+                  id: "element",
+                  title: draftElement ? draftElement.name : "Element",
+                  active: true,
+                  dirty: dirty,
+                },
+              ]}
+            />
+            <WorkbenchPanelToolbar
+              left={
+                <>
+                  <WorkbenchButton
+                    onClick={() => {
+                      if (!draftElement) { return; }
+                      const previous = history.undo(draftElement);
+                      if (previous) { setDraftElement(previous); setDirty(true); }
+                    }}
+                    disabled={!draftElement || !history.canUndo}
+                  >
+                    ↩
+                  </WorkbenchButton>
+                  <WorkbenchButton
+                    onClick={() => {
+                      if (!draftElement) { return; }
+                      const next = history.redo(draftElement);
+                      if (next) { setDraftElement(next); setDirty(true); }
+                    }}
+                    disabled={!draftElement || !history.canRedo}
+                  >
+                    ↪
+                  </WorkbenchButton>
+                  <WorkbenchButton
+                    variant="primary"
+                    onClick={() => void saveElement()}
+                    disabled={!draftElement || !canElementsWrite}
+                  >
+                    Save
+                  </WorkbenchButton>
+                </>
+              }
+              center={
+                <>
+                  <Switch checked={previewMode} onChange={setPreviewMode} checkedChildren="Preview" unCheckedChildren="Edit" />
+                  <Typography.Text type={dirty ? "warning" : "secondary"} style={{ fontSize: 12, color: dirty ? "#d7ba7d" : "#969696" }}>
+                    {dirty ? "Unsaved" : "Saved"}
+                  </Typography.Text>
+                </>
+              }
+              right={
+                <>
+                  <WorkbenchButton onClick={() => addObject("text")} disabled={!draftElement || !canElementsWrite}>Text</WorkbenchButton>
+                  <WorkbenchButton onClick={() => addObject("line")} disabled={!draftElement || !canElementsWrite}>Line</WorkbenchButton>
+                  <WorkbenchButton onClick={() => addObject("rectangle")} disabled={!draftElement || !canElementsWrite}>Rect</WorkbenchButton>
+                  <WorkbenchButton onClick={() => addPrimitiveShape("square")} disabled={!draftElement || !canElementsWrite}>Square</WorkbenchButton>
+                  <WorkbenchButton onClick={() => addPrimitiveShape("circle")} disabled={!draftElement || !canElementsWrite}>Circle</WorkbenchButton>
+                  <WorkbenchButton onClick={() => addPrimitiveShape("triangle")} disabled={!draftElement || !canElementsWrite}>Triangle</WorkbenchButton>
+                  <WorkbenchButton onClick={() => addObject("state-indicator")} disabled={!draftElement || !canElementsWrite}>Indicator</WorkbenchButton>
+                </>
+              }
+            />
+            <div
+              className="element-editor-canvas-host"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={handleDropAsset}
+            >
+              {virtualScreen ? (
                 <HmiStage
                   project={elementEditorProject ?? project}
-                mode={previewMode ? "runtime" : "editor"}
-                screen={virtualScreen}
-                tags={previewTags}
-                libraries={libraries}
-                renderContext={{ tagPrefix: previewTagPrefix || undefined, parameters: previewParameters }}
-                selectedObjectIds={selectedObjectIds}
-                activeObjectId={activeObjectId}
-                selectionRect={selectionRect}
-                onSelectionRectChange={(rect) => setSelectionRect(rect)}
-                onSelectObject={({ objectId, additive }) => {
-                  if (previewMode) {
-                    return;
-                  }
-                  if (additive) {
-                    setSelectedObjectIds((prev) =>
-                      prev.includes(objectId) ? prev.filter((id) => id !== objectId) : [...prev, objectId],
+                  mode={previewMode ? "runtime" : "editor"}
+                  screen={virtualScreen}
+                  tags={previewTags}
+                  libraries={libraries}
+                  renderContext={{ tagPrefix: previewTagPrefix || undefined, parameters: previewParameters }}
+                  selectedObjectIds={selectedObjectIds}
+                  activeObjectId={activeObjectId}
+                  selectionRect={selectionRect}
+                  onSelectionRectChange={(rect) => setSelectionRect(rect)}
+                  onSelectObject={({ objectId, additive }) => {
+                    if (previewMode) { return; }
+                    if (additive) {
+                      setSelectedObjectIds((prev) =>
+                        prev.includes(objectId) ? prev.filter((id) => id !== objectId) : [...prev, objectId],
+                      );
+                      setActiveObjectId(objectId);
+                    } else {
+                      setSelectedObjectIds([objectId]);
+                      setActiveObjectId(objectId);
+                    }
+                  }}
+                  onSelectObjects={(ids, active) => {
+                    if (previewMode) { return; }
+                    setSelectedObjectIds(ids);
+                    setActiveObjectId(active);
+                  }}
+                  onMoveObject={(id, x, y) => {
+                    if (previewMode) { return; }
+                    setObjects((objects) => updateObjectInList(objects, id, (item) => ({ ...item, x, y })));
+                  }}
+                  onResizeObject={(id, patch) => {
+                    if (previewMode) { return; }
+                    setObjects((objects) =>
+                      updateObjectInList(objects, id, (item) => ({ ...item, ...patch } as HmiObject)),
                     );
-                    setActiveObjectId(objectId);
-                  } else {
-                    setSelectedObjectIds([objectId]);
-                    setActiveObjectId(objectId);
-                  }
-                }}
-                onSelectObjects={(ids, active) => {
-                  if (previewMode) {
-                    return;
-                  }
-                  setSelectedObjectIds(ids);
-                  setActiveObjectId(active);
-                }}
-                onMoveObject={(id, x, y) => {
-                  if (previewMode) {
-                    return;
-                  }
-                  setObjects((objects) => updateObjectInList(objects, id, (item) => ({ ...item, x, y })));
-                }}
-                onResizeObject={(id, patch) => {
-                  if (previewMode) {
-                    return;
-                  }
-                  setObjects((objects) =>
-                    updateObjectInList(objects, id, (item) => ({ ...item, ...patch } as HmiObject)),
-                  );
-                }}
-                onContextMenuObject={({ objectId }) => {
-                  if (previewMode) {
-                    return;
-                  }
-                  const object = findObjectById(objectId);
-                  if (object?.type === "image" || object?.type === "stateImage") {
-                    setSelectedObjectIds([objectId]);
-                    setActiveObjectId(objectId);
-                    openAssetPicker(objectId);
-                  }
-                }}
-              />
-            ) : (
-              <Typography.Text type="secondary">Create or open element to start editing</Typography.Text>
-            )}
+                  }}
+                  onContextMenuObject={({ objectId }) => {
+                    if (previewMode) { return; }
+                    const object = findObjectById(objectId);
+                    if (object?.type === "image" || object?.type === "stateImage") {
+                      setSelectedObjectIds([objectId]);
+                      setActiveObjectId(objectId);
+                      openAssetPicker(objectId);
+                    }
+                  }}
+                />
+              ) : (
+                <Typography.Text type="secondary">Create or open element to start editing</Typography.Text>
+              )}
+            </div>
           </div>
-        </Card>
-      </div>
-
-      <ResizableDockPanel
-        id="elementEditor.right"
-        side="right"
-        hidden={rightPanel.hidden}
-        size={clamp(rightPanel.size, 0, 720)}
-        lastVisibleSize={rightPanel.lastVisibleSize}
-        minSize={280}
-        maxSize={720}
-        autoHideThreshold={80}
-        restoreSize={380}
-        workspaceRef={workspaceRef}
-        restoreTooltip="Show element properties"
-        restoreIcon={<LeftOutlined />}
-        onStateChange={(state) => dockLayout.setPanelState("elementEditor.right", () => state)}
-      >
-        <div className="element-editor-right-panel">
-          <Tabs
-            size="small"
-            style={{ height: "100%" }}
-            items={[
-            {
-              key: "element",
-              label: "Element",
-              children: draftElement ? (
-                <Form layout="vertical" size="small">
-                  <Form.Item label="Element ID">
-                    <Input value={draftElement.id} onChange={(event) => applyDraftPatch({ id: event.target.value })} />
-                  </Form.Item>
-                  <Form.Item label="Element Key">
-                    <Input value={draftElement.elementKey ?? ""} onChange={(event) => applyDraftPatch({ elementKey: event.target.value })} />
-                  </Form.Item>
-                  <Form.Item label="Name">
-                    <Input value={draftElement.name} onChange={(event) => applyDraftPatch({ name: event.target.value })} />
-                  </Form.Item>
-                  <Form.Item label="Description">
-                    <Input value={draftElement.description ?? ""} onChange={(event) => applyDraftPatch({ description: event.target.value })} />
-                  </Form.Item>
-                  <Form.Item label="Category">
-                    <Input value={draftElement.category ?? ""} onChange={(event) => applyDraftPatch({ category: event.target.value })} />
-                  </Form.Item>
-                  <Space style={{ width: "100%" }} direction="vertical">
-                    <Typography.Text strong>Canvas size</Typography.Text>
-                    <Space>
-                      <InputNumber min={20} value={draftElement.width} onChange={(value) => applyDraftPatch({ width: Number(value ?? 20) })} />
-                      <InputNumber min={20} value={draftElement.height} onChange={(value) => applyDraftPatch({ height: Number(value ?? 20) })} />
+        }
+        right={
+          <div className="element-editor-inspector">
+            <Tabs
+              size="small"
+              style={{ height: "100%" }}
+              items={[
+              {
+                key: "element",
+                label: "Element",
+                children: draftElement ? (
+                  <Form layout="vertical" size="small">
+                    <Form.Item label="Element ID">
+                      <Input value={draftElement.id} onChange={(event) => applyDraftPatch({ id: event.target.value })} />
+                    </Form.Item>
+                    <Form.Item label="Element Key">
+                      <Input value={draftElement.elementKey ?? ""} onChange={(event) => applyDraftPatch({ elementKey: event.target.value })} />
+                    </Form.Item>
+                    <Form.Item label="Name">
+                      <Input value={draftElement.name} onChange={(event) => applyDraftPatch({ name: event.target.value })} />
+                    </Form.Item>
+                    <Form.Item label="Description">
+                      <Input value={draftElement.description ?? ""} onChange={(event) => applyDraftPatch({ description: event.target.value })} />
+                    </Form.Item>
+                    <Form.Item label="Category">
+                      <Input value={draftElement.category ?? ""} onChange={(event) => applyDraftPatch({ category: event.target.value })} />
+                    </Form.Item>
+                    <Space style={{ width: "100%" }} direction="vertical">
+                      <Typography.Text strong>Canvas size</Typography.Text>
+                      <Space>
+                        <InputNumber min={20} value={draftElement.width} onChange={(value) => applyDraftPatch({ width: Number(value ?? 20) })} />
+                        <InputNumber min={20} value={draftElement.height} onChange={(value) => applyDraftPatch({ height: Number(value ?? 20) })} />
+                      </Space>
                     </Space>
-                  </Space>
-                  <Divider />
-                  <Space direction="vertical" style={{ width: "100%" }}>
-                    <Typography.Text strong>Parameters</Typography.Text>
-                    <Space wrap>
-                      <Button
+                    <Divider />
+                    <Space direction="vertical" style={{ width: "100%" }}>
+                      <Typography.Text strong>Parameters</Typography.Text>
+                      <Space wrap>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            const next: LibraryParameter = { name: `param_${(draftElement.parameters?.length ?? 0) + 1}`, type: "string", defaultValue: "" };
+                            applyDraftPatch({ parameters: [...(draftElement.parameters ?? []), next] });
+                          }}
+                        >
+                          Add Parameter
+                        </Button>
+                      </Space>
+                      <List
                         size="small"
-                        onClick={() => {
-                          const next: LibraryParameter = { name: `param_${(draftElement.parameters?.length ?? 0) + 1}`, type: "string", defaultValue: "" };
-                          applyDraftPatch({ parameters: [...(draftElement.parameters ?? []), next] });
-                        }}
-                      >
-                        Add Parameter
-                      </Button>
+                        dataSource={draftElement.parameters ?? []}
+                        renderItem={(param, index) => (
+                          <List.Item
+                            actions={[
+                              <Button
+                                key="remove"
+                                size="small"
+                                danger
+                                onClick={() =>
+                                  applyDraftPatch({
+                                    parameters: (draftElement.parameters ?? []).filter((_, i) => i !== index),
+                                  })
+                                }
+                              >
+                                Del
+                              </Button>,
+                            ]}
+                          >
+                            <Space direction="vertical" style={{ width: "100%" }}>
+                              <Input
+                                value={param.name}
+                                placeholder="name"
+                                onChange={(event) => {
+                                  const next = [...(draftElement.parameters ?? [])];
+                                  const current = next[index];
+                                  if (!current) { return; }
+                                  next[index] = { ...current, name: event.target.value };
+                                  applyDraftPatch({ parameters: next });
+                                }}
+                              />
+                              <Select
+                                value={param.type}
+                                options={["string", "number", "boolean", "color", "tag", "tagPrefix", "index"].map((type) => ({
+                                  label: type,
+                                  value: type,
+                                }))}
+                                onChange={(value) => {
+                                  const next = [...(draftElement.parameters ?? [])];
+                                  const current = next[index];
+                                  if (!current) { return; }
+                                  next[index] = { ...current, type: value };
+                                  applyDraftPatch({ parameters: next });
+                                }}
+                              />
+                              <Input
+                                value={String(param.defaultValue ?? "")}
+                                placeholder="default"
+                                onChange={(event) => {
+                                  const next = [...(draftElement.parameters ?? [])];
+                                  const current = next[index];
+                                  if (!current) { return; }
+                                  next[index] = { ...current, defaultValue: event.target.value };
+                                  applyDraftPatch({ parameters: next });
+                                }}
+                              />
+                            </Space>
+                          </List.Item>
+                        )}
+                      />
                     </Space>
+                  </Form>
+                ) : (
+                  <Typography.Text type="secondary">Select element</Typography.Text>
+                ),
+              },
+              {
+                key: "bindings",
+                label: "Bindings",
+                children: draftElement ? (
+                  <Space direction="vertical" style={{ width: "100%" }}>
+                    <Typography.Text type="secondary">
+                      Define external connection points used by objects via <code>$binding.key</code>.
+                    </Typography.Text>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        const nextIndex = (draftElement.bindings?.length ?? 0) + 1;
+                        const nextBinding: ElementBindingDefinition = {
+                          id: makeId("binding"),
+                          key: `binding${nextIndex}`,
+                          displayName: `Binding ${nextIndex}`,
+                          kind: "state",
+                          dataType: "INT",
+                          required: true,
+                          defaultBaseTag: ".State",
+                          overridable: true,
+                        };
+                        applyDraftPatch({ bindings: [...(draftElement.bindings ?? []), nextBinding] });
+                      }}
+                    >
+                      Add Binding
+                    </Button>
                     <List
                       size="small"
-                      dataSource={draftElement.parameters ?? []}
-                      renderItem={(param, index) => (
+                      dataSource={draftElement.bindings ?? []}
+                      locale={{ emptyText: "No bindings. Add binding and reference it from StateImage tag as $binding.key" }}
+                      renderItem={(binding, index) => (
                         <List.Item
                           actions={[
                             <Button
-                              key="remove"
-                              size="small"
+                              key="delete"
                               danger
+                              size="small"
                               onClick={() =>
                                 applyDraftPatch({
-                                  parameters: (draftElement.parameters ?? []).filter((_, i) => i !== index),
+                                  bindings: (draftElement.bindings ?? []).filter((_, itemIndex) => itemIndex !== index),
                                 })
                               }
                             >
-                              Del
+                              Delete
                             </Button>,
                           ]}
                         >
                           <Space direction="vertical" style={{ width: "100%" }}>
                             <Input
-                              value={param.name}
-                              placeholder="name"
+                              addonBefore="Key"
+                              value={binding.key}
                               onChange={(event) => {
-                                const next = [...(draftElement.parameters ?? [])];
+                                const next = [...(draftElement.bindings ?? [])];
                                 const current = next[index];
-                                if (!current) {
-                                  return;
-                                }
-                                next[index] = { ...current, name: event.target.value };
-                                applyDraftPatch({ parameters: next });
-                              }}
-                            />
-                            <Select
-                              value={param.type}
-                              options={["string", "number", "boolean", "color", "tag", "tagPrefix", "index"].map((type) => ({
-                                label: type,
-                                value: type,
-                              }))}
-                              onChange={(value) => {
-                                const next = [...(draftElement.parameters ?? [])];
-                                const current = next[index];
-                                if (!current) {
-                                  return;
-                                }
-                                next[index] = { ...current, type: value };
-                                applyDraftPatch({ parameters: next });
+                                if (!current) { return; }
+                                next[index] = { ...current, key: createBindingKey(event.target.value) };
+                                applyDraftPatch({ bindings: next });
                               }}
                             />
                             <Input
-                              value={String(param.defaultValue ?? "")}
-                              placeholder="default"
+                              addonBefore="Name"
+                              value={binding.displayName}
                               onChange={(event) => {
-                                const next = [...(draftElement.parameters ?? [])];
+                                const next = [...(draftElement.bindings ?? [])];
                                 const current = next[index];
-                                if (!current) {
-                                  return;
-                                }
-                                next[index] = { ...current, defaultValue: event.target.value };
-                                applyDraftPatch({ parameters: next });
+                                if (!current) { return; }
+                                next[index] = { ...current, displayName: event.target.value };
+                                applyDraftPatch({ bindings: next });
                               }}
                             />
+                            <Select
+                              value={binding.kind}
+                              options={[
+                                { label: "State", value: "state" },
+                                { label: "Text", value: "text" },
+                                { label: "Value", value: "value" },
+                              ]}
+                              onChange={(value) => {
+                                const next = [...(draftElement.bindings ?? [])];
+                                const current = next[index];
+                                if (!current) { return; }
+                                next[index] = { ...current, kind: value };
+                                applyDraftPatch({ bindings: next });
+                              }}
+                            />
+                            <Input
+                              addonBefore="Default Tag"
+                              value={binding.defaultBaseTag ?? ""}
+                              onChange={(event) => {
+                                const next = [...(draftElement.bindings ?? [])];
+                                const current = next[index];
+                                if (!current) { return; }
+                                next[index] = { ...current, defaultBaseTag: event.target.value };
+                                applyDraftPatch({ bindings: next });
+                              }}
+                            />
+                            <Space>
+                              <Switch
+                                checked={binding.required}
+                                onChange={(checked) => {
+                                  const next = [...(draftElement.bindings ?? [])];
+                                  const current = next[index];
+                                  if (!current) { return; }
+                                  next[index] = { ...current, required: checked };
+                                  applyDraftPatch({ bindings: next });
+                                }}
+                              />
+                              <Typography.Text>Required</Typography.Text>
+                            </Space>
+                            <Space>
+                              <Switch
+                                checked={binding.overridable}
+                                onChange={(checked) => {
+                                  const next = [...(draftElement.bindings ?? [])];
+                                  const current = next[index];
+                                  if (!current) { return; }
+                                  next[index] = { ...current, overridable: checked };
+                                  applyDraftPatch({ bindings: next });
+                                }}
+                              />
+                              <Typography.Text>Overridable</Typography.Text>
+                            </Space>
                           </Space>
                         </List.Item>
                       )}
                     />
                   </Space>
-                </Form>
-              ) : (
-                <Typography.Text type="secondary">Select element</Typography.Text>
-              ),
-            },
-            {
-              key: "bindings",
-              label: "Bindings",
-              children: draftElement ? (
-                <Space direction="vertical" style={{ width: "100%" }}>
-                  <Typography.Text type="secondary">
-                    Define external connection points used by objects via <code>$binding.key</code>.
-                  </Typography.Text>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      const nextIndex = (draftElement.bindings?.length ?? 0) + 1;
-                      const nextBinding: ElementBindingDefinition = {
-                        id: makeId("binding"),
-                        key: `binding${nextIndex}`,
-                        displayName: `Binding ${nextIndex}`,
-                        kind: "state",
-                        dataType: "INT",
-                        required: true,
-                        defaultBaseTag: ".State",
-                        overridable: true,
-                      };
-                      applyDraftPatch({ bindings: [...(draftElement.bindings ?? []), nextBinding] });
+                ) : (
+                  <Typography.Text type="secondary">Select element</Typography.Text>
+                ),
+              },
+              {
+                key: "stateRules",
+                label: "State Rules",
+                children: draftElement ? (
+                  <ObjectPropertyPanel
+                    project={project}
+                    screen={virtualScreen!}
+                    assets={availableAssets}
+                    libraries={libraries}
+                    object={activeObject}
+                    elementBindings={draftElement?.bindings ?? []}
+                    onPatch={(patch) => {
+                      if (!activeObject) { return; }
+                      setObjects((objects) =>
+                        updateObjectInList(objects, activeObject.id, (item) => ({ ...item, ...patch } as HmiObject)),
+                      );
                     }}
-                  >
-                    Add Binding
-                  </Button>
-                  <List
-                    size="small"
-                    dataSource={draftElement.bindings ?? []}
-                    locale={{ emptyText: "No bindings. Add binding and reference it from StateImage tag as $binding.key" }}
-                    renderItem={(binding, index) => (
-                      <List.Item
-                        actions={[
-                          <Button
-                            key="delete"
-                            danger
-                            size="small"
-                            onClick={() =>
-                              applyDraftPatch({
-                                bindings: (draftElement.bindings ?? []).filter((_, itemIndex) => itemIndex !== index),
-                              })
-                            }
-                          >
-                            Delete
-                          </Button>,
-                        ]}
-                      >
-                        <Space direction="vertical" style={{ width: "100%" }}>
-                          <Input
-                            addonBefore="Key"
-                            value={binding.key}
-                            onChange={(event) => {
-                              const next = [...(draftElement.bindings ?? [])];
-                              const current = next[index];
-                              if (!current) {
-                                return;
-                              }
-                              next[index] = { ...current, key: createBindingKey(event.target.value) };
-                              applyDraftPatch({ bindings: next });
-                            }}
-                          />
-                          <Input
-                            addonBefore="Name"
-                            value={binding.displayName}
-                            onChange={(event) => {
-                              const next = [...(draftElement.bindings ?? [])];
-                              const current = next[index];
-                              if (!current) {
-                                return;
-                              }
-                              next[index] = { ...current, displayName: event.target.value };
-                              applyDraftPatch({ bindings: next });
-                            }}
-                          />
-                          <Input
-                            addonBefore="Default Base Tag"
-                            value={binding.defaultBaseTag ?? ""}
-                            onChange={(event) => {
-                              const next = [...(draftElement.bindings ?? [])];
-                              const current = next[index];
-                              if (!current) {
-                                return;
-                              }
-                              next[index] = { ...current, defaultBaseTag: event.target.value };
-                              applyDraftPatch({ bindings: next });
-                            }}
-                          />
-                          <Space wrap>
-                            <Select
-                              style={{ width: 130 }}
-                              value={binding.kind}
-                              options={[
-                                { label: "state", value: "state" },
-                                { label: "tag", value: "tag" },
-                                { label: "writeTag", value: "writeTag" },
-                                { label: "command", value: "command" },
-                                { label: "custom", value: "custom" },
-                              ]}
-                              onChange={(value) => {
-                                const next = [...(draftElement.bindings ?? [])];
-                                const current = next[index];
-                                if (!current) {
-                                  return;
-                                }
-                                next[index] = { ...current, kind: value };
-                                applyDraftPatch({ bindings: next });
-                              }}
-                            />
-                            <Select
-                              style={{ width: 120 }}
-                              value={binding.dataType}
-                              options={[
-                                "BOOL",
-                                "INT",
-                                "UINT",
-                                "DINT",
-                                "UDINT",
-                                "REAL",
-                                "STRING",
-                              ].map((item) => ({ label: item, value: item }))}
-                              onChange={(value) => {
-                                const next = [...(draftElement.bindings ?? [])];
-                                const current = next[index];
-                                if (!current) {
-                                  return;
-                                }
-                                next[index] = { ...current, dataType: value };
-                                applyDraftPatch({ bindings: next });
-                              }}
-                            />
-                            <Switch
-                              checked={binding.required ?? false}
-                              onChange={(checked) => {
-                                const next = [...(draftElement.bindings ?? [])];
-                                const current = next[index];
-                                if (!current) {
-                                  return;
-                                }
-                                next[index] = { ...current, required: checked };
-                                applyDraftPatch({ bindings: next });
-                              }}
-                            />
-                            <Typography.Text type="secondary">Required</Typography.Text>
-                          </Space>
-                        </Space>
-                      </List.Item>
-                    )}
+                    onDelete={() => {
+                      deleteSelectedElementObjects("properties");
+                    }}
                   />
-                </Space>
-              ) : (
-                <Typography.Text type="secondary">Select element</Typography.Text>
-              ),
-            },
-            {
-              key: "object",
-              label: "Object",
-              children: virtualScreen ? (
-                <ObjectPropertyPanel
-                  project={project}
-                  screen={virtualScreen}
-                  assets={availableAssets}
-                  libraries={libraries}
-                  object={activeObject}
-                  elementBindings={draftElement?.bindings ?? []}
-                  onPatch={(patch) => {
-                    if (!activeObject) {
-                      return;
-                    }
-                    setObjects((objects) =>
-                      updateObjectInList(objects, activeObject.id, (item) => ({ ...item, ...patch } as HmiObject)),
-                    );
-                  }}
-                  onDelete={() => {
-                    deleteSelectedElementObjects("properties");
-                  }}
-                />
-              ) : (
-                <Typography.Text type="secondary">No object selected</Typography.Text>
-              ),
-            },
-            {
-              key: "assets",
-              label: "Assets",
-              children: (
-                <Space direction="vertical" style={{ width: "100%" }}>
-                  <Typography.Text type="secondary">Drag asset to canvas or click Add</Typography.Text>
-                  <Button
-                    onClick={() => uploadInputRef.current?.click()}
-                    loading={uploadingAsset}
-                    disabled={!selectedLibraryId}
-                  >
-                    Upload Asset
-                  </Button>
-                  <List
-                    size="small"
-                    dataSource={availableAssets}
-                    renderItem={(asset) => (
-                      <List.Item
-                        draggable
-                        onDragStart={(event) =>
-                          event.dataTransfer.setData("application/web-scada-asset", JSON.stringify({ assetId: asset.id }))
-                        }
-                        actions={[
-                          <Button key="add" size="small" onClick={() => addImageFromAsset(asset.id)}>
-                            Add
-                          </Button>,
-                        ]}
-                      >
-                        <Space direction="vertical" size={0}>
-                          <Typography.Text>{asset.name}</Typography.Text>
-                          <Typography.Text type="secondary">{asset.fileName}</Typography.Text>
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
-                </Space>
-              ),
-            },
-            {
-              key: "stateRules",
-              label: "State Rules",
-              children: draftElement ? (
-                <StateRulesEditor
-                  stateRules={draftElement.stateRules ?? []}
-                  objects={draftElement.objects}
-                  bindings={draftElement.bindings ?? []}
-                  assets={selectedLibraryAssets}
-                  onChange={(nextRules) => {
-                    applyDraftPatch({ stateRules: nextRules });
-                  }}
-                />
-              ) : (
-                <Typography.Text type="secondary">Select element</Typography.Text>
-              ),
-            },
-            {
-              key: "preview",
-              label: "Preview",
-              children: draftElement ? (
-                <Space direction="vertical" style={{ width: "100%" }}>
-                  <Typography.Text strong>Preview values</Typography.Text>
-                  <Input value={previewStateTag} onChange={(event) => setPreviewStateTag(event.target.value)} placeholder="State tag (.State)" />
-                  <Input value={previewStateValue} onChange={(event) => setPreviewStateValue(event.target.value)} placeholder="State value" />
-                  <Divider style={{ margin: "8px 0" }} />
-                  {(draftElement.parameters ?? []).map((param) => (
-                    <Form.Item key={param.name} label={param.displayName || param.name} style={{ marginBottom: 8 }}>
-                      <Input
-                        value={previewValues[param.name] ?? ""}
-                        onChange={(event) =>
-                          setPreviewValues((prev) => ({ ...prev, [param.name]: event.target.value }))
-                        }
-                      />
-                    </Form.Item>
-                  ))}
-                </Space>
-              ) : (
-                <Typography.Text type="secondary">Select element</Typography.Text>
-              ),
-            },
-            ]}
-          />
-        </div>
-      </ResizableDockPanel>
-
-      <Modal
-        open={deleteElementDialog.open}
-        title={deleteElementDialog.open && deleteElementDialog.mode === "discardDraft" ? "Discard unsaved draft" : "Delete element"}
-        onCancel={() => setDeleteElementDialog({ open: false })}
-        onOk={() => void confirmDeleteElementDialog()}
-        okText={
-          deleteElementDialog.open && deleteElementDialog.mode === "discardDraft"
-            ? "Discard"
-            : deleteDialogUsageCount > 0
-              ? "Delete With Instances"
-              : "Delete"
-        }
-        okButtonProps={{ danger: true, loading: deletingElement }}
-        cancelText="Cancel"
-        zIndex={5000}
-      >
-        {deleteElementDialog.open && deleteElementDialog.mode === "discardDraft" ? (
-          <Typography.Text>
-            Discard unsaved element "{deleteElementDialog.elementName}"?
-          </Typography.Text>
-        ) : deleteElementDialog.open ? (
-          <div>
-            <div>Name: {deleteElementDialog.elementName}</div>
-            <div>Element Key: {deleteElementDialog.elementKey || "-"}</div>
-            <div>Library: {selectedLibrary?.name ?? deleteElementDialog.libraryId}</div>
-            <div>Category: {deleteElementDialog.category || "-"}</div>
-            <div>Current local usage count: {deleteDialogUsageCount}</div>
-            <div style={{ marginTop: 8 }}>
-              {deleteDialogUsageCount > 0
-                ? "Element is used in screens. You can delete it together with all instances."
-                : "Delete this element permanently?"}
-            </div>
-          </div>
-        ) : null}
-      </Modal>
-
-      <Modal
-        title="Create Element"
-        open={newElementModalOpen}
-        onCancel={() => setNewElementModalOpen(false)}
-        onOk={createNewElement}
-        okText="Create"
-      >
-        <Form form={newElementForm} layout="vertical" size="small">
-          <Form.Item name="name" label="Name" rules={[{ required: true, message: "Name is required" }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="elementKey" label="Element Key">
-            <Input />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input />
-          </Form.Item>
-          <Form.Item name="category" label="Category">
-            <Input />
-          </Form.Item>
-          <Space style={{ width: "100%" }}>
-            <Form.Item name="width" label="Canvas Width" style={{ flex: 1 }}>
-              <InputNumber min={20} style={{ width: "100%" }} />
-            </Form.Item>
-            <Form.Item name="height" label="Canvas Height" style={{ flex: 1 }}>
-              <InputNumber min={20} style={{ width: "100%" }} />
-            </Form.Item>
-          </Space>
-          <Form.Item name="creationMode" label="Creation Mode">
-            <Select
-              options={[
-                { label: "Empty", value: "empty" },
-                { label: "From Template", value: "template" },
+                ) : (
+                  <Typography.Text type="secondary">Select element</Typography.Text>
+                ),
+              },
+              {
+                key: "preview",
+                label: "Preview",
+                children: draftElement ? (
+                  <Space direction="vertical" style={{ width: "100%" }}>
+                    <Typography.Text strong>Preview Parameters</Typography.Text>
+                    <Typography.Text type="secondary">
+                      Override parameters to preview element with custom values.
+                    </Typography.Text>
+                    {(draftElement.parameters ?? []).map((param) => (
+                      <Form.Item key={param.name} label={param.displayName || param.name} style={{ marginBottom: 8 }}>
+                        <Input
+                          value={previewValues[param.name] ?? ""}
+                          onChange={(event) =>
+                            setPreviewValues((prev) => ({ ...prev, [param.name]: event.target.value }))
+                          }
+                        />
+                      </Form.Item>
+                    ))}
+                  </Space>
+                ) : (
+                  <Typography.Text type="secondary">Select element</Typography.Text>
+                ),
+              },
               ]}
             />
-          </Form.Item>
-          {creationMode === "template" ? (
-            <Form.Item name="templateKind" label="Template">
-              <Select
-                options={[
-                  { label: "Valve 3 States", value: "valve3" },
-                  { label: "Pump", value: "pump" },
-                  { label: "Indicator", value: "indicator" },
-                  { label: "Button", value: "button" },
-                  { label: "Custom template", value: "custom" },
-                ]}
-              />
-            </Form.Item>
-          ) : null}
-        </Form>
-      </Modal>
-
-      <Modal
-        title={assetPickerTargetObjectId ? "Replace image" : "Add image"}
-        open={assetPickerOpen}
-        onCancel={() => {
-          setAssetPickerOpen(false);
-          setAssetPickerTargetObjectId(undefined);
-        }}
-        footer={null}
-      >
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <Button onClick={() => uploadInputRef.current?.click()} loading={uploadingAsset} disabled={!selectedLibraryId}>
-            Upload Asset
-          </Button>
-          <List
-            size="small"
-            dataSource={availableAssets}
-            locale={{ emptyText: "No assets in this library. Upload image first." }}
-            renderItem={(asset) => (
-              <List.Item
-                actions={[
-                  <Button key="use" size="small" type="primary" onClick={() => addImageFromAsset(asset.id, assetPickerTargetObjectId)}>
-                    {assetPickerTargetObjectId ? "Replace" : "Add"}
-                  </Button>,
-                  !assetPickerTargetObjectId && asset.type === "svg" ? (
-                    <Button key="import-svg" size="small" onClick={() => void addSvgPrimitivesFromAsset(asset)}>
-                      Add SVG Primitives
-                    </Button>
-                  ) : null,
-                ]}
-              >
-                <Space direction="vertical" size={0}>
-                  <Typography.Text>{asset.name}</Typography.Text>
-                  <Typography.Text type="secondary">{asset.fileName}</Typography.Text>
-                </Space>
-              </List.Item>
-            )}
-          />
-        </Space>
-      </Modal>
-
-      <Modal
-        title="Add State Image"
-        open={stateImageWizardOpen}
-        onCancel={() => setStateImageWizardOpen(false)}
-        onOk={createStateImageFromWizard}
-        okText="Create"
-        width={780}
-      >
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <Form layout="vertical" size="small">
-            <Form.Item label="Object name">
-              <Input value={stateImageWizardName} onChange={(event) => setStateImageWizardName(event.target.value)} />
-            </Form.Item>
-            <Form.Item label="Source">
-              <Select
-                value={stateImageWizardSourceMode}
-                options={[
-                  { label: "Manual tag", value: "manualTag" },
-                  { label: "Existing binding", value: "existingBinding" },
-                  { label: "New binding", value: "newBinding" },
-                ]}
-                onChange={(value) => setStateImageWizardSourceMode(value as StateImageSourceMode)}
-              />
-            </Form.Item>
-            {stateImageWizardSourceMode === "existingBinding" ? (
-              <Form.Item label="Binding key">
-                <Select
-                  value={stateImageWizardBindingKey}
-                  options={(draftElement?.bindings ?? []).map((binding) => ({
-                    label: `${binding.displayName} (${binding.key})`,
-                    value: binding.key,
-                  }))}
-                  onChange={setStateImageWizardBindingKey}
-                />
-              </Form.Item>
-            ) : null}
-            {stateImageWizardSourceMode === "newBinding" ? (
+          </div>
+        }
+        bottom={
+          <div className="element-editor-bottom-panel">
+            <div>[info] Element Editor migrated to Workbench layout</div>
+            <div>[info] Drag panel borders to resize layout</div>
+            <div>[info] Layout is saved with autoSaveId=my-web-scada-element-editor</div>
+            {draftElement ? (
               <>
-                <Form.Item label="Binding key">
-                  <Input value={stateImageWizardBindingKey} onChange={(event) => setStateImageWizardBindingKey(event.target.value)} />
-                </Form.Item>
-                <Form.Item label="Binding name">
-                  <Input value={stateImageWizardBindingDisplayName} onChange={(event) => setStateImageWizardBindingDisplayName(event.target.value)} />
-                </Form.Item>
-                <Form.Item label="Binding data type">
-                  <Select
-                    value={stateImageWizardBindingDataType}
-                    options={["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"].map((item) => ({ label: item, value: item }))}
-                    onChange={(value) =>
-                      setStateImageWizardBindingDataType(value as "BOOL" | "INT" | "UINT" | "DINT" | "UDINT" | "REAL" | "STRING")
-                    }
-                  />
-                </Form.Item>
+                <div>[object] Selected: {activeObjectId || "none"}</div>
+                <div>[object] Objects count: {draftElement.objects.length}</div>
               </>
             ) : null}
-            <Form.Item label="Source tag">
-              <Input value={stateImageWizardTag} onChange={(event) => setStateImageWizardTag(event.target.value)} placeholder=".State" />
-            </Form.Item>
-            <Space style={{ width: "100%" }}>
-              <Form.Item label="Width" style={{ flex: 1 }}>
-                <InputNumber min={20} style={{ width: "100%" }} value={stateImageWizardWidth} onChange={(value) => setStateImageWizardWidth(Number(value ?? 90))} />
-              </Form.Item>
-              <Form.Item label="Height" style={{ flex: 1 }}>
-                <InputNumber min={20} style={{ width: "100%" }} value={stateImageWizardHeight} onChange={(value) => setStateImageWizardHeight(Number(value ?? 56))} />
-              </Form.Item>
-            </Space>
-          </Form>
-          <Button
-            onClick={() =>
-              setStateImageDraftRows((prev) => [...prev, { id: makeId("state"), value: String(prev.length), name: `State ${prev.length}` }])
-            }
-          >
-            Add State
-          </Button>
-          <List
-            size="small"
-            dataSource={stateImageDraftRows}
-            renderItem={(row) => (
-              <List.Item
-                actions={[
-                  <Button key="del" danger size="small" onClick={() => setStateImageDraftRows((prev) => prev.filter((item) => item.id !== row.id))}>
-                    Delete
-                  </Button>,
-                ]}
-              >
-                <Space wrap style={{ width: "100%" }}>
-                  <Input
-                    style={{ width: 110 }}
-                    placeholder="Value"
-                    value={row.value}
-                    onChange={(event) =>
-                      setStateImageDraftRows((prev) =>
-                        prev.map((item) => (item.id === row.id ? { ...item, value: event.target.value } : item)),
-                      )
-                    }
-                  />
-                  <Input
-                    style={{ width: 170 }}
-                    placeholder="State name"
-                    value={row.name}
-                    onChange={(event) =>
-                      setStateImageDraftRows((prev) =>
-                        prev.map((item) => (item.id === row.id ? { ...item, name: event.target.value } : item)),
-                      )
-                    }
-                  />
-                  <Select
-                    style={{ minWidth: 260 }}
-                    value={row.assetId}
-                    placeholder="Select asset"
-                    options={availableAssets.map((asset) => ({ label: asset.name, value: asset.id }))}
-                    onChange={(value) =>
-                      setStateImageDraftRows((prev) =>
-                        prev.map((item) => (item.id === row.id ? { ...item, assetId: value } : item)),
-                      )
-                    }
-                  />
-                </Space>
-              </List.Item>
-            )}
-          />
-        </Space>
-      </Modal>
-
+            <div>[state] {dirty ? "Unsaved changes" : "All changes saved"}</div>
+          </div>
+        }
+      />
       <input
         ref={uploadInputRef}
         type="file"
@@ -2696,13 +2332,10 @@ export function ElementEditorPage() {
         onChange={(event) => {
           const file = event.target.files?.[0];
           event.currentTarget.value = "";
-          if (!file) {
-            return;
-          }
+          if (!file) { return; }
           void uploadAssetToLibrary(file);
         }}
       />
     </div>
   );
 }
-

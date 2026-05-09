@@ -33,6 +33,7 @@ const ElementEditorPage = lazy(() => import("../pages/element-editor-page").then
 const SettingsPage = lazy(() => import("../pages/settings-page").then((m) => ({ default: m.SettingsPage })));
 const UsersPage = lazy(() => import("../pages/users-page").then((m) => ({ default: m.UsersPage })));
 const LoginPage = lazy(() => import("../pages/login-page").then((m) => ({ default: m.LoginPage })));
+const WorkbenchDemoPage = lazy(() => import("../pages/workbench-demo-page").then((m) => ({ default: m.WorkbenchDemoPage })));
 
 export function App() {
   const location = useLocation();
@@ -53,6 +54,7 @@ export function App() {
   const setCurrentScreen = useScadaStore((s) => s.setCurrentScreen);
   const isRuntimeRoute = location.pathname === "/" || location.pathname === "/runtime";
   const isLoginRoute = location.pathname === "/login";
+  const isWorkbenchDemoRoute = location.pathname === "/workbench-demo";
   const [bootError, setBootError] = useState<string | null>(null);
   const [mainMenuHidden, setMainMenuHidden] = useState<boolean>(() => {
     if (typeof window === "undefined") {
@@ -175,6 +177,17 @@ export function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
+  if (isWorkbenchDemoRoute) {
+    return (
+      <Suspense fallback={<CenteredSpinner />}>
+        <Routes>
+          <Route path="/workbench-demo" element={<WorkbenchDemoPage />} />
+          <Route path="*" element={<Navigate to="/workbench-demo" replace />} />
         </Routes>
       </Suspense>
     );

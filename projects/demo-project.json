@@ -13183,7 +13183,7 @@
       "leftPanel": {
         "visible": true,
         "collapsed": false,
-        "width": 296,
+        "width": 373,
         "minWidth": 240,
         "maxWidth": 520,
         "collapsedWidth": 36
@@ -13230,7 +13230,7 @@
         }
       }
     },
-    "leftPanelWidth": 296,
+    "leftPanelWidth": 373,
     "rightPanelWidth": 260,
     "showObjectFrames": false,
     "panels": [
@@ -13240,7 +13240,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 296,
+        "width": 373,
         "height": 240
       },
       {
@@ -13271,7 +13271,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 296,
+        "width": 373,
         "height": 220
       },
       {
@@ -13298,7 +13298,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 296,
+        "width": 373,
         "height": 220
       },
       {
@@ -13307,7 +13307,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 296,
+        "width": 373,
         "height": 220
       },
       {
@@ -13316,7 +13316,7 @@
         "visible": true,
         "collapsed": false,
         "dock": "left",
-        "width": 296,
+        "width": 373,
         "height": 220
       }
     ]
@@ -14117,6 +14117,15 @@
           }
         }
       ]
+    },
+    {
+      "id": "screen_5",
+      "name": "SCREEN 5",
+      "kind": "screen",
+      "width": 1920,
+      "height": 1080,
+      "background": "#1e1e1e",
+      "objects": []
     }
   ],
   "startScreenId": "main"
