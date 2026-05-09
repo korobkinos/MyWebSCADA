@@ -12,8 +12,12 @@ import {
   type RenderContext,
   type RuntimeAction,
   type RuntimeDependency,
+  type RuntimeResolveContext,
   type ScadaProject,
+  type TagValue,
 } from "@web-scada/shared";
+
+type TagMap = Record<string, TagValue>;
 
 type PopupSubscriptionContext = {
   screen: HmiScreen;
@@ -25,14 +29,27 @@ type RuntimeTagSubscriptionInput = {
   project: ScadaProject;
   libraries: ElementLibrary[];
   screen: HmiScreen;
+  tags?: TagMap;
   popups: PopupSubscriptionContext[];
 };
 
 export function collectRuntimeTagSubscriptions(input: RuntimeTagSubscriptionInput): string[] {
   const tags = new Set<string>();
   const frameGuard = new Set<string>();
+  const runtimeResolveContext: RuntimeResolveContext = {
+    tagValues: input.tags,
+  };
 
-  collectScreenTags(input.project, input.libraries, input.screen, { screenId: input.screen.id }, tags, frameGuard);
+  collectScreenTags(
+    input.project,
+    input.libraries,
+    input.screen,
+    { screenId: input.screen.id },
+    runtimeResolveContext,
+    tags,
+    frameGuard,
+  );
+
   for (const popup of input.popups) {
     collectScreenTags(
       input.project,
@@ -44,6 +61,7 @@ export function collectRuntimeTagSubscriptions(input: RuntimeTagSubscriptionInpu
         parameters: popup.args,
         args: popup.args,
       },
+      runtimeResolveContext,
       tags,
       frameGuard,
     );
@@ -57,11 +75,12 @@ function collectScreenTags(
   libraries: ElementLibrary[],
   screen: HmiScreen,
   context: RenderContext,
+  runtimeResolveContext: RuntimeResolveContext,
   out: Set<string>,
   frameGuard: Set<string>,
 ): void {
   for (const object of screen.objects) {
-    collectObjectTags(project, libraries, object, context, out, frameGuard);
+    collectObjectTags(project, libraries, object, context, runtimeResolveContext, out, frameGuard);
   }
 }
 
@@ -70,6 +89,7 @@ function collectObjectTags(
   libraries: ElementLibrary[],
   object: HmiObject,
   context: RenderContext,
+  runtimeResolveContext: RuntimeResolveContext,
   out: Set<string>,
   frameGuard: Set<string>,
 ): void {
@@ -82,7 +102,7 @@ function collectObjectTags(
   switch (resolvedObject.type) {
     case "group":
       for (const child of resolvedObject.objects) {
-        collectObjectTags(project, libraries, child, context, out, frameGuard);
+        collectObjectTags(project, libraries, child, context, runtimeResolveContext, out, frameGuard);
       }
       return;
     case "value-display":
@@ -133,7 +153,7 @@ function collectObjectTags(
         return;
       }
       frameGuard.add(guardKey);
-      collectScreenTags(project, libraries, childScreen, childContext, out, frameGuard);
+      collectScreenTags(project, libraries, childScreen, childContext, runtimeResolveContext, out, frameGuard);
       return;
     }
     case "libraryElementInstance": {
@@ -155,6 +175,7 @@ function collectObjectTags(
       const resolvedBindings = resolveLibraryElementInstanceBindingsDetailed(
         element,
         resolvedObject,
+        runtimeResolveContext,
       ).resolvedBindings;
 
       const childContext: RenderContext = {
@@ -174,7 +195,7 @@ function collectObjectTags(
       }
 
       for (const child of element.objects) {
-        collectObjectTags(project, libraries, child, childContext, out, frameGuard);
+        collectObjectTags(project, libraries, child, childContext, runtimeResolveContext, out, frameGuard);
       }
       return;
     }

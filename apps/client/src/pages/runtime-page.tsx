@@ -92,17 +92,18 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       updateRuntimeTagSubscriptions([]);
       return;
     }
-    const tags = collectRuntimeTagSubscriptions({
+    const subscriptionTags = collectRuntimeTagSubscriptions({
       project,
       libraries,
       screen,
+      tags,
       popups: popupScreens.map(({ item, screen: popupScreen }) => ({
         screen: popupScreen,
         tagPrefix: item.tagPrefix,
         args: item.args,
       })),
     });
-    updateRuntimeTagSubscriptions(tags);
+    updateRuntimeTagSubscriptions(subscriptionTags);
   }, [libraries, popupScreens, project, screen]);
 
   useEffect(() => {

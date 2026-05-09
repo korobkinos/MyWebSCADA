@@ -219,6 +219,82 @@ describe("resolveLibraryElementInstanceBindings", () => {
     expect(resolved.fault).toBe("Burner[0].Valve[33].Fault");
   });
 
+  it("uses expression indexOffsetSource for burner and valve selection", () => {
+    const resolved = resolveLibraryElementInstanceBindings(
+      element,
+      {
+        bindingAssignments: {
+          visualState: {
+            baseTag: "GVL_VALVE.valves[0].VisualState",
+            indexOffsetSource: {
+              type: "expression",
+              expression: "lw(20) * 32 + lw(10)",
+            },
+            indexMode: {
+              type: "arrayIndex",
+              occurrence: 0,
+              operation: "add",
+              valueFrom: "indexOffset",
+            },
+          },
+        },
+      },
+      {
+        tagValues: {
+          LW20: 2,
+          LW10: 5,
+        },
+      },
+    );
+
+    expect(resolved.visualState).toBe("GVL_VALVE.valves[69].VisualState");
+  });
+
+  it("returns debug info for expression-resolved binding", () => {
+    const detailed = resolveLibraryElementInstanceBindingsDetailed(
+      element,
+      {
+        bindingAssignments: {
+          visualState: {
+            baseTag: "GVL_VALVE.valves[0].VisualState",
+            indexOffsetSource: {
+              type: "expression",
+              expression: "lw(20) * 32 + lw(10)",
+            },
+            indexMode: {
+              type: "arrayIndex",
+              occurrence: 0,
+              operation: "add",
+              valueFrom: "indexOffset",
+            },
+          },
+        },
+      },
+      {
+        tagValues: {
+          LW20: 2,
+          LW10: 5,
+          "GVL_VALVE.valves[69].VisualState": {
+            value: 3,
+            quality: "Good",
+            timestamp: 123,
+            source: "test",
+          },
+        },
+      },
+    );
+
+    expect(detailed.resolvedBindings.visualState).toBe("GVL_VALVE.valves[69].VisualState");
+    expect(detailed.debug.visualState).toMatchObject({
+      baseTag: "GVL_VALVE.valves[0].VisualState",
+      indexOffsetValue: 69,
+      resolvedTag: "GVL_VALVE.valves[69].VisualState",
+      tagExists: true,
+      tagValue: 3,
+      tagQuality: "Good",
+    });
+  });
+
   it("returns issue for missing required binding", () => {
     const detailed = resolveLibraryElementInstanceBindingsDetailed(
       {
