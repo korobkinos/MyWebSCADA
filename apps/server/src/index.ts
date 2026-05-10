@@ -29,7 +29,11 @@ async function bootstrap(): Promise<void> {
   let shuttingDown = false;
   await app.register(cors, { origin: true });
   await app.register(websocket);
-  await app.register(multipart);
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10 MB
+    },
+  });
 
   const projectService = new ProjectService(projectFile);
   const assetService = new AssetService(projectService);

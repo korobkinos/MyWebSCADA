@@ -138,5 +138,9 @@ function isAssetUsedInObject(object: HmiObject, assetId: string): boolean {
     );
   }
 
+  if (object.type === "group") {
+    return object.objects.some((child) => isAssetUsedInObject(child, assetId));
+  }
+
   return false;
 }

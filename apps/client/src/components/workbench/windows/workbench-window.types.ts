@@ -8,6 +8,7 @@ export type WorkbenchWindowId =
   | "macros"
   | "projectSettings"
   | "screenSettings"
+  | "objectProperties"
   | (string & {});
 
 export type WorkbenchWindowRect = {

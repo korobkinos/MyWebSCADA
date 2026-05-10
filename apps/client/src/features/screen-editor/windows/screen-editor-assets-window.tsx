@@ -1,4 +1,4 @@
-import { useRef, type RefObject } from "react";
+import { useRef } from "react";
 import type { Asset } from "@web-scada/shared";
 import {
   WorkbenchButton,
@@ -7,22 +7,18 @@ import {
 
 type ScreenEditorAssetsWindowProps = {
   assets: Asset[];
-  assetName: string;
-  onAssetNameChange: (value: string) => void;
   onUploadAsset: (file: File) => Promise<void>;
   onAddAssetAsImage: (asset: Asset) => void;
-  onRefreshAssets?: () => void;
-  onDeleteAsset?: (assetId: string) => void;
+  onViewAsset?: (asset: Asset) => void;
+  onDeleteAsset?: (assetId: string) => void | Promise<void>;
 };
 
 export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
   const {
     assets,
-    assetName,
-    onAssetNameChange,
     onUploadAsset,
     onAddAssetAsImage,
-    onRefreshAssets,
+    onViewAsset,
     onDeleteAsset,
   } = props;
 
@@ -40,23 +36,9 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
     <div className="screen-editor-window-content screen-editor-assets-window">
       <WorkbenchSection title="UPLOAD ASSET">
         <div style={{ padding: "0 10px" }}>
-          <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
-            <input
-              className="workbench-input"
-              value={assetName}
-              onChange={(e) => onAssetNameChange(e.target.value)}
-              placeholder="Asset name"
-              style={{ flex: 1 }}
-            />
-            <WorkbenchButton onClick={() => uploadInputRef.current?.click()}>
-              Upload
-            </WorkbenchButton>
-            {onRefreshAssets ? (
-              <WorkbenchButton onClick={() => void onRefreshAssets()}>
-                Refresh
-              </WorkbenchButton>
-            ) : null}
-          </div>
+          <WorkbenchButton onClick={() => uploadInputRef.current?.click()}>
+            Upload image
+          </WorkbenchButton>
           <input
             ref={uploadInputRef}
             type="file"
@@ -68,42 +50,61 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
       </WorkbenchSection>
 
       <WorkbenchSection title="ASSETS">
-        <div className="screen-editor-asset-list">
+        <div className="screen-editor-asset-grid">
           {assets.length === 0 ? (
-            <div className="screen-editor-empty-state" style={{ padding: "0 10px" }}>
+            <div className="screen-editor-empty-state">
               No assets uploaded yet
             </div>
           ) : (
             assets.map((asset) => (
-              <div key={asset.id} className="screen-editor-asset-item">
-                {asset.previewUrl ? (
-                  <img
-                    src={asset.previewUrl}
-                    alt={asset.name}
-                    className="screen-editor-asset-preview"
-                  />
-                ) : null}
-                <div className="screen-editor-item-title">{asset.name}</div>
-                <div className="screen-editor-item-meta">
+              <div key={asset.id} className="screen-editor-asset-tile">
+                <div className="screen-editor-asset-thumb">
+                  {asset.previewUrl ? (
+                    <img src={asset.previewUrl} alt={asset.name} />
+                  ) : (
+                    <div className="screen-editor-asset-thumb__placeholder">
+                      No preview
+                    </div>
+                  )}
+                </div>
+
+                <div className="screen-editor-asset-tile__name" title={asset.name}>
+                  {asset.name}
+                </div>
+
+                <div className="screen-editor-asset-tile__meta">
                   {asset.type?.toUpperCase() ?? ""}
                   {asset.width && asset.height
                     ? ` · ${asset.width}×${asset.height}`
                     : ""}
                   {asset.size ? ` · ${(asset.size / 1024).toFixed(1)} KB` : ""}
                 </div>
-                <div className="screen-editor-item-actions">
+
+                <div className="screen-editor-asset-tile__actions">
                   <WorkbenchButton
                     variant="primary"
+                    className="screen-editor-asset-action-button"
                     onClick={() => onAddAssetAsImage(asset)}
                   >
                     Add
                   </WorkbenchButton>
+
+                  {onViewAsset ? (
+                    <WorkbenchButton
+                      className="screen-editor-asset-action-button"
+                      onClick={() => onViewAsset(asset)}
+                    >
+                      View
+                    </WorkbenchButton>
+                  ) : null}
+
                   {onDeleteAsset ? (
                     <WorkbenchButton
                       variant="danger"
-                      onClick={() => onDeleteAsset(asset.id)}
+                      className="screen-editor-asset-action-button"
+                      onClick={() => void onDeleteAsset(asset.id)}
                     >
-                      Delete
+                      Del
                     </WorkbenchButton>
                   ) : null}
                 </div>

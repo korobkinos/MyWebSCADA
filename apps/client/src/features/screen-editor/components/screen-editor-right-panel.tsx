@@ -11,7 +11,7 @@ export type ScreenEditorRightPanelProps = {
   screenObjects: HmiObject[];
   selection: { selectedObjectIds: string[]; activeObjectId?: string };
   setSelectedObjects: (ids: string[], activeId?: string) => void;
-  setPropertiesOpen: (v: boolean) => void;
+  onOpenObjectProperties: () => void;
   removeObjectWithHistory: (id: string) => void;
   setSaveModalOpen: (v: boolean) => void;
 };
@@ -21,7 +21,7 @@ export function ScreenEditorRightPanel({
   screenObjects,
   selection,
   setSelectedObjects,
-  setPropertiesOpen,
+  onOpenObjectProperties,
   removeObjectWithHistory,
   setSaveModalOpen,
 }: ScreenEditorRightPanelProps) {
@@ -47,7 +47,9 @@ export function ScreenEditorRightPanel({
               </Typography.Text>
             </div>
             <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
-              <WorkbenchButton onClick={() => setPropertiesOpen(true)}>Properties</WorkbenchButton>
+              <WorkbenchButton onClick={onOpenObjectProperties} disabled={!activeObject}>
+                Open Properties
+              </WorkbenchButton>
               <WorkbenchButton variant="danger" onClick={() => {
                 if (activeObject.locked) {
                   void message.warning("Locked object cannot be deleted");

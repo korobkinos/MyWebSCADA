@@ -21,7 +21,7 @@ export type ScreenEditorCenterProps = {
   setSelectionRect: (rect: any) => void;
   toggleSelectedObject: (id: string) => void;
   setSelectedObjects: (ids: string[], activeId?: string) => void;
-  setPropertiesOpen: (v: boolean) => void;
+  onOpenObjectProperties: () => void;
   setContextMenu: (v: any) => void;
   handleDrop: (event: DragEvent<HTMLDivElement>) => void;
   moveObjectWithHistory: (id: string, x: number, y: number) => void;
@@ -68,7 +68,7 @@ export function ScreenEditorCenter({
   setSelectionRect,
   toggleSelectedObject,
   setSelectedObjects,
-  setPropertiesOpen,
+  onOpenObjectProperties,
   setContextMenu,
   handleDrop,
   moveObjectWithHistory,
@@ -199,7 +199,7 @@ export function ScreenEditorCenter({
                 setSelectedObjects([objectId], objectId);
               }
             }}
-            onDoubleClickObject={() => setPropertiesOpen(true)}
+            onDoubleClickObject={() => onOpenObjectProperties()}
             onContextMenuObject={({ objectId, clientX, clientY, additive }) => {
               if (additive) {
                 toggleSelectedObject(objectId);

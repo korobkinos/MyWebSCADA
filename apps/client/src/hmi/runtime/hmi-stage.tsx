@@ -239,7 +239,7 @@ export function HmiStage({
         onMouseUp={onStageMouseUp}
       >
         <Layer>
-          <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} />
+          <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
           <HmiRenderer
             project={project}
             screen={screen}

@@ -271,11 +271,22 @@ async function parseUpload(request: FastifyRequest): Promise<{
   if (!part) {
     throw new Error("File is required");
   }
+
+  if (part.file.truncated) {
+    throw new Error("File is too large. Max size is 10 MB.");
+  }
+
   const chunks: Buffer[] = [];
   for await (const chunk of part.file) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   const content = Buffer.concat(chunks);
+
+  const MAX_ASSET_SIZE_BYTES = 10 * 1024 * 1024;
+  if (content.byteLength > MAX_ASSET_SIZE_BYTES) {
+    throw new Error("File is too large. Max size is 10 MB.");
+  }
+
   const namePart = (part.fields as Record<string, { value?: unknown }> | undefined)?.name;
   const name = typeof namePart?.value === "string" ? namePart.value : undefined;
   return {

@@ -36,6 +36,7 @@ import { useScadaStore } from "../store/scada-store";
 import { isTextEditingTarget } from "../utils/keyboard";
 import {
   ScadaWorkbenchLayout,
+  WorkbenchButton,
   WorkbenchWindowManager,
   useWorkbenchWindows,
   type WorkbenchWindowDefinition,
@@ -178,7 +179,6 @@ export function EditorPage() {
   const [assetUploadName, setAssetUploadName] = useState("");
   const [spacingGap, setSpacingGap] = useState<number | undefined>(undefined);
   const [showObjectFrames, setShowObjectFrames] = useState(false);
-  const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneOptions, setCloneOptions] = useState<CloneOptions>({
     count: 2,
@@ -203,6 +203,7 @@ export function EditorPage() {
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("Loaded");
   const [savedProjectSignature, setSavedProjectSignature] = useState<string | null>(null);
+  const [viewAssetId, setViewAssetId] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [floatingLibraries, setFloatingLibraries] = useState<boolean>(false);
   const [floatingAssets, setFloatingAssets] = useState<boolean>(false);
@@ -212,6 +213,11 @@ export function EditorPage() {
   const screen = useMemo(
     () => project?.screens.find((s) => s.id === currentScreenId) ?? project?.screens[0],
     [currentScreenId, project],
+  );
+
+  const viewAsset = useMemo(
+    () => assets.find((asset) => asset.id === viewAssetId) ?? null,
+    [assets, viewAssetId],
   );
 
   const selectedObjects = useMemo(
@@ -668,6 +674,11 @@ export function EditorPage() {
         if (!project) {
           return;
         }
+        const MAX_ASSET_SIZE_BYTES = 10 * 1024 * 1024;
+        if (file.size > MAX_ASSET_SIZE_BYTES) {
+          void message.error("File is too large. Max size is 10 MB.");
+          return;
+        }
         const uploaded = await api.uploadAsset(file, assetUploadName.trim() || undefined);
         await loadAssets();
         await loadProject();
@@ -873,6 +884,93 @@ export function EditorPage() {
     isWindowOpen,
   } = useWorkbenchWindows();
 
+  function isAssetUsedByObject(object: HmiObject, assetId: string): boolean {
+    if (object.type === "image" && "assetId" in object && object.assetId === assetId) {
+      return true;
+    }
+    if (object.type === "stateImage") {
+      if (object.defaultAssetId === assetId || object.badQualityAssetId === assetId) {
+        return true;
+      }
+      return object.states.some((state) => state.assetId === assetId);
+    }
+    if (object.type === "button") {
+      return (
+        object.backgroundAssetId === assetId ||
+        object.pressedBackgroundAssetId === assetId ||
+        object.disabledBackgroundAssetId === assetId
+      );
+    }
+    if (object.type === "group") {
+      return object.objects.some((child) => isAssetUsedByObject(child, assetId));
+    }
+    return false;
+  }
+
+  function findAssetUsages(
+    project: ScadaProject,
+    assetId: string,
+  ): Array<{ screenId: string; screenName: string; objectId: string }> {
+    const usages: Array<{ screenId: string; screenName: string; objectId: string }> = [];
+
+    const scan = (screen: HmiScreen, objects: HmiObject[]) => {
+      for (const object of objects) {
+        if (isAssetUsedByObject(object, assetId)) {
+          usages.push({ screenId: screen.id, screenName: screen.name, objectId: object.id });
+        }
+        if (object.type === "group") {
+          scan(screen, object.objects);
+        }
+      }
+    };
+
+    for (const screen of project.screens) {
+      scan(screen, screen.objects);
+    }
+
+    return usages;
+  }
+
+  const handleDeleteAsset = useCallback(
+    async (assetId: string) => {
+      try {
+        const latestProject = useScadaStore.getState().project;
+
+        if (latestProject) {
+          const usages = findAssetUsages(latestProject, assetId);
+          if (usages.length > 0) {
+            void message.warning(
+              `Asset is used on ${usages.length} object(s). Remove image objects first.`,
+            );
+            return;
+          }
+        }
+
+        await api.deleteAsset(assetId);
+        await loadAssets();
+        await loadProject();
+
+        if (viewAssetId === assetId) {
+          setViewAssetId(null);
+          closeWindow("assetViewer");
+        }
+
+        void message.success("Asset deleted");
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+
+        if (text.includes("403") || text.toLowerCase().includes("forbidden")) {
+          void message.error("No permission to delete assets. Required: assets.delete");
+        } else {
+          void message.error(text || "Failed to delete asset");
+        }
+
+        console.error("Asset delete failed", error);
+      }
+    },
+    [closeWindow, loadAssets, loadProject, viewAssetId],
+  );
+
   const windowDefinitions: WorkbenchWindowDefinition[] = [
     {
       id: "tags",
@@ -910,20 +1008,17 @@ export function EditorPage() {
       minWidth: 420,
       minHeight: 320,
       render: () => (
-        <ScreenEditorAssetsWindow
-          assets={assets}
-          assetName={assetUploadName}
-          onAssetNameChange={setAssetUploadName}
-          onUploadAsset={onUploadProjectAsset}
-          onAddAssetAsImage={addAssetAsImage}
-          onRefreshAssets={loadAssets}
-          onDeleteAsset={(assetId) => {
-            void api.deleteAsset(assetId).then(() =>
-              Promise.all([loadAssets(), loadProject()])
-            );
-          }}
-        />
-      ),
+    <ScreenEditorAssetsWindow
+      assets={assets}
+      onUploadAsset={onUploadProjectAsset}
+      onAddAssetAsImage={addAssetAsImage}
+      onDeleteAsset={handleDeleteAsset}
+      onViewAsset={(asset) => {
+        setViewAssetId(asset.id);
+        openDefinedWindow("assetViewer");
+      }}
+    />
+  ),
     },
     {
       id: "libraries",
@@ -944,6 +1039,85 @@ export function EditorPage() {
           onAddLibraryElementToScreen={addLibraryElementInstance}
           onRefreshLibraries={loadLibraries}
         />
+      ),
+    },
+    {
+      id: "assetViewer",
+      title: viewAsset ? `Asset: ${viewAsset.name}` : "Asset Viewer",
+      defaultRect: { x: 240, y: 120, width: 640, height: 520 },
+      minWidth: 360,
+      minHeight: 260,
+      render: () =>
+        viewAsset ? (
+          <div className="screen-editor-asset-viewer">
+            <div className="screen-editor-asset-viewer__preview">
+              {viewAsset.previewUrl ? (
+                <img src={viewAsset.previewUrl} alt={viewAsset.name} />
+              ) : (
+                <span>No preview</span>
+              )}
+            </div>
+            <div className="screen-editor-asset-viewer__info">
+              <div><strong>Name:</strong> {viewAsset.name}</div>
+              <div><strong>ID:</strong> {viewAsset.id}</div>
+              <div><strong>Type:</strong> {viewAsset.type?.toUpperCase() ?? "—"}</div>
+              <div>
+                <strong>Size:</strong>{" "}
+                {viewAsset.width && viewAsset.height
+                  ? `${viewAsset.width} × ${viewAsset.height} px`
+                  : "—"}
+              </div>
+              <div>
+                <strong>File size:</strong>{" "}
+                {viewAsset.size ? `${(viewAsset.size / 1024).toFixed(1)} KB` : "—"}
+              </div>
+              <div className="screen-editor-asset-viewer__actions">
+                <WorkbenchButton
+                  variant="primary"
+                  onClick={() => addAssetAsImage(viewAsset)}
+                >
+                  Add to Screen
+                </WorkbenchButton>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="screen-editor-empty-state">No asset selected</div>
+        ),
+    },
+    {
+      id: "objectProperties",
+      title: "Object Properties",
+      defaultRect: { x: 280, y: 100, width: 420, height: 620 },
+      minWidth: 320,
+      minHeight: 360,
+      render: () => (
+        <div className="screen-editor-object-properties-window">
+          <ObjectPropertyPanel
+            project={project}
+            screen={screen}
+            assets={assets}
+            libraries={libraries}
+            object={activeObject}
+            onPatch={(patch) => {
+              if (!activeObject) {
+                return;
+              }
+              updateObjectWithHistory(activeObject.id, patch, "Object properties change");
+            }}
+            onDelete={() => {
+              if (!activeObject) {
+                return;
+              }
+              if (activeObject.locked) {
+                void message.warning("Locked object cannot be deleted");
+                return;
+              }
+              removeObjectWithHistory(activeObject.id);
+              closeWindow("objectProperties");
+            }}
+          />
+        </div>
       ),
     },
   ];
@@ -1031,7 +1205,7 @@ export function EditorPage() {
             setSelectionRect={setSelectionRect}
             toggleSelectedObject={toggleSelectedObject}
             setSelectedObjects={setSelectedObjects}
-            setPropertiesOpen={setPropertiesOpen}
+            onOpenObjectProperties={() => openDefinedWindow("objectProperties")}
             setContextMenu={setContextMenu}
             handleDrop={handleDrop}
             moveObjectWithHistory={moveObjectWithHistory}
@@ -1073,7 +1247,7 @@ export function EditorPage() {
             screenObjects={screen.objects}
             selection={selection}
             setSelectedObjects={setSelectedObjects}
-            setPropertiesOpen={setPropertiesOpen}
+            onOpenObjectProperties={() => openDefinedWindow("objectProperties")}
             removeObjectWithHistory={removeObjectWithHistory}
             setSaveModalOpen={setSaveModalOpen}
           />
@@ -1143,39 +1317,6 @@ export function EditorPage() {
           <Input value={saveElementDescription} onChange={(e) => setSaveElementDescription(e.target.value)} placeholder="Description" />
           <Input value={saveElementCategory} onChange={(e) => setSaveElementCategory(e.target.value)} placeholder="Category" />
         </Space>
-      </Modal>
-
-      <Modal
-        title="Object Properties"
-        open={propertiesOpen}
-        width={740}
-        onCancel={() => setPropertiesOpen(false)}
-        onOk={() => setPropertiesOpen(false)}
-      >
-        <ObjectPropertyPanel
-          project={project}
-          screen={screen}
-          assets={assets}
-          libraries={libraries}
-          object={activeObject}
-          onPatch={(patch) => {
-            if (!activeObject) {
-              return;
-            }
-            updateObjectWithHistory(activeObject.id, patch, "Object properties change");
-          }}
-          onDelete={() => {
-            if (!activeObject) {
-              return;
-            }
-            if (activeObject.locked) {
-              void message.warning("Locked object cannot be deleted");
-              return;
-            }
-            removeObjectWithHistory(activeObject.id);
-            setPropertiesOpen(false);
-          }}
-        />
       </Modal>
 
       <Modal
@@ -1347,7 +1488,7 @@ export function EditorPage() {
           onMouseLeave={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
         >
           <Space direction="vertical" style={{ width: "100%" }}>
-            <Button type="text" size="small" block onClick={() => setPropertiesOpen(true)} disabled={!activeObject}>Properties</Button>
+            <Button type="text" size="small" block onClick={() => openDefinedWindow("objectProperties")} disabled={!activeObject}>Properties</Button>
             <Button type="text" size="small" block onClick={copySelectionToClipboard} disabled={!canCopy}>Copy</Button>
             <Button type="text" size="small" block onClick={pasteFromClipboard} disabled={!canPaste}>Paste</Button>
             <Button type="text" size="small" block onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length}>Clone...</Button>

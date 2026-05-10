@@ -23,18 +23,6 @@
       "previewUrl": "/api/assets/65685489-78e0-4e74-9a79-85929f242617/file"
     },
     {
-      "id": "f45a9489-2bb6-4a9d-ad3b-9b98e424db8f",
-      "name": "black.PNG",
-      "type": "png",
-      "mimeType": "image/png",
-      "fileName": "f45a9489-2bb6-4a9d-ad3b-9b98e424db8f.png",
-      "size": 3565,
-      "createdAt": "2026-05-08T06:23:41.131Z",
-      "updatedAt": "2026-05-08T06:23:41.131Z",
-      "storagePath": "assets/f45a9489-2bb6-4a9d-ad3b-9b98e424db8f.png",
-      "previewUrl": "/api/assets/f45a9489-2bb6-4a9d-ad3b-9b98e424db8f/file"
-    },
-    {
       "id": "cf4007e7-9e78-43c0-a197-c4edc109e849",
       "name": "blue.PNG",
       "type": "png",
@@ -83,18 +71,6 @@
       "previewUrl": "/api/assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1/file"
     },
     {
-      "id": "766367c9-dc43-437f-9eeb-c5b7140db82d",
-      "name": "square_1.PNG",
-      "type": "png",
-      "mimeType": "image/png",
-      "fileName": "766367c9-dc43-437f-9eeb-c5b7140db82d.png",
-      "size": 2844,
-      "createdAt": "2026-05-08T09:14:01.194Z",
-      "updatedAt": "2026-05-08T09:14:01.194Z",
-      "storagePath": "assets/766367c9-dc43-437f-9eeb-c5b7140db82d.png",
-      "previewUrl": "/api/assets/766367c9-dc43-437f-9eeb-c5b7140db82d/file"
-    },
-    {
       "id": "88ed44df-382b-4a9b-ba6c-95f71c699d40",
       "name": "15.09.13 - 6",
       "type": "jpg",
@@ -113,6 +89,13 @@
       "name": "АМАКС. Базовое оборудование",
       "version": "1.0.0",
       "path": "libraries/amaks-basic-equipment",
+      "enabled": true
+    },
+    {
+      "libraryId": "custom-equipment",
+      "name": "Пользовательская библиотека",
+      "version": "1.0.0",
+      "path": "D:\\Work\\MyWebSCADA\\libraries\\custom-equipment",
       "enabled": true
     }
   ],
@@ -13905,25 +13888,11 @@
         {
           "id": "img_ebi21l",
           "type": "image",
-          "x": 947.2289351008168,
-          "y": 647.2289351008174,
+          "x": 758.2289351008168,
+          "y": 699.2289351008174,
           "width": 276.6296161307615,
           "height": 276.6296161307614,
           "rotation": 0,
-          "opacity": 1,
-          "minWidth": 40,
-          "minHeight": 40,
-          "assetId": "88ed44df-382b-4a9b-ba6c-95f71c699d40",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        },
-        {
-          "id": "img_cda1m8",
-          "type": "image",
-          "x": 112,
-          "y": 791,
-          "width": 80,
-          "height": 80,
           "opacity": 1,
           "minWidth": 40,
           "minHeight": 40,
