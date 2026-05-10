@@ -685,7 +685,12 @@ export function EditorPage() {
         setAssetUploadName("");
         void message.success(`Asset uploaded: ${uploaded.name}`);
       } catch (error) {
-        void message.error(error instanceof Error ? error.message : "Failed to upload asset");
+        const text = error instanceof Error ? error.message : String(error);
+        if (text.toLowerCase().includes("too large") || text.toLowerCase().includes("file size")) {
+          void message.error("File is too large. Max size is 10 MB.");
+        } else {
+          void message.error(text || "Failed to upload asset");
+        }
       }
     },
     [assetUploadName, loadAssets, loadProject, project],
@@ -959,7 +964,9 @@ export function EditorPage() {
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
 
-        if (text.includes("403") || text.toLowerCase().includes("forbidden")) {
+        if (text.toLowerCase().includes("used in project")) {
+          void message.warning("Asset is used on screens. Remove image objects first.");
+        } else if (text.includes("403") || text.toLowerCase().includes("forbidden")) {
           void message.error("No permission to delete assets. Required: assets.delete");
         } else {
           void message.error(text || "Failed to delete asset");

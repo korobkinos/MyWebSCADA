@@ -2365,3 +2365,141 @@ body {
   border-color: #3c3c3c !important;
   color: #cccccc !important;
 }
+
+/* ── Object Property Panel – Workbench compact style ── */
+
+.object-property-panel--workbench {
+  height: 100%;
+  overflow-y: auto;
+  background: #252526;
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.object-property-panel--workbench .ant-form {
+  padding: 0 8px;
+}
+
+.object-property-panel--workbench .ant-form-item {
+  margin-bottom: 6px;
+}
+
+.object-property-panel--workbench .ant-form-item-label > label {
+  color: #cccccc;
+  font-size: 11px;
+  height: 20px;
+  line-height: 20px;
+}
+
+.object-property-panel--workbench .ant-input,
+.object-property-panel--workbench .ant-input-number,
+.object-property-panel--workbench .ant-select-selector,
+.object-property-panel--workbench .ant-input-textarea textarea {
+  background: #1e1e1e !important;
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+  font-size: 12px;
+}
+
+.object-property-panel--workbench .ant-input-number-input {
+  font-size: 12px;
+}
+
+.object-property-panel--workbench .ant-tabs {
+  color: #cccccc;
+}
+
+.object-property-panel--workbench .ant-tabs-tab {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.object-property-panel--workbench .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #ffffff;
+}
+
+.object-property-panel--workbench .ant-tabs-ink-bar {
+  background: #007acc;
+}
+
+.object-property-panel--workbench .ant-select-selection-item {
+  font-size: 12px;
+}
+
+.object-property-panel--workbench .ant-space {
+  gap: 4px 8px !important;
+}
+
+.object-property-panel--workbench .ant-btn-sm {
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+/* ── Login Page – Workbench style ── */
+
+.login-workbench-page {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #1e1e1e;
+}
+
+.login-workbench-window {
+  width: 380px;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.login-workbench-window__header {
+  display: flex;
+  align-items: center;
+  height: 35px;
+  padding: 0 12px;
+  background: #333333;
+  border-bottom: 1px solid #3c3c3c;
+  user-select: none;
+}
+
+.login-workbench-window__title {
+  color: #cccccc;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.login-workbench-window__body {
+  padding: 20px 24px;
+  color: #cccccc;
+}
+
+.login-workbench-window__body .ant-form-item-label > label {
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.login-workbench-window__body .ant-input,
+.login-workbench-window__body .ant-input-password .ant-input {
+  background: #1e1e1e !important;
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.login-workbench-window__body .ant-input:focus,
+.login-workbench-window__body .ant-input-focused {
+  border-color: #007acc !important;
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2) !important;
+}
+
+.login-workbench-window__body .ant-btn-primary {
+  background: #007acc;
+  border-color: #007acc;
+  margin-top: 4px;
+}
+
+.login-workbench-window__body .ant-btn-primary:hover {
+  background: #1a8ad4;
+  border-color: #1a8ad4;
+}

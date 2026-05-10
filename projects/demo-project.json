@@ -13745,8 +13745,8 @@
         {
           "id": "img_kn3jr6",
           "type": "image",
-          "x": 884.9045967131117,
-          "y": 124.9046484166675,
+          "x": 851.9045967131117,
+          "y": 136.9046484166675,
           "width": 224.7439810417042,
           "height": 224.74398104170427,
           "rotation": 0,
@@ -14298,52 +14298,6 @@
           "action": {
             "type": "openScreen",
             "screenId": "main"
-          }
-        }
-      ]
-    },
-    {
-      "id": "screen_5",
-      "name": "SCREEN 5",
-      "kind": "screen",
-      "width": 1920,
-      "height": 1080,
-      "background": "#1e1e1e",
-      "objects": [
-        {
-          "id": "lib_q9i1m4",
-          "type": "libraryElementInstance",
-          "x": 537.8745750448165,
-          "y": 199.22074896980848,
-          "width": 164.82518860283864,
-          "height": 89.90464832882107,
-          "rotation": 0,
-          "minWidth": 60,
-          "minHeight": 40,
-          "libraryId": "amaks-basic-equipment",
-          "elementId": "element_qkwgwe",
-          "bindingAssignments": {},
-          "scaleMode": "fit"
-        },
-        {
-          "id": "text_unlnye",
-          "type": "text",
-          "x": 591.5082248738388,
-          "y": 178.9999999999996,
-          "width": 60,
-          "height": 39.999999999999936,
-          "rotation": 0,
-          "minWidth": 60,
-          "minHeight": 24,
-          "text": "New text",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 12,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "left",
-            "verticalAlign": "middle",
-            "padding": 4
           }
         }
       ]

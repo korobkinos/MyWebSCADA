@@ -571,17 +571,19 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
   );
 
   return (
-    <Form layout="vertical" size="small">
-      <Tabs
-        defaultActiveKey="general"
-        items={[
-          { key: "general", label: "General", children: generalContent },
-          { key: "object", label: "Object", children: objectContent },
-          { key: "text", label: "Text", children: textContent },
-          { key: "advanced", label: "Advanced", children: advancedContent },
-        ]}
-      />
-    </Form>
+    <div className="object-property-panel object-property-panel--workbench">
+      <Form layout="vertical" size="small">
+        <Tabs
+          defaultActiveKey="general"
+          items={[
+            { key: "general", label: "General", children: generalContent },
+            { key: "object", label: "Object", children: objectContent },
+            { key: "text", label: "Text", children: textContent },
+            { key: "advanced", label: "Advanced", children: advancedContent },
+          ]}
+        />
+      </Form>
+    </div>
   );
 }
 

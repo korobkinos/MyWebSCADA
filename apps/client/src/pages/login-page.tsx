@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Form, Input, Space, Typography, message } from "antd";
+import { Button, Form, Input, message } from "antd";
 import { useScadaStore } from "../store/scada-store";
 
 export function LoginPage() {
@@ -25,12 +25,12 @@ export function LoginPage() {
   };
 
   return (
-    <div style={{ width: "100vw", height: "100vh", display: "grid", placeItems: "center", background: "#0f1720" }}>
-      <Card style={{ width: 360 }}>
-        <Space direction="vertical" style={{ width: "100%" }} size={12}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            Web-SCADA Login
-          </Typography.Title>
+    <div className="login-workbench-page">
+      <div className="login-workbench-window">
+        <div className="login-workbench-window__header">
+          <span className="login-workbench-window__title">Web-SCADA Login</span>
+        </div>
+        <div className="login-workbench-window__body">
           <Form form={form} layout="vertical" onFinish={() => void submit()}>
             <Form.Item label="Username" name="username" rules={[{ required: true }]}>
               <Input autoFocus />
@@ -42,8 +42,8 @@ export function LoginPage() {
               Sign In
             </Button>
           </Form>
-        </Space>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
