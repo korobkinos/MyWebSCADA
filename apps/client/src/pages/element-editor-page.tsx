@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DeleteOutlined, RedoOutlined, SaveOutlined, UndoOutlined } from "@ant-design/icons";
-import { Button, Card, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tooltip, Typography, message } from "antd";
+import { Button, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Typography, message } from "antd";
 import type {
   Asset,
   ElementBindingDefinition,
@@ -1947,6 +1946,8 @@ export function ElementEditorPage() {
                   <WorkbenchButton onClick={() => addPrimitiveShape("circle")} disabled={!draftElement || !canElementsWrite}>Circle</WorkbenchButton>
                   <WorkbenchButton onClick={() => addPrimitiveShape("triangle")} disabled={!draftElement || !canElementsWrite}>Triangle</WorkbenchButton>
                   <WorkbenchButton onClick={() => addObject("state-indicator")} disabled={!draftElement || !canElementsWrite}>Indicator</WorkbenchButton>
+                  <WorkbenchButton onClick={() => openAssetPicker()} disabled={!draftElement || !canElementsWrite}>Add Image</WorkbenchButton>
+                  <WorkbenchButton onClick={() => openStateImageWizard()} disabled={!draftElement || !canElementsWrite}>Add State Image</WorkbenchButton>
                 </>
               }
             />
@@ -2257,9 +2258,9 @@ export function ElementEditorPage() {
                 ),
               },
               {
-                key: "stateRules",
-                label: "State Rules",
-                children: draftElement ? (
+                key: "object",
+                label: "Object",
+                children: draftElement && activeObject ? (
                   <ObjectPropertyPanel
                     project={project}
                     screen={virtualScreen!}
@@ -2275,6 +2276,23 @@ export function ElementEditorPage() {
                     }}
                     onDelete={() => {
                       deleteSelectedElementObjects("properties");
+                    }}
+                  />
+                ) : (
+                  <Typography.Text type="secondary">Select an object on canvas</Typography.Text>
+                ),
+              },
+              {
+                key: "stateRules",
+                label: "State Rules",
+                children: draftElement ? (
+                  <StateRulesEditor
+                    stateRules={draftElement.stateRules ?? []}
+                    objects={draftElement.objects}
+                    bindings={draftElement.bindings ?? []}
+                    assets={availableAssets}
+                    onChange={(next) => {
+                      applyDraftPatch({ stateRules: next });
                     }}
                   />
                 ) : (
@@ -2324,6 +2342,259 @@ export function ElementEditorPage() {
           </div>
         }
       />
+
+      <Modal
+        open={deleteElementDialog.open}
+        title={deleteElementDialog.open && deleteElementDialog.mode === "discardDraft" ? "Discard unsaved draft" : "Delete element"}
+        onCancel={() => setDeleteElementDialog({ open: false })}
+        onOk={() => void confirmDeleteElementDialog()}
+        okText={
+          deleteElementDialog.open && deleteElementDialog.mode === "discardDraft"
+            ? "Discard"
+            : deleteDialogUsageCount > 0
+              ? "Delete With Instances"
+              : "Delete"
+        }
+        okButtonProps={{ danger: true, loading: deletingElement }}
+        cancelText="Cancel"
+        zIndex={5000}
+      >
+        {deleteElementDialog.open && deleteElementDialog.mode === "discardDraft" ? (
+          <Typography.Text>
+            Discard unsaved element "{deleteElementDialog.elementName}"?
+          </Typography.Text>
+        ) : deleteElementDialog.open ? (
+          <div>
+            <div>Name: {deleteElementDialog.elementName}</div>
+            <div>Element Key: {deleteElementDialog.elementKey || "-"}</div>
+            <div>Library: {selectedLibrary?.name ?? deleteElementDialog.libraryId}</div>
+            <div>Category: {deleteElementDialog.category || "-"}</div>
+            <div>Current local usage count: {deleteDialogUsageCount}</div>
+            <div style={{ marginTop: 8 }}>
+              {deleteDialogUsageCount > 0
+                ? "Element is used in screens. You can delete it together with all instances."
+                : "Delete this element permanently?"}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        title="Create Element"
+        open={newElementModalOpen}
+        onCancel={() => setNewElementModalOpen(false)}
+        onOk={createNewElement}
+        okText="Create"
+      >
+        <Form form={newElementForm} layout="vertical" size="small">
+          <Form.Item name="name" label="Name" rules={[{ required: true, message: "Name is required" }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="elementKey" label="Element Key">
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Description">
+            <Input />
+          </Form.Item>
+          <Form.Item name="category" label="Category">
+            <Input />
+          </Form.Item>
+          <Space style={{ width: "100%" }}>
+            <Form.Item name="width" label="Canvas Width" style={{ flex: 1 }}>
+              <InputNumber min={20} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item name="height" label="Canvas Height" style={{ flex: 1 }}>
+              <InputNumber min={20} style={{ width: "100%" }} />
+            </Form.Item>
+          </Space>
+          <Form.Item name="creationMode" label="Creation Mode">
+            <Select
+              options={[
+                { label: "Empty", value: "empty" },
+                { label: "From Template", value: "template" },
+              ]}
+            />
+          </Form.Item>
+          {creationMode === "template" ? (
+            <Form.Item name="templateKind" label="Template">
+              <Select
+                options={[
+                  { label: "Valve 3 States", value: "valve3" },
+                  { label: "Pump", value: "pump" },
+                  { label: "Indicator", value: "indicator" },
+                  { label: "Button", value: "button" },
+                  { label: "Custom template", value: "custom" },
+                ]}
+              />
+            </Form.Item>
+          ) : null}
+        </Form>
+      </Modal>
+
+      <Modal
+        title={assetPickerTargetObjectId ? "Replace image" : "Add image"}
+        open={assetPickerOpen}
+        onCancel={() => {
+          setAssetPickerOpen(false);
+          setAssetPickerTargetObjectId(undefined);
+        }}
+        footer={null}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Button onClick={() => uploadInputRef.current?.click()} loading={uploadingAsset} disabled={!selectedLibraryId}>
+            Upload Asset
+          </Button>
+          <List
+            size="small"
+            dataSource={availableAssets}
+            locale={{ emptyText: "No assets in this library. Upload image first." }}
+            renderItem={(asset) => (
+              <List.Item
+                actions={[
+                  <Button key="use" size="small" type="primary" onClick={() => addImageFromAsset(asset.id, assetPickerTargetObjectId)}>
+                    {assetPickerTargetObjectId ? "Replace" : "Add"}
+                  </Button>,
+                  !assetPickerTargetObjectId && asset.type === "svg" ? (
+                    <Button key="import-svg" size="small" onClick={() => void addSvgPrimitivesFromAsset(asset)}>
+                      Add SVG Primitives
+                    </Button>
+                  ) : null,
+                ]}
+              >
+                <Space direction="vertical" size={0}>
+                  <Typography.Text>{asset.name}</Typography.Text>
+                  <Typography.Text type="secondary">{asset.fileName}</Typography.Text>
+                </Space>
+              </List.Item>
+            )}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        title="Add State Image"
+        open={stateImageWizardOpen}
+        onCancel={() => setStateImageWizardOpen(false)}
+        onOk={createStateImageFromWizard}
+        okText="Create"
+        width={780}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Form layout="vertical" size="small">
+            <Form.Item label="Object name">
+              <Input value={stateImageWizardName} onChange={(event) => setStateImageWizardName(event.target.value)} />
+            </Form.Item>
+            <Form.Item label="Source">
+              <Select
+                value={stateImageWizardSourceMode}
+                options={[
+                  { label: "Manual tag", value: "manualTag" },
+                  { label: "Existing binding", value: "existingBinding" },
+                  { label: "New binding", value: "newBinding" },
+                ]}
+                onChange={(value) => setStateImageWizardSourceMode(value as StateImageSourceMode)}
+              />
+            </Form.Item>
+            {stateImageWizardSourceMode === "existingBinding" ? (
+              <Form.Item label="Binding key">
+                <Select
+                  value={stateImageWizardBindingKey}
+                  options={(draftElement?.bindings ?? []).map((binding) => ({
+                    label: `${binding.displayName} (${binding.key})`,
+                    value: binding.key,
+                  }))}
+                  onChange={setStateImageWizardBindingKey}
+                />
+              </Form.Item>
+            ) : null}
+            {stateImageWizardSourceMode === "newBinding" ? (
+              <>
+                <Form.Item label="Binding key">
+                  <Input value={stateImageWizardBindingKey} onChange={(event) => setStateImageWizardBindingKey(event.target.value)} />
+                </Form.Item>
+                <Form.Item label="Binding name">
+                  <Input value={stateImageWizardBindingDisplayName} onChange={(event) => setStateImageWizardBindingDisplayName(event.target.value)} />
+                </Form.Item>
+                <Form.Item label="Binding data type">
+                  <Select
+                    value={stateImageWizardBindingDataType}
+                    options={["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"].map((item) => ({ label: item, value: item }))}
+                    onChange={(value) =>
+                      setStateImageWizardBindingDataType(value as "BOOL" | "INT" | "UINT" | "DINT" | "UDINT" | "REAL" | "STRING")
+                    }
+                  />
+                </Form.Item>
+              </>
+            ) : null}
+            <Form.Item label="Source tag">
+              <Input value={stateImageWizardTag} onChange={(event) => setStateImageWizardTag(event.target.value)} placeholder=".State" />
+            </Form.Item>
+            <Space style={{ width: "100%" }}>
+              <Form.Item label="Width" style={{ flex: 1 }}>
+                <InputNumber min={20} style={{ width: "100%" }} value={stateImageWizardWidth} onChange={(value) => setStateImageWizardWidth(Number(value ?? 90))} />
+              </Form.Item>
+              <Form.Item label="Height" style={{ flex: 1 }}>
+                <InputNumber min={20} style={{ width: "100%" }} value={stateImageWizardHeight} onChange={(value) => setStateImageWizardHeight(Number(value ?? 56))} />
+              </Form.Item>
+            </Space>
+          </Form>
+          <Button
+            onClick={() =>
+              setStateImageDraftRows((prev) => [...prev, { id: makeId("state"), value: String(prev.length), name: `State ${prev.length}` }])
+            }
+          >
+            Add State
+          </Button>
+          <List
+            size="small"
+            dataSource={stateImageDraftRows}
+            renderItem={(row) => (
+              <List.Item
+                actions={[
+                  <Button key="del" danger size="small" onClick={() => setStateImageDraftRows((prev) => prev.filter((item) => item.id !== row.id))}>
+                    Delete
+                  </Button>,
+                ]}
+              >
+                <Space wrap style={{ width: "100%" }}>
+                  <Input
+                    style={{ width: 110 }}
+                    placeholder="Value"
+                    value={row.value}
+                    onChange={(event) =>
+                      setStateImageDraftRows((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, value: event.target.value } : item)),
+                      )
+                    }
+                  />
+                  <Input
+                    style={{ width: 170 }}
+                    placeholder="State name"
+                    value={row.name}
+                    onChange={(event) =>
+                      setStateImageDraftRows((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, name: event.target.value } : item)),
+                      )
+                    }
+                  />
+                  <Select
+                    style={{ minWidth: 260 }}
+                    value={row.assetId}
+                    placeholder="Select asset"
+                    options={availableAssets.map((asset) => ({ label: asset.name, value: asset.id }))}
+                    onChange={(value) =>
+                      setStateImageDraftRows((prev) =>
+                        prev.map((item) => (item.id === row.id ? { ...item, assetId: value } : item)),
+                      )
+                    }
+                  />
+                </Space>
+              </List.Item>
+            )}
+          />
+        </Space>
+      </Modal>
+
       <input
         ref={uploadInputRef}
         type="file"

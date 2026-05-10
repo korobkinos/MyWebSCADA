@@ -1441,3 +1441,417 @@ body {
   max-width: 100%;
   box-sizing: border-box;
 }
+
+/* ==========================================================================
+   Screen Editor Workbench
+   ========================================================================== */
+
+.screen-editor-workbench-page {
+  height: 100vh;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  background: #1e1e1e;
+  color: #cccccc;
+}
+
+.screen-editor-side-panel,
+.screen-editor-inspector {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+  box-sizing: border-box;
+}
+
+.screen-editor-center {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+}
+
+.screen-editor-canvas-host {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #111111;
+}
+
+.screen-editor-bottom-panel {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  overflow: auto;
+  background: #111111;
+  color: #c5c5c5;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.screen-editor-empty-state {
+  padding: 8px 10px;
+  color: #969696;
+  font-size: 12px;
+}
+
+.screen-editor-side-panel .workbench-button,
+.screen-editor-inspector .workbench-button {
+  margin: 2px 4px;
+}
+
+/* ==========================================================================
+   Dark theme fixes for Workbench overlays and form controls
+   ========================================================================== */
+
+/* Ant Design overlays inside dark workbench */
+.screen-editor-workbench-page .ant-dropdown,
+.screen-editor-workbench-page .ant-popover,
+.screen-editor-workbench-page .ant-select-dropdown {
+  color: #cccccc;
+}
+
+.screen-editor-workbench-page .ant-dropdown-menu,
+.screen-editor-workbench-page .ant-menu,
+.screen-editor-workbench-page .ant-select-dropdown,
+.screen-editor-workbench-page .ant-popover-inner {
+  background: #252526 !important;
+  border: 1px solid #3c3c3c !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+}
+
+.screen-editor-workbench-page .ant-dropdown-menu-item,
+.screen-editor-workbench-page .ant-menu-item,
+.screen-editor-workbench-page .ant-select-item {
+  color: #cccccc !important;
+}
+
+.screen-editor-workbench-page .ant-dropdown-menu-item:hover,
+.screen-editor-workbench-page .ant-menu-item:hover,
+.screen-editor-workbench-page .ant-select-item-option-active {
+  background: #2a2d2e !important;
+  color: #ffffff !important;
+}
+
+.screen-editor-workbench-page .ant-select-item-option-selected {
+  background: #37373d !important;
+  color: #ffffff !important;
+}
+
+/* Ant Design inputs/selects in workbench */
+.screen-editor-workbench-page .ant-input,
+.screen-editor-workbench-page .ant-input-number,
+.screen-editor-workbench-page .ant-select-selector {
+  background: #1e1e1e !important;
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.screen-editor-workbench-page .ant-input:focus,
+.screen-editor-workbench-page .ant-input-focused,
+.screen-editor-workbench-page .ant-input-number-focused,
+.screen-editor-workbench-page .ant-select-focused .ant-select-selector {
+  border-color: #007acc !important;
+  box-shadow: none !important;
+}
+
+.screen-editor-workbench-page .ant-input-number-input {
+  color: #cccccc !important;
+}
+
+.screen-editor-workbench-page .ant-input-number-handler-wrap {
+  background: #252526 !important;
+  border-left-color: #3c3c3c !important;
+}
+
+.screen-editor-workbench-page .ant-input-number-handler {
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.screen-editor-workbench-page .ant-input-number-handler:hover {
+  background: #2a2d2e !important;
+}
+
+.screen-editor-workbench-page .ant-input-number-handler-up-inner,
+.screen-editor-workbench-page .ant-input-number-handler-down-inner {
+  color: #cccccc !important;
+}
+
+/* Native select/input fallback */
+.screen-editor-workbench-page select,
+.screen-editor-workbench-page input,
+.screen-editor-workbench-page textarea {
+  color-scheme: dark;
+}
+
+/* Custom context menu */
+.screen-editor-context-menu {
+  background: #252526 !important;
+  color: #cccccc !important;
+  border: 1px solid #3c3c3c !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55) !important;
+  border-radius: 4px;
+  padding: 4px;
+  min-width: 160px;
+}
+
+.screen-editor-context-menu button,
+.screen-editor-context-menu [role="menuitem"] {
+  background: transparent !important;
+  color: #cccccc !important;
+  border: none !important;
+  width: 100%;
+  text-align: left;
+  padding: 4px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.screen-editor-context-menu button:hover,
+.screen-editor-context-menu [role="menuitem"]:hover {
+  background: #2a2d2e !important;
+  color: #ffffff !important;
+}
+
+.screen-editor-context-menu .danger,
+.screen-editor-context-menu button[danger] {
+  color: #f14c4c !important;
+}
+
+/* Screen list grid/list modes */
+.screen-editor-screen-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.screen-editor-screen-list--grid .screen-editor-screen-card {
+  padding: 8px;
+  border: 1px solid #3c3c3c;
+  background: #252526;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.screen-editor-screen-list--grid .screen-editor-screen-card:hover {
+  background: #2a2d2e;
+}
+
+.screen-editor-screen-list--grid .screen-editor-screen-card.active {
+  border-color: #007acc;
+  background: #2a2d2e;
+}
+
+.screen-editor-screen-list--list .screen-editor-screen-card {
+  min-height: 26px;
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.screen-editor-screen-list--list .screen-editor-screen-card:hover {
+  background: #2a2d2e;
+}
+
+.screen-editor-screen-list--list .screen-editor-screen-card.active {
+  background: #37373d;
+}
+
+/* ==========================================================================
+   Font size fixes for Screen Editor left panel
+   ========================================================================== */
+
+.screen-editor-side-panel {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.screen-editor-side-panel button,
+.screen-editor-side-panel input,
+.screen-editor-side-panel select,
+.screen-editor-side-panel .workbench-button,
+.screen-editor-side-panel .workbench-input,
+.screen-editor-side-panel .workbench-select,
+.screen-editor-side-panel .workbench-tree-item {
+  font-size: 12px;
+}
+
+.screen-editor-side-panel .workbench-section-title {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.screen-editor-screen-card {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.screen-editor-screen-card .ant-tag {
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.screen-editor-side-panel .ant-tree,
+.screen-editor-side-panel .ant-tree-list,
+.screen-editor-side-panel .ant-tree-node-content-wrapper {
+  background: transparent !important;
+  color: #cccccc !important;
+  font-size: 12px !important;
+}
+
+.screen-editor-side-panel .ant-tree-node-content-wrapper:hover {
+  background: #2a2d2e !important;
+}
+
+.screen-editor-side-panel .ant-tree-node-selected {
+  background: #37373d !important;
+  color: #ffffff !important;
+}
+
+.screen-editor-side-panel .ant-tabs,
+.screen-editor-side-panel .ant-tabs-tab,
+.screen-editor-side-panel .ant-tabs-tab-btn {
+  color: #cccccc !important;
+  font-size: 12px !important;
+}
+
+.screen-editor-side-panel .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #ffffff !important;
+}
+
+.screen-editor-side-panel .ant-tabs-ink-bar {
+  background: #007acc !important;
+}
+
+.screen-editor-side-panel .ant-empty,
+.screen-editor-side-panel .ant-empty-description {
+  color: #969696 !important;
+}
+
+/* ==========================================================================
+   Workbench floating windows
+   ========================================================================== */
+
+.screen-editor-workbench-page {
+  position: relative;
+}
+
+.workbench-window-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1000;
+}
+
+.workbench-window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  min-height: 160px;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  color: #cccccc;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.workbench-window__header {
+  height: 30px;
+  flex: 0 0 30px;
+  padding: 0 6px 0 10px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #3c3c3c;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: move;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.workbench-window__title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.workbench-window__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workbench-window__close {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: #cccccc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.workbench-window__close:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+.workbench-window__content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #252526;
+}
+
+.workbench-window__resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+}
+
+.workbench-window__resize-handle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid #777777;
+  border-bottom: 1px solid #777777;
+}
+
+.workbench-window__resize-handle:hover::after {
+  border-color: #007acc;
+}
+
+.screen-editor-window-content {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+  box-sizing: border-box;
+}

@@ -55,6 +55,7 @@ export function App() {
   const isRuntimeRoute = location.pathname === "/" || location.pathname === "/runtime";
   const isLoginRoute = location.pathname === "/login";
   const isWorkbenchDemoRoute = location.pathname === "/workbench-demo";
+  const isEditorRoute = location.pathname === "/editor";
   const [bootError, setBootError] = useState<string | null>(null);
   const [mainMenuHidden, setMainMenuHidden] = useState<boolean>(() => {
     if (typeof window === "undefined") {
@@ -190,6 +191,26 @@ export function App() {
           <Route path="*" element={<Navigate to="/workbench-demo" replace />} />
         </Routes>
       </Suspense>
+    );
+  }
+
+  if (isEditorRoute) {
+    return (
+      <ConfigProvider theme={themeConfig}>
+        <Suspense fallback={<CenteredSpinner />}>
+          <Routes>
+            <Route
+              path="/editor"
+              element={
+                <RequirePermission permission="editor.view">
+                  <EditorPage />
+                </RequirePermission>
+              }
+            />
+            <Route path="*" element={<Navigate to="/editor" replace />} />
+          </Routes>
+        </Suspense>
+      </ConfigProvider>
     );
   }
 

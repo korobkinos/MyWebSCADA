@@ -13214,15 +13214,16 @@
     },
     "dockLayout": {
       "panels": {
-        "drivers.left": {
-          "id": "drivers.left",
+        "tags.left": {
+          "id": "tags.left",
           "side": "left",
           "hidden": false,
-          "size": 300,
-          "lastVisibleSize": 300
+          "size": 370,
+          "lastVisibleSize": 370,
+          "detached": false
         },
-        "drivers.right": {
-          "id": "drivers.right",
+        "tags.right": {
+          "id": "tags.right",
           "side": "right",
           "hidden": false,
           "size": 360,
@@ -13775,6 +13776,21 @@
             "type": "openScreen",
             "screenId": "screen_4"
           }
+        },
+        {
+          "id": "img_kn3jr6",
+          "type": "image",
+          "x": 884.9045967131117,
+          "y": 124.9046484166675,
+          "width": 224.7439810417042,
+          "height": 224.74398104170427,
+          "rotation": 0,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "65685489-78e0-4e74-9a79-85929f242617",
+          "fit": "contain",
+          "preserveAspectRatio": true
         }
       ]
     },
