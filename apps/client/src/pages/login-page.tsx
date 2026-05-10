@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Form, Input, message } from "antd";
+import { Button, Form, message } from "antd";
 import { useScadaStore } from "../store/scada-store";
 
 export function LoginPage() {
@@ -33,10 +33,10 @@ export function LoginPage() {
         <div className="login-workbench-window__body">
           <Form form={form} layout="vertical" onFinish={() => void submit()}>
             <Form.Item label="Username" name="username" rules={[{ required: true }]}>
-              <Input autoFocus />
+              <input className="workbench-input login-workbench-input" autoFocus />
             </Form.Item>
             <Form.Item label="Password" name="password" rules={[{ required: true }]}>
-              <Input.Password />
+              <input className="workbench-input login-workbench-input" type="password" />
             </Form.Item>
             <Button type="primary" htmlType="submit" block loading={loading}>
               Sign In

@@ -2440,66 +2440,91 @@ body {
 .login-workbench-page {
   width: 100vw;
   height: 100vh;
-  display: grid;
-  place-items: center;
   background: #1e1e1e;
+  color: #cccccc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .login-workbench-window {
   width: 380px;
   background: #252526;
   border: 1px solid #3c3c3c;
-  border-radius: 4px;
-  overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
 }
 
 .login-workbench-window__header {
+  height: 30px;
+  padding: 0 10px;
   display: flex;
   align-items: center;
-  height: 35px;
-  padding: 0 12px;
-  background: #333333;
   border-bottom: 1px solid #3c3c3c;
-  user-select: none;
-}
-
-.login-workbench-window__title {
-  color: #cccccc;
-  font-size: 13px;
-  font-weight: 500;
+  background: #2d2d2d;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #ffffff;
 }
 
 .login-workbench-window__body {
-  padding: 20px 24px;
-  color: #cccccc;
+  padding: 12px;
 }
 
-.login-workbench-window__body .ant-form-item-label > label {
-  color: #cccccc;
-  font-size: 13px;
+.login-workbench-window .ant-form-item {
+  margin-bottom: 10px !important;
 }
 
-.login-workbench-window__body .ant-input,
-.login-workbench-window__body .ant-input-password .ant-input {
+.login-workbench-window .ant-form-item-label {
+  padding-bottom: 2px !important;
+}
+
+.login-workbench-window .ant-form-item-label > label {
+  color: #cccccc !important;
+  font-size: 11px !important;
+}
+
+.login-workbench-input,
+.login-workbench-window .ant-input,
+.login-workbench-window .ant-input-affix-wrapper,
+.login-workbench-window .ant-input-password {
+  height: 26px !important;
+  min-height: 26px !important;
   background: #1e1e1e !important;
   border-color: #3c3c3c !important;
   color: #cccccc !important;
+  font-size: 12px !important;
+  box-shadow: none !important;
 }
 
-.login-workbench-window__body .ant-input:focus,
-.login-workbench-window__body .ant-input-focused {
+.login-workbench-window .ant-input-affix-wrapper input.ant-input {
+  height: 22px !important;
+  background: transparent !important;
+  border: 0 !important;
+  color: #cccccc !important;
+}
+
+.login-workbench-window .ant-input-suffix,
+.login-workbench-window .anticon {
+  color: #969696 !important;
+}
+
+.login-workbench-window .ant-input-affix-wrapper-focused,
+.login-workbench-window .ant-input:focus,
+.login-workbench-input:focus {
   border-color: #007acc !important;
-  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2) !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
-.login-workbench-window__body .ant-btn-primary {
-  background: #007acc;
-  border-color: #007acc;
-  margin-top: 4px;
+.login-workbench-window .ant-btn-primary {
+  height: 28px !important;
+  background: #0e639c !important;
+  border-color: #007acc !important;
+  color: #ffffff !important;
+  font-size: 12px !important;
 }
 
-.login-workbench-window__body .ant-btn-primary:hover {
-  background: #1a8ad4;
-  border-color: #1a8ad4;
+.login-workbench-window .ant-btn-primary:hover {
+  background: #1177bb !important;
 }

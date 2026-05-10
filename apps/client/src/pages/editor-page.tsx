@@ -889,71 +889,11 @@ export function EditorPage() {
     isWindowOpen,
   } = useWorkbenchWindows();
 
-  function isAssetUsedByObject(object: HmiObject, assetId: string): boolean {
-    if (object.type === "image" && "assetId" in object && object.assetId === assetId) {
-      return true;
-    }
-    if (object.type === "stateImage") {
-      if (object.defaultAssetId === assetId || object.badQualityAssetId === assetId) {
-        return true;
-      }
-      return object.states.some((state) => state.assetId === assetId);
-    }
-    if (object.type === "button") {
-      return (
-        object.backgroundAssetId === assetId ||
-        object.pressedBackgroundAssetId === assetId ||
-        object.disabledBackgroundAssetId === assetId
-      );
-    }
-    if (object.type === "group") {
-      return object.objects.some((child) => isAssetUsedByObject(child, assetId));
-    }
-    return false;
-  }
-
-  function findAssetUsages(
-    project: ScadaProject,
-    assetId: string,
-  ): Array<{ screenId: string; screenName: string; objectId: string }> {
-    const usages: Array<{ screenId: string; screenName: string; objectId: string }> = [];
-
-    const scan = (screen: HmiScreen, objects: HmiObject[]) => {
-      for (const object of objects) {
-        if (isAssetUsedByObject(object, assetId)) {
-          usages.push({ screenId: screen.id, screenName: screen.name, objectId: object.id });
-        }
-        if (object.type === "group") {
-          scan(screen, object.objects);
-        }
-      }
-    };
-
-    for (const screen of project.screens) {
-      scan(screen, screen.objects);
-    }
-
-    return usages;
-  }
-
   const handleDeleteAsset = useCallback(
     async (assetId: string) => {
       try {
-        const latestProject = useScadaStore.getState().project;
-
-        if (latestProject) {
-          const usages = findAssetUsages(latestProject, assetId);
-          if (usages.length > 0) {
-            void message.warning(
-              `Asset is used on ${usages.length} object(s). Remove image objects first.`,
-            );
-            return;
-          }
-        }
-
         await api.deleteAsset(assetId);
         await loadAssets();
-        await loadProject();
 
         if (viewAssetId === assetId) {
           setViewAssetId(null);
@@ -963,19 +903,30 @@ export function EditorPage() {
         void message.success("Asset deleted");
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
+        const normalized = text.toLowerCase();
 
-        if (text.toLowerCase().includes("used in project")) {
+        if (
+          normalized.includes("used in project") ||
+          normalized.includes("cannot be deleted")
+        ) {
           void message.warning("Asset is used on screens. Remove image objects first.");
-        } else if (text.includes("403") || text.toLowerCase().includes("forbidden")) {
-          void message.error("No permission to delete assets. Required: assets.delete");
-        } else {
-          void message.error(text || "Failed to delete asset");
+          return;
         }
 
+        if (
+          normalized.includes("403") ||
+          normalized.includes("forbidden") ||
+          normalized.includes("assets.delete")
+        ) {
+          void message.error("No permission to delete assets. Required: assets.delete");
+          return;
+        }
+
+        void message.error(text || "Failed to delete asset");
         console.error("Asset delete failed", error);
       }
     },
-    [closeWindow, loadAssets, loadProject, viewAssetId],
+    [closeWindow, loadAssets, viewAssetId],
   );
 
   const windowDefinitions: WorkbenchWindowDefinition[] = [

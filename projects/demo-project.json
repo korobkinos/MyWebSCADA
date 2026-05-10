@@ -23,18 +23,6 @@
       "previewUrl": "/api/assets/65685489-78e0-4e74-9a79-85929f242617/file"
     },
     {
-      "id": "cf4007e7-9e78-43c0-a197-c4edc109e849",
-      "name": "blue.PNG",
-      "type": "png",
-      "mimeType": "image/png",
-      "fileName": "cf4007e7-9e78-43c0-a197-c4edc109e849.png",
-      "size": 3637,
-      "createdAt": "2026-05-08T06:23:43.778Z",
-      "updatedAt": "2026-05-08T06:23:43.778Z",
-      "storagePath": "assets/cf4007e7-9e78-43c0-a197-c4edc109e849.png",
-      "previewUrl": "/api/assets/cf4007e7-9e78-43c0-a197-c4edc109e849/file"
-    },
-    {
       "id": "edd18c1b-b49b-4269-85bc-a51c9786d8f8",
       "name": "white.PNG",
       "type": "png",
