@@ -129,6 +129,12 @@ function createPrimitiveShape(kind: PrimitiveShapeKind): HmiObject {
 
 
 export function EditorPage() {
+  useEffect(() => {
+    document.body.classList.add("workbench-theme");
+    return () => {
+      document.body.classList.remove("workbench-theme");
+    };
+  }, []);
   const navigate = useNavigate();
   const project = useScadaStore((s) => s.project);
   const tags = useScadaStore((s) => s.tags);
@@ -157,6 +163,7 @@ export function EditorPage() {
   const loadLibraries = useScadaStore((s) => s.loadLibraries);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
 
+  const [pendingDeleteScreenId, setPendingDeleteScreenId] = useState<string | null>(null);
   const [newVarName, setNewVarName] = useState("Counter1");
   const [newVarType, setNewVarType] = useState<InternalVariableDefinition["dataType"]>("REAL");
   const [newScreenKind, setNewScreenKind] = useState<ScreenKind>("screen");
@@ -534,47 +541,63 @@ export function EditorPage() {
     [project, setCurrentScreen, setScreenObjects, updateProjectJson],
   );
 
-  const deleteScreenLocal = useCallback(
-    (screenId: string) => {
-      const currentProject = useScadaStore.getState().project;
-      if (!currentProject) {
-        return;
+  const requestDeleteScreen = useCallback((screenId: string) => {
+    const currentProject = useScadaStore.getState().project;
+    if (!currentProject) {
+      return;
+    }
+    if (currentProject.screens.length <= 1) {
+      void message.warning("Cannot delete the last screen");
+      return;
+    }
+    const target = currentProject.screens.find((screen) => screen.id === screenId);
+    if (!target) {
+      void message.warning("Screen not found");
+      return;
+    }
+    setPendingDeleteScreenId(screenId);
+  }, []);
+
+  const performDeleteScreen = useCallback(() => {
+    if (!pendingDeleteScreenId) {
+      return;
+    }
+    const latestProject = useScadaStore.getState().project;
+    if (!latestProject) {
+      setPendingDeleteScreenId(null);
+      return;
+    }
+    const nextScreens = latestProject.screens.filter((screen) => screen.id !== pendingDeleteScreenId);
+    if (nextScreens.length === latestProject.screens.length) {
+      void message.warning("Screen not found");
+      setPendingDeleteScreenId(null);
+      return;
+    }
+    if (nextScreens.length === 0) {
+      void message.warning("Cannot delete the last screen");
+      setPendingDeleteScreenId(null);
+      return;
+    }
+    const nextStartScreenId =
+      latestProject.startScreenId === pendingDeleteScreenId
+        ? nextScreens[0]?.id ?? null
+        : latestProject.startScreenId;
+    const previousCurrentScreenId = useScadaStore.getState().currentScreenId;
+    const nextProject = {
+      ...latestProject,
+      screens: nextScreens,
+      startScreenId: nextStartScreenId,
+    } as ScadaProject;
+    updateProjectJson(nextProject);
+    if (previousCurrentScreenId === pendingDeleteScreenId) {
+      const fallbackId = nextScreens[0]?.id;
+      if (fallbackId) {
+        setCurrentScreen(fallbackId);
       }
-      const remaining = currentProject.screens.filter((item) => item.id !== screenId);
-      if (remaining.length === currentProject.screens.length) {
-        void message.warning("Screen not found");
-        return;
-      }
-      if (remaining.length === 0) {
-        void message.warning("Cannot delete the last screen");
-        return;
-      }
-      Modal.confirm({
-        title: "Delete screen",
-        content: `Delete screen "${currentProject.screens.find((s) => s.id === screenId)?.name ?? screenId}" permanently?`,
-        okText: "Delete",
-        okButtonProps: { danger: true },
-        onOk: () => {
-          const latestProject = useScadaStore.getState().project;
-          if (!latestProject) {
-            return;
-          }
-          const nextScreens = latestProject.screens.filter((item) => item.id !== screenId);
-          const nextStartScreenId = latestProject.startScreenId === screenId
-            ? (nextScreens[0]?.id ?? null)
-            : latestProject.startScreenId;
-          const nextProject = {
-            ...latestProject,
-            screens: nextScreens,
-            startScreenId: nextStartScreenId,
-          } as ScadaProject;
-          updateProjectJson(nextProject);
-          void message.success("Screen deleted");
-        },
-      });
-    },
-    [updateProjectJson],
-  );
+    }
+    setPendingDeleteScreenId(null);
+    void message.success("Screen deleted");
+  }, [pendingDeleteScreenId, setCurrentScreen, updateProjectJson]);
 
   const setStartScreen = useCallback(
     (screenId: string) => {
@@ -645,22 +668,11 @@ export function EditorPage() {
         if (!project) {
           return;
         }
-        const formData = new FormData();
-        formData.append("file", file);
-        if (assetUploadName.trim()) {
-          formData.append("name", assetUploadName.trim());
-        }
-        const result = await fetch("/api/assets/upload", {
-          method: "POST",
-          body: formData,
-        });
-        if (!result.ok) {
-          throw new Error("Upload failed");
-        }
+        const uploaded = await api.uploadAsset(file, assetUploadName.trim() || undefined);
         await loadAssets();
         await loadProject();
         setAssetUploadName("");
-        void message.success("Asset uploaded");
+        void message.success(`Asset uploaded: ${uploaded.name}`);
       } catch (error) {
         void message.error(error instanceof Error ? error.message : "Failed to upload asset");
       }
@@ -1001,7 +1013,7 @@ export function EditorPage() {
             setCurrentScreen={setCurrentScreen}
             duplicateScreenLocal={duplicateScreenLocal}
             setStartScreen={setStartScreen}
-            deleteScreenLocal={deleteScreenLocal}
+            requestDeleteScreen={requestDeleteScreen}
             activeActivityId={activeActivityId}
             navigate={navigate}
             openDefinedWindow={openDefinedWindow}
@@ -1084,6 +1096,35 @@ export function EditorPage() {
         onMove={moveWindow}
         onResize={resizeWindow}
       />
+
+      {pendingDeleteScreenId ? (
+        <div className="workbench-confirm-backdrop">
+          <div className="workbench-confirm-dialog">
+            <div className="workbench-confirm-dialog__header">
+              Delete screen
+            </div>
+            <div className="workbench-confirm-dialog__body">
+              Delete screen permanently?
+            </div>
+            <div className="workbench-confirm-dialog__actions">
+              <button
+                type="button"
+                className="workbench-button"
+                onClick={() => setPendingDeleteScreenId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="workbench-button workbench-button--danger"
+                onClick={performDeleteScreen}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Modal
         title="Save As Library Element"

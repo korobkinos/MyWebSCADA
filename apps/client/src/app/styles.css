@@ -2048,3 +2048,161 @@ body {
 .workbench-window .ant-empty-description {
   color: #969696 !important;
 }
+
+/* ==========================================================================
+   Global Workbench dark theme (applied to body.workbench-theme)
+   ========================================================================== */
+
+.workbench-theme {
+  color-scheme: dark;
+}
+
+.workbench-theme,
+.workbench-theme * {
+  scrollbar-color: #424242 #1e1e1e;
+  scrollbar-width: thin;
+}
+
+.workbench-theme *::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.workbench-theme *::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.workbench-theme *::-webkit-scrollbar-thumb {
+  background: #424242;
+  border: 3px solid #1e1e1e;
+  border-radius: 6px;
+}
+
+.workbench-theme *::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+.workbench-theme *::-webkit-scrollbar-corner {
+  background: #1e1e1e;
+}
+
+/* Ant Design portals in Workbench dark theme */
+.workbench-theme .ant-modal-content,
+.workbench-theme .ant-modal-header,
+.workbench-theme .ant-modal-footer,
+.workbench-theme .ant-popover-inner,
+.workbench-theme .ant-dropdown-menu,
+.workbench-theme .ant-select-dropdown {
+  background: #252526 !important;
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.workbench-theme .ant-modal-title,
+.workbench-theme .ant-modal-confirm-title,
+.workbench-theme .ant-modal-confirm-content,
+.workbench-theme .ant-popover-title,
+.workbench-theme .ant-popover-inner-content {
+  color: #cccccc !important;
+}
+
+.workbench-theme .ant-input,
+.workbench-theme .ant-input-number,
+.workbench-theme .ant-select-selector,
+.workbench-theme .ant-picker,
+.workbench-theme textarea {
+  background: #1e1e1e !important;
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.workbench-theme .ant-input:focus,
+.workbench-theme .ant-input-focused,
+.workbench-theme .ant-input-number-focused,
+.workbench-theme .ant-select-focused .ant-select-selector {
+  border-color: #007acc !important;
+  box-shadow: none !important;
+}
+
+.workbench-theme .ant-select-item,
+.workbench-theme .ant-dropdown-menu-item {
+  color: #cccccc !important;
+}
+
+.workbench-theme .ant-select-item-option-active,
+.workbench-theme .ant-dropdown-menu-item:hover {
+  background: #2a2d2e !important;
+  color: #ffffff !important;
+}
+
+.workbench-theme .ant-select-item-option-selected {
+  background: #37373d !important;
+  color: #ffffff !important;
+}
+
+.workbench-theme .ant-btn-default {
+  background: #2d2d2d !important;
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.workbench-theme .ant-btn-default:hover {
+  background: #37373d !important;
+  color: #ffffff !important;
+}
+
+.workbench-theme .ant-btn-primary {
+  background: #0e639c !important;
+  border-color: #007acc !important;
+  color: #ffffff !important;
+}
+
+.workbench-theme .ant-btn-primary:hover {
+  background: #1177bb !important;
+}
+
+/* Workbench confirm dialog */
+.workbench-confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.workbench-confirm-dialog {
+  width: 360px;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  color: #cccccc;
+}
+
+.workbench-confirm-dialog__header {
+  height: 30px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #3c3c3c;
+  background: #2d2d2d;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.workbench-confirm-dialog__body {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: #cccccc;
+}
+
+.workbench-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid #3c3c3c;
+}

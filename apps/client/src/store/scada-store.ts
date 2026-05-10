@@ -633,10 +633,16 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
   },
 
   updateProjectJson(next) {
+    const previousCurrentScreenId = get().currentScreenId;
+    const nextCurrentScreenId =
+      previousCurrentScreenId && next.screens.some((screen) => screen.id === previousCurrentScreenId)
+        ? previousCurrentScreenId
+        : next.startScreenId ?? next.screens[0]?.id ?? null;
+
     set({
       project: next,
       assets: next.assets ?? [],
-      currentScreenId: next.startScreenId ?? next.screens[0]?.id ?? null,
+      currentScreenId: nextCurrentScreenId,
       selection: { selectedObjectIds: [] },
     });
   },

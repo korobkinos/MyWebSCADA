@@ -93,6 +93,18 @@
       "updatedAt": "2026-05-08T09:14:01.194Z",
       "storagePath": "assets/766367c9-dc43-437f-9eeb-c5b7140db82d.png",
       "previewUrl": "/api/assets/766367c9-dc43-437f-9eeb-c5b7140db82d/file"
+    },
+    {
+      "id": "88ed44df-382b-4a9b-ba6c-95f71c699d40",
+      "name": "15.09.13 - 6",
+      "type": "jpg",
+      "mimeType": "image/jpeg",
+      "fileName": "88ed44df-382b-4a9b-ba6c-95f71c699d40.jpg",
+      "size": 190874,
+      "createdAt": "2026-05-10T14:30:36.448Z",
+      "updatedAt": "2026-05-10T14:30:36.448Z",
+      "storagePath": "assets/88ed44df-382b-4a9b-ba6c-95f71c699d40.jpg",
+      "previewUrl": "/api/assets/88ed44df-382b-4a9b-ba6c-95f71c699d40/file"
     }
   ],
   "libraries": [
@@ -13889,6 +13901,35 @@
               }
             }
           ]
+        },
+        {
+          "id": "img_ebi21l",
+          "type": "image",
+          "x": 947.2289351008168,
+          "y": 647.2289351008174,
+          "width": 276.6296161307615,
+          "height": 276.6296161307614,
+          "rotation": 0,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "88ed44df-382b-4a9b-ba6c-95f71c699d40",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "img_cda1m8",
+          "type": "image",
+          "x": 112,
+          "y": 791,
+          "width": 80,
+          "height": 80,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "88ed44df-382b-4a9b-ba6c-95f71c699d40",
+          "fit": "contain",
+          "preserveAspectRatio": true
         }
       ]
     },
@@ -14295,52 +14336,6 @@
     {
       "id": "screen_5",
       "name": "SCREEN 5",
-      "kind": "screen",
-      "width": 1920,
-      "height": 1080,
-      "background": "#1e1e1e",
-      "objects": [
-        {
-          "id": "lib_q9i1m4",
-          "type": "libraryElementInstance",
-          "x": 537.8745750448165,
-          "y": 199.22074896980848,
-          "width": 164.82518860283864,
-          "height": 89.90464832882107,
-          "rotation": 0,
-          "minWidth": 60,
-          "minHeight": 40,
-          "libraryId": "amaks-basic-equipment",
-          "elementId": "element_qkwgwe",
-          "bindingAssignments": {},
-          "scaleMode": "fit"
-        },
-        {
-          "id": "text_unlnye",
-          "type": "text",
-          "x": 591.5082248738388,
-          "y": 178.9999999999996,
-          "width": 60,
-          "height": 39.999999999999936,
-          "rotation": 0,
-          "minWidth": 60,
-          "minHeight": 24,
-          "text": "New text",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 12,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "left",
-            "verticalAlign": "middle",
-            "padding": 4
-          }
-        }
-      ]
-    },
-    {
-      "id": "screen_4657a3",
-      "name": "SCREEN 5 Copy",
       "kind": "screen",
       "width": 1920,
       "height": 1080,

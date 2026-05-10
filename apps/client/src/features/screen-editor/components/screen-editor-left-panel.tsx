@@ -37,7 +37,7 @@ type ScreenEditorLeftPanelProps = {
   setCurrentScreen: (id: string) => void;
   duplicateScreenLocal: (screen: HmiScreen) => void;
   setStartScreen: (id: string) => void;
-  deleteScreenLocal: (id: string) => void;
+  requestDeleteScreen: (id: string) => void;
   navigate: (path: string) => void;
   openDefinedWindow: (id: string) => void;
 };
@@ -62,7 +62,7 @@ export function ScreenEditorLeftPanel(props: ScreenEditorLeftPanelProps) {
     setCurrentScreen,
     duplicateScreenLocal,
     setStartScreen,
-    deleteScreenLocal,
+    requestDeleteScreen,
     navigate,
     openDefinedWindow,
   } = props;
@@ -197,7 +197,7 @@ export function ScreenEditorLeftPanel(props: ScreenEditorLeftPanelProps) {
         onSelectScreen={setCurrentScreen}
         onDuplicateScreen={duplicateScreenLocal}
         onSetStartScreen={setStartScreen}
-        onDeleteScreen={deleteScreenLocal}
+        onDeleteScreen={requestDeleteScreen}
       />
 
       <WorkbenchSection title="ASSETS">
