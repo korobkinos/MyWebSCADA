@@ -15,8 +15,6 @@ import type {
 import { normalizeObjectsToGroup } from "@web-scada/shared";
 import {
   Button,
-  Checkbox,
-  ColorPicker,
   Divider,
   Form,
   Input,
@@ -25,8 +23,6 @@ import {
   Modal,
   Select,
   Space,
-  Switch,
-  Tag,
   Typography,
   message,
 } from "antd";
@@ -35,21 +31,28 @@ import { FloatingPanel } from "../components/floating-panel";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
 import { importSvgAssetToPrimitives } from "../hmi/editor/svg-primitive-import";
-import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { useScadaStore } from "../store/scada-store";
 import { isTextEditingTarget } from "../utils/keyboard";
 import {
   ScadaWorkbenchLayout,
-  WorkbenchButton,
-  WorkbenchPanelToolbar,
-  WorkbenchSection,
-  WorkbenchTabs,
-  WorkbenchTreeItem,
   WorkbenchWindowManager,
   useWorkbenchWindows,
   type WorkbenchWindowDefinition,
 } from "../components/workbench";
+import {
+  ScreenEditorAssetsWindow,
+  ScreenEditorLibrariesWindow,
+  ScreenEditorTagsWindow,
+  ScreenEditorDriversWindow,
+} from "../features/screen-editor/windows";
+import {
+  ScreenEditorCenter,
+  ScreenEditorLeftPanel,
+  ScreenEditorRightPanel,
+  ScreenEditorBottomPanel,
+  type ScreenEditorActivityId,
+} from "../features/screen-editor/components";
 
 type CloneOptions = {
   count: number;
@@ -122,669 +125,8 @@ function createPrimitiveShape(kind: PrimitiveShapeKind): HmiObject {
   };
 }
 
-function ScreenEditorLeftPanel({
-  screen,
-  project,
-  libraries,
-  assets,
-  screenSearch,
-  setScreenSearch,
-  screenKindFilter,
-  setScreenKindFilter,
-  screenViewMode,
-  setScreenViewMode,
-  filteredScreens,
-  newScreenKind,
-  setNewScreenKind,
-  newVarName,
-  setNewVarName,
-  newVarType,
-  setNewVarType,
-  addVariable,
-  addScreen,
-  setCurrentScreen,
-  duplicateScreenLocal,
-  setStartScreen,
-  deleteScreenLocal,
-  assetUploadName,
-  setAssetUploadName,
-  uploadInputRef,
-  onUploadProjectAsset,
-  addAssetAsImage,
-  activeActivityId,
-  navigate,
-  newLibraryId,
-  setNewLibraryId,
-  newLibraryName,
-  setNewLibraryName,
-  createLibrary,
-  loadLibraries,
-  attachLibrary,
-  addLibraryElementInstance,
-}: {
-  screen: HmiScreen;
-  project: ScadaProject;
-  libraries: any[];
-  assets: Asset[];
-  screenSearch: string;
-  setScreenSearch: (v: string) => void;
-  screenKindFilter: "all" | ScreenKind;
-  setScreenKindFilter: (v: "all" | ScreenKind) => void;
-  screenViewMode: "grid" | "list";
-  setScreenViewMode: (v: "grid" | "list") => void;
-  filteredScreens: HmiScreen[];
-  newScreenKind: ScreenKind;
-  setNewScreenKind: (v: ScreenKind) => void;
-  newVarName: string;
-  setNewVarName: (v: string) => void;
-  newVarType: InternalVariableDefinition["dataType"];
-  setNewVarType: (v: InternalVariableDefinition["dataType"]) => void;
-  addVariable: (name: string, dataType: InternalVariableDefinition["dataType"], initialValue?: boolean | number | string | null) => void;
-  addScreen: (kind: ScreenKind) => void;
-  setCurrentScreen: (id: string) => void;
-  duplicateScreenLocal: (screen: HmiScreen) => void;
-  setStartScreen: (id: string) => void;
-  deleteScreenLocal: (id: string) => void;
-  assetUploadName: string;
-  setAssetUploadName: (v: string) => void;
-  uploadInputRef: React.RefObject<HTMLInputElement | null>;
-  onUploadProjectAsset: (file: File) => Promise<void>;
-  addAssetAsImage: (asset: Asset) => void;
-  activeActivityId: string;
-  navigate: (path: string) => void;
-  newLibraryId: string;
-  setNewLibraryId: (v: string) => void;
-  newLibraryName: string;
-  setNewLibraryName: (v: string) => void;
-  createLibrary: () => Promise<void>;
-  loadLibraries: () => Promise<void>;
-  attachLibrary: (id: string) => Promise<void>;
-  addLibraryElementInstance: (libraryId: string, elementOrId: LibraryElement | string) => void;
-}) {
-  if (activeActivityId === "search") {
-    return (
-      <div className="screen-editor-side-panel">
-        <WorkbenchSection title="SEARCH">
-          <div style={{ padding: "0 10px" }}>
-            <input className="workbench-input" placeholder="Search screens..." value={screenSearch} onChange={(e) => setScreenSearch(e.target.value)} />
-            <div style={{ marginTop: 8, color: "#969696", fontSize: 12 }}>
-              {filteredScreens.length} screen(s) found
-            </div>
-          </div>
-        </WorkbenchSection>
-      </div>
-    );
-  }
 
-  if (activeActivityId === "tags") {
-    const projectTags = useScadaStore.getState().tags ?? {};
-    const tagKeys = Object.keys(projectTags);
-    const projectVariables = project.variables ?? [];
-    return (
-      <div className="screen-editor-side-panel">
-        <WorkbenchSection title="TAGS">
-          <div style={{ padding: "0 10px" }}>
-            <div style={{ color: "#969696", fontSize: 12, marginBottom: 8 }}>
-              Total tags: {tagKeys.length}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <WorkbenchTreeItem onClick={() => navigate("/tags")}>
-                🏷️ Open Tags Workspace ({tagKeys.length} tags)
-              </WorkbenchTreeItem>
-              {(project.macros ?? []).map((macro) => (
-                <WorkbenchTreeItem key={macro.id}>
-                  <Space size={4}>
-                    <span>▶ {macro.name}</span>
-                    <Tag color={macro.enabled ?? true ? "green" : "default"} style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>
-                      {macro.enabled ?? true ? "EN" : "DIS"}
-                    </Tag>
-                  </Space>
-                </WorkbenchTreeItem>
-              ))}
-            </div>
-          </div>
-        </WorkbenchSection>
-        <WorkbenchSection title="INTERNAL VARIABLES (LW)">
-          <div style={{ padding: "0 10px" }}>
-            <input className="workbench-input" value={newVarName} onChange={(e) => setNewVarName(e.target.value)} placeholder="Variable name" />
-            <div style={{ display: "flex", gap: 4, marginTop: 4, marginBottom: 6 }}>
-              <select className="workbench-select" style={{ flex: 1 }} value={newVarType} onChange={(e) => setNewVarType(e.target.value as InternalVariableDefinition["dataType"])}>
-                <option value="BOOL">BOOL</option>
-                <option value="INT">INT</option>
-                <option value="DINT">DINT</option>
-                <option value="REAL">REAL</option>
-                <option value="STRING">STRING</option>
-              </select>
-              <WorkbenchButton onClick={() => addVariable(newVarName.trim(), newVarType, newVarType === "BOOL" ? false : 0)}>Add</WorkbenchButton>
-            </div>
-            <div style={{ maxHeight: 200, overflow: "auto" }}>
-              {projectVariables.slice(0, 50).map((v) => (
-                <WorkbenchTreeItem key={v.name}><span>{v.name} ({v.dataType})</span></WorkbenchTreeItem>
-              ))}
-            </div>
-          </div>
-        </WorkbenchSection>
-      </div>
-    );
-  }
 
-  if (activeActivityId === "assets") {
-    return (
-      <div className="screen-editor-side-panel">
-        <WorkbenchSection title="ASSETS">
-          <div style={{ padding: "0 10px" }}>
-            <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
-              <input className="workbench-input" value={assetUploadName} onChange={(e) => setAssetUploadName(e.target.value)} placeholder="Asset name" style={{ flex: 1 }} />
-              <WorkbenchButton onClick={() => uploadInputRef.current?.click()}>Upload</WorkbenchButton>
-            </div>
-            <div style={{ color: "#969696", fontSize: 11, marginBottom: 4 }}>
-              Click on asset to add to screen
-            </div>
-            <div style={{ maxHeight: 400, overflow: "auto" }}>
-              {assets.slice(0, 50).map((asset) => (
-                <WorkbenchTreeItem key={asset.id} onClick={() => addAssetAsImage(asset)}>
-                  <Space size={4}>
-                    <img src={asset.previewUrl} alt={asset.name} style={{ width: 24, height: 24, objectFit: "contain", background: "#111" }} />
-                    <span>{asset.name}</span>
-                  </Space>
-                </WorkbenchTreeItem>
-              ))}
-            </div>
-          </div>
-        </WorkbenchSection>
-      </div>
-    );
-  }
-
-  if (activeActivityId === "libraries") {
-    return (
-      <div className="screen-editor-side-panel">
-        <WorkbenchSection title="LIBRARIES">
-          <div style={{ padding: "0 10px" }}>
-            <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-              <input className="workbench-input" value={newLibraryId} onChange={(e) => setNewLibraryId(e.target.value)} placeholder="library id" style={{ flex: 1 }} />
-            </div>
-            <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-              <input className="workbench-input" value={newLibraryName} onChange={(e) => setNewLibraryName(e.target.value)} placeholder="library name" style={{ flex: 1 }} />
-            </div>
-            <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-              <WorkbenchButton onClick={() => void createLibrary()}>Create</WorkbenchButton>
-              <WorkbenchButton onClick={() => void loadLibraries()}>Refresh</WorkbenchButton>
-            </div>
-          </div>
-        </WorkbenchSection>
-        <WorkbenchSection title="AVAILABLE LIBRARIES">
-          <div style={{ padding: "0 10px" }}>
-            {libraries.map((library) => {
-              const attached = (project.libraries ?? []).some((item) => item.libraryId === library.id && item.enabled);
-              return (
-                <WorkbenchTreeItem key={library.id}>
-                  <Space size={4} style={{ width: "100%", justifyContent: "space-between" }}>
-                    <span>{library.name}</span>
-                    {attached ? (
-                      <Tag color="green" style={{ fontSize: 10 }}>attached</Tag>
-                    ) : (
-                      <WorkbenchButton onClick={() => void attachLibrary(library.id)}>Attach</WorkbenchButton>
-                    )}
-                  </Space>
-                </WorkbenchTreeItem>
-              );
-            })}
-          </div>
-        </WorkbenchSection>
-        <WorkbenchSection title="ELEMENTS">
-          <div style={{ padding: "0 10px" }}>
-            {(project.libraries ?? []).filter((ref) => ref.enabled).map((ref) => {
-              const library = libraries.find((item) => item.id === ref.libraryId);
-              if (!library) { return null; }
-              return (
-                <div key={ref.libraryId} style={{ marginBottom: 8 }}>
-                  <div style={{ color: "#969696", fontSize: 11, marginBottom: 4 }}>{ref.name}</div>
-                  {library.elements?.slice(0, 10).map((element: LibraryElement) => (
-                    <WorkbenchTreeItem key={element.id}>
-                      <Space size={4} style={{ width: "100%", justifyContent: "space-between" }}>
-                        <span>{element.name}</span>
-                        <WorkbenchButton onClick={() => addLibraryElementInstance(library.id, element)}>Add</WorkbenchButton>
-                      </Space>
-                    </WorkbenchTreeItem>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </WorkbenchSection>
-      </div>
-    );
-  }
-
-  if (activeActivityId === "drivers") {
-    return (
-      <div className="screen-editor-side-panel">
-        <WorkbenchSection title="DRIVERS">
-          <div style={{ padding: "0 10px" }}>
-            <WorkbenchTreeItem onClick={() => navigate("/drivers")}>
-              ⚙️ Open Drivers Workspace
-            </WorkbenchTreeItem>
-            <div style={{ marginTop: 8, color: "#969696", fontSize: 12 }}>
-              Configure OPC UA, Modbus, and other protocol drivers in the Drivers workspace.
-            </div>
-          </div>
-        </WorkbenchSection>
-        <WorkbenchSection title="OPC UA & SIMULATION">
-          <div style={{ padding: "0 10px" }}>
-            <div style={{ color: "#969696", fontSize: 12 }}>
-              Tags can be configured with OPC UA, LW, Internal or Simulated sources.
-            </div>
-            <div style={{ marginTop: 4 }}>
-              <WorkbenchButton onClick={() => navigate("/tags")}>Configure Tags</WorkbenchButton>
-            </div>
-          </div>
-        </WorkbenchSection>
-      </div>
-    );
-  }
-
-  if (activeActivityId === "runtime") {
-    return (
-      <div className="screen-editor-side-panel">
-        <WorkbenchSection title="RUNTIME">
-          <div style={{ padding: "0 10px" }}>
-            <WorkbenchButton onClick={() => navigate("/runtime")}>▶ Open Runtime</WorkbenchButton>
-            <div style={{ marginTop: 8, color: "#969696", fontSize: 12 }}>
-              Start screen: {project.startScreenId ? (project.screens.find((s) => s.id === project.startScreenId)?.name ?? project.startScreenId) : "-"}
-            </div>
-          </div>
-        </WorkbenchSection>
-      </div>
-    );
-  }
-
-  return (
-    <div className="screen-editor-side-panel">
-      <WorkbenchSection title="SCREENS">
-        <div style={{ display: "flex", gap: 4, padding: "0 10px 6px", flexWrap: "wrap" }}>
-          <Select size="small" value={newScreenKind} style={{ width: 100 }} onChange={(value) => setNewScreenKind(value)} options={[
-            { label: "Screen", value: "screen" }, { label: "Popup", value: "popup" }, { label: "Template", value: "template" },
-          ]} />
-          <WorkbenchButton onClick={() => addScreen(newScreenKind)}>Add</WorkbenchButton>
-        </div>
-        <div style={{ padding: "0 10px 6px" }}>
-          <input className="workbench-input" value={screenSearch} onChange={(event) => setScreenSearch(event.target.value)} placeholder="Search screens" />
-        </div>
-        <div style={{ display: "flex", gap: 4, padding: "0 10px 6px", flexWrap: "wrap" }}>
-          <select className="workbench-select" style={{ width: 100 }} value={screenKindFilter} onChange={(event) => setScreenKindFilter(event.target.value as "all" | ScreenKind)}>
-            <option value="all">All</option>
-            <option value="screen">Screen</option>
-            <option value="popup">Popup</option>
-            <option value="template">Template</option>
-          </select>
-          <select className="workbench-select" style={{ width: 80 }} value={screenViewMode} onChange={(event) => setScreenViewMode(event.target.value as "grid" | "list")}>
-            <option value="grid">Grid</option>
-            <option value="list">List</option>
-          </select>
-        </div>
-        <div className={`screen-editor-screen-list screen-editor-screen-list--${screenViewMode}`}>
-          {filteredScreens.map((item) => (
-            <div
-              key={item.id}
-              className={`screen-editor-screen-card ${item.id === screen.id ? "active" : ""}`}
-              onClick={() => setCurrentScreen(item.id)}
-            >
-              <Space size={4} style={{ width: "100%", justifyContent: "space-between" }}>
-                <span>{item.name}</span>
-                <Space size={4}>
-                  <Tag color={item.kind === "popup" ? "purple" : item.kind === "template" ? "cyan" : "blue"} style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>
-                    {item.kind}
-                  </Tag>
-                  {project.startScreenId === item.id ? <Tag color="green" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>Start</Tag> : null}
-                </Space>
-              </Space>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 4, padding: "4px 10px", flexWrap: "wrap" }}>
-          <WorkbenchButton onClick={() => duplicateScreenLocal(screen)} disabled={!screen}>Duplicate</WorkbenchButton>
-          <WorkbenchButton onClick={() => setStartScreen(screen.id)}>Set Start</WorkbenchButton>
-          <WorkbenchButton variant="danger" onClick={() => deleteScreenLocal(screen.id)} disabled={filteredScreens.length <= 1}>Delete</WorkbenchButton>
-        </div>
-      </WorkbenchSection>
-
-      <WorkbenchSection title="CURRENT SCREEN">
-        <div style={{ padding: "0 10px" }}>
-          <input className="workbench-input" value={screen.name} onChange={(e) => { useScadaStore.getState().updateScreen(screen.id, { name: e.target.value }); }} placeholder="Screen name" />
-          <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-            <input className="workbench-input" type="number" style={{ width: "50%" }} value={screen.width} onChange={(e) => { useScadaStore.getState().updateScreen(screen.id, { width: Number(e.target.value) }); }} />
-            <input className="workbench-input" type="number" style={{ width: "50%" }} value={screen.height} onChange={(e) => { useScadaStore.getState().updateScreen(screen.id, { height: Number(e.target.value) }); }} />
-          </div>
-        </div>
-      </WorkbenchSection>
-
-      <WorkbenchSection title="LIBRARIES">
-        <div style={{ padding: "0 10px" }}>
-          {(project.libraries ?? []).map((ref) => (
-            <WorkbenchTreeItem key={ref.libraryId}>
-              <Space size={4}>
-                <span>{ref.name}</span>
-                <Tag color={ref.enabled ? "green" : "default"} style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>
-                  {ref.enabled ? "ON" : "OFF"}
-                </Tag>
-              </Space>
-            </WorkbenchTreeItem>
-          ))}
-        </div>
-      </WorkbenchSection>
-    </div>
-  );
-}
-
-function ScreenEditorCenter({
-  screen,
-  project,
-  tags,
-  libraries,
-  selection,
-  selectionRect,
-  showObjectFrames,
-  setSelectionRect,
-  toggleSelectedObject,
-  setSelectedObjects,
-  setPropertiesOpen,
-  setContextMenu,
-  handleDrop,
-  moveObjectWithHistory,
-  resizeObjectWithHistory,
-  undo,
-  redo,
-  handleSaveProject,
-  isProjectDirty,
-  isSavingProject,
-  canUndo,
-  canRedo,
-  addObjectWithHistory,
-  addPrimitiveShape,
-  adjustPrimitiveStrokeWidth,
-  selectedUnlocked,
-  runCommand,
-  canSameSize,
-  canDistribute,
-  spacingGap,
-  setSpacingGap,
-  canCopy,
-  canPaste,
-  canDelete,
-  copySelectionToClipboard,
-  pasteFromClipboard,
-  deleteSelectionWithHistory,
-  setCloneOpen,
-  canGroup,
-  canUngroup,
-  canLock,
-  canUnlock,
-  canAlign,
-  navigate,
-}: {
-  screen: HmiScreen;
-  project: ScadaProject | null;
-  tags: Record<string, any>;
-  libraries: any[];
-  selection: any;
-  selectionRect: any;
-  showObjectFrames: boolean;
-  setSelectionRect: (rect: any) => void;
-  toggleSelectedObject: (id: string) => void;
-  setSelectedObjects: (ids: string[], activeId?: string) => void;
-  setPropertiesOpen: (v: boolean) => void;
-  setContextMenu: (v: any) => void;
-  handleDrop: (event: DragEvent<HTMLDivElement>) => void;
-  moveObjectWithHistory: (id: string, x: number, y: number) => void;
-  resizeObjectWithHistory: (id: string, patch: Partial<HmiObject>) => void;
-  undo: () => void;
-  redo: () => void;
-  handleSaveProject: () => Promise<void>;
-  isProjectDirty: boolean;
-  isSavingProject: boolean;
-  canUndo: boolean;
-  canRedo: boolean;
-  addObjectWithHistory: (obj: HmiObject) => void;
-  addPrimitiveShape: (kind: PrimitiveShapeKind) => void;
-  adjustPrimitiveStrokeWidth: (delta: number) => void;
-  selectedUnlocked: HmiObject[];
-  runCommand: (cmd: EditorCommand) => void;
-  canSameSize: boolean;
-  canDistribute: boolean;
-  spacingGap: number | undefined;
-  setSpacingGap: (v: number | undefined) => void;
-  canCopy: boolean;
-  canPaste: boolean;
-  canDelete: boolean;
-  copySelectionToClipboard: () => void;
-  pasteFromClipboard: () => void;
-  deleteSelectionWithHistory: () => void;
-  setCloneOpen: (v: boolean) => void;
-  canGroup: boolean;
-  canUngroup: boolean;
-  canLock: boolean;
-  canUnlock: boolean;
-  canAlign: boolean;
-  navigate: (path: string) => void;
-}) {
-  return (
-    <div className="screen-editor-center">
-      <WorkbenchTabs
-        items={[
-          {
-            id: screen?.id ?? "screen",
-            title: screen?.name ?? "Screen",
-            active: true,
-          },
-        ]}
-      />
-      <WorkbenchPanelToolbar
-        left={
-          <>
-            <WorkbenchButton onClick={() => void handleSaveProject()} disabled={!isProjectDirty || isSavingProject}>
-              Save
-            </WorkbenchButton>
-            <WorkbenchButton onClick={undo} disabled={!canUndo}>↩</WorkbenchButton>
-            <WorkbenchButton onClick={redo} disabled={!canRedo}>↪</WorkbenchButton>
-          </>
-        }
-        center={
-          <>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("text"))}>Text</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("line"))}>Line</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))}>Rect</WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("square")}>Square</WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("circle")}>Circle</WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("triangle")}>Triangle</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("button"))}>Button</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("switch"))}>Switch</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))}>Value</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))}>Indicator</WorkbenchButton>
-          </>
-        }
-        right={
-          <>
-            <WorkbenchButton onClick={() => navigate("/runtime")}>▶ Preview</WorkbenchButton>
-            <WorkbenchButton onClick={copySelectionToClipboard} disabled={!canCopy}>Copy</WorkbenchButton>
-            <WorkbenchButton onClick={pasteFromClipboard} disabled={!canPaste}>Paste</WorkbenchButton>
-            <WorkbenchButton variant="danger" onClick={deleteSelectionWithHistory} disabled={!canDelete}>Del</WorkbenchButton>
-          </>
-        }
-      />
-      <div style={{ padding: "4px 10px", display: "flex", gap: 4, flexWrap: "wrap", background: "#252526", borderBottom: "1px solid #3c3c3c" }}>
-        <WorkbenchButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize}>W=</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize}>H=</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize}>□=</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute}>↔</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute}>↕</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign}>⊣</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign}>⟷</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign}>⊢</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign}>⊤</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign}>↕c</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign}>⊥</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>Group</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</WorkbenchButton>
-        <WorkbenchButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length}>Clone</WorkbenchButton>
-        <input
-          className="workbench-input"
-          type="number"
-          value={spacingGap ?? ""}
-          onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-          placeholder="Gap"
-          style={{ width: 60 }}
-        />
-      </div>
-      <div
-        className="screen-editor-canvas-host"
-        onContextMenu={(event) => {
-          event.preventDefault();
-          setContextMenu({ visible: true, x: event.clientX, y: event.clientY });
-        }}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={handleDrop}
-      >
-        {screen ? (
-          <HmiStage
-            project={project ?? undefined!}
-            mode="editor"
-            screen={screen}
-            tags={tags}
-            libraries={libraries}
-            selectedObjectIds={selection.selectedObjectIds}
-            activeObjectId={selection.activeObjectId}
-            selectionRect={selectionRect}
-            showObjectFrames={showObjectFrames}
-            onSelectionRectChange={(rect) => setSelectionRect(rect)}
-            onSelectObject={({ objectId, additive }) => {
-              if (additive) {
-                toggleSelectedObject(objectId);
-              } else {
-                setSelectedObjects([objectId], objectId);
-              }
-            }}
-            onDoubleClickObject={() => setPropertiesOpen(true)}
-            onContextMenuObject={({ objectId, clientX, clientY, additive }) => {
-              if (additive) {
-                toggleSelectedObject(objectId);
-              } else {
-                setSelectedObjects([objectId], objectId);
-              }
-              setContextMenu({ visible: true, x: clientX, y: clientY });
-            }}
-            onSelectObjects={(objectIds, activeId) => {
-              setSelectedObjects(objectIds, activeId ?? "");
-            }}
-            onMoveObject={moveObjectWithHistory}
-            onResizeObject={resizeObjectWithHistory}
-          />
-        ) : (
-          <div className="screen-editor-empty-state">Select or create a screen</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ScreenEditorRightPanel({
-  activeObject,
-  screenObjects,
-  selection,
-  setSelectedObjects,
-  setPropertiesOpen,
-  removeObjectWithHistory,
-  setSaveModalOpen,
-}: {
-  activeObject: HmiObject | null;
-  screenObjects: HmiObject[];
-  selection: any;
-  setSelectedObjects: (ids: string[], activeId?: string) => void;
-  setPropertiesOpen: (v: boolean) => void;
-  removeObjectWithHistory: (id: string) => void;
-  setSaveModalOpen: (v: boolean) => void;
-}) {
-  return (
-    <div className="screen-editor-inspector">
-      <WorkbenchSection title="SELECTED OBJECT">
-        {activeObject ? (
-          <div style={{ padding: "0 10px" }}>
-            <div className="workbench-input" style={{ padding: "4px 8px", marginBottom: 4 }}>
-              <Typography.Text style={{ fontSize: 11, color: "#969696" }}>ID: {activeObject.id}</Typography.Text>
-            </div>
-            <div className="workbench-input" style={{ padding: "4px 8px", marginBottom: 4 }}>
-              <Typography.Text style={{ fontSize: 11, color: "#969696" }}>Type: {activeObject.type}</Typography.Text>
-            </div>
-            <div className="workbench-input" style={{ padding: "4px 8px", marginBottom: 4 }}>
-              <Typography.Text style={{ fontSize: 11, color: "#969696" }}>
-                x/y: {Math.round(activeObject.x)} / {Math.round(activeObject.y)}
-              </Typography.Text>
-            </div>
-            <div className="workbench-input" style={{ padding: "4px 8px", marginBottom: 4 }}>
-              <Typography.Text style={{ fontSize: 11, color: "#969696" }}>
-                w/h: {Math.round(activeObject.width)} / {Math.round(activeObject.height)}
-              </Typography.Text>
-            </div>
-            <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
-              <WorkbenchButton onClick={() => setPropertiesOpen(true)}>Properties</WorkbenchButton>
-              <WorkbenchButton variant="danger" onClick={() => {
-                if (activeObject.locked) {
-                  void message.warning("Locked object cannot be deleted");
-                  return;
-                }
-                removeObjectWithHistory(activeObject.id);
-              }}>Delete</WorkbenchButton>
-            </div>
-          </div>
-        ) : (
-          <div className="screen-editor-empty-state">Select an object on canvas</div>
-        )}
-      </WorkbenchSection>
-
-      <WorkbenchSection title="LAYERS">
-        {screenObjects.map((item) => (
-          <WorkbenchTreeItem
-            key={item.id}
-            active={selection.selectedObjectIds.includes(item.id)}
-            onClick={() => setSelectedObjects([item.id], item.id)}
-          >
-            <Space size={4}>
-              <span style={{ color: item.visible ?? true ? "#ccc" : "#666" }}>
-                {(item.name?.trim() || item.id)}
-              </span>
-              <Tag style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>{item.type}</Tag>
-              {item.locked ? <Tag color="orange" style={{ fontSize: 10, lineHeight: "16px", padding: "0 4px" }}>Lock</Tag> : null}
-            </Space>
-          </WorkbenchTreeItem>
-        ))}
-        <div style={{ padding: "4px 10px" }}>
-          <WorkbenchButton onClick={() => setSaveModalOpen(true)}>Save Selection As Element</WorkbenchButton>
-        </div>
-      </WorkbenchSection>
-    </div>
-  );
-}
-
-function ScreenEditorBottomPanel({
-  screen,
-  activeObject,
-  isProjectDirty,
-  saveStatusText,
-}: {
-  screen: HmiScreen | null;
-  activeObject: HmiObject | null;
-  isProjectDirty: boolean;
-  saveStatusText: string;
-}) {
-  return (
-    <div className="screen-editor-bottom-panel">
-      <div>[screen] {screen?.name ?? "-"} ({screen?.width ?? 0}x{screen?.height ?? 0})</div>
-      <div>[objects] {screen?.objects.length ?? 0}</div>
-      <div>[selected] {activeObject ? `${activeObject.id} (${activeObject.type})` : "-"}</div>
-      <div>[save] {isProjectDirty ? "Unsaved changes" : saveStatusText}</div>
-    </div>
-  );
-}
 
 export function EditorPage() {
   const navigate = useNavigate();
@@ -840,7 +182,7 @@ export function EditorPage() {
     startIndex: 1,
     step: 1,
   });
-  const [activeActivityId, setActiveActivityId] = useState<string>("explorer");
+  const [activeActivityId, setActiveActivityId] = useState<ScreenEditorActivityId>("explorer");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; visible: boolean }>({
     x: 0,
     y: 0,
@@ -1203,6 +545,10 @@ export function EditorPage() {
         void message.warning("Screen not found");
         return;
       }
+      if (remaining.length === 0) {
+        void message.warning("Cannot delete the last screen");
+        return;
+      }
       Modal.confirm({
         title: "Delete screen",
         content: `Delete screen "${currentProject.screens.find((s) => s.id === screenId)?.name ?? screenId}" permanently?`,
@@ -1214,17 +560,20 @@ export function EditorPage() {
             return;
           }
           const nextScreens = latestProject.screens.filter((item) => item.id !== screenId);
-          const nextProject = { ...latestProject, screens: nextScreens } as ScadaProject;
-          const nextScreenId = nextScreens.length > 0 && nextScreens[0] ? nextScreens[0].id : "";
+          const nextStartScreenId = latestProject.startScreenId === screenId
+            ? (nextScreens[0]?.id ?? null)
+            : latestProject.startScreenId;
+          const nextProject = {
+            ...latestProject,
+            screens: nextScreens,
+            startScreenId: nextStartScreenId,
+          } as ScadaProject;
           updateProjectJson(nextProject);
-          if (nextScreenId) {
-            setCurrentScreen(nextScreenId);
-          }
           void message.success("Screen deleted");
         },
       });
     },
-    [setCurrentScreen, updateProjectJson],
+    [updateProjectJson],
   );
 
   const setStartScreen = useCallback(
@@ -1520,13 +869,16 @@ export function EditorPage() {
       minWidth: 360,
       minHeight: 260,
       render: () => (
-        <div className="screen-editor-window-content">
-          <WorkbenchSection title="TAGS">
-            <div className="screen-editor-empty-state">
-              Tags workspace placeholder. Real tag tree will be moved here next.
-            </div>
-          </WorkbenchSection>
-        </div>
+        <ScreenEditorTagsWindow
+          tags={tags}
+          macros={project.macros ?? []}
+          internalVariables={project.variables ?? []}
+          newVarName={newVarName}
+          newVarType={newVarType}
+          onNewVarNameChange={setNewVarName}
+          onNewVarTypeChange={setNewVarType}
+          onAddVariable={addVariable}
+        />
       ),
     },
     {
@@ -1536,45 +888,50 @@ export function EditorPage() {
       minWidth: 380,
       minHeight: 260,
       render: () => (
-        <div className="screen-editor-window-content">
-          <WorkbenchSection title="OPC UA & SIMULATION">
-            <div className="screen-editor-empty-state">
-              Drivers settings placeholder. Real settings will be moved here next.
-            </div>
-          </WorkbenchSection>
-        </div>
+        <ScreenEditorDriversWindow />
       ),
     },
     {
       id: "assets",
       title: "Assets",
-      defaultRect: { x: 180, y: 120, width: 560, height: 520 },
-      minWidth: 380,
-      minHeight: 280,
+      defaultRect: { x: 180, y: 120, width: 620, height: 540 },
+      minWidth: 420,
+      minHeight: 320,
       render: () => (
-        <div className="screen-editor-window-content">
-          <WorkbenchSection title="ASSETS">
-            <div className="screen-editor-empty-state">
-              Assets workspace placeholder. Real assets manager will be moved here next.
-            </div>
-          </WorkbenchSection>
-        </div>
+        <ScreenEditorAssetsWindow
+          assets={assets}
+          assetName={assetUploadName}
+          onAssetNameChange={setAssetUploadName}
+          onUploadAsset={onUploadProjectAsset}
+          onAddAssetAsImage={addAssetAsImage}
+          onRefreshAssets={loadAssets}
+          onDeleteAsset={(assetId) => {
+            void api.deleteAsset(assetId).then(() =>
+              Promise.all([loadAssets(), loadProject()])
+            );
+          }}
+        />
       ),
     },
     {
       id: "libraries",
       title: "Libraries",
-      defaultRect: { x: 200, y: 140, width: 560, height: 520 },
-      minWidth: 380,
-      minHeight: 280,
+      defaultRect: { x: 200, y: 140, width: 660, height: 560 },
+      minWidth: 460,
+      minHeight: 340,
       render: () => (
-        <div className="screen-editor-window-content">
-          <WorkbenchSection title="LIBRARIES">
-            <div className="screen-editor-empty-state">
-              Libraries workspace placeholder. Real libraries manager will be moved here next.
-            </div>
-          </WorkbenchSection>
-        </div>
+        <ScreenEditorLibrariesWindow
+          libraries={libraries}
+          attachedLibraries={project.libraries ?? []}
+          libraryId={newLibraryId}
+          libraryName={newLibraryName}
+          onLibraryIdChange={setNewLibraryId}
+          onLibraryNameChange={setNewLibraryName}
+          onCreateLibrary={createLibrary}
+          onAttachLibrary={attachLibrary}
+          onAddLibraryElementToScreen={addLibraryElementInstance}
+          onRefreshLibraries={loadLibraries}
+        />
       ),
     },
   ];
@@ -1640,31 +997,14 @@ export function EditorPage() {
             filteredScreens={filteredScreens}
             newScreenKind={newScreenKind}
             setNewScreenKind={setNewScreenKind}
-            newVarName={newVarName}
-            setNewVarName={setNewVarName}
-            newVarType={newVarType}
-            setNewVarType={setNewVarType}
-            addVariable={addVariable}
             addScreen={addScreen}
             setCurrentScreen={setCurrentScreen}
             duplicateScreenLocal={duplicateScreenLocal}
             setStartScreen={setStartScreen}
             deleteScreenLocal={deleteScreenLocal}
-            assetUploadName={assetUploadName}
-            setAssetUploadName={setAssetUploadName}
-            uploadInputRef={uploadInputRef}
-            onUploadProjectAsset={onUploadProjectAsset}
-            addAssetAsImage={addAssetAsImage}
             activeActivityId={activeActivityId}
             navigate={navigate}
-            newLibraryId={newLibraryId}
-            setNewLibraryId={setNewLibraryId}
-            newLibraryName={newLibraryName}
-            setNewLibraryName={setNewLibraryName}
-            createLibrary={createLibrary}
-            loadLibraries={loadLibraries}
-            attachLibrary={attachLibrary}
-            addLibraryElementInstance={addLibraryElementInstance}
+            openDefinedWindow={openDefinedWindow}
           />
         }
         center={
@@ -1975,11 +1315,6 @@ export function EditorPage() {
             <Button type="text" size="small" block onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</Button>
             <Button type="text" size="small" block onClick={() => runCommand({ type: "lockSelected" })} disabled={!canLock}>Lock</Button>
             <Button type="text" size="small" block onClick={() => runCommand({ type: "unlockSelected" })} disabled={!canUnlock}>Unlock</Button>
-            <Button type="text" size="small" block onClick={() => adjustPrimitiveStrokeWidth(-1)} disabled={!selectedUnlocked.length}>Stroke -1</Button>
-            <Button type="text" size="small" block onClick={() => adjustPrimitiveStrokeWidth(1)} disabled={!selectedUnlocked.length}>Stroke +1</Button>
-            <Button type="text" size="small" block onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign}>Align Left</Button>
-            <Button type="text" size="small" block onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize}>Same Size</Button>
-            <Button type="text" size="small" block onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute}>Distribute H</Button>
           </Space>
         </div>
       ) : null}

@@ -79,7 +79,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         height: 40,
         minWidth: 80,
         minHeight: 28,
-        tag: "Boiler.Pressure",
+        tag: "",
         suffix: " kPa",
         badQualityText: "BAD",
         textStyle: { ...defaultTextStyle, color: "#ffd666", horizontalAlign: "right" },
@@ -94,7 +94,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         height: 44,
         minWidth: 80,
         minHeight: 28,
-        tag: "Burner_1.StartCmd",
+        tag: "",
         confirm: true,
         textStyle: { ...defaultTextStyle },
       };
@@ -108,7 +108,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         height: 44,
         minWidth: 80,
         minHeight: 28,
-        tag: "Burner_1.Flame",
+        tag: "",
         trueText: "ON",
         falseText: "OFF",
         trueColor: "#389e0d",
@@ -134,7 +134,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         borderColor: "#0958d9",
         borderWidth: 1,
         textStyle: { ...defaultTextStyle },
-        action: { type: "pulse", tag: "Burner_1.StartCmd", value: true, durationMs: 500 },
+        action: { type: "pulse", tag: "", value: true, durationMs: 500 },
       };
     case "switch":
       return {
@@ -146,7 +146,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         height: 44,
         minWidth: 70,
         minHeight: 28,
-        tag: "Burner_1.StartCmd",
+        tag: "",
         onText: "ON",
         offText: "OFF",
         onColor: "#389e0d",

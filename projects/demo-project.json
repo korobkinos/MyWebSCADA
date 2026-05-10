@@ -13748,12 +13748,50 @@
           "cornerRadius": 45
         },
         {
-          "id": "btn_x76slh",
-          "type": "button",
-          "x": 651.9999625651067,
-          "y": 69.00000189208973,
+          "id": "img_kn3jr6",
+          "type": "image",
+          "x": 884.9045967131117,
+          "y": 124.9046484166675,
+          "width": 224.7439810417042,
+          "height": 224.74398104170427,
+          "rotation": 0,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "65685489-78e0-4e74-9a79-85929f242617",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "switch_flz4o7",
+          "type": "switch",
+          "x": 523,
+          "y": 193,
           "width": 130,
           "height": 44,
+          "minWidth": 70,
+          "minHeight": 28,
+          "tag": "Burner_1.StartCmd",
+          "onText": "ON",
+          "offText": "OFF",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "button_ma4yhh",
+          "type": "button",
+          "x": 493.67339963209974,
+          "y": 40.6734389590825,
+          "width": 305.09363741814803,
+          "height": 103.26246189537316,
+          "rotation": 0,
           "minWidth": 60,
           "minHeight": 24,
           "text": "На второй экран",
@@ -13778,19 +13816,79 @@
           }
         },
         {
-          "id": "img_kn3jr6",
-          "type": "image",
-          "x": 884.9045967131117,
-          "y": 124.9046484166675,
-          "width": 224.7439810417042,
-          "height": 224.74398104170427,
+          "id": "group_wl9zp1",
+          "type": "group",
+          "x": 868.089664732138,
+          "y": 457.08970405912123,
+          "width": 304.0813928810428,
+          "height": 122.73830767198461,
           "rotation": 0,
-          "opacity": 1,
-          "minWidth": 40,
-          "minHeight": 40,
-          "assetId": "65685489-78e0-4e74-9a79-85929f242617",
-          "fit": "contain",
-          "preserveAspectRatio": true
+          "visible": true,
+          "locked": false,
+          "minWidth": 8,
+          "minHeight": 8,
+          "objects": [
+            {
+              "id": "btn_x76slh",
+              "type": "button",
+              "x": 160.33382533727712,
+              "y": 0,
+              "width": 143.7475675437657,
+              "height": 48.65302286096688,
+              "minWidth": 60,
+              "minHeight": 24,
+              "text": "На второй экран",
+              "showText": true,
+              "backgroundColor": "#0958d9",
+              "pressedBackgroundColor": "#0747b3",
+              "disabledBackgroundColor": "#434343",
+              "borderColor": "#0958d9",
+              "borderWidth": 1,
+              "textStyle": {
+                "fontFamily": "Arial",
+                "fontSize": 16,
+                "fontStyle": "normal",
+                "color": "#ffffff",
+                "horizontalAlign": "center",
+                "verticalAlign": "middle",
+                "padding": 4
+              },
+              "action": {
+                "type": "openScreen",
+                "screenId": "screen_4"
+              }
+            },
+            {
+              "id": "button_t9fvff",
+              "type": "button",
+              "x": 0,
+              "y": 74.08528481101774,
+              "width": 143.7475675437657,
+              "height": 48.65302286096688,
+              "minWidth": 60,
+              "minHeight": 24,
+              "text": "На второй экран",
+              "showText": true,
+              "backgroundColor": "#0958d9",
+              "pressedBackgroundColor": "#0747b3",
+              "disabledBackgroundColor": "#434343",
+              "borderColor": "#0958d9",
+              "borderWidth": 1,
+              "textStyle": {
+                "fontFamily": "Arial",
+                "fontSize": 16,
+                "fontStyle": "normal",
+                "color": "#ffffff",
+                "horizontalAlign": "center",
+                "verticalAlign": "middle",
+                "padding": 4
+              },
+              "action": {
+                "type": "openScreen",
+                "screenId": "screen_4"
+              }
+            }
+          ]
         }
       ]
     },
@@ -14105,8 +14203,68 @@
         {
           "id": "button_ycucce",
           "type": "button",
-          "x": 268.9999883143116,
-          "y": 60.00000189208973,
+          "x": 25.999988314311622,
+          "y": 26.000001892089728,
+          "width": 130,
+          "height": 44,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "На главный ",
+          "showText": true,
+          "backgroundColor": "#0958d9",
+          "pressedBackgroundColor": "#0747b3",
+          "disabledBackgroundColor": "#434343",
+          "borderColor": "#0958d9",
+          "borderWidth": 1,
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          },
+          "action": {
+            "type": "openScreen",
+            "screenId": "main"
+          }
+        },
+        {
+          "id": "button_25l22k",
+          "type": "button",
+          "x": 195.99998831431162,
+          "y": 26.000001892089728,
+          "width": 130,
+          "height": 44,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "На главный ",
+          "showText": true,
+          "backgroundColor": "#0958d9",
+          "pressedBackgroundColor": "#0747b3",
+          "disabledBackgroundColor": "#434343",
+          "borderColor": "#0958d9",
+          "borderWidth": 1,
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          },
+          "action": {
+            "type": "openScreen",
+            "screenId": "main"
+          }
+        },
+        {
+          "id": "button_o15bjq",
+          "type": "button",
+          "x": 365.9999883143116,
+          "y": 26.000001892089728,
           "width": 130,
           "height": 44,
           "minWidth": 60,
@@ -14141,7 +14299,90 @@
       "width": 1920,
       "height": 1080,
       "background": "#1e1e1e",
-      "objects": []
+      "objects": [
+        {
+          "id": "lib_q9i1m4",
+          "type": "libraryElementInstance",
+          "x": 537.8745750448165,
+          "y": 199.22074896980848,
+          "width": 164.82518860283864,
+          "height": 89.90464832882107,
+          "rotation": 0,
+          "minWidth": 60,
+          "minHeight": 40,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "element_qkwgwe",
+          "bindingAssignments": {},
+          "scaleMode": "fit"
+        },
+        {
+          "id": "text_unlnye",
+          "type": "text",
+          "x": 591.5082248738388,
+          "y": 178.9999999999996,
+          "width": 60,
+          "height": 39.999999999999936,
+          "rotation": 0,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "New text",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 12,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        }
+      ]
+    },
+    {
+      "id": "screen_4657a3",
+      "name": "SCREEN 5 Copy",
+      "kind": "screen",
+      "width": 1920,
+      "height": 1080,
+      "background": "#1e1e1e",
+      "objects": [
+        {
+          "id": "lib_q9i1m4",
+          "type": "libraryElementInstance",
+          "x": 537.8745750448165,
+          "y": 199.22074896980848,
+          "width": 164.82518860283864,
+          "height": 89.90464832882107,
+          "rotation": 0,
+          "minWidth": 60,
+          "minHeight": 40,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "element_qkwgwe",
+          "bindingAssignments": {},
+          "scaleMode": "fit"
+        },
+        {
+          "id": "text_unlnye",
+          "type": "text",
+          "x": 591.5082248738388,
+          "y": 178.9999999999996,
+          "width": 60,
+          "height": 39.999999999999936,
+          "rotation": 0,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "New text",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 12,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        }
+      ]
     }
   ],
   "startScreenId": "main"

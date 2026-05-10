@@ -1854,4 +1854,197 @@ body {
   overflow: auto;
   padding: 4px 0;
   box-sizing: border-box;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #cccccc;
+}
+
+.screen-editor-assets-window,
+.screen-editor-libraries-window {
+  height: 100%;
+}
+
+.screen-editor-asset-list,
+.screen-editor-library-list,
+.screen-editor-library-element-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 8px;
+  box-sizing: border-box;
+}
+
+.screen-editor-asset-item,
+.screen-editor-library-item,
+.screen-editor-library-element-item {
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  color: #cccccc;
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+.screen-editor-asset-item:hover,
+.screen-editor-library-item:hover,
+.screen-editor-library-element-item:hover {
+  background: #2a2d2e;
+}
+
+.screen-editor-asset-preview {
+  width: 100%;
+  max-height: 96px;
+  object-fit: contain;
+  background: #111111;
+  border: 1px solid #2d2d2d;
+}
+
+.screen-editor-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.screen-editor-item-meta {
+  font-size: 11px;
+  color: #969696;
+}
+
+.screen-editor-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.screen-editor-tags-window,
+.screen-editor-drivers-window {
+  height: 100%;
+}
+
+.screen-editor-tag-list,
+.screen-editor-driver-list,
+.screen-editor-variable-list,
+.screen-editor-macro-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 8px;
+  box-sizing: border-box;
+}
+
+.screen-editor-tag-item,
+.screen-editor-driver-item,
+.screen-editor-variable-item,
+.screen-editor-macro-item {
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  color: #cccccc;
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+.screen-editor-tag-item:hover,
+.screen-editor-driver-item:hover,
+.screen-editor-variable-item:hover,
+.screen-editor-macro-item:hover {
+  background: #2a2d2e;
+}
+
+/* Workbench window scrollbar — тёмный */
+.workbench-window,
+.workbench-window *,
+.workbench-window__content,
+.screen-editor-window-content {
+  scrollbar-color: #424242 #1e1e1e;
+  scrollbar-width: thin;
+}
+
+.workbench-window ::-webkit-scrollbar,
+.workbench-window__content::-webkit-scrollbar,
+.screen-editor-window-content::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.workbench-window ::-webkit-scrollbar-track,
+.workbench-window__content::-webkit-scrollbar-track,
+.screen-editor-window-content::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.workbench-window ::-webkit-scrollbar-thumb,
+.workbench-window__content::-webkit-scrollbar-thumb,
+.screen-editor-window-content::-webkit-scrollbar-thumb {
+  background: #424242;
+  border: 3px solid #1e1e1e;
+  border-radius: 6px;
+}
+
+.workbench-window ::-webkit-scrollbar-thumb:hover,
+.workbench-window__content::-webkit-scrollbar-thumb:hover,
+.screen-editor-window-content::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+.workbench-window ::-webkit-scrollbar-corner,
+.workbench-window__content::-webkit-scrollbar-corner,
+.screen-editor-window-content::-webkit-scrollbar-corner {
+  background: #1e1e1e;
+}
+
+/* Ant Design inputs/selects внутри workbench-window */
+.workbench-window .ant-input,
+.workbench-window .ant-input-number,
+.workbench-window .ant-select-selector {
+  background: #1e1e1e !important;
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.workbench-window .ant-select-dropdown,
+.workbench-window .ant-dropdown-menu,
+.workbench-window .ant-popover-inner {
+  background: #252526 !important;
+  border: 1px solid #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.workbench-window .ant-select-item,
+.workbench-window .ant-dropdown-menu-item {
+  color: #cccccc !important;
+}
+
+.workbench-window .ant-select-item-option-active,
+.workbench-window .ant-dropdown-menu-item:hover {
+  background: #2a2d2e !important;
+  color: #ffffff !important;
+}
+
+.workbench-window .ant-tree,
+.workbench-window .ant-tree-list,
+.workbench-window .ant-tree-node-content-wrapper {
+  background: transparent !important;
+  color: #cccccc !important;
+  font-size: 12px !important;
+}
+
+.workbench-window .ant-tree-node-content-wrapper:hover {
+  background: #2a2d2e !important;
+}
+
+.workbench-window .ant-tree-node-selected {
+  background: #37373d !important;
+  color: #ffffff !important;
+}
+
+.workbench-window .ant-empty,
+.workbench-window .ant-empty-description {
+  color: #969696 !important;
 }
