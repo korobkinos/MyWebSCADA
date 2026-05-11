@@ -160,6 +160,9 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   if (prev.mode !== next.mode) return false;
   if (prev.renderContext.tagPrefix !== next.renderContext.tagPrefix) return false;
   if (prev.renderContext.parameters !== next.renderContext.parameters) return false;
+  if (next.mode === "editor") {
+    return true;
+  }
 
   const watchedTags = collectWatchedTags(next.object, next.renderContext);
   if (!watchedTags) {
@@ -260,6 +263,7 @@ function ObjectNode({
   scopedAssets,
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
+  const runtimeMode = mode === "runtime";
   const debugPerformance =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -454,15 +458,18 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "value-display") {
-    const resolvedTag = tagValue(resolvedObject.tag);
-    const value = resolvedTag.value;
-    const text = resolvedTag.missingBindingReference
-      ? resolvedObject.badQualityText ?? "BAD"
-      : !value
-      ? "---"
-      : value.quality === "Bad"
+    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag) : undefined;
+    const runtimeTag = resolvedTag ?? { missingBindingReference: false, value: undefined };
+    const value = resolvedTag?.value;
+    const text = !runtimeMode
+      ? (resolvedObject.tag?.trim() || `${resolvedObject.suffix ? `---${resolvedObject.suffix}` : "---"}`)
+      : runtimeTag.missingBindingReference
         ? resolvedObject.badQualityText ?? "BAD"
-        : `${value.value ?? "---"}${resolvedObject.suffix ?? ""}`;
+        : !value
+        ? "---"
+        : value.quality === "Bad"
+          ? resolvedObject.badQualityText ?? "BAD"
+          : `${value.value ?? "---"}${resolvedObject.suffix ?? ""}`;
 
     return (
       <Group {...commonGroupProps}>
@@ -479,7 +486,7 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "value-input") {
-    const value = tagValue(resolvedObject.tag).value?.value;
+    const value = runtimeMode ? tagValue(resolvedObject.tag).value?.value : undefined;
     return (
       <Group
         {...commonGroupProps}
@@ -519,10 +526,10 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "state-indicator") {
-    const resolvedTag = tagValue(resolvedObject.tag);
-    const value = resolvedTag.value;
-    const isBad = resolvedTag.missingBindingReference || !value || value.quality === "Bad";
-    const boolValue = Boolean(value?.value);
+    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag) : undefined;
+    const value = resolvedTag?.value;
+    const isBad = runtimeMode && Boolean(resolvedTag?.missingBindingReference || !value || value.quality === "Bad");
+    const boolValue = runtimeMode ? Boolean(value?.value) : false;
     const fill = isBad ? resolvedObject.badColor : boolValue ? resolvedObject.trueColor : resolvedObject.falseColor;
     const text = isBad ? "BAD" : boolValue ? resolvedObject.trueText : resolvedObject.falseText;
 
@@ -560,7 +567,7 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "switch") {
-    const isOn = Boolean(tagValue(resolvedObject.tag).value?.value);
+    const isOn = runtimeMode ? Boolean(tagValue(resolvedObject.tag).value?.value) : false;
     const fillColor = isOn ? (resolvedObject.onColor ?? "#389e0d") : (resolvedObject.offColor ?? "#434343");
     return (
       <Group
@@ -604,8 +611,10 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "valueSelect") {
-    const currentValue = readValueSelectTargetValue(resolvedObject, tags, renderContext);
-    const currentIndex = resolvedObject.options.findIndex((item) => String(item.value) === String(currentValue));
+    const currentValue = runtimeMode ? readValueSelectTargetValue(resolvedObject, tags, renderContext) : undefined;
+    const currentIndex = runtimeMode
+      ? resolvedObject.options.findIndex((item) => String(item.value) === String(currentValue))
+      : (resolvedObject.options.length > 0 ? 0 : -1);
     const activeOption = currentIndex >= 0 ? resolvedObject.options[currentIndex] : undefined;
     const displayText = activeOption?.label ?? (currentValue === undefined ? "--" : String(currentValue));
 
@@ -653,7 +662,7 @@ function ObjectNode({
         project={project}
         libraries={libraries}
         scopedAssets={scopedAssets}
-        stateValue={resolvedObject.stateTag ? tagValue(resolvedObject.stateTag)?.value : undefined}
+        stateValue={runtimeMode && resolvedObject.stateTag ? tagValue(resolvedObject.stateTag)?.value : undefined}
         interactive={interactive}
         onSelectObject={onSelectObject}
         onAction={onAction}
@@ -664,13 +673,15 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "stateImage") {
-    const resolvedTag = tagValue(resolvedObject.tag);
-    const tag = resolvedTag.value;
-    const stateAssetId = selectStateImageAssetId(resolvedObject.states, tag?.value);
-    const isBad = resolvedTag.missingBindingReference || tag?.quality === "Bad";
-    const activeAssetId = isBad
-      ? (resolvedObject.badQualityAssetId ?? stateAssetId ?? resolvedObject.defaultAssetId)
-      : (stateAssetId ?? resolvedObject.defaultAssetId);
+    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag) : undefined;
+    const tag = resolvedTag?.value;
+    const stateAssetId = runtimeMode ? selectStateImageAssetId(resolvedObject.states, tag?.value) : undefined;
+    const isBad = runtimeMode && Boolean(resolvedTag?.missingBindingReference || tag?.quality === "Bad");
+    const activeAssetId = !runtimeMode
+      ? (resolvedObject.defaultAssetId ?? resolvedObject.states[0]?.assetId)
+      : isBad
+        ? (resolvedObject.badQualityAssetId ?? stateAssetId ?? resolvedObject.defaultAssetId)
+        : (stateAssetId ?? resolvedObject.defaultAssetId);
     return (
       <ImageNode
         object={{
@@ -718,9 +729,9 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "valve") {
-    const open = Boolean(tagValue(resolvedObject.openTag).value?.value);
-    const closed = Boolean(tagValue(resolvedObject.closedTag).value?.value);
-    const fault = Boolean(tagValue(resolvedObject.errorTag).value?.value);
+    const open = runtimeMode ? Boolean(tagValue(resolvedObject.openTag).value?.value) : false;
+    const closed = runtimeMode ? Boolean(tagValue(resolvedObject.closedTag).value?.value) : false;
+    const fault = runtimeMode ? Boolean(tagValue(resolvedObject.errorTag).value?.value) : false;
     const color = fault ? "#d9363e" : open ? "#73d13d" : closed ? "#1677ff" : "#faad14";
 
     return (
@@ -736,8 +747,8 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "pump") {
-    const run = Boolean(tagValue(resolvedObject.runTag).value?.value);
-    const fault = Boolean(tagValue(resolvedObject.faultTag).value?.value);
+    const run = runtimeMode ? Boolean(tagValue(resolvedObject.runTag).value?.value) : false;
+    const fault = runtimeMode ? Boolean(tagValue(resolvedObject.faultTag).value?.value) : false;
     const color = fault ? "#ff4d4f" : run ? "#52c41a" : "#8c8c8c";
 
     return (
@@ -1050,8 +1061,10 @@ function LibraryInstanceNode({
     },
   };
   const resolvedObjects = useMemo(
-    () => applyElementStateRules(element.objects, element.stateRules, { tags, renderContext: context, parameters: context.parameters ?? {} }),
-    [context, element.objects, element.stateRules, tags],
+    () => (mode === "runtime"
+      ? applyElementStateRules(element.objects, element.stateRules, { tags, renderContext: context, parameters: context.parameters ?? {} })
+      : element.objects),
+    [context, element.objects, element.stateRules, mode, tags],
   );
 
   const childScale = computeFrameScale(object.scaleMode ?? "fit", object.width, object.height, element.width, element.height);

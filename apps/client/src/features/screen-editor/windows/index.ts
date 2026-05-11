@@ -9,3 +9,4 @@ export * from "./screen-editor-layers-window";
 export * from "./screen-editor-save-selection-window";
 export * from "./screen-editor-project-settings-window";
 export * from "./screen-editor-screen-settings-window";
+export * from "./screen-editor-macros-window";

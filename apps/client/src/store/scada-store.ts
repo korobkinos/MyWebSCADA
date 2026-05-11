@@ -62,6 +62,7 @@ type ScadaState = {
     language: "javascript-lite";
     code: string;
     triggers?: unknown[];
+    options?: Record<string, unknown>;
   }) => Promise<MacroDefinition>;
   initializeAuth: () => Promise<void>;
   login: (username: string, password: string) => Promise<boolean>;
@@ -195,6 +196,7 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     const project = await api.getProject();
     set({
       project,
+      macros: project.macros ?? [],
       currentScreenId: project.startScreenId ?? project.screens[0]?.id ?? null,
       selection: { selectedObjectIds: [] },
     });
@@ -224,7 +226,15 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
 
   async loadMacros() {
     const macros = await api.listMacros();
-    set({ macros });
+    set((state) => ({
+      macros,
+      project: state.project
+        ? {
+            ...state.project,
+            macros,
+          }
+        : null,
+    }));
   },
 
   async updateMacro(macroId, payload) {
@@ -234,7 +244,14 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
       project: state.project
         ? {
             ...state.project,
-            macros: (state.project.macros ?? []).map((m) => (m.id === macroId ? updated : m)),
+            macros: (() => {
+              const source = state.project?.macros ?? [];
+              const hasTarget = source.some((m) => m.id === macroId);
+              if (!hasTarget) {
+                return [...source, updated];
+              }
+              return source.map((m) => (m.id === macroId ? updated : m));
+            })(),
           }
         : null,
     }));

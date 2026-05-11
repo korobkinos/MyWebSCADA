@@ -28,6 +28,7 @@ import {
 import {
   ApiOutlined,
   AppstoreOutlined,
+  CodeOutlined,
   FileImageOutlined,
   FolderOpenOutlined,
   PlayCircleOutlined,
@@ -37,6 +38,7 @@ import {
   UnorderedListOutlined,
 } from "@ant-design/icons";
 import { api } from "../services/api";
+import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
 import { FloatingPanel } from "../components/floating-panel";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
@@ -64,12 +66,14 @@ import {
   ScreenEditorProjectSettingsWindow,
   ScreenEditorScreenSettingsWindow,
   ScreenEditorTagsWindow,
+  ScreenEditorMacrosWindow,
 } from "../features/screen-editor/windows";
 import {
   ScreenEditorCenter,
   ScreenEditorBottomPanel,
   type ScreenEditorLogEntry,
 } from "../features/screen-editor/components";
+import { collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
 
 type CloneOptions = {
   count: number;
@@ -178,6 +182,7 @@ export function EditorPage() {
   const startRuntime = useScadaStore((s) => s.startRuntime);
   const stopRuntime = useScadaStore((s) => s.stopRuntime);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
+  const setTagValues = useScadaStore((s) => s.setTagValues);
 
   const [pendingDeleteScreenId, setPendingDeleteScreenId] = useState<string | null>(null);
   const [newScreenKind, setNewScreenKind] = useState<ScreenKind>("screen");
@@ -210,6 +215,7 @@ export function EditorPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [screenKindFilter, setScreenKindFilter] = useState<"all" | ScreenKind>("all");
   const [screenViewMode, setScreenViewMode] = useState<"grid" | "list">("grid");
+  const [previewMode, setPreviewMode] = useState(false);
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("Loaded");
   const [savedProjectSignature, setSavedProjectSignature] = useState<string | null>(null);
@@ -279,6 +285,34 @@ export function EditorPage() {
     return project?.screens.find((item) => item.id === startId)?.name ?? startId;
   }, [project]);
   const history = useSnapshotHistory<HmiObject[]>({ maxSteps: 50 });
+
+  useEffect(() => {
+    if (!previewMode || !project || !screen) {
+      return;
+    }
+    const socket = createRuntimeSocket({
+      onTagValues: (values) => setTagValues(values),
+    });
+    return () => socket.close();
+  }, [previewMode, project, screen, setTagValues]);
+
+  useEffect(() => {
+    if (!previewMode || !project || !screen) {
+      updateRuntimeTagSubscriptions([]);
+      return;
+    }
+    const subscriptionTags = collectRuntimeTagSubscriptions({
+      project,
+      libraries,
+      screen,
+      tags,
+      popups: [],
+    });
+    updateRuntimeTagSubscriptions(subscriptionTags);
+    return () => {
+      updateRuntimeTagSubscriptions([]);
+    };
+  }, [libraries, previewMode, project, screen, tags]);
 
   const captureObjects = useCallback((): HmiObject[] => structuredClone(screen?.objects ?? []), [screen?.objects]);
 
@@ -1312,6 +1346,16 @@ export function EditorPage() {
       ),
     },
     {
+      id: "macros",
+      title: "Macros",
+      defaultRect: { x: 140, y: 80, width: 980, height: 680 },
+      minWidth: 720,
+      minHeight: 460,
+      render: () => (
+        <ScreenEditorMacrosWindow />
+      ),
+    },
+    {
       id: "drivers",
       title: "Drivers / OPC UA / Simulation",
       defaultRect: { x: 160, y: 100, width: 560, height: 460 },
@@ -1452,6 +1496,7 @@ export function EditorPage() {
     { id: "screens", title: "Screens", icon: <AppstoreOutlined />, active: isWindowOpen("screens"), onClick: () => openDefinedWindow("screens") },
     { id: "search", title: "Search", icon: <SearchOutlined />, active: isWindowOpen("search"), onClick: () => openDefinedWindow("search") },
     { id: "tags", title: "Tags", icon: <TagsOutlined />, active: isWindowOpen("tags"), onClick: () => openDefinedWindow("tags") },
+    { id: "macros", title: "Macros", icon: <CodeOutlined />, active: isWindowOpen("macros"), onClick: () => openDefinedWindow("macros") },
     { id: "assets", title: "Assets", icon: <FileImageOutlined />, active: isWindowOpen("assets"), onClick: () => openDefinedWindow("assets") },
     { id: "libraries", title: "Libraries", icon: <FolderOpenOutlined />, active: isWindowOpen("libraries"), onClick: () => openDefinedWindow("libraries") },
     { id: "drivers", title: "Drivers", icon: <ApiOutlined />, active: isWindowOpen("drivers"), onClick: () => openDefinedWindow("drivers") },
@@ -1522,7 +1567,8 @@ export function EditorPage() {
             canLock={canLock}
             canUnlock={canUnlock}
             canAlign={canAlign}
-            navigate={navigate}
+            previewMode={previewMode}
+            onPreviewModeChange={setPreviewMode}
           />
         }
         bottom={

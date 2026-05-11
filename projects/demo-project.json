@@ -13366,7 +13366,8 @@
       "kind": "screen",
       "width": 1800,
       "height": 1000,
-      "background": "#0a0709",
+      "background": "#000000",
+      "backgroundFillMode": "screen",
       "objects": [
         {
           "id": "title",

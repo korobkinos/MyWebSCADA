@@ -2344,6 +2344,338 @@ body {
   background: #2a2d2e;
 }
 
+.screen-editor-macros-window {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #252526;
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.screen-editor-macros-window__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid #3c3c3c;
+  background: #252526;
+  flex-wrap: wrap;
+}
+
+.screen-editor-macros-window__toolbar .workbench-input {
+  width: 240px;
+  min-width: 180px;
+  height: 24px;
+}
+
+.screen-editor-macros-window__toolbar .workbench-button {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+}
+
+.screen-editor-macros-window__toolbar .workbench-button__label {
+  display: none;
+}
+
+.screen-editor-macros-window__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.screen-editor-macros-layout {
+  flex: 1;
+  min-height: 0;
+}
+
+.screen-editor-macros-window__list {
+  height: 100%;
+  overflow: auto;
+  border-right: 1px solid #2d2d2d;
+}
+
+.screen-editor-macros-window__editor {
+  height: 100%;
+  overflow: auto;
+  padding: 8px;
+}
+
+.screen-editor-macros-panel-handle {
+  z-index: 2;
+}
+
+.screen-editor-macro-row {
+  min-height: 34px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #2d2d2d;
+  cursor: pointer;
+}
+
+.screen-editor-macro-row:hover {
+  background: #2a2d2e;
+}
+
+.screen-editor-macro-row--selected {
+  background: #37373d;
+  color: #ffffff;
+}
+
+.screen-editor-macro-row__name {
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.screen-editor-macro-row__meta {
+  color: #969696;
+  font-size: 11px;
+}
+
+.screen-editor-macro-badge {
+  display: inline-flex;
+  height: 16px;
+  padding: 0 4px;
+  align-items: center;
+  border-radius: 2px;
+  font-size: 10px;
+}
+
+.screen-editor-macro-badge--enabled {
+  background: #1f4d2e;
+  color: #4ec94e;
+}
+
+.screen-editor-macro-badge--disabled {
+  background: #3c3c3c;
+  color: #969696;
+}
+
+.screen-editor-macros-window__status {
+  display: flex;
+  gap: 12px;
+  color: #969696;
+  font-size: 11px;
+  padding: 4px 0 2px;
+}
+
+.screen-editor-macro-help {
+  color: #9a9a9a;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 0 6px;
+}
+
+.screen-editor-macro-help code {
+  color: #dcdcdc;
+}
+
+.screen-editor-macro-textarea {
+  min-height: 56px;
+  height: auto !important;
+  resize: vertical;
+}
+
+.screen-editor-macro-code {
+  width: 100%;
+  min-height: 260px;
+  resize: vertical;
+  background: #111111;
+  color: #d4d4d4;
+  border: 1px solid #3c3c3c;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px;
+  outline: none;
+  tab-size: 2;
+}
+
+.screen-editor-macro-code:focus {
+  border-color: #007acc;
+}
+
+.screen-editor-macro-triggers {
+  border: 1px solid #2d2d2d;
+  background: #1d1d1d;
+  padding: 8px;
+  margin-top: 6px;
+}
+
+.screen-editor-macro-triggers__title {
+  font-size: 11px;
+  color: #bbbbbb;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.screen-editor-macro-triggers__builder {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.screen-editor-macro-triggers__type {
+  width: 170px;
+}
+
+.screen-editor-macro-triggers__builder-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.screen-editor-macro-triggers__select {
+  width: 260px;
+}
+
+.screen-editor-macro-triggers__input {
+  width: 260px !important;
+  min-width: 180px;
+  height: 24px;
+  display: inline-flex;
+}
+
+.screen-editor-macro-triggers__add-btn {
+  height: 24px;
+  min-width: 26px;
+  padding: 0 6px;
+}
+
+.screen-editor-macro-triggers__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.screen-editor-macro-triggers__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid #2d2d2d;
+  background: #171717;
+}
+
+.screen-editor-macros-window__console-panel {
+  flex: 0 0 120px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #3c3c3c;
+}
+
+.screen-editor-macros-window__console-header {
+  min-height: 26px;
+  padding: 2px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #1b1b1b;
+  border-bottom: 1px solid #2d2d2d;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.screen-editor-macros-window__console-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.screen-editor-macros-window__console {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: #111111;
+  color: #c5c5c5;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.screen-editor-macro-help-modal {
+  max-height: 68vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.screen-editor-macro-help-modal__block {
+  border: 1px solid #2d2d2d;
+  background: #1e1e1e;
+  padding: 8px;
+}
+
+.screen-editor-macro-help-modal__title {
+  color: #cccccc;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.screen-editor-macro-help-modal pre {
+  margin: 0;
+  white-space: pre-wrap;
+  color: #c5c5c5;
+  background: #121212;
+  border: 1px solid #2d2d2d;
+  padding: 8px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.screen-editor-macro-help-modal ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.screen-editor-macro-help-modal li {
+  margin: 4px 0;
+}
+
+.screen-editor-macro-help-modal__example {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.screen-editor-macro-help-modal__api-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.screen-editor-macro-help-modal__api-item {
+  border: 1px solid #2d2d2d;
+  background: #181818;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.screen-editor-macro-help-modal__api-meta {
+  color: #999;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.screen-editor-macro-help-modal__api-desc {
+  color: #c2c2c2;
+  font-size: 12px;
+}
+
 .screen-editor-tags-window {
   position: relative;
   height: 100%;
@@ -2811,6 +3143,16 @@ body {
 }
 
 @media (max-width: 1080px) {
+  .screen-editor-macro-triggers__select,
+  .screen-editor-macro-triggers__input {
+    width: 100% !important;
+    min-width: 140px;
+  }
+
+  .screen-editor-macros-window__list {
+    border-right: 1px solid #2d2d2d;
+  }
+
   .screen-editor-tags-window__body {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr);

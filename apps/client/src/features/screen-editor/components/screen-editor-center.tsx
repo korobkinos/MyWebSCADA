@@ -3,7 +3,6 @@ import {
   AppstoreOutlined,
   CopyOutlined,
   DeleteOutlined,
-  EyeOutlined,
   FontSizeOutlined,
   MinusOutlined,
   RedoOutlined,
@@ -31,6 +30,7 @@ const MAX_EDITOR_ZOOM = 3;
 const ZOOM_STEP = 1.1;
 const ZOOM_OPTIONS = [0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3];
 const ACTIVE_TOOL_STORAGE_KEY = "screenEditor.activeTool";
+const EMPTY_STAGE_TAGS: Record<string, any> = Object.freeze({});
 
 function parseEditorTool(raw: string | null): EditorTool {
   return raw === "pan" ? "pan" : "select";
@@ -97,7 +97,8 @@ export type ScreenEditorCenterProps = {
   canLock: boolean;
   canUnlock: boolean;
   canAlign: boolean;
-  navigate: (path: string) => void;
+  previewMode: boolean;
+  onPreviewModeChange: (enabled: boolean) => void;
 };
 
 export function ScreenEditorCenter({
@@ -148,7 +149,8 @@ export function ScreenEditorCenter({
   canLock,
   canUnlock,
   canAlign,
-  navigate,
+  previewMode,
+  onPreviewModeChange,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
   const [activeTool, setActiveTool] = useState<EditorTool>(() => {
@@ -209,6 +211,8 @@ export function ScreenEditorCenter({
     return preset.has(editorZoom) ? ZOOM_OPTIONS : [...ZOOM_OPTIONS, editorZoom].sort((a, b) => a - b);
   }, [editorZoom]);
   const wheelZoomEnabled = project?.uiSettings?.editorWheelZoomEnabled ?? true;
+  const stageMode = previewMode ? "runtime" : "editor";
+  const stageTags = previewMode ? tags : EMPTY_STAGE_TAGS;
   const viewportBackground =
     screen?.backgroundFillMode === "viewport"
       ? screen.background ?? "#111111"
@@ -286,7 +290,13 @@ export function ScreenEditorCenter({
           <div className="screen-editor-toolbar__spacer" />
 
           <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton onClick={() => navigate("/runtime")} title="Preview" icon={<EyeOutlined />} />
+            <WorkbenchButton
+              variant={previewMode ? "primary" : "default"}
+              onClick={() => onPreviewModeChange(!previewMode)}
+              title={previewMode ? "Exit Preview" : "Preview"}
+            >
+              {previewMode ? "Exit Preview" : "Preview"}
+            </WorkbenchButton>
             <WorkbenchIconButton onClick={onOpenScreenSettings} title="Open Screen Settings" icon={<AppstoreOutlined />} />
             <WorkbenchIconButton onClick={onOpenLayers} title="Open Layers Window" icon={<UnorderedListOutlined />} />
             <WorkbenchIconButton onClick={onOpenObjectProperties} title="Open Object Properties Window" icon={<SettingOutlined />} />
@@ -393,9 +403,12 @@ export function ScreenEditorCenter({
       </div>
 
       <div
-        className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${isPanning ? " screen-editor-canvas-host--panning" : ""}`}
+        className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${!previewMode && activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${!previewMode && isPanning ? " screen-editor-canvas-host--panning" : ""}`}
         style={viewportBackground ? { background: viewportBackground } : undefined}
         onWheel={(event) => {
+          if (previewMode) {
+            return;
+          }
           if (!wheelZoomEnabled) {
             return;
           }
@@ -410,6 +423,10 @@ export function ScreenEditorCenter({
           setEditorZoom((prev) => clampZoom(prev * delta));
         }}
         onContextMenu={(event) => {
+          if (previewMode) {
+            event.preventDefault();
+            return;
+          }
           if (activeTool === "pan") {
             event.preventDefault();
             return;
@@ -418,10 +435,16 @@ export function ScreenEditorCenter({
           setContextMenu({ visible: true, x: event.clientX, y: event.clientY });
         }}
         onDragEnter={(event) => {
+          if (previewMode) {
+            return;
+          }
           event.preventDefault();
           setIsCanvasDragOver(true);
         }}
         onDragOver={(event) => {
+          if (previewMode) {
+            return;
+          }
           event.preventDefault();
           event.dataTransfer.dropEffect = "copy";
         }}
@@ -429,6 +452,9 @@ export function ScreenEditorCenter({
           setIsCanvasDragOver(false);
         }}
         onDrop={(event) => {
+          if (previewMode) {
+            return;
+          }
           const host = event.currentTarget;
           const stageSurface = host.querySelector(".canvas-wrap") as HTMLDivElement | null;
           const rect = (stageSurface ?? host).getBoundingClientRect();
@@ -444,9 +470,9 @@ export function ScreenEditorCenter({
           {screen ? (
             <HmiStage
               project={project ?? undefined!}
-              mode="editor"
+              mode={stageMode}
               screen={screen}
-              tags={tags}
+              tags={stageTags}
               libraries={libraries}
               selectedObjectIds={selection.selectedObjectIds}
               activeObjectId={selection.activeObjectId}
@@ -454,6 +480,9 @@ export function ScreenEditorCenter({
               showObjectFrames={showObjectFrames}
               onSelectionRectChange={(rect) => setSelectionRect(rect)}
               onSelectObject={({ objectId, additive }) => {
+                if (previewMode) {
+                  return;
+                }
                 if (additive) {
                   toggleSelectedObject(objectId);
                 } else {
@@ -462,6 +491,9 @@ export function ScreenEditorCenter({
               }}
               onDoubleClickObject={() => onOpenObjectProperties()}
               onContextMenuObject={({ objectId, clientX, clientY, additive }) => {
+                if (previewMode) {
+                  return;
+                }
                 if (additive) {
                   toggleSelectedObject(objectId);
                 } else {
@@ -470,6 +502,9 @@ export function ScreenEditorCenter({
                 setContextMenu({ visible: true, x: clientX, y: clientY });
               }}
               onSelectObjects={(objectIds, activeId) => {
+                if (previewMode) {
+                  return;
+                }
                 setSelectedObjects(objectIds, activeId ?? "");
               }}
               onMoveObject={moveObjectWithHistory}
@@ -480,7 +515,7 @@ export function ScreenEditorCenter({
             <div className="screen-editor-empty-state">Select or create a screen</div>
           )}
         </div>
-        {activeTool === "pan" ? (
+        {!previewMode && activeTool === "pan" ? (
           <div
             className="screen-editor-pan-overlay"
             onMouseDown={startPan}
