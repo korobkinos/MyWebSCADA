@@ -892,20 +892,28 @@ export function EditorPage() {
   const handleDeleteAsset = useCallback(
     async (assetId: string) => {
       try {
+        const target = useScadaStore.getState().assets.find((a) => a.id === assetId);
+
         await api.deleteAsset(assetId);
+
         await loadAssets();
+        await loadProject();
 
         if (viewAssetId === assetId) {
           setViewAssetId(null);
           closeWindow("assetViewer");
         }
 
-        void message.success("Asset deleted");
+        void message.success(`Asset deleted${target?.name ? `: ${target.name}` : ""}`);
       } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
+        const err = error as Error & { status?: number; details?: unknown };
+        const text = err.message || String(error);
         const normalized = text.toLowerCase();
 
+        console.error("Asset delete failed", error);
+
         if (
+          err.status === 409 ||
           normalized.includes("used in project") ||
           normalized.includes("cannot be deleted")
         ) {
@@ -914,6 +922,7 @@ export function EditorPage() {
         }
 
         if (
+          err.status === 403 ||
           normalized.includes("403") ||
           normalized.includes("forbidden") ||
           normalized.includes("assets.delete")
@@ -922,11 +931,19 @@ export function EditorPage() {
           return;
         }
 
+        if (
+          err.status === 401 ||
+          normalized.includes("401") ||
+          normalized.includes("unauthorized")
+        ) {
+          void message.error("Authorization required. Please login again.");
+          return;
+        }
+
         void message.error(text || "Failed to delete asset");
-        console.error("Asset delete failed", error);
       }
     },
-    [closeWindow, loadAssets, viewAssetId],
+    [closeWindow, loadAssets, loadProject, viewAssetId],
   );
 
   const windowDefinitions: WorkbenchWindowDefinition[] = [

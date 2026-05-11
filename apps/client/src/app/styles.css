@@ -43,6 +43,7 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
+  background: #1e1e1e;
 }
 
 body {
@@ -2494,7 +2495,8 @@ body {
   border-color: #3c3c3c !important;
   color: #cccccc !important;
   font-size: 12px !important;
-  box-shadow: none !important;
+  box-shadow: inset 0 0 0 9999px #1e1e1e !important;
+  caret-color: #cccccc;
 }
 
 .login-workbench-window .ant-input-affix-wrapper input.ant-input {
@@ -2514,7 +2516,31 @@ body {
 .login-workbench-input:focus {
   border-color: #007acc !important;
   outline: none !important;
-  box-shadow: none !important;
+  box-shadow:
+    inset 0 0 0 9999px #1e1e1e,
+    0 0 0 1px #007acc !important;
+}
+
+.login-workbench-input:-webkit-autofill,
+.login-workbench-input:-webkit-autofill:hover,
+.login-workbench-input:-webkit-autofill:focus,
+.login-workbench-input:-webkit-autofill:active {
+  -webkit-text-fill-color: #cccccc !important;
+  caret-color: #cccccc !important;
+  box-shadow: inset 0 0 0 9999px #1e1e1e !important;
+  transition: background-color 999999s ease-in-out 0s;
+}
+
+.login-workbench-window input,
+.login-workbench-window input[type="text"],
+.login-workbench-window input[type="password"] {
+  background-color: #1e1e1e !important;
+  color: #cccccc !important;
+}
+
+.login-workbench-page,
+.login-workbench-page * {
+  color-scheme: dark;
 }
 
 .login-workbench-window .ant-btn-primary {
@@ -2527,4 +2553,25 @@ body {
 
 .login-workbench-window .ant-btn-primary:hover {
   background: #1177bb !important;
+}
+
+/* ── App boot / loading screen ── */
+
+.app-boot-screen {
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  background: #1e1e1e;
+  color: #cccccc;
+}
+
+.app-boot-screen .ant-spin-dot-item {
+  background-color: #007acc !important;
+}
+
+.app-boot-screen .ant-spin-text {
+  color: #cccccc !important;
 }

@@ -165,11 +165,7 @@ export function App() {
   }, [uiTheme]);
 
   if (!authResolved) {
-    return (
-      <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
-        <Spin size="large" />
-      </div>
-    );
+    return <CenteredSpinner />;
   }
 
   if (isLoginRoute) {
@@ -217,7 +213,7 @@ export function App() {
   if (!project) {
     if (bootError) {
       return (
-        <div style={{ width: "100vw", height: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
+        <div className="app-boot-screen" style={{ padding: 24 }}>
           <div style={{ maxWidth: 680, textAlign: "center" }}>
             <Typography.Title level={4}>Backend is not ready</Typography.Title>
             <Typography.Paragraph type="secondary">
@@ -461,7 +457,7 @@ function FillPage({ children }: { children: ReactNode }) {
 
 function CenteredSpinner() {
   return (
-    <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
+    <div className="app-boot-screen">
       <Spin size="large" />
     </div>
   );
