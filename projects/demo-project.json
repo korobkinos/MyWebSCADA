@@ -162,16 +162,27 @@
       "scanRateMs": 1000
     },
     {
+      "id": "tag_8d39g3",
       "name": "Burner_1.PZK_1.VisualState",
       "sourceType": "simulated",
       "dataType": "INT",
-      "driverId": "sim_1",
       "address": {
-        "pattern": "random",
+        "pattern": "sine",
+        "periodMs": 1000,
         "min": 0,
-        "max": 1
+        "max": 1000,
+        "step": 1
       },
-      "scanRateMs": 1000
+      "scanRateMs": 1000,
+      "simulation": {
+        "mode": "ramp",
+        "intervalMs": 1000,
+        "min": 0,
+        "max": 1000,
+        "step": 1
+      },
+      "createdAt": "2026-05-11T18:36:38.972Z",
+      "updatedAt": "2026-05-11T18:38:41.378Z"
     },
     {
       "name": "Burner_1.PZK_1.OpenCmd",

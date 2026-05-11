@@ -16,7 +16,7 @@ export class CommandService {
       throw new Error(`Tag ${name} is not found`);
     }
 
-    if (!tag.driverId) {
+    if (!tag.driverId && tag.sourceType !== "simulated") {
       this.internalVariableService.write(name, value);
       return;
     }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DriverStatus, OpcUaDriverConfig, ScadaProject, SimulatedDriverConfig, TagDefinition } from "@web-scada/shared";
+import type { DriverStatus, OpcUaDriverConfig, ScadaProject, SimulatedDriverConfig } from "@web-scada/shared";
 import { message } from "antd";
 import { api } from "../../../services/api";
 import { useScadaStore } from "../../../store/scada-store";
@@ -15,7 +15,6 @@ type ScreenEditorDriversWindowProps = {
 };
 
 type DriversTab = "opcua" | "simulation";
-type SimTagMode = "manual" | "random" | "ramp" | "toggle";
 
 const OPC_SECURITY_POLICIES: Array<NonNullable<OpcUaDriverConfig["securityPolicy"]>> = ["None", "Basic256Sha256"];
 const OPC_SECURITY_MODES: Array<NonNullable<OpcUaDriverConfig["securityMode"]>> = ["None", "Sign", "SignAndEncrypt"];
@@ -81,49 +80,6 @@ function normalizeOptionalText(value: string | undefined): string | undefined {
   return trimmed || undefined;
 }
 
-function getTagMode(tag: TagDefinition): SimTagMode {
-  const pattern = ((tag.address as Record<string, unknown> | undefined)?.pattern as string | undefined) ?? "";
-  if (tag.dataType === "BOOL") {
-    return pattern === "static" ? "manual" : "toggle";
-  }
-  if (tag.dataType === "STRING") {
-    return "manual";
-  }
-  if (pattern === "random") {
-    return "random";
-  }
-  if (pattern === "static") {
-    return "manual";
-  }
-  return "ramp";
-}
-
-function setTagMode(tag: TagDefinition, mode: SimTagMode): TagDefinition {
-  const currentAddress = ((tag.address ?? {}) as Record<string, unknown>);
-  let pattern: "toggle" | "sine" | "random" | "static" = "static";
-
-  if (tag.dataType === "BOOL") {
-    pattern = mode === "manual" ? "static" : "toggle";
-  } else if (tag.dataType === "STRING") {
-    pattern = "static";
-  } else if (mode === "random") {
-    pattern = "random";
-  } else if (mode === "manual") {
-    pattern = "static";
-  } else {
-    pattern = "sine";
-  }
-
-  return {
-    ...tag,
-    sourceType: "simulated",
-    address: {
-      ...currentAddress,
-      pattern,
-    },
-  };
-}
-
 function upsertProjectDriver(project: ScadaProject, driver: OpcUaDriverConfig | SimulatedDriverConfig): ScadaProject {
   const index = project.drivers.findIndex((item) => item.id === driver.id);
   if (index < 0) {
@@ -138,24 +94,6 @@ function upsertProjectDriver(project: ScadaProject, driver: OpcUaDriverConfig | 
   return {
     ...project,
     drivers: nextDrivers,
-  };
-}
-
-function patchSimulationTag(tag: TagDefinition): TagDefinition {
-  const sourceAddress = (tag.address ?? {}) as Record<string, unknown>;
-  const normalized: Record<string, unknown> = {
-    ...sourceAddress,
-  };
-
-  const pattern = normalized.pattern;
-  if (pattern !== "toggle" && pattern !== "sine" && pattern !== "random" && pattern !== "static") {
-    normalized.pattern = tag.dataType === "BOOL" ? "toggle" : "sine";
-  }
-
-  return {
-    ...tag,
-    sourceType: "simulated",
-    address: normalized,
   };
 }
 
@@ -185,8 +123,6 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
   const [opcUaDraft, setOpcUaDraft] = useState<OpcUaDriverConfig | null>(null);
   const [selectedSimulationDriverId, setSelectedSimulationDriverId] = useState("");
   const [simulationDraft, setSimulationDraft] = useState<SimulatedDriverConfig | null>(null);
-  const [selectedSimulationTagName, setSelectedSimulationTagName] = useState("");
-  const [simulationTagDraft, setSimulationTagDraft] = useState<TagDefinition | null>(null);
   const [statusOverride, setStatusOverride] = useState<DriverStatus | null>(null);
   const [busyAction, setBusyAction] = useState<"" | "save" | "test" | "connect" | "disconnect" | "refresh">("");
 
@@ -213,17 +149,13 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
     [selectedSimulationDriverId, simulationDrivers],
   );
 
-  const simulationTags = useMemo(() => {
-    const tags = project?.tags ?? [];
-    if (!selectedSimulationDriver?.id) {
-      return tags.filter((tag) => tag.sourceType === "simulated");
-    }
-    return tags.filter((tag) => tag.sourceType === "simulated" || tag.driverId === selectedSimulationDriver.id);
-  }, [project?.tags, selectedSimulationDriver?.id]);
-
-  const selectedSimulationTag = useMemo(
-    () => simulationTags.find((tag) => tag.name === selectedSimulationTagName) ?? simulationTags[0] ?? null,
-    [selectedSimulationTagName, simulationTags],
+  const simulatedTagsCount = useMemo(
+    () => (project?.tags ?? []).filter((tag) => tag.sourceType === "simulated").length,
+    [project?.tags],
+  );
+  const simulationStatus = useMemo(
+    () => (selectedSimulationDriver ? statusById.get(selectedSimulationDriver.id) ?? null : null),
+    [selectedSimulationDriver, statusById],
   );
 
   const currentOpcStatus = useMemo(() => {
@@ -259,18 +191,6 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
     }
     setSimulationDraft({ ...selectedSimulationDriver });
   }, [selectedSimulationDriver, selectedSimulationDriverId]);
-
-  useEffect(() => {
-    if (!selectedSimulationTag) {
-      setSelectedSimulationTagName("");
-      setSimulationTagDraft(null);
-      return;
-    }
-    if (selectedSimulationTagName !== selectedSimulationTag.name) {
-      setSelectedSimulationTagName(selectedSimulationTag.name);
-    }
-    setSimulationTagDraft(patchSimulationTag({ ...selectedSimulationTag }));
-  }, [selectedSimulationTag, selectedSimulationTagName]);
 
   const refreshStatus = async (driverId?: string): Promise<void> => {
     setBusyAction("refresh");
@@ -406,36 +326,6 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
     }
   };
 
-  const applySimulationTag = (): void => {
-    if (!project || !simulationTagDraft) {
-      return;
-    }
-
-    const nextTag = patchSimulationTag(simulationTagDraft);
-    const nextTags = project.tags.map((tag) => (tag.name === nextTag.name ? nextTag : tag));
-    updateProjectJson({
-      ...project,
-      tags: nextTags,
-    });
-    void message.success(`Simulation tag updated: ${nextTag.name}`);
-  };
-
-  const saveSimulationTag = async (): Promise<void> => {
-    if (!simulationTagDraft) {
-      return;
-    }
-    applySimulationTag();
-    setBusyAction("save");
-    try {
-      await saveProject();
-      void message.success("Simulation tag settings saved");
-    } catch (error) {
-      void message.error(error instanceof Error ? error.message : "Failed to save simulation tag settings");
-    } finally {
-      setBusyAction("");
-    }
-  };
-
   const addOpcUaDriver = async (): Promise<void> => {
     if (!project) {
       return;
@@ -478,12 +368,6 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
   ];
 
   const statusBadge = formatStatusBadge(currentOpcStatus);
-  const mode = simulationTagDraft ? getTagMode(simulationTagDraft) : "ramp";
-  const simAddress = (simulationTagDraft?.address ?? {}) as Record<string, unknown>;
-  const isBoolSimTag = simulationTagDraft?.dataType === "BOOL";
-  const isStringSimTag = simulationTagDraft?.dataType === "STRING";
-  const isNumericSimTag = Boolean(simulationTagDraft && !isBoolSimTag && !isStringSimTag);
-
   return (
     <div className="screen-editor-window-content screen-editor-drivers-window">
       <WorkbenchTabs items={tabItems} className="screen-editor-drivers-tabs" />
@@ -718,7 +602,7 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                     >
                       <option value="manual">Manual</option>
                       <option value="random">Random</option>
-                      <option value="ramp">Ramp/Oscillation</option>
+                      <option value="ramp">Ramp</option>
                     </select>
                   </label>
                   <label className="screen-editor-settings-field">
@@ -755,207 +639,21 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
             </div>
             <div className="screen-editor-drivers-actions">
               <WorkbenchButton variant="primary" disabled={!simulationDraft || busyAction !== ""} onClick={() => void saveSimulationConfig()}>
-                {busyAction === "save" ? "Saving..." : "Save Simulation"}
+                {busyAction === "save" ? "Saving..." : "Save Simulation Settings"}
               </WorkbenchButton>
             </div>
-          </WorkbenchSection>
-
-          <WorkbenchSection title="Per-Tag Simulation">
-            <div className="screen-editor-drivers-form">
-              <label className="screen-editor-settings-field">
-                <span>Simulated Tag</span>
-                <select
-                  className="workbench-select"
-                  value={selectedSimulationTag?.name ?? ""}
-                  onChange={(event) => setSelectedSimulationTagName(event.target.value)}
-                  disabled={simulationTags.length === 0}
-                >
-                  {simulationTags.map((tag) => (
-                    <option key={tag.name} value={tag.name}>{tag.name}</option>
-                  ))}
-                </select>
-              </label>
-
-              {simulationTagDraft ? (
-                <>
-                  <label className="screen-editor-settings-field">
-                    <span>Data Type</span>
-                    <select
-                      className="workbench-select"
-                      value={simulationTagDraft.dataType}
-                      onChange={(event) => setSimulationTagDraft((prev) => (prev ? { ...prev, dataType: event.target.value as TagDefinition["dataType"] } : prev))}
-                    >
-                      <option value="BOOL">BOOL</option>
-                      <option value="INT">INT</option>
-                      <option value="UINT">UINT</option>
-                      <option value="DINT">DINT</option>
-                      <option value="UDINT">UDINT</option>
-                      <option value="REAL">REAL</option>
-                      <option value="STRING">STRING</option>
-                    </select>
-                  </label>
-
-                  <label className="screen-editor-settings-field">
-                    <span>Mode</span>
-                    <select
-                      className="workbench-select"
-                      value={mode}
-                      onChange={(event) => setSimulationTagDraft((prev) => (prev ? setTagMode(prev, event.target.value as SimTagMode) : prev))}
-                    >
-                      {isBoolSimTag ? <option value="toggle">Toggle/Pulse</option> : null}
-                      <option value="manual">Manual Value</option>
-                      {isNumericSimTag ? <option value="random">Random Range</option> : null}
-                      {isNumericSimTag ? <option value="ramp">Ramp/Oscillation</option> : null}
-                    </select>
-                  </label>
-
-                  <label className="screen-editor-settings-field">
-                    <span>Interval (ms)</span>
-                    <input
-                      className="workbench-input"
-                      type="number"
-                      min={50}
-                      value={String(simAddress.periodMs ?? simulationTagDraft.scanRateMs ?? "")}
-                      onChange={(event) => setSimulationTagDraft((prev) => {
-                        if (!prev) {
-                          return prev;
-                        }
-                        const nextValue = toOptionalNumber(event.target.value);
-                        return {
-                          ...prev,
-                          scanRateMs: nextValue,
-                          address: {
-                            ...(prev.address as Record<string, unknown> ?? {}),
-                            periodMs: nextValue,
-                          },
-                        };
-                      })}
-                    />
-                  </label>
-
-                  {isBoolSimTag ? (
-                    <label className="screen-editor-settings-field">
-                      <span>Manual Value</span>
-                      <select
-                        className="workbench-select"
-                        value={String(simAddress.value ?? false)}
-                        onChange={(event) => setSimulationTagDraft((prev) => (prev
-                          ? {
-                            ...prev,
-                            address: {
-                              ...(prev.address as Record<string, unknown> ?? {}),
-                              value: event.target.value === "true",
-                            },
-                          }
-                          : prev))}
-                      >
-                        <option value="false">false</option>
-                        <option value="true">true</option>
-                      </select>
-                    </label>
-                  ) : null}
-
-                  {isStringSimTag ? (
-                    <label className="screen-editor-settings-field">
-                      <span>Manual Value</span>
-                      <input
-                        className="workbench-input"
-                        value={String(simAddress.value ?? "")}
-                        onChange={(event) => setSimulationTagDraft((prev) => (prev
-                          ? {
-                            ...prev,
-                            address: {
-                              ...(prev.address as Record<string, unknown> ?? {}),
-                              value: event.target.value,
-                            },
-                          }
-                          : prev))}
-                      />
-                    </label>
-                  ) : null}
-
-                  {isNumericSimTag ? (
-                    <>
-                      <label className="screen-editor-settings-field">
-                        <span>Min</span>
-                        <input
-                          className="workbench-input"
-                          type="number"
-                          value={String(simAddress.min ?? "")}
-                          onChange={(event) => setSimulationTagDraft((prev) => (prev
-                            ? {
-                              ...prev,
-                              address: {
-                                ...(prev.address as Record<string, unknown> ?? {}),
-                                min: toOptionalNumber(event.target.value),
-                              },
-                            }
-                            : prev))}
-                        />
-                      </label>
-                      <label className="screen-editor-settings-field">
-                        <span>Max</span>
-                        <input
-                          className="workbench-input"
-                          type="number"
-                          value={String(simAddress.max ?? "")}
-                          onChange={(event) => setSimulationTagDraft((prev) => (prev
-                            ? {
-                              ...prev,
-                              address: {
-                                ...(prev.address as Record<string, unknown> ?? {}),
-                                max: toOptionalNumber(event.target.value),
-                              },
-                            }
-                            : prev))}
-                        />
-                      </label>
-                      <label className="screen-editor-settings-field">
-                        <span>Step</span>
-                        <input
-                          className="workbench-input"
-                          type="number"
-                          value={String(simAddress.step ?? "")}
-                          onChange={(event) => setSimulationTagDraft((prev) => (prev
-                            ? {
-                              ...prev,
-                              address: {
-                                ...(prev.address as Record<string, unknown> ?? {}),
-                                step: toOptionalNumber(event.target.value),
-                              },
-                            }
-                            : prev))}
-                        />
-                      </label>
-                      <label className="screen-editor-settings-field">
-                        <span>Initial Value</span>
-                        <input
-                          className="workbench-input"
-                          type="number"
-                          value={String(simAddress.value ?? "")}
-                          onChange={(event) => setSimulationTagDraft((prev) => (prev
-                            ? {
-                              ...prev,
-                              address: {
-                                ...(prev.address as Record<string, unknown> ?? {}),
-                                value: toOptionalNumber(event.target.value),
-                              },
-                            }
-                            : prev))}
-                        />
-                      </label>
-                    </>
-                  ) : null}
-                </>
-              ) : (
-                <div className="screen-editor-drivers-note">No simulated tags found. Assign `sourceType = simulated` in Tags window.</div>
-              )}
-            </div>
-            <div className="screen-editor-drivers-actions">
-              <WorkbenchButton disabled={!simulationTagDraft} onClick={applySimulationTag}>Apply Tag Settings</WorkbenchButton>
-              <WorkbenchButton variant="primary" disabled={!simulationTagDraft || busyAction !== ""} onClick={() => void saveSimulationTag()}>
-                {busyAction === "save" ? "Saving..." : "Save Tag Settings"}
-              </WorkbenchButton>
+            <div className="screen-editor-drivers-status-card">
+              <div className="screen-editor-drivers-status-line">
+                <span>Status</span>
+                <strong>{simulationStatus?.health ?? "stopped"}</strong>
+              </div>
+              <div className="screen-editor-drivers-status-line">
+                <span>Simulated Tags</span>
+                <strong>{simulatedTagsCount}</strong>
+              </div>
+              <div className="screen-editor-drivers-note">
+                Per-tag simulation behavior is configured in Tags window for tags with Source Type = Simulated.
+              </div>
             </div>
           </WorkbenchSection>
         </div>

@@ -602,6 +602,16 @@ const simulatedAddressSchema = z.object({
   min: z.number().optional(),
   max: z.number().optional(),
   step: z.number().optional(),
+  value: z.union([z.boolean(), z.number(), z.string(), z.null()]).optional(),
+});
+
+const tagSimulationSchema = z.object({
+  mode: z.enum(["manual", "random", "range", "ramp", "toggle", "sine"]).optional(),
+  intervalMs: z.number().positive().optional(),
+  initialValue: z.union([z.boolean(), z.number(), z.string(), z.null()]).optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().nonnegative().optional(),
 });
 
 const tagDataTypeSchema = z.enum(["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"]);
@@ -630,6 +640,7 @@ const tagSchema = z.object({
   offset: z.number().optional(),
   min: z.number().optional(),
   max: z.number().optional(),
+  simulation: tagSimulationSchema.optional(),
   group: z.string().optional(),
   unit: z.string().optional(),
   createdAt: z.string().optional(),

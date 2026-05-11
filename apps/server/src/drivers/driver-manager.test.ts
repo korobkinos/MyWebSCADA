@@ -59,4 +59,39 @@ describe("DriverManager.readTags", () => {
 
     await manager.stopAll();
   });
+
+  it("uses default simulated driver when simulated tag has no driverId", async () => {
+    const manager = new DriverManager();
+    manager.configure([
+      {
+        id: "sim_default",
+        type: "simulated",
+        enabled: true,
+        name: "Default Sim",
+      },
+    ]);
+    await manager.startAll();
+
+    const tag: TagDefinition = {
+      name: "Sim_NoDriver",
+      sourceType: "simulated",
+      dataType: "REAL",
+      address: {
+        pattern: "static",
+        value: 77,
+      },
+      writable: true,
+    };
+
+    const value = await manager.readTag(tag);
+    expect(value.value).toBe(77);
+    expect(value.quality).toBe("Good");
+    expect(value.source).toBe("sim_default");
+
+    await manager.writeTag(tag, 88);
+    const updated = await manager.readTag(tag);
+    expect(updated.value).toBe(88);
+
+    await manager.stopAll();
+  });
 });

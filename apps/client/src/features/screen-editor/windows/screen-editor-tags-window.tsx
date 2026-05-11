@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { TagDefinition, TagSourceType } from "@web-scada/shared";
+import type { TagDefinition, TagScalarValue, TagSimulationMode, TagSimulationSettings, TagSourceType } from "@web-scada/shared";
 import { message } from "antd";
 import { WorkbenchButton, WorkbenchWindow, type WorkbenchWindowRect } from "../../../components/workbench";
 import { api, type OpcUaBrowseItem } from "../../../services/api";
@@ -137,6 +137,191 @@ const dataTypeOptions: TagDefinition["dataType"][] = [
   "STRING",
 ];
 const OPC_UA_BROWSE_ROOT_NODE_ID = "RootFolder";
+const NUMERIC_TAG_DATA_TYPES = new Set<TagDefinition["dataType"]>(["INT", "UINT", "DINT", "UDINT", "REAL"]);
+
+function isBoolType(dataType: TagDefinition["dataType"]): boolean {
+  return dataType === "BOOL";
+}
+
+function isStringType(dataType: TagDefinition["dataType"]): boolean {
+  return dataType === "STRING";
+}
+
+function isNumericType(dataType: TagDefinition["dataType"]): boolean {
+  return NUMERIC_TAG_DATA_TYPES.has(dataType);
+}
+
+function getDefaultSimulationMode(dataType: TagDefinition["dataType"]): TagSimulationMode {
+  if (isBoolType(dataType)) {
+    return "toggle";
+  }
+  if (isStringType(dataType)) {
+    return "manual";
+  }
+  return "ramp";
+}
+
+function modeFromLegacyPattern(
+  pattern: unknown,
+  dataType: TagDefinition["dataType"],
+): TagSimulationMode {
+  const value = typeof pattern === "string" ? pattern : "";
+  if (isBoolType(dataType)) {
+    if (value === "toggle") {
+      return "toggle";
+    }
+    if (value === "random") {
+      return "random";
+    }
+    return "manual";
+  }
+  if (isStringType(dataType)) {
+    return "manual";
+  }
+  if (value === "random") {
+    return "range";
+  }
+  if (value === "sine") {
+    return "sine";
+  }
+  if (value === "static") {
+    return "manual";
+  }
+  return getDefaultSimulationMode(dataType);
+}
+
+function modeToLegacyPattern(
+  mode: TagSimulationMode | undefined,
+  dataType: TagDefinition["dataType"],
+): "toggle" | "sine" | "random" | "static" {
+  if (isBoolType(dataType)) {
+    if (mode === "toggle") {
+      return "toggle";
+    }
+    if (mode === "random") {
+      return "random";
+    }
+    return "static";
+  }
+  if (isStringType(dataType)) {
+    return "static";
+  }
+  if (mode === "manual") {
+    return "static";
+  }
+  if (mode === "random" || mode === "range") {
+    return "random";
+  }
+  if (mode === "sine") {
+    return "sine";
+  }
+  return "sine";
+}
+
+function coerceModeForDataType(mode: TagSimulationMode | undefined, dataType: TagDefinition["dataType"]): TagSimulationMode {
+  if (isBoolType(dataType)) {
+    if (mode === "toggle" || mode === "random" || mode === "manual") {
+      return mode;
+    }
+    return "manual";
+  }
+  if (isStringType(dataType)) {
+    return "manual";
+  }
+  if (mode === "toggle") {
+    return "manual";
+  }
+  if (mode === "random") {
+    return "range";
+  }
+  if (mode === "manual" || mode === "range" || mode === "ramp" || mode === "sine") {
+    return mode;
+  }
+  return getDefaultSimulationMode(dataType);
+}
+
+function toSimulationSettings(tag: TagDefinition): TagSimulationSettings {
+  if (tag.simulation) {
+    return {
+      ...tag.simulation,
+      mode: coerceModeForDataType(tag.simulation.mode, tag.dataType),
+    };
+  }
+  const address = (tag.address ?? {}) as Record<string, unknown>;
+  const mode = coerceModeForDataType(modeFromLegacyPattern(address.pattern, tag.dataType), tag.dataType);
+  return {
+    mode,
+    intervalMs: typeof address.periodMs === "number" ? address.periodMs : tag.scanRateMs,
+    initialValue: (address.value as TagScalarValue | undefined) ?? undefined,
+    min: typeof address.min === "number" ? address.min : undefined,
+    max: typeof address.max === "number" ? address.max : undefined,
+    step: typeof address.step === "number" ? address.step : undefined,
+  };
+}
+
+function syncLegacySimulationAddress(tag: TagDefinition): TagDefinition {
+  if (tag.sourceType !== "simulated" || !tag.simulation) {
+    return tag;
+  }
+  const baseAddress = (tag.address && typeof tag.address === "object")
+    ? { ...(tag.address as Record<string, unknown>) }
+    : {};
+  const simulation = tag.simulation;
+  const nextAddress: Record<string, unknown> = {
+    ...baseAddress,
+    pattern: modeToLegacyPattern(simulation.mode, tag.dataType),
+  };
+  if (typeof simulation.intervalMs === "number") {
+    nextAddress.periodMs = simulation.intervalMs;
+  } else {
+    delete nextAddress.periodMs;
+  }
+  if (typeof simulation.min === "number") {
+    nextAddress.min = simulation.min;
+  } else {
+    delete nextAddress.min;
+  }
+  if (typeof simulation.max === "number") {
+    nextAddress.max = simulation.max;
+  } else {
+    delete nextAddress.max;
+  }
+  if (typeof simulation.step === "number") {
+    nextAddress.step = simulation.step;
+  } else {
+    delete nextAddress.step;
+  }
+  if (simulation.initialValue !== undefined) {
+    nextAddress.value = simulation.initialValue;
+  } else {
+    delete nextAddress.value;
+  }
+  return {
+    ...tag,
+    address: nextAddress,
+  };
+}
+
+function withSimulationPatch(
+  tag: TagDefinition,
+  patch: Partial<TagSimulationSettings>,
+): TagDefinition {
+  if (tag.sourceType !== "simulated") {
+    return tag;
+  }
+  const nextSimulation: TagSimulationSettings = {
+    ...toSimulationSettings(tag),
+    ...patch,
+  };
+  const normalized = {
+    ...tag,
+    simulation: {
+      ...nextSimulation,
+      mode: coerceModeForDataType(nextSimulation.mode, tag.dataType),
+    },
+  };
+  return syncLegacySimulationAddress(normalized);
+}
 
 function clampOpcBrowserRect(rect: WorkbenchWindowRect): WorkbenchWindowRect {
   return {
@@ -531,7 +716,7 @@ function createDefaultDraft(): TagDefinition {
 }
 
 function normalizeDraft(draft: TagDefinition, isEditing: boolean): TagDefinition {
-  const normalized: TagDefinition = {
+  let normalized: TagDefinition = {
     ...draft,
     id: draft.id ?? createId(),
     name: draft.name.trim(),
@@ -559,6 +744,16 @@ function normalizeDraft(draft: TagDefinition, isEditing: boolean): TagDefinition
   }
   if (sourceType !== "simulated" && sourceType !== "modbus") {
     normalized.address = undefined;
+  }
+  if (sourceType === "simulated") {
+    const simulation = toSimulationSettings(normalized);
+    normalized = syncLegacySimulationAddress({
+      ...normalized,
+      simulation: {
+        ...simulation,
+        mode: coerceModeForDataType(simulation.mode, normalized.dataType),
+      },
+    });
   }
 
   return normalized;
@@ -709,6 +904,12 @@ export function ScreenEditorTagsWindow() {
 
   const selectedTag = tags.find((tag) => tagKey(tag) === selectedId) ?? filteredTags[0] ?? null;
   const sourceType = draftTag?.sourceType ?? "simulated";
+  const draftSimulation = draftTag?.sourceType === "simulated" ? toSimulationSettings(draftTag) : undefined;
+  const simulationDataType = draftTag?.dataType ?? "REAL";
+  const isSimBool = isBoolType(simulationDataType);
+  const isSimString = isStringType(simulationDataType);
+  const isSimNumeric = isNumericType(simulationDataType);
+  const simulationMode = coerceModeForDataType(draftSimulation?.mode, simulationDataType);
   const editorDriverOptions = drivers.filter((driver) => {
     if (sourceType === "opcua") {
       return driver.type === "opcua";
@@ -1081,9 +1282,16 @@ export function ScreenEditorTagsWindow() {
 
   const openEdit = (tag: TagDefinition): void => {
     const key = tagKey(tag);
+    const draft = structuredClone(tag);
+    const normalizedDraft = draft.sourceType === "simulated"
+      ? {
+        ...draft,
+        simulation: toSimulationSettings(draft),
+      }
+      : draft;
     setSelectedId(key);
     setEditingId(key);
-    setDraftTag(structuredClone(tag));
+    setDraftTag(normalizedDraft);
     setEditorMode("edit");
     setPendingDeleteTagId(null);
   };
@@ -1098,7 +1306,7 @@ export function ScreenEditorTagsWindow() {
     if (!draftTag) {
       return;
     }
-    const normalized = normalizeDraft(draftTag, editorMode === "edit");
+    let normalized = normalizeDraft(draftTag, editorMode === "edit");
 
     if (!normalized.name) {
       void message.error("Tag name is required");
@@ -1116,6 +1324,34 @@ export function ScreenEditorTagsWindow() {
     if (normalized.sourceType === "internal" && !normalized.internalVariableName?.trim()) {
       void message.error("Internal tag requires Internal Variable Name");
       return;
+    }
+    if (normalized.sourceType === "simulated") {
+      const simulation = {
+        ...toSimulationSettings(normalized),
+        mode: coerceModeForDataType(normalized.simulation?.mode, normalized.dataType),
+      };
+      if (typeof simulation.intervalMs === "number" && simulation.intervalMs <= 0) {
+        void message.error("Simulation interval must be greater than 0 ms");
+        return;
+      }
+      if (isNumericType(normalized.dataType)) {
+        if (typeof simulation.min === "number" && typeof simulation.max === "number" && simulation.min > simulation.max) {
+          void message.error("Simulation Min must be less than or equal to Max");
+          return;
+        }
+        if (typeof simulation.step === "number" && simulation.step < 0) {
+          void message.error("Simulation Step must be greater than or equal to 0");
+          return;
+        }
+        if (simulation.mode === "ramp" && typeof simulation.step === "number" && simulation.step <= 0) {
+          void message.error("Ramp mode requires Step greater than 0");
+          return;
+        }
+      }
+      normalized = syncLegacySimulationAddress({
+        ...normalized,
+        simulation,
+      });
     }
 
     const duplicate = tags.some(
@@ -1203,6 +1439,7 @@ export function ScreenEditorTagsWindow() {
       "internalVariableName",
       "lwAddress",
       "persistent",
+      "simulation",
     ];
     const rows = tags.map((tag) => [
       tag.name,
@@ -1223,6 +1460,7 @@ export function ScreenEditorTagsWindow() {
       tag.internalVariableName ?? "",
       tag.lwAddress ?? "",
       tag.persistent ? "1" : "0",
+      tag.simulation ? JSON.stringify(tag.simulation) : "",
     ]);
 
     const csv = [header, ...rows]
@@ -1262,7 +1500,15 @@ export function ScreenEditorTagsWindow() {
           const lwAddressRaw = map.get("lwAddress") ?? map.get("address");
           const lwAddress = lwAddressRaw ? Number(lwAddressRaw) : undefined;
           const internalFromCell = map.get("internalVariableName") || (sourceType === "internal" ? map.get("address") : undefined);
-          return {
+          const simulationRaw = map.get("simulation")?.trim();
+          const simulation = simulationRaw ? (() => {
+            try {
+              return JSON.parse(simulationRaw) as TagSimulationSettings;
+            } catch {
+              return undefined;
+            }
+          })() : undefined;
+          const importedTag: TagDefinition = {
             id: createId(),
             name: map.get("name")?.trim() ?? "",
             description: map.get("description") || undefined,
@@ -1285,9 +1531,15 @@ export function ScreenEditorTagsWindow() {
             lwAddress: Number.isFinite(lwAddress) ? lwAddress : undefined,
             internalVariableName: internalFromCell || undefined,
             persistent: map.get("persistent") === "1" || map.get("persistent")?.toLowerCase() === "true",
+            simulation,
             createdAt: nowIso(),
             updatedAt: nowIso(),
           };
+          if (sourceType === "simulated") {
+            importedTag.simulation = simulation ?? toSimulationSettings(importedTag);
+            return syncLegacySimulationAddress(importedTag);
+          }
+          return importedTag;
         })
         .filter((tag) => tag.name);
 
@@ -1652,6 +1904,13 @@ export function ScreenEditorTagsWindow() {
                           ? {
                             ...prev,
                             sourceType: event.target.value as TagSourceType,
+                            simulation:
+                              event.target.value === "simulated"
+                                ? {
+                                  ...toSimulationSettings(prev),
+                                  mode: coerceModeForDataType(prev.simulation?.mode, prev.dataType),
+                                }
+                                : prev.simulation,
                           }
                           : prev,
                       )}
@@ -1671,14 +1930,25 @@ export function ScreenEditorTagsWindow() {
                     value={draftTag.dataType}
                     disabled={sourceType === "opcua"}
                     onChange={(event) =>
-                      setDraftTag((prev) =>
-                        prev
-                          ? {
+                      setDraftTag((prev) => {
+                        if (!prev) {
+                          return prev;
+                        }
+                        const dataType = event.target.value as TagDefinition["dataType"];
+                        if (prev.sourceType !== "simulated") {
+                          return {
                             ...prev,
-                            dataType: event.target.value as TagDefinition["dataType"],
-                          }
-                          : prev,
-                      )}
+                            dataType,
+                          };
+                        }
+                        return withSimulationPatch(
+                          {
+                            ...prev,
+                            dataType,
+                          },
+                          { mode: coerceModeForDataType(prev.simulation?.mode, dataType) },
+                        );
+                      })}
                   >
                     {dataTypeOptions.map((type) => (
                       <option key={type} value={type}>
@@ -1784,7 +2054,7 @@ export function ScreenEditorTagsWindow() {
                   </label>
                 ) : null}
 
-                {(sourceType === "simulated" || sourceType === "modbus") ? (
+                {sourceType === "modbus" ? (
                   <label className="workbench-field">
                     <span className="workbench-field__label">Address (raw)</span>
                     <input
@@ -1801,6 +2071,140 @@ export function ScreenEditorTagsWindow() {
                         )}
                     />
                   </label>
+                ) : null}
+
+                {sourceType === "simulated" ? (
+                  <>
+                    <div className="screen-editor-tag-editor__title">Simulation Settings</div>
+                    <span className="screen-editor-tag-editor__hint">
+                      These settings are used by the Simulation runtime for this tag.
+                    </span>
+
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Simulation Mode</span>
+                      <select
+                        className="workbench-select"
+                        value={simulationMode}
+                        onChange={(event) =>
+                          setDraftTag((prev) => {
+                            if (!prev) {
+                              return prev;
+                            }
+                            const nextMode = event.target.value as TagSimulationMode;
+                            return withSimulationPatch(prev, { mode: nextMode });
+                          })}
+                      >
+                        <option value="manual">Manual</option>
+                        {isSimBool ? <option value="toggle">Toggle</option> : null}
+                        {isSimBool ? <option value="random">Random</option> : null}
+                        {isSimNumeric ? <option value="range">Random Range</option> : null}
+                        {isSimNumeric ? <option value="ramp">Ramp</option> : null}
+                        {isSimNumeric ? <option value="sine">Sine</option> : null}
+                      </select>
+                    </label>
+                    {!isSimNumeric && (draftTag?.simulation?.mode === "ramp" || draftTag?.simulation?.mode === "range" || draftTag?.simulation?.mode === "sine") ? (
+                      <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+                        Ramp and Random Range are available only for numeric tags.
+                      </span>
+                    ) : null}
+
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Interval (ms)</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={1}
+                        value={draftSimulation?.intervalMs ?? ""}
+                        onChange={(event) =>
+                          setDraftTag((prev) => {
+                            if (!prev) {
+                              return prev;
+                            }
+                            const intervalMs = toOptionalNumber(event.target.value);
+                            return withSimulationPatch(prev, { intervalMs });
+                          })}
+                      />
+                    </label>
+
+                    {isSimBool ? (
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Initial Value</span>
+                        <select
+                          className="workbench-select"
+                          value={String(Boolean(draftSimulation?.initialValue ?? false))}
+                          onChange={(event) =>
+                            setDraftTag((prev) => (prev ? withSimulationPatch(prev, { initialValue: event.target.value === "true" }) : prev))}
+                        >
+                          <option value="false">false</option>
+                          <option value="true">true</option>
+                        </select>
+                      </label>
+                    ) : null}
+
+                    {isSimString ? (
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Initial Value</span>
+                        <input
+                          className="workbench-input"
+                          value={typeof draftSimulation?.initialValue === "string" ? draftSimulation.initialValue : ""}
+                          onChange={(event) =>
+                            setDraftTag((prev) => (prev ? withSimulationPatch(prev, { initialValue: event.target.value }) : prev))}
+                        />
+                      </label>
+                    ) : null}
+
+                    {isSimNumeric ? (
+                      <>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Initial Value</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            value={typeof draftSimulation?.initialValue === "number" ? draftSimulation.initialValue : ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => {
+                                if (!prev) {
+                                  return prev;
+                                }
+                                const initialValue = toOptionalNumber(event.target.value);
+                                return withSimulationPatch(prev, { initialValue });
+                              })}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Min</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            value={draftSimulation?.min ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev ? withSimulationPatch(prev, { min: toOptionalNumber(event.target.value) }) : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Max</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            value={draftSimulation?.max ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev ? withSimulationPatch(prev, { max: toOptionalNumber(event.target.value) }) : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Step</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            min={0}
+                            value={draftSimulation?.step ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev ? withSimulationPatch(prev, { step: toOptionalNumber(event.target.value) }) : prev))}
+                          />
+                        </label>
+                      </>
+                    ) : null}
+                  </>
                 ) : null}
 
                 <label className="workbench-field">

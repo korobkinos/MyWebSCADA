@@ -13,10 +13,12 @@ function createDriver(config: DriverConfig): Driver {
 export class DriverManager {
   private readonly drivers = new Map<string, Driver>();
   private readonly statuses = new Map<string, DriverStatus>();
+  private defaultSimulatedDriverId: string | null = null;
 
   public configure(configs: DriverConfig[]): void {
     this.statuses.clear();
     this.drivers.clear();
+    this.defaultSimulatedDriverId = null;
     for (const config of configs) {
       if (!config.enabled) {
         this.statuses.set(config.id, {
@@ -31,6 +33,9 @@ export class DriverManager {
       const driver = createDriver(config);
       this.drivers.set(config.id, driver);
       this.statuses.set(config.id, driver.getStatus());
+      if (config.type === "simulated" && !this.defaultSimulatedDriverId) {
+        this.defaultSimulatedDriverId = config.id;
+      }
     }
   }
 
@@ -106,7 +111,8 @@ export class DriverManager {
   }
 
   public async readTag(tag: TagDefinition): Promise<TagValue> {
-    if (!tag.driverId) {
+    const driverId = this.resolveDriverId(tag);
+    if (!driverId) {
       return {
         name: tag.name,
         value: null,
@@ -116,14 +122,14 @@ export class DriverManager {
       };
     }
 
-    const driver = this.drivers.get(tag.driverId);
+    const driver = this.drivers.get(driverId);
     if (!driver) {
       return {
         name: tag.name,
         value: null,
         quality: "Bad",
         timestamp: Date.now(),
-        source: tag.driverId,
+        source: driverId,
       };
     }
 
@@ -145,26 +151,27 @@ public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
   const result: Array<TagValue | undefined> = new Array(tags.length);
   const byDriver = new Map<string, IndexedTag[]>();
 
-  for (let index = 0; index < tags.length; index += 1) {
-    const tag = tags[index]!;
+    for (let index = 0; index < tags.length; index += 1) {
+      const tag = tags[index]!;
+      const driverId = this.resolveDriverId(tag);
 
-    if (!tag.driverId) {
-      result[index] = {
-        name: tag.name,
-        value: null,
-        quality: "Bad",
-        timestamp,
+      if (!driverId) {
+        result[index] = {
+          name: tag.name,
+          value: null,
+          quality: "Bad",
+          timestamp,
         source: "none",
       };
       continue;
-    }
+      }
 
-    const group = byDriver.get(tag.driverId);
-    if (group) {
-      group.push({ tag, index });
-    } else {
-      byDriver.set(tag.driverId, [{ tag, index }]);
-    }
+      const group = byDriver.get(driverId);
+      if (group) {
+        group.push({ tag, index });
+      } else {
+        byDriver.set(driverId, [{ tag, index }]);
+      }
   }
 
   for (const [driverId, indexedTags] of byDriver.entries()) {
@@ -227,28 +234,39 @@ public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
       return value;
     }
 
-    const tag = tags[index]!;
-    return {
-      name: tag.name,
-      value: null,
-      quality: "Bad",
-      timestamp: Date.now(),
-      source: tag.driverId ?? "none",
-    };
-  });
+      const tag = tags[index]!;
+      return {
+        name: tag.name,
+        value: null,
+        quality: "Bad",
+        timestamp: Date.now(),
+        source: this.resolveDriverId(tag) ?? "none",
+      };
+    });
 }
 
 
   public async writeTag(tag: TagDefinition, value: TagScalarValue): Promise<void> {
-    if (!tag.driverId) {
+    const driverId = this.resolveDriverId(tag);
+    if (!driverId) {
       throw new Error(`Tag ${tag.name} has no driver`);
     }
 
-    const driver = this.drivers.get(tag.driverId);
+    const driver = this.drivers.get(driverId);
     if (!driver) {
-      throw new Error(`Driver ${tag.driverId} is unavailable`);
+      throw new Error(`Driver ${driverId} is unavailable`);
     }
 
     await driver.writeTag(tag, value);
+  }
+
+  private resolveDriverId(tag: TagDefinition): string | undefined {
+    if (tag.driverId) {
+      return tag.driverId;
+    }
+    if (tag.sourceType === "simulated" && this.defaultSimulatedDriverId) {
+      return this.defaultSimulatedDriverId;
+    }
+    return undefined;
   }
 }

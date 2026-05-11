@@ -39,6 +39,18 @@ export type SimulatedAddress = {
   min?: number;
   max?: number;
   step?: number;
+  value?: TagScalarValue;
+};
+
+export type TagSimulationMode = "manual" | "random" | "range" | "ramp" | "toggle" | "sine";
+
+export type TagSimulationSettings = {
+  mode?: TagSimulationMode;
+  intervalMs?: number;
+  initialValue?: TagScalarValue;
+  min?: number;
+  max?: number;
+  step?: number;
 };
 
 export type TagDefinition = {
@@ -65,6 +77,7 @@ export type TagDefinition = {
   offset?: number;
   min?: number;
   max?: number;
+  simulation?: TagSimulationSettings;
   group?: string;
   unit?: string;
   createdAt?: string;

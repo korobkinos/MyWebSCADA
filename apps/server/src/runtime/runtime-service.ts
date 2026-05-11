@@ -83,7 +83,7 @@ export class RuntimeService {
 
   public async pollTag(name: string): Promise<void> {
     const definition = this.tagStore.getDefinition(name);
-    if (!definition || !definition.driverId) {
+    if (!definition || (!definition.driverId && definition.sourceType !== "simulated")) {
       return;
     }
 
@@ -128,7 +128,7 @@ export class RuntimeService {
   private configurePollGroups(tags: TagDefinition[]): void {
     this.pollGroups.clear();
     for (const tag of tags) {
-      if (!tag.driverId) {
+      if (!tag.driverId && tag.sourceType !== "simulated") {
         continue;
       }
       const scanRateMs = Math.max(100, tag.scanRateMs ?? 1000);
