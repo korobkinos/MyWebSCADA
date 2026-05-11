@@ -5,7 +5,6 @@ import type {
   EditorCommand,
   HmiScreen,
   HmiObject,
-  InternalVariableDefinition,
   LibraryElement,
   ProjectLibraryRef,
   RuntimeAction,
@@ -157,7 +156,6 @@ export function EditorPage() {
   const addObject = useScadaStore((s) => s.addObject);
   const addScreen = useScadaStore((s) => s.addScreen);
   const updateScreen = useScadaStore((s) => s.updateScreen);
-  const addVariable = useScadaStore((s) => s.addVariable);
   const saveProject = useScadaStore((s) => s.saveProject);
   const loadProject = useScadaStore((s) => s.loadProject);
   const loadAssets = useScadaStore((s) => s.loadAssets);
@@ -165,8 +163,6 @@ export function EditorPage() {
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
 
   const [pendingDeleteScreenId, setPendingDeleteScreenId] = useState<string | null>(null);
-  const [newVarName, setNewVarName] = useState("Counter1");
-  const [newVarType, setNewVarType] = useState<InternalVariableDefinition["dataType"]>("REAL");
   const [newScreenKind, setNewScreenKind] = useState<ScreenKind>("screen");
   const [newLibraryId, setNewLibraryId] = useState("custom-equipment");
   const [newLibraryName, setNewLibraryName] = useState("Пользовательская библиотека");
@@ -958,16 +954,7 @@ export function EditorPage() {
       minWidth: 360,
       minHeight: 260,
       render: () => (
-        <ScreenEditorTagsWindow
-          tags={tags}
-          macros={project.macros ?? []}
-          internalVariables={project.variables ?? []}
-          newVarName={newVarName}
-          newVarType={newVarType}
-          onNewVarNameChange={setNewVarName}
-          onNewVarTypeChange={setNewVarType}
-          onAddVariable={addVariable}
-        />
+        <ScreenEditorTagsWindow />
       ),
     },
     {

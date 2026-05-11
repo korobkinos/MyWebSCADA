@@ -45,6 +45,18 @@
       "updatedAt": "2026-05-08T09:13:57.558Z",
       "storagePath": "assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1.png",
       "previewUrl": "/api/assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1/file"
+    },
+    {
+      "id": "471c21da-a815-4098-afba-a186c20872ce",
+      "name": "538e4fd5-8312-4d97-8d5c-7f5d673ac09b",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "471c21da-a815-4098-afba-a186c20872ce.png",
+      "size": 1794877,
+      "createdAt": "2026-05-11T12:07:39.630Z",
+      "updatedAt": "2026-05-11T12:07:39.630Z",
+      "storagePath": "assets/471c21da-a815-4098-afba-a186c20872ce.png",
+      "previewUrl": "/api/assets/471c21da-a815-4098-afba-a186c20872ce/file"
     }
   ],
   "libraries": [
@@ -13833,6 +13845,21 @@
               }
             }
           ]
+        },
+        {
+          "id": "img_6ow8jk",
+          "type": "image",
+          "x": 855.6075216151665,
+          "y": 60.9391161311288,
+          "width": 270.5700309548778,
+          "height": 270.5700309548777,
+          "rotation": 0,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "471c21da-a815-4098-afba-a186c20872ce",
+          "fit": "contain",
+          "preserveAspectRatio": true
         }
       ]
     },

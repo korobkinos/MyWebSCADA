@@ -1927,7 +1927,6 @@ body {
   flex-wrap: wrap;
 }
 
-.screen-editor-tags-window,
 .screen-editor-drivers-window {
   height: 100%;
 }
@@ -1961,6 +1960,306 @@ body {
 .screen-editor-variable-item:hover,
 .screen-editor-macro-item:hover {
   background: #2a2d2e;
+}
+
+.screen-editor-tags-window {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #252526;
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.screen-editor-tags-window__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid #3c3c3c;
+  background: #252526;
+}
+
+.screen-editor-tags-window__toolbar-input {
+  width: 240px !important;
+  min-width: 180px;
+  height: 24px;
+}
+
+.screen-editor-tags-window__toolbar-select {
+  width: 150px;
+  min-width: 120px;
+  height: 24px;
+}
+
+.screen-editor-tags-window__toolbar-meta {
+  margin-left: auto;
+  color: #969696;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.screen-editor-tags-window__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) 4px var(--screen-editor-tags-details-width, 340px);
+  gap: 0;
+}
+
+.screen-editor-tags-window__list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screen-editor-tags-resize-handle {
+  width: 4px;
+  min-width: 4px;
+  background: #1e1e1e;
+  cursor: col-resize;
+  border-left: 1px solid #2d2d2d;
+  border-right: 1px solid #2d2d2d;
+}
+
+.screen-editor-tags-resize-handle:hover,
+.screen-editor-tags-resize-handle--active {
+  background: #007acc;
+}
+
+.screen-editor-tags-window__details {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: #252526;
+}
+
+.screen-editor-tags-table {
+  width: max-content;
+  min-width: 100%;
+  font-size: 12px;
+}
+
+.screen-editor-tags-row {
+  display: grid;
+  min-height: 26px;
+  border-bottom: 1px solid #2d2d2d;
+  cursor: pointer;
+}
+
+.screen-editor-tags-row:hover {
+  background: #2a2d2e;
+}
+
+.screen-editor-tags-row--selected {
+  background: #37373d;
+  color: #ffffff;
+}
+
+.screen-editor-tags-row--header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #2d2d2d;
+  color: #bbbbbb;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: default;
+}
+
+.screen-editor-tags-cell {
+  min-width: 0;
+  padding: 5px 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-right: 1px solid #2d2d2d;
+}
+
+.screen-editor-tags-header-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-right: 12px;
+}
+
+.screen-editor-tags-column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.screen-editor-tags-column-resize-handle:hover {
+  background: #007acc;
+}
+
+.screen-editor-tag-editor {
+  padding: 6px 8px;
+}
+
+.screen-editor-tag-editor .workbench-field {
+  padding: 4px 0;
+}
+
+.screen-editor-tag-editor .workbench-field__label {
+  margin-bottom: 3px;
+}
+
+.screen-editor-tag-editor .workbench-input,
+.screen-editor-tag-editor .workbench-select {
+  height: 24px;
+}
+
+.screen-editor-tag-editor__title {
+  color: #d7d7d7;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 0 8px;
+}
+
+.screen-editor-tag-editor__kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid #2d2d2d;
+}
+
+.screen-editor-tag-editor__kv span {
+  color: #969696;
+}
+
+.screen-editor-tag-editor__kv strong {
+  color: #dcdcdc;
+  font-weight: 600;
+  text-align: right;
+}
+
+.screen-editor-tag-editor-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.screen-editor-tags-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  color: #cccccc;
+}
+
+.screen-editor-tags-inline-confirm {
+  margin-top: 10px;
+  border: 1px solid #5a1d1d;
+  background: #351b1b;
+  padding: 8px;
+}
+
+.screen-editor-tags-inline-confirm__title {
+  color: #f2c5c5;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.screen-editor-tags-inline-confirm__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.screen-editor-tags-side-section {
+  border-top: 1px solid #2d2d2d;
+  padding: 8px;
+}
+
+.screen-editor-tags-side-section__title {
+  color: #9f9f9f;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.screen-editor-tags-side-section__controls {
+  display: grid;
+  grid-template-columns: 1fr 96px auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.screen-editor-tags-side-section__controls .workbench-input,
+.screen-editor-tags-side-section__controls .workbench-select {
+  height: 24px;
+}
+
+.screen-editor-tags-side-section__list {
+  margin-top: 6px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.screen-editor-tag-macro-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.screen-editor-tag-macro-badge {
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: #3c3c3c;
+  color: #969696;
+}
+
+.screen-editor-tag-macro-badge--enabled {
+  background: #2d5a2d;
+  color: #4ec94e;
+}
+
+.screen-editor-tags-window .ant-input,
+.screen-editor-tags-window .ant-input-number,
+.screen-editor-tags-window .ant-select-selector {
+  background: #1e1e1e !important;
+  border-color: #3c3c3c !important;
+  color: #cccccc !important;
+  height: 24px !important;
+  font-size: 12px !important;
+}
+
+@media (max-width: 1080px) {
+  .screen-editor-tags-window__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr);
+  }
+
+  .screen-editor-tags-resize-handle {
+    display: none;
+  }
+
+  .screen-editor-tags-window__list {
+    border-right: 0;
+    border-bottom: 1px solid #3c3c3c;
+  }
+
+  .screen-editor-tags-window__toolbar-meta {
+    width: 100%;
+    margin-left: 0;
+  }
 }
 
 /* Workbench window scrollbar — тёмный */
