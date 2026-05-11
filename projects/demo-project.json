@@ -45,18 +45,6 @@
       "updatedAt": "2026-05-08T09:13:57.558Z",
       "storagePath": "assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1.png",
       "previewUrl": "/api/assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1/file"
-    },
-    {
-      "id": "6ec26f41-14cc-400e-b44c-8ad05a9307c9",
-      "name": "15.09.13 - 6",
-      "type": "jpg",
-      "mimeType": "image/jpeg",
-      "fileName": "6ec26f41-14cc-400e-b44c-8ad05a9307c9.jpg",
-      "size": 190874,
-      "createdAt": "2026-05-11T10:47:53.325Z",
-      "updatedAt": "2026-05-11T10:47:53.325Z",
-      "storagePath": "assets/6ec26f41-14cc-400e-b44c-8ad05a9307c9.jpg",
-      "previewUrl": "/api/assets/6ec26f41-14cc-400e-b44c-8ad05a9307c9/file"
     }
   ],
   "libraries": [
@@ -13845,36 +13833,6 @@
               }
             }
           ]
-        },
-        {
-          "id": "img_91piic",
-          "type": "image",
-          "x": 963.9713257875917,
-          "y": 61.97132578759289,
-          "width": 235.4121260148601,
-          "height": 235.41212601486012,
-          "rotation": 0,
-          "opacity": 1,
-          "minWidth": 40,
-          "minHeight": 40,
-          "assetId": "6ec26f41-14cc-400e-b44c-8ad05a9307c9",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        },
-        {
-          "id": "img_vvfzwb",
-          "type": "image",
-          "x": 1218.6537901004306,
-          "y": 395.3836944795538,
-          "width": 152.10197206816997,
-          "height": 152.10197206816994,
-          "rotation": -47.458008307340315,
-          "opacity": 1,
-          "minWidth": 40,
-          "minHeight": 40,
-          "assetId": "6ec26f41-14cc-400e-b44c-8ad05a9307c9",
-          "fit": "contain",
-          "preserveAspectRatio": true
         }
       ]
     },

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { Asset } from "@web-scada/shared";
 import {
   WorkbenchButton,
@@ -23,6 +23,15 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
   } = props;
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [assetScalePercent, setAssetScalePercent] = useState(100);
+
+  const zoomOutAssets = () => {
+    setAssetScalePercent((prev) => Math.max(80, prev - 10));
+  };
+
+  const zoomInAssets = () => {
+    setAssetScalePercent((prev) => Math.min(140, prev + 10));
+  };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -49,18 +58,69 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
         </div>
       </WorkbenchSection>
 
-      <WorkbenchSection title="ASSETS">
-        <div className="screen-editor-asset-grid">
+      <WorkbenchSection
+        title="ASSETS"
+        actions={(
+          <div className="screen-editor-asset-scale-controls">
+            <WorkbenchButton
+              className="screen-editor-asset-scale-button"
+              onClick={zoomOutAssets}
+              disabled={assetScalePercent <= 80}
+              title="Zoom out assets"
+            >
+              -
+            </WorkbenchButton>
+            <WorkbenchButton
+              className="screen-editor-asset-scale-button screen-editor-asset-scale-button--label"
+              onClick={() => setAssetScalePercent(100)}
+              title="Reset assets zoom"
+            >
+              {assetScalePercent}%
+            </WorkbenchButton>
+            <WorkbenchButton
+              className="screen-editor-asset-scale-button"
+              onClick={zoomInAssets}
+              disabled={assetScalePercent >= 140}
+              title="Zoom in assets"
+            >
+              +
+            </WorkbenchButton>
+          </div>
+        )}
+      >
+        <div
+          className="screen-editor-asset-grid"
+          style={
+            {
+              "--screen-editor-asset-scale": String(assetScalePercent / 100),
+            } as React.CSSProperties
+          }
+        >
           {assets.length === 0 ? (
             <div className="screen-editor-empty-state">
               No assets uploaded yet
             </div>
           ) : (
             assets.map((asset) => (
-              <div key={asset.id} className="screen-editor-asset-tile">
+              <div
+                key={asset.id}
+                className="screen-editor-asset-tile"
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "copy";
+                  event.dataTransfer.setData(
+                    "application/web-scada-item",
+                    JSON.stringify({
+                      kind: "asset",
+                      assetId: asset.id,
+                    }),
+                  );
+                  event.dataTransfer.setData("text/plain", asset.name);
+                }}
+              >
                 <div className="screen-editor-asset-thumb">
                   {asset.previewUrl ? (
-                    <img src={asset.previewUrl} alt={asset.name} />
+                    <img src={asset.previewUrl} alt={asset.name} draggable={false} />
                   ) : (
                     <div className="screen-editor-asset-thumb__placeholder">
                       No preview
@@ -84,6 +144,11 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
                   <WorkbenchButton
                     variant="primary"
                     className="screen-editor-asset-action-button"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onDragStart={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
                     onClick={() => onAddAssetAsImage(asset)}
                   >
                     Add
@@ -92,6 +157,11 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
                   {onViewAsset ? (
                     <WorkbenchButton
                       className="screen-editor-asset-action-button"
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onDragStart={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
                       onClick={() => onViewAsset(asset)}
                     >
                       View
@@ -102,6 +172,11 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
                     <WorkbenchButton
                       variant="danger"
                       className="screen-editor-asset-action-button"
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onDragStart={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
                       onClick={() => void onDeleteAsset(asset.id)}
                     >
                       Del

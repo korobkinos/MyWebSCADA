@@ -452,7 +452,7 @@ export function EditorPage() {
   );
 
   const addAssetAsImage = useCallback(
-    (asset: Asset) => {
+    (asset: Asset, position?: { x: number; y: number }) => {
       if (!screen) {
         return;
       }
@@ -460,6 +460,12 @@ export function EditorPage() {
       image.assetId = asset.id;
       image.width = asset.width ?? 80;
       image.height = asset.height ?? 80;
+      if (position) {
+        const nextX = position.x - image.width / 2;
+        const nextY = position.y - image.height / 2;
+        image.x = Math.min(Math.max(0, nextX), Math.max(0, screen.width - image.width));
+        image.y = Math.min(Math.max(0, nextY), Math.max(0, screen.height - image.height));
+      }
       addObjectWithHistory(image);
     },
     [addObjectWithHistory, screen],
@@ -499,22 +505,25 @@ export function EditorPage() {
   );
 
   const handleDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
+    (event: DragEvent<HTMLDivElement>, position?: { x: number; y: number }) => {
       event.preventDefault();
-      const raw = event.dataTransfer.getData("application/web-scada-item");
+      const raw =
+        event.dataTransfer.getData("application/web-scada-item") ||
+        event.dataTransfer.getData("application/web-scada-asset");
       if (!raw) {
         return;
       }
       try {
         const payload = JSON.parse(raw) as
           | { kind: "asset"; assetId: string }
+          | { assetId: string }
           | { kind: "library-element"; libraryId: string; elementId: string };
-        if (payload.kind === "asset") {
+        if ("assetId" in payload && (!("kind" in payload) || payload.kind === "asset")) {
           const asset = assets.find((a) => a.id === payload.assetId);
           if (asset) {
-            addAssetAsImage(asset);
+            addAssetAsImage(asset, position);
           }
-        } else if (payload.kind === "library-element") {
+        } else if ("kind" in payload && payload.kind === "library-element") {
           addLibraryElementInstance(payload.libraryId, payload.elementId);
         }
       } catch {

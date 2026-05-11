@@ -1,4 +1,4 @@
-import { type DragEvent } from "react";
+import { useState, type DragEvent } from "react";
 import { HmiStage } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
@@ -9,6 +9,7 @@ import {
 import type { EditorCommand, HmiObject, HmiScreen, ScadaProject } from "@web-scada/shared";
 
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
+type DropPosition = { x: number; y: number };
 
 export type ScreenEditorCenterProps = {
   screen: HmiScreen;
@@ -23,7 +24,7 @@ export type ScreenEditorCenterProps = {
   setSelectedObjects: (ids: string[], activeId?: string) => void;
   onOpenObjectProperties: () => void;
   setContextMenu: (v: any) => void;
-  handleDrop: (event: DragEvent<HTMLDivElement>) => void;
+  handleDrop: (event: DragEvent<HTMLDivElement>, position?: DropPosition) => void;
   moveObjectWithHistory: (id: string, x: number, y: number) => void;
   resizeObjectWithHistory: (id: string, patch: Partial<HmiObject>) => void;
   undo: () => void;
@@ -103,6 +104,8 @@ export function ScreenEditorCenter({
   canAlign,
   navigate,
 }: ScreenEditorCenterProps) {
+  const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
+
   return (
     <div className="screen-editor-center">
       <WorkbenchTabs
@@ -172,13 +175,33 @@ export function ScreenEditorCenter({
         />
       </div>
       <div
-        className="screen-editor-canvas-host"
+        className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}`}
         onContextMenu={(event) => {
           event.preventDefault();
           setContextMenu({ visible: true, x: event.clientX, y: event.clientY });
         }}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={handleDrop}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setIsCanvasDragOver(true);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={() => {
+          setIsCanvasDragOver(false);
+        }}
+        onDrop={(event) => {
+          const host = event.currentTarget;
+          const stageSurface = host.querySelector(".canvas-wrap") as HTMLDivElement | null;
+          const rect = (stageSurface ?? host).getBoundingClientRect();
+          const position = {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          };
+          setIsCanvasDragOver(false);
+          handleDrop(event, position);
+        }}
       >
         {screen ? (
           <HmiStage

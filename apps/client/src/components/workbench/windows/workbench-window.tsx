@@ -44,7 +44,6 @@ export function WorkbenchWindow({
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
-      event.preventDefault();
       onFocus();
       const target = event.target as HTMLElement;
       const isHeader = target.closest(".workbench-window__header");
@@ -53,6 +52,7 @@ export function WorkbenchWindow({
       if (!isHeader && !isResizeHandle) {
         return;
       }
+      event.preventDefault();
 
       dragRef.current = {
         isDragging: !!isHeader,

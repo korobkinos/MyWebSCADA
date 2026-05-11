@@ -1480,6 +1480,11 @@ body {
   background: #111111;
 }
 
+.screen-editor-canvas-host--drag-over {
+  outline: 1px solid #007acc;
+  outline-offset: -1px;
+}
+
 .screen-editor-bottom-panel {
   height: 100%;
   box-sizing: border-box;
@@ -2197,10 +2202,11 @@ body {
 /* ── Asset grid tiles ── */
 
 .screen-editor-asset-grid {
+  --screen-editor-asset-scale: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
-  gap: 8px;
-  padding: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(calc(112px * var(--screen-editor-asset-scale)), 1fr));
+  gap: 6px;
+  padding: 6px;
   box-sizing: border-box;
 }
 
@@ -2209,11 +2215,16 @@ body {
   border: 1px solid #3c3c3c;
   background: #1e1e1e;
   color: #cccccc;
-  padding: 6px;
+  padding: calc(4px * var(--screen-editor-asset-scale));
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: calc(4px * var(--screen-editor-asset-scale));
   box-sizing: border-box;
+  cursor: grab;
+}
+
+.screen-editor-asset-tile:active {
+  cursor: grabbing;
 }
 
 .screen-editor-asset-tile:hover {
@@ -2224,6 +2235,7 @@ body {
 .screen-editor-asset-thumb {
   width: 100%;
   aspect-ratio: 1 / 1;
+  max-height: calc(78px * var(--screen-editor-asset-scale));
   background: #111111;
   border: 1px solid #2d2d2d;
   display: flex;
@@ -2246,7 +2258,7 @@ body {
 .screen-editor-asset-tile__name {
   min-width: 0;
   color: #ffffff;
-  font-size: 12px;
+  font-size: calc(12px * var(--screen-editor-asset-scale));
   font-weight: 600;
   overflow: hidden;
   white-space: nowrap;
@@ -2255,8 +2267,8 @@ body {
 
 .screen-editor-asset-tile__meta {
   color: #969696;
-  font-size: 11px;
-  min-height: 16px;
+  font-size: calc(11px * var(--screen-editor-asset-scale));
+  min-height: calc(14px * var(--screen-editor-asset-scale));
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -2265,7 +2277,7 @@ body {
 .screen-editor-asset-tile__actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
+  gap: 3px;
   align-items: stretch;
 }
 
@@ -2283,6 +2295,23 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.screen-editor-asset-scale-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.screen-editor-asset-scale-button {
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.screen-editor-asset-scale-button--label {
+  min-width: 50px;
 }
 
 /* ── Asset viewer window ── */
