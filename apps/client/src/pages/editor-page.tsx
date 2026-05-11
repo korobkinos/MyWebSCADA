@@ -43,6 +43,7 @@ import { importSvgAssetToPrimitives } from "../hmi/editor/svg-primitive-import";
 import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { useScadaStore } from "../store/scada-store";
 import { isTextEditingTarget } from "../utils/keyboard";
+import { getAssetDisplayPath, normalizeAssetFolderPath } from "../utils/asset-path";
 import {
   ScadaWorkbenchLayout,
   WorkbenchButton,
@@ -1005,6 +1006,29 @@ export function EditorPage() {
     [closeWindow, loadAssets, loadProject, viewAssetId],
   );
 
+  const moveAssetToFolder = useCallback(
+    async (assetId: string, folderPath: string) => {
+      try {
+        const normalized = normalizeAssetFolderPath(folderPath);
+        const current = useScadaStore.getState().assets.find((item) => item.id === assetId);
+        if (!current) {
+          return;
+        }
+        if (normalizeAssetFolderPath(current.folderPath ?? "") === normalized) {
+          return;
+        }
+        await api.updateAsset(assetId, { folderPath: normalized });
+        await loadAssets();
+        await loadProject();
+        void message.success("Asset moved");
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        void message.error(text || "Failed to move asset");
+      }
+    },
+    [loadAssets, loadProject],
+  );
+
   const saveObjectProperties = useCallback(async () => {
     const state = useScadaStore.getState();
     const objectId = state.selection.activeObjectId ?? state.selection.selectedObjectIds[0];
@@ -1205,6 +1229,7 @@ export function EditorPage() {
           assets={assets}
           onUploadAsset={onUploadProjectAsset}
           onAddAssetAsImage={addAssetAsImage}
+          onMoveAssetToFolder={moveAssetToFolder}
           onDeleteAsset={handleDeleteAsset}
           onViewAsset={(asset) => {
             setViewAssetId(asset.id);
@@ -1236,7 +1261,7 @@ export function EditorPage() {
     },
     {
       id: "assetViewer",
-      title: viewAsset ? `Asset: ${viewAsset.name}` : "Asset Viewer",
+      title: viewAsset ? `Asset: ${getAssetDisplayPath(viewAsset)}` : "Asset Viewer",
       defaultRect: { x: 240, y: 120, width: 640, height: 520 },
       minWidth: 360,
       minHeight: 260,
@@ -1252,6 +1277,7 @@ export function EditorPage() {
             </div>
             <div className="screen-editor-asset-viewer__info">
               <div><strong>Name:</strong> {viewAsset.name}</div>
+              <div><strong>Path:</strong> {getAssetDisplayPath(viewAsset)}</div>
               <div><strong>ID:</strong> {viewAsset.id}</div>
               <div><strong>Type:</strong> {viewAsset.type?.toUpperCase() ?? '-'}</div>
               <div>
@@ -1586,7 +1612,7 @@ export function EditorPage() {
                     >
                       <Space>
                         <img src={asset.previewUrl} alt={asset.name} style={{ width: 24, height: 24, objectFit: "cover" }} />
-                        <span>{asset.name}</span>
+                        <span title={getAssetDisplayPath(asset)}>{getAssetDisplayPath(asset)}</span>
                       </Space>
                     </List.Item>
                   )}

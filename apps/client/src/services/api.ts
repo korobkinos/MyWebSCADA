@@ -242,6 +242,11 @@ export const api = {
   },
   deleteAsset: (assetId: string) =>
     request<{ ok: boolean; used?: boolean }>(`/api/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" }),
+  updateAsset: (assetId: string, patch: { name?: string; folderPath?: string }) =>
+    request<Asset>(`/api/assets/${encodeURIComponent(assetId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
 
   listLibraries: () => request<ElementLibrary[]>("/api/libraries"),
   getLibrary: (libraryId: string) => request<ElementLibrary>(`/api/libraries/${encodeURIComponent(libraryId)}`),

@@ -137,6 +137,10 @@ const createLibrarySchema = z.object({
   version: z.string().optional(),
 });
 const attachLibrarySchema = z.object({ libraryId: z.string().min(1) });
+const updateAssetSchema = z.object({
+  name: z.string().optional(),
+  folderPath: z.string().optional(),
+});
 const opcUaDriverConfigSchema = z.object({
   id: z.string().min(1),
   type: z.literal("opcua"),
@@ -805,6 +809,28 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.code(404).send({ message: "Asset not found" });
     }
     return asset;
+  });
+
+  app.patch("/api/assets/:assetId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "assets.write");
+    if (!auth) {
+      return;
+    }
+    const { assetId } = request.params as { assetId: string };
+    const payload = updateAssetSchema.parse(request.body ?? {});
+    if (payload.name === undefined && payload.folderPath === undefined) {
+      return reply.code(400).send({ message: "Asset patch is empty" });
+    }
+    try {
+      const updated = await deps.assetService.updateProjectAsset(assetId, payload);
+      return reply.send(updated);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message: msg });
+      }
+      return reply.code(400).send({ error: "Bad Request", message: msg });
+    }
   });
 
   app.get("/api/assets/:assetId/file", async (request, reply) => {

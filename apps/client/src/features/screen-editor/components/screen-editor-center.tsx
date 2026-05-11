@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { HmiStage } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
@@ -9,6 +9,23 @@ import type { EditorCommand, HmiObject, HmiScreen, ScadaProject } from "@web-sca
 
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
 type DropPosition = { x: number; y: number };
+const MIN_EDITOR_ZOOM = 0.1;
+const MAX_EDITOR_ZOOM = 3;
+const ZOOM_STEP = 1.1;
+const ZOOM_OPTIONS = [0.1, 0.2, 0.5, 1, 1.5, 2];
+
+function clampZoom(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  if (value < MIN_EDITOR_ZOOM) {
+    return MIN_EDITOR_ZOOM;
+  }
+  if (value > MAX_EDITOR_ZOOM) {
+    return MAX_EDITOR_ZOOM;
+  }
+  return Math.round(value * 1000) / 1000;
+}
 
 export type ScreenEditorCenterProps = {
   screen: HmiScreen;
@@ -110,6 +127,26 @@ export function ScreenEditorCenter({
   navigate,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
+  const [editorZoom, setEditorZoom] = useState<number>(() => {
+    if (typeof window === "undefined") {
+      return 1;
+    }
+    const raw = window.localStorage.getItem("screenEditor.canvas.zoom");
+    const parsed = raw ? Number(raw) : NaN;
+    return clampZoom(Number.isFinite(parsed) ? parsed : 1);
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("screenEditor.canvas.zoom", String(editorZoom));
+  }, [editorZoom]);
+
+  const zoomSelectOptions = useMemo(() => {
+    const preset = new Set(ZOOM_OPTIONS);
+    return preset.has(editorZoom) ? ZOOM_OPTIONS : [...ZOOM_OPTIONS, editorZoom].sort((a, b) => a - b);
+  }, [editorZoom]);
 
   return (
     <div className="screen-editor-center">
@@ -280,6 +317,14 @@ export function ScreenEditorCenter({
 
       <div
         className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}`}
+        onWheel={(event) => {
+          if (!event.ctrlKey) {
+            return;
+          }
+          event.preventDefault();
+          const delta = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+          setEditorZoom((prev) => clampZoom(prev * delta));
+        }}
         onContextMenu={(event) => {
           event.preventDefault();
           setContextMenu({ visible: true, x: event.clientX, y: event.clientY });
@@ -300,8 +345,8 @@ export function ScreenEditorCenter({
           const stageSurface = host.querySelector(".canvas-wrap") as HTMLDivElement | null;
           const rect = (stageSurface ?? host).getBoundingClientRect();
           const position = {
-            x: event.clientX - rect.left,
-            y: event.clientY - rect.top,
+            x: (event.clientX - rect.left) / editorZoom,
+            y: (event.clientY - rect.top) / editorZoom,
           };
           setIsCanvasDragOver(false);
           handleDrop(event, position);
@@ -340,10 +385,39 @@ export function ScreenEditorCenter({
             }}
             onMoveObject={moveObjectWithHistory}
             onResizeObject={resizeObjectWithHistory}
+            editorZoom={editorZoom}
           />
         ) : (
           <div className="screen-editor-empty-state">Select or create a screen</div>
         )}
+        <div className="screen-editor-zoom-controls" title="Ctrl + wheel to zoom">
+          <WorkbenchButton
+            className="screen-editor-zoom-button"
+            onClick={() => setEditorZoom((prev) => clampZoom(prev / ZOOM_STEP))}
+          >
+            -
+          </WorkbenchButton>
+          <WorkbenchButton className="screen-editor-zoom-button" onClick={() => setEditorZoom(1)}>
+            100%
+          </WorkbenchButton>
+          <WorkbenchButton
+            className="screen-editor-zoom-button"
+            onClick={() => setEditorZoom((prev) => clampZoom(prev * ZOOM_STEP))}
+          >
+            +
+          </WorkbenchButton>
+          <select
+            className="workbench-select screen-editor-zoom-select"
+            value={String(editorZoom)}
+            onChange={(event) => setEditorZoom(clampZoom(Number(event.target.value)))}
+          >
+            {zoomSelectOptions.map((value) => (
+              <option key={value} value={value}>
+                {Math.round(value * 100)}%
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );

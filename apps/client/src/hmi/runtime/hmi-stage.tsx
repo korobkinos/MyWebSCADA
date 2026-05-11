@@ -42,6 +42,7 @@ type HmiStageProps = {
   onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
   showObjectFrames?: boolean;
   fullscreenRuntime?: boolean;
+  editorZoom?: number;
 };
 
 export function HmiStage({
@@ -64,6 +65,7 @@ export function HmiStage({
   onContextMenuObject,
   showObjectFrames = false,
   fullscreenRuntime = false,
+  editorZoom = 1,
 }: HmiStageProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -115,12 +117,24 @@ export function HmiStage({
     return Math.min(1, Math.min(viewport.width / screen.width, viewport.height / screen.height));
   }, [mode, screen.height, screen.width, viewport.height, viewport.width]);
 
-  const stageWidth = screen.width;
-  const stageHeight = screen.height;
+  const effectiveEditorZoom = mode === "editor" ? Math.min(3, Math.max(0.1, editorZoom)) : 1;
+  const stageScale = mode === "runtime" ? runtimeScale : effectiveEditorZoom;
+  const stageWidth = mode === "editor" ? screen.width * effectiveEditorZoom : screen.width;
+  const stageHeight = mode === "editor" ? screen.height * effectiveEditorZoom : screen.height;
 
   const selectedObjects = screen.objects.filter((item) => selectedObjectIds.includes(item.id));
   const minWidth = Math.min(...selectedObjects.map((item) => item.minWidth ?? 8), 8);
   const minHeight = Math.min(...selectedObjects.map((item) => item.minHeight ?? 8), 8);
+
+  const toEditorCoords = (pointer: { x: number; y: number }): { x: number; y: number } => {
+    if (mode !== "editor") {
+      return pointer;
+    }
+    return {
+      x: pointer.x / effectiveEditorZoom,
+      y: pointer.y / effectiveEditorZoom,
+    };
+  };
 
   const onStageMouseDown = (evt: KonvaEventObject<MouseEvent>): void => {
     if (mode !== "editor") {
@@ -134,10 +148,11 @@ export function HmiStage({
     if (!pointer) {
       return;
     }
-    dragStartRef.current = pointer;
+    const stagePoint = toEditorCoords(pointer);
+    dragStartRef.current = stagePoint;
     onSelectionRectChange?.({
-      x: pointer.x,
-      y: pointer.y,
+      x: stagePoint.x,
+      y: stagePoint.y,
       width: 0,
       height: 0,
     });
@@ -163,11 +178,12 @@ export function HmiStage({
     if (!pointer) {
       return;
     }
+    const stagePoint = toEditorCoords(pointer);
     onSelectionRectChange?.({
-      x: Math.min(start.x, pointer.x),
-      y: Math.min(start.y, pointer.y),
-      width: Math.abs(pointer.x - start.x),
-      height: Math.abs(pointer.y - start.y),
+      x: Math.min(start.x, stagePoint.x),
+      y: Math.min(start.y, stagePoint.y),
+      width: Math.abs(stagePoint.x - start.x),
+      height: Math.abs(stagePoint.y - start.y),
     });
   };
 
@@ -203,7 +219,7 @@ export function HmiStage({
       objects: screen.objects.length,
       viewport: [viewportWidth, viewportHeight],
       stageSize: [stageWidth, stageHeight],
-      zoom: 1,
+      zoom: mode === "editor" ? effectiveEditorZoom : runtimeScale,
     });
     if (viewportWidth === 0 || viewportHeight === 0) {
       // eslint-disable-next-line no-console
@@ -212,7 +228,7 @@ export function HmiStage({
         viewportHeight,
       });
     }
-  }, [mode, screen.height, screen.id, screen.name, screen.objects.length, screen.width, stageHeight, stageWidth]);
+  }, [effectiveEditorZoom, mode, runtimeScale, screen.height, screen.id, screen.name, screen.objects.length, screen.width, stageHeight, stageWidth]);
 
   return (
     <div
@@ -232,8 +248,8 @@ export function HmiStage({
         ref={stageRef}
         width={stageWidth}
         height={stageHeight}
-        scaleX={runtimeScale}
-        scaleY={runtimeScale}
+        scaleX={stageScale}
+        scaleY={stageScale}
         onMouseDown={onStageMouseDown}
         onMouseMove={onStageMouseMove}
         onMouseUp={onStageMouseUp}

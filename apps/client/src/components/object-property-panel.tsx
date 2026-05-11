@@ -15,6 +15,7 @@ import type {
 import { parseTagSegments, resolveElementBindingAssignment, resolveLibraryElementInstanceBindingsDetailed, resolveRuntimeValueSync } from "@web-scada/shared";
 import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
+import { getAssetDisplayPath } from "../utils/asset-path";
 
 type Props = {
   project: ScadaProject;
@@ -603,6 +604,7 @@ function SpecificPropertyFields({
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
   const [stateImagePreviewValue, setStateImagePreviewValue] = useState<string>("0");
+  const assetOptions = assets.map((asset) => ({ label: getAssetDisplayPath(asset), value: asset.id }));
   const templateBindings = elementBindings ?? [];
   if (object.type === "text") {
     return (
@@ -762,7 +764,7 @@ function SpecificPropertyFields({
           <Select
             value={object.backgroundAssetId}
             allowClear
-            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            options={assetOptions}
             onChange={(value) => onPatch({ backgroundAssetId: value } as Partial<HmiObject>)}
           />
         </Form.Item>
@@ -770,7 +772,7 @@ function SpecificPropertyFields({
           <Select
             value={object.pressedBackgroundAssetId}
             allowClear
-            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            options={assetOptions}
             onChange={(value) => onPatch({ pressedBackgroundAssetId: value } as Partial<HmiObject>)}
           />
         </Form.Item>
@@ -1249,7 +1251,7 @@ function SpecificPropertyFields({
           <Select
             value={object.assetId}
             allowClear
-            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            options={assetOptions}
             onChange={(value) => onPatch({ assetId: value } as Partial<HmiObject>)}
           />
         </Form.Item>
@@ -1566,7 +1568,7 @@ function SpecificPropertyFields({
           <Select
             value={object.defaultAssetId}
             allowClear
-            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            options={assetOptions}
             onChange={(value) => onPatch({ defaultAssetId: value } as Partial<HmiObject>)}
           />
         </Form.Item>
@@ -1574,7 +1576,7 @@ function SpecificPropertyFields({
           <Select
             value={object.badQualityAssetId}
             allowClear
-            options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+            options={assetOptions}
             onChange={(value) => onPatch({ badQualityAssetId: value } as Partial<HmiObject>)}
           />
         </Form.Item>
@@ -1663,7 +1665,7 @@ function SpecificPropertyFields({
                 style={{ minWidth: 220 }}
                 value={state.assetId}
                 placeholder="Select asset"
-                options={assets.map((asset) => ({ label: asset.name, value: asset.id }))}
+                options={assetOptions}
                 onChange={(value) =>
                   onPatch({
                     states: object.states.map((item) => (item.id === state.id ? { ...item, assetId: value } : item)),
@@ -1692,7 +1694,7 @@ function SpecificPropertyFields({
           onChange={(event) => setStateImagePreviewValue(event.target.value)}
         />
         <Typography.Text type="secondary">
-          Active state: {activeState?.name ?? "default"} | asset: {previewAsset?.name ?? previewAssetId ?? "none"}
+          Active state: {activeState?.name ?? "default"} | asset: {previewAsset ? getAssetDisplayPath(previewAsset) : previewAssetId ?? "none"}
         </Typography.Text>
         <Form.Item label="Action Type">
           <Select

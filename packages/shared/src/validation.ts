@@ -60,6 +60,7 @@ export const assetSchema = z.object({
   id: z.string().min(1),
   groupId: z.string().optional(),
   name: z.string().min(1),
+  folderPath: z.string().optional(),
   description: z.string().optional(),
   category: z.string().optional(),
   type: assetTypeSchema,

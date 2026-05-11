@@ -36,6 +36,22 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function normalizeFolderPath(input: string | undefined): string | undefined {
+  if (!input) {
+    return undefined;
+  }
+  const normalized = input
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (normalized.some((segment) => segment === "..")) {
+    throw new Error("Invalid folderPath: '..' is not allowed");
+  }
+  return normalized.filter((segment) => segment !== ".").join("/") || undefined;
+}
+
 export class AssetService {
   public constructor(private readonly projectService: ProjectService) {}
 
@@ -108,6 +124,40 @@ export class AssetService {
     await this.projectService.saveProject(next);
 
     return { used };
+  }
+
+  public async updateProjectAsset(assetId: string, patch: { name?: string; folderPath?: string }): Promise<Asset> {
+    const project = this.projectService.getProject();
+    const assets = project.assets ?? [];
+    const index = assets.findIndex((item) => item.id === assetId);
+    if (index < 0) {
+      throw new Error("Asset not found");
+    }
+    const target = assets[index]!;
+    const nextName = patch.name !== undefined ? patch.name.trim().slice(0, 120) : target.name;
+    if (!nextName) {
+      throw new Error("Asset name is required");
+    }
+
+    const nextFolderPath = patch.folderPath !== undefined
+      ? normalizeFolderPath(patch.folderPath)
+      : target.folderPath;
+    const nextAsset: Asset = {
+      ...target,
+      name: nextName,
+      folderPath: nextFolderPath,
+      updatedAt: nowIso(),
+    };
+
+    const nextAssets = [...assets];
+    nextAssets[index] = nextAsset;
+
+    const nextProject: ScadaProject = {
+      ...project,
+      assets: nextAssets,
+    };
+    await this.projectService.saveProject(nextProject);
+    return nextAsset;
   }
 }
 

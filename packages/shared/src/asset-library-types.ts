@@ -15,6 +15,7 @@ export type Asset = {
   id: string;
   groupId?: string;
   name: string;
+  folderPath?: string;
   description?: string;
   category?: string;
   type: AssetType;
