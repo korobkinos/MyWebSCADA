@@ -714,6 +714,7 @@ const screenSchema = z.object({
   width: z.number().positive(),
   height: z.number().positive(),
   background: z.string().optional(),
+  backgroundFillMode: z.enum(["screen", "viewport"]).optional(),
   objects: z.array(hmiObjectSchema),
   popupOptions: popupOptionsSchema.optional(),
 });

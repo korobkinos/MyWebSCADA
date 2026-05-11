@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { HmiStage } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
@@ -10,10 +10,16 @@ import type { EditorCommand, HmiObject, HmiScreen, ScadaProject } from "@web-sca
 
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
 type DropPosition = { x: number; y: number };
+type EditorTool = "select" | "pan";
 const MIN_EDITOR_ZOOM = 0.1;
 const MAX_EDITOR_ZOOM = 3;
 const ZOOM_STEP = 1.1;
 const ZOOM_OPTIONS = [0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3];
+const ACTIVE_TOOL_STORAGE_KEY = "screenEditor.activeTool";
+
+function parseEditorTool(raw: string | null): EditorTool {
+  return raw === "pan" ? "pan" : "select";
+}
 
 function clampZoom(value: number): number {
   if (!Number.isFinite(value)) {
@@ -42,6 +48,7 @@ export type ScreenEditorCenterProps = {
   onOpenObjectProperties: () => void;
   onOpenLayers: () => void;
   onOpenSaveSelection: () => void;
+  onOpenScreenSettings: () => void;
   canSaveSelection: boolean;
   setContextMenu: (v: any) => void;
   handleDrop: (event: DragEvent<HTMLDivElement>, position?: DropPosition) => void;
@@ -92,6 +99,7 @@ export function ScreenEditorCenter({
   onOpenObjectProperties,
   onOpenLayers,
   onOpenSaveSelection,
+  onOpenScreenSettings,
   canSaveSelection,
   setContextMenu,
   handleDrop,
@@ -128,6 +136,14 @@ export function ScreenEditorCenter({
   navigate,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
+  const [activeTool, setActiveTool] = useState<EditorTool>(() => {
+    if (typeof window === "undefined") {
+      return "select";
+    }
+    return parseEditorTool(window.localStorage.getItem(ACTIVE_TOOL_STORAGE_KEY));
+  });
+  const [isPanning, setIsPanning] = useState(false);
+  const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const [editorZoom, setEditorZoom] = useState<number>(() => {
     if (typeof window === "undefined") {
       return 1;
@@ -144,11 +160,75 @@ export function ScreenEditorCenter({
     window.localStorage.setItem("screenEditor.canvas.zoom", String(editorZoom));
   }, [editorZoom]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(ACTIVE_TOOL_STORAGE_KEY, activeTool);
+    window.dispatchEvent(
+      new CustomEvent("screenEditor.activeTool.changed", {
+        detail: { tool: activeTool },
+      }),
+    );
+  }, [activeTool]);
+
+  useEffect(() => {
+    const onToolChange = (event: Event) => {
+      const custom = event as CustomEvent<{ tool?: EditorTool }>;
+      if (custom.detail?.tool === "pan" || custom.detail?.tool === "select") {
+        setActiveTool(custom.detail.tool);
+      }
+    };
+    window.addEventListener("screenEditor.activeTool.changed", onToolChange);
+    return () => window.removeEventListener("screenEditor.activeTool.changed", onToolChange);
+  }, []);
+
+  useEffect(() => {
+    if (activeTool !== "pan") {
+      setIsPanning(false);
+    }
+  }, [activeTool]);
+
   const zoomSelectOptions = useMemo(() => {
     const preset = new Set(ZOOM_OPTIONS);
     return preset.has(editorZoom) ? ZOOM_OPTIONS : [...ZOOM_OPTIONS, editorZoom].sort((a, b) => a - b);
   }, [editorZoom]);
   const wheelZoomEnabled = project?.uiSettings?.editorWheelZoomEnabled ?? true;
+  const viewportBackground =
+    screen?.backgroundFillMode === "viewport"
+      ? screen.background ?? "#111111"
+      : undefined;
+
+  const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (activeTool !== "pan" || event.button !== 0) {
+      return;
+    }
+    const scrollElement = canvasScrollRef.current;
+    if (!scrollElement) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    setIsPanning(true);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startScrollLeft = scrollElement.scrollLeft;
+    const startScrollTop = scrollElement.scrollTop;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      scrollElement.scrollLeft = startScrollLeft - (moveEvent.clientX - startX);
+      scrollElement.scrollTop = startScrollTop - (moveEvent.clientY - startY);
+    };
+
+    const stopPan = () => {
+      setIsPanning(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", stopPan);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", stopPan);
+  };
 
   return (
     <div className="screen-editor-center">
@@ -218,6 +298,9 @@ export function ScreenEditorCenter({
           <div className="screen-editor-toolbar__group">
             <WorkbenchButton onClick={() => navigate("/runtime")} title="Open runtime preview">
               Preview
+            </WorkbenchButton>
+            <WorkbenchButton onClick={onOpenScreenSettings} title="Open screen settings">
+              Screen
             </WorkbenchButton>
             <WorkbenchButton onClick={onOpenLayers} title="Open layers window">
               Layers
@@ -314,11 +397,29 @@ export function ScreenEditorCenter({
               Clone
             </WorkbenchButton>
           </div>
+
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton
+              variant={activeTool === "select" ? "primary" : "default"}
+              onClick={() => setActiveTool("select")}
+              title="Select tool"
+            >
+              Select
+            </WorkbenchButton>
+            <WorkbenchButton
+              variant={activeTool === "pan" ? "primary" : "default"}
+              onClick={() => setActiveTool("pan")}
+              title="Pan tool"
+            >
+              Hand
+            </WorkbenchButton>
+          </div>
         </div>
       </div>
 
       <div
-        className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}`}
+        className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${isPanning ? " screen-editor-canvas-host--panning" : ""}`}
+        style={viewportBackground ? { background: viewportBackground } : undefined}
         onWheel={(event) => {
           if (!wheelZoomEnabled) {
             return;
@@ -334,6 +435,10 @@ export function ScreenEditorCenter({
           setEditorZoom((prev) => clampZoom(prev * delta));
         }}
         onContextMenu={(event) => {
+          if (activeTool === "pan") {
+            event.preventDefault();
+            return;
+          }
           event.preventDefault();
           setContextMenu({ visible: true, x: event.clientX, y: event.clientY });
         }}
@@ -360,7 +465,7 @@ export function ScreenEditorCenter({
           handleDrop(event, position);
         }}
       >
-        <div className="screen-editor-canvas-scroll">
+        <div ref={canvasScrollRef} className="screen-editor-canvas-scroll">
           {screen ? (
             <HmiStage
               project={project ?? undefined!}
@@ -400,6 +505,16 @@ export function ScreenEditorCenter({
             <div className="screen-editor-empty-state">Select or create a screen</div>
           )}
         </div>
+        {activeTool === "pan" ? (
+          <div
+            className="screen-editor-pan-overlay"
+            onMouseDown={startPan}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          />
+        ) : null}
         <div
           className="screen-editor-zoom-controls"
           title={wheelZoomEnabled ? "Mouse wheel zoom is enabled" : "Mouse wheel zoom is disabled"}

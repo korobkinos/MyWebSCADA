@@ -7,7 +7,8 @@
   },
   "uiSettings": {
     "theme": "dark",
-    "hideMainMenu": true
+    "hideMainMenu": true,
+    "editorWheelZoomEnabled": false
   },
   "assets": [
     {
@@ -49,12 +50,13 @@
     {
       "id": "471c21da-a815-4098-afba-a186c20872ce",
       "name": "538e4fd5-8312-4d97-8d5c-7f5d673ac09b",
+      "folderPath": "Valves",
       "type": "png",
       "mimeType": "image/png",
       "fileName": "471c21da-a815-4098-afba-a186c20872ce.png",
       "size": 1794877,
       "createdAt": "2026-05-11T12:07:39.630Z",
-      "updatedAt": "2026-05-11T16:49:59.364Z",
+      "updatedAt": "2026-05-11T17:31:41.955Z",
       "storagePath": "assets/471c21da-a815-4098-afba-a186c20872ce.png",
       "previewUrl": "/api/assets/471c21da-a815-4098-afba-a186c20872ce/file"
     },

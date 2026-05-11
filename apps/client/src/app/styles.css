@@ -1532,12 +1532,32 @@ body {
   background: #111111;
 }
 
+.screen-editor-canvas-host--pan {
+  cursor: grab;
+}
+
+.screen-editor-canvas-host--panning {
+  cursor: grabbing;
+}
+
 .screen-editor-canvas-scroll {
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: auto;
+}
+
+.screen-editor-pan-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  cursor: grab;
+  background: transparent;
+}
+
+.screen-editor-pan-overlay:active {
+  cursor: grabbing;
 }
 
 .screen-editor-canvas-host--drag-over {
@@ -2008,6 +2028,54 @@ body {
   height: 100%;
   padding: 8px;
   color: #969696;
+}
+
+.screen-editor-settings-form {
+  padding: 8px 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.screen-editor-settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.screen-editor-settings-field {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: #bcbcbc;
+}
+
+.screen-editor-settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #cccccc;
+}
+
+.screen-editor-settings-color-row {
+  display: grid;
+  grid-template-columns: 1fr 40px;
+  gap: 6px;
+}
+
+.screen-editor-settings-color-picker {
+  width: 40px;
+  height: 24px;
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  padding: 0;
+}
+
+.screen-editor-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 10px 10px;
 }
 
 .screen-editor-search-results,
@@ -2956,6 +3024,30 @@ body {
   }
 }
 
+.screen-editor-assets-inline-panel {
+  margin: 6px 8px;
+  padding: 8px;
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  display: grid;
+  gap: 6px;
+}
+
+.screen-editor-assets-inline-panel__title {
+  font-size: 11px;
+  color: #cfcfcf;
+}
+
+.screen-editor-assets-inline-panel__row {
+  display: flex;
+  gap: 6px;
+}
+
+.screen-editor-assets-inline-panel__actions {
+  display: flex;
+  gap: 6px;
+}
+
 .screen-editor-assets-breadcrumbs {
   display: flex;
   align-items: center;
@@ -3037,6 +3129,12 @@ body {
   letter-spacing: 0.04em;
 }
 
+.screen-editor-asset-folder-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .screen-editor-asset-folder-name {
   min-width: 0;
   font-size: calc(12px * var(--screen-editor-asset-scale));
@@ -3046,7 +3144,13 @@ body {
   text-overflow: ellipsis;
 }
 
+.screen-editor-asset-folder-meta {
+  color: #969696;
+  font-size: 11px;
+}
+
 .screen-editor-asset-tile {
+  position: relative;
   min-width: 0;
   border: 1px solid #3c3c3c;
   background: #1e1e1e;
@@ -3123,13 +3227,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.screen-editor-asset-tile__actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
-  align-items: stretch;
-}
-
 .screen-editor-asset-action-button {
   width: 100%;
   min-width: 0;
@@ -3161,6 +3258,99 @@ body {
 
 .screen-editor-asset-scale-button--label {
   min-width: 50px;
+}
+
+.screen-editor-asset-context-menu {
+  position: fixed;
+  z-index: 8000;
+  min-width: 170px;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  color: #cccccc;
+  padding: 4px;
+}
+
+.screen-editor-asset-context-menu button {
+  width: 100%;
+  height: 26px;
+  border: 0;
+  background: transparent;
+  color: #cccccc;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.screen-editor-asset-context-menu button:hover {
+  background: #2a2d2e;
+  color: #ffffff;
+}
+
+.screen-editor-asset-context-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.screen-editor-asset-context-menu button.danger {
+  color: #f14c4c;
+}
+
+.screen-editor-folder-image-picker {
+  max-height: 280px;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 6px;
+}
+
+.screen-editor-folder-image-picker__item {
+  border: 1px solid #3c3c3c;
+  background: #252526;
+  color: #cccccc;
+  padding: 4px;
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.screen-editor-folder-image-picker__item:hover {
+  border-color: #4f6f95;
+  background: #2a2d2e;
+}
+
+.screen-editor-folder-image-picker__item--active {
+  border-color: #007acc;
+}
+
+.screen-editor-folder-image-picker__thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #2d2d2d;
+  background: #111111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 10px;
+  color: #969696;
+}
+
+.screen-editor-folder-image-picker__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.screen-editor-folder-image-picker__name {
+  font-size: 11px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .screen-editor-drivers-note {

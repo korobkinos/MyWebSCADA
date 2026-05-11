@@ -31,6 +31,7 @@ import {
   FileImageOutlined,
   FolderOpenOutlined,
   PlayCircleOutlined,
+  SettingOutlined,
   SearchOutlined,
   TagsOutlined,
   UnorderedListOutlined,
@@ -60,6 +61,8 @@ import {
   ScreenEditorSaveSelectionWindow,
   ScreenEditorScreensWindow,
   ScreenEditorSearchWindow,
+  ScreenEditorProjectSettingsWindow,
+  ScreenEditorScreenSettingsWindow,
   ScreenEditorTagsWindow,
 } from "../features/screen-editor/windows";
 import {
@@ -139,9 +142,6 @@ function createPrimitiveShape(kind: PrimitiveShapeKind): HmiObject {
   };
 }
 
-
-
-
 export function EditorPage() {
   useEffect(() => {
     document.body.classList.add("workbench-theme");
@@ -166,6 +166,7 @@ export function EditorPage() {
   const moveObject = useScadaStore((s) => s.moveObject);
   const resizeObject = useScadaStore((s) => s.resizeObject);
   const updateObject = useScadaStore((s) => s.updateObject);
+  const updateScreen = useScadaStore((s) => s.updateScreen);
   const setScreenObjects = useScadaStore((s) => s.setScreenObjects);
   const removeObject = useScadaStore((s) => s.removeObject);
   const addObject = useScadaStore((s) => s.addObject);
@@ -188,7 +189,6 @@ export function EditorPage() {
   const [saveElementCategory, setSaveElementCategory] = useState("General");
   const [assetUploadName, setAssetUploadName] = useState("");
   const [spacingGap, setSpacingGap] = useState<number | undefined>(undefined);
-  const [showObjectFrames] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneOptions, setCloneOptions] = useState<CloneOptions>({
     count: 2,
@@ -261,6 +261,7 @@ export function EditorPage() {
   );
   const currentProjectSignature = useMemo(() => buildProjectSaveSignature(project), [project]);
   const selectedUnlocked = selectedObjects.filter((obj) => !obj.locked);
+  const showObjectFrames = project?.editorSettings?.showObjectFrames ?? false;
   const selectedGroups = selectedObjects.filter((obj) => obj.type === "group");
   const activeObject =
     (selection.activeObjectId ? selectedObjects.find((obj) => obj.id === selection.activeObjectId) : undefined) ??
@@ -1042,6 +1043,30 @@ export function EditorPage() {
     [appendEditorLog, loadAssets, loadProject],
   );
 
+  const bulkMoveAssetsToFolder = useCallback(
+    async (updates: Array<{ assetId: string; folderPath: string }>) => {
+      if (!updates.length) {
+        return;
+      }
+      try {
+        appendEditorLog("info", `action=asset-folder-bulk-move status=START updates=${updates.length}`);
+        for (const update of updates) {
+          await api.updateAsset(update.assetId, {
+            folderPath: normalizeAssetFolderPath(update.folderPath),
+          });
+        }
+        await loadAssets();
+        await loadProject();
+        appendEditorLog("success", `action=asset-folder-bulk-move status=OK updates=${updates.length}`);
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        appendEditorLog("error", `action=asset-folder-bulk-move status=ERROR error=${text || "unknown error"}`);
+        throw error;
+      }
+    },
+    [appendEditorLog, loadAssets, loadProject],
+  );
+
   const renameAsset = useCallback(
     async (assetId: string, name: string) => {
       const nextName = name.trim();
@@ -1159,6 +1184,7 @@ export function EditorPage() {
           onDuplicateScreen={duplicateScreenLocal}
           onSetStartScreen={setStartScreen}
           onDeleteScreen={requestDeleteScreen}
+          onOpenScreenSettings={() => openDefinedWindow("screenSettings")}
         />
       ),
     },
@@ -1175,6 +1201,34 @@ export function EditorPage() {
           onQueryChange={setSearchQuery}
           onSelectScreen={setCurrentScreen}
           onSelectObject={selectObjectFromSearch}
+        />
+      ),
+    },
+    {
+      id: "projectSettings",
+      title: "Project Settings",
+      defaultRect: { x: 180, y: 100, width: 560, height: 520 },
+      minWidth: 420,
+      minHeight: 320,
+      render: () => (
+        <ScreenEditorProjectSettingsWindow
+          project={project}
+          onUpdateProject={updateProjectJson}
+          onSaveProject={handleSaveProject}
+          isSavingProject={isSavingProject}
+        />
+      ),
+    },
+    {
+      id: "screenSettings",
+      title: "Screen Settings",
+      defaultRect: { x: 220, y: 120, width: 520, height: 520 },
+      minWidth: 420,
+      minHeight: 320,
+      render: () => (
+        <ScreenEditorScreenSettingsWindow
+          screen={screen}
+          onUpdateScreen={(patch) => updateScreen(screen.id, patch)}
         />
       ),
     },
@@ -1279,6 +1333,7 @@ export function EditorPage() {
           onUploadAsset={onUploadProjectAsset}
           onAddAssetAsImage={addAssetAsImage}
           onMoveAssetToFolder={moveAssetToFolder}
+          onBulkMoveAssetsToFolder={bulkMoveAssetsToFolder}
           onRenameAsset={renameAsset}
           onRefreshAssets={refreshAssets}
           onDeleteAsset={handleDeleteAsset}
@@ -1402,6 +1457,7 @@ export function EditorPage() {
     { id: "drivers", title: "Drivers", icon: <ApiOutlined />, active: isWindowOpen("drivers"), onClick: () => openDefinedWindow("drivers") },
     { id: "runtime", title: "Runtime", icon: <PlayCircleOutlined />, active: isWindowOpen("runtime"), onClick: () => openDefinedWindow("runtime") },
     { id: "layers", title: "Layers", icon: <UnorderedListOutlined />, active: isWindowOpen("layers"), onClick: () => openDefinedWindow("layers") },
+    { id: "projectSettings", title: "Project Settings", icon: <SettingOutlined />, active: isWindowOpen("projectSettings"), onClick: () => openDefinedWindow("projectSettings") },
   ];
 
   return (
@@ -1432,6 +1488,7 @@ export function EditorPage() {
             onOpenObjectProperties={() => openDefinedWindow('objectProperties')}
             onOpenLayers={() => openDefinedWindow('layers')}
             onOpenSaveSelection={() => openDefinedWindow('saveSelectionAsElement')}
+            onOpenScreenSettings={() => openDefinedWindow('screenSettings')}
             canSaveSelection={selectedObjects.length > 0}
             setContextMenu={setContextMenu}
             handleDrop={handleDrop}

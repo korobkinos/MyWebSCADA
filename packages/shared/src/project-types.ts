@@ -56,6 +56,7 @@ export type HmiScreen = {
   width: number;
   height: number;
   background?: string;
+  backgroundFillMode?: "screen" | "viewport";
   objects: HmiObject[];
   popupOptions?: PopupOptions;
 };

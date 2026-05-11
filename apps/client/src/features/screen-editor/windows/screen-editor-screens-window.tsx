@@ -20,6 +20,7 @@ type ScreenEditorScreensWindowProps = {
   onDuplicateScreen: (screen: HmiScreen) => void;
   onSetStartScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
+  onOpenScreenSettings: () => void;
 };
 
 export function ScreenEditorScreensWindow(props: ScreenEditorScreensWindowProps) {

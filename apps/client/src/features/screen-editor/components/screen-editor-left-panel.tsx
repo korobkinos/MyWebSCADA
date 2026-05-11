@@ -14,7 +14,8 @@ export type ScreenEditorActivityId =
   | "assets"
   | "libraries"
   | "drivers"
-  | "runtime";
+  | "runtime"
+  | "projectSettings";
 
 type ScreenListViewMode = "grid" | "list";
 
@@ -198,6 +199,7 @@ export function ScreenEditorLeftPanel(props: ScreenEditorLeftPanelProps) {
         onDuplicateScreen={duplicateScreenLocal}
         onSetStartScreen={setStartScreen}
         onDeleteScreen={requestDeleteScreen}
+        onOpenScreenSettings={() => openDefinedWindow("screenSettings")}
       />
 
       <WorkbenchSection title="ASSETS">

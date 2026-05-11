@@ -4,7 +4,6 @@ import {
   WorkbenchButton,
   WorkbenchSection,
 } from "../../../components/workbench";
-import { useScadaStore } from "../../../store/scada-store";
 
 type ScreenListViewMode = "grid" | "list";
 
@@ -25,6 +24,7 @@ type ScreenListSectionProps = {
   onDuplicateScreen: (screen: HmiScreen) => void;
   onSetStartScreen: (id: string) => void;
   onDeleteScreen: (id: string) => void;
+  onOpenScreenSettings: () => void;
 };
 
 export function ScreenListSection(props: ScreenListSectionProps) {
@@ -45,6 +45,7 @@ export function ScreenListSection(props: ScreenListSectionProps) {
     onDuplicateScreen,
     onSetStartScreen,
     onDeleteScreen,
+    onOpenScreenSettings,
   } = props;
 
   const currentScreen = screens.find((s) => s.id === currentScreenId);
@@ -163,46 +164,13 @@ export function ScreenListSection(props: ScreenListSectionProps) {
 
       <WorkbenchSection title="CURRENT SCREEN">
         <div style={{ padding: "0 10px" }}>
-          <input
-            className="workbench-input"
-            value={currentScreen?.name ?? ""}
-            onChange={(e) => {
-              if (currentScreen) {
-                useScadaStore.getState().updateScreen(currentScreen.id, {
-                  name: e.target.value,
-                });
-              }
-            }}
-            placeholder="Screen name"
-          />
-          <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-            <input
-              className="workbench-input"
-              type="number"
-              style={{ width: "50%" }}
-              value={currentScreen?.width ?? 0}
-              onChange={(e) => {
-                if (currentScreen) {
-                  useScadaStore.getState().updateScreen(currentScreen.id, {
-                    width: Number(e.target.value),
-                  });
-                }
-              }}
-            />
-            <input
-              className="workbench-input"
-              type="number"
-              style={{ width: "50%" }}
-              value={currentScreen?.height ?? 0}
-              onChange={(e) => {
-                if (currentScreen) {
-                  useScadaStore.getState().updateScreen(currentScreen.id, {
-                    height: Number(e.target.value),
-                  });
-                }
-              }}
-            />
+          <div className="screen-editor-item-title">{currentScreen?.name ?? "-"}</div>
+          <div className="screen-editor-item-meta" style={{ margin: "4px 0 8px" }}>
+            {currentScreen ? `${currentScreen.width}x${currentScreen.height}` : "No screen selected"}
           </div>
+          <WorkbenchButton onClick={onOpenScreenSettings} disabled={!currentScreen}>
+            Open Screen Settings
+          </WorkbenchButton>
         </div>
       </WorkbenchSection>
     </>
