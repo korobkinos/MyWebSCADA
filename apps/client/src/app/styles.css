@@ -1527,9 +1527,17 @@ body {
 .screen-editor-canvas-host {
   flex: 1;
   min-height: 0;
-  overflow: auto;
-  background: #111111;
   position: relative;
+  overflow: hidden;
+  background: #111111;
+}
+
+.screen-editor-canvas-scroll {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 .screen-editor-canvas-host--drag-over {
@@ -1541,7 +1549,7 @@ body {
   position: absolute;
   right: 12px;
   bottom: 12px;
-  z-index: 20;
+  z-index: 30;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2890,6 +2898,18 @@ body {
   gap: 6px;
 }
 
+.screen-editor-assets-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.screen-editor-assets-toolbar__spacer {
+  flex: 1 1 auto;
+}
+
 .screen-editor-assets-folder-create {
   display: inline-flex;
   align-items: center;
@@ -2902,12 +2922,49 @@ body {
   font-size: 11px;
 }
 
+.screen-editor-assets-tile-size-label {
+  color: #bcbcbc;
+  font-size: 11px;
+  min-width: 60px;
+  text-align: right;
+}
+
+.screen-editor-operation-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-bottom: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  color: #cccccc;
+  font-size: 11px;
+}
+
+.screen-editor-operation-bar__spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #3c3c3c;
+  border-top-color: #007acc;
+  border-radius: 50%;
+  animation: screen-editor-spin 0.8s linear infinite;
+}
+
+@keyframes screen-editor-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .screen-editor-assets-breadcrumbs {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 4px 8px 0;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #2f2f2f;
+  font-size: 11px;
+  color: #cccccc;
 }
 
 .screen-editor-assets-breadcrumb {
@@ -2922,6 +2979,11 @@ body {
 .screen-editor-assets-breadcrumb:hover {
   color: #ffffff;
   text-decoration: underline;
+}
+
+.screen-editor-assets-breadcrumb--active {
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .screen-editor-assets-breadcrumb-sep {
@@ -3039,6 +3101,19 @@ body {
   text-overflow: ellipsis;
 }
 
+.screen-editor-asset-rename-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 3px;
+}
+
+.screen-editor-asset-rename-input {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  font-size: 11px;
+}
+
 .screen-editor-asset-tile__meta {
   color: #969696;
   font-size: calc(11px * var(--screen-editor-asset-scale));
@@ -3086,6 +3161,39 @@ body {
 
 .screen-editor-asset-scale-button--label {
   min-width: 50px;
+}
+
+.screen-editor-drivers-note {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid #3c3c3c;
+  background: #202020;
+  color: #cfcfcf;
+  font-size: 11px;
+}
+
+.screen-editor-drivers-warning {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid #d89614;
+  background: rgba(216, 150, 20, 0.14);
+  color: #ffd666;
+  font-size: 11px;
+}
+
+.screen-editor-drivers-status-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.screen-editor-drivers-status-item {
+  font-size: 11px;
+  color: #c5c5c5;
+}
+
+.screen-editor-drivers-status-item--warning {
+  color: #ffd666;
 }
 
 /* ── Asset viewer window ── */

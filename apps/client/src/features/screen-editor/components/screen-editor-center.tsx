@@ -5,6 +5,7 @@ import {
   WorkbenchButton,
   WorkbenchTabs,
 } from "../../../components/workbench";
+import { isTextEditingTarget } from "../../../utils/keyboard";
 import type { EditorCommand, HmiObject, HmiScreen, ScadaProject } from "@web-scada/shared";
 
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
@@ -12,7 +13,7 @@ type DropPosition = { x: number; y: number };
 const MIN_EDITOR_ZOOM = 0.1;
 const MAX_EDITOR_ZOOM = 3;
 const ZOOM_STEP = 1.1;
-const ZOOM_OPTIONS = [0.1, 0.2, 0.5, 1, 1.5, 2];
+const ZOOM_OPTIONS = [0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3];
 
 function clampZoom(value: number): number {
   if (!Number.isFinite(value)) {
@@ -147,6 +148,7 @@ export function ScreenEditorCenter({
     const preset = new Set(ZOOM_OPTIONS);
     return preset.has(editorZoom) ? ZOOM_OPTIONS : [...ZOOM_OPTIONS, editorZoom].sort((a, b) => a - b);
   }, [editorZoom]);
+  const wheelZoomEnabled = project?.uiSettings?.editorWheelZoomEnabled ?? true;
 
   return (
     <div className="screen-editor-center">
@@ -318,7 +320,13 @@ export function ScreenEditorCenter({
       <div
         className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}`}
         onWheel={(event) => {
-          if (!event.ctrlKey) {
+          if (!wheelZoomEnabled) {
+            return;
+          }
+          if (isTextEditingTarget(event.target)) {
+            return;
+          }
+          if (!event.deltaY) {
             return;
           }
           event.preventDefault();
@@ -352,45 +360,50 @@ export function ScreenEditorCenter({
           handleDrop(event, position);
         }}
       >
-        {screen ? (
-          <HmiStage
-            project={project ?? undefined!}
-            mode="editor"
-            screen={screen}
-            tags={tags}
-            libraries={libraries}
-            selectedObjectIds={selection.selectedObjectIds}
-            activeObjectId={selection.activeObjectId}
-            selectionRect={selectionRect}
-            showObjectFrames={showObjectFrames}
-            onSelectionRectChange={(rect) => setSelectionRect(rect)}
-            onSelectObject={({ objectId, additive }) => {
-              if (additive) {
-                toggleSelectedObject(objectId);
-              } else {
-                setSelectedObjects([objectId], objectId);
-              }
-            }}
-            onDoubleClickObject={() => onOpenObjectProperties()}
-            onContextMenuObject={({ objectId, clientX, clientY, additive }) => {
-              if (additive) {
-                toggleSelectedObject(objectId);
-              } else {
-                setSelectedObjects([objectId], objectId);
-              }
-              setContextMenu({ visible: true, x: clientX, y: clientY });
-            }}
-            onSelectObjects={(objectIds, activeId) => {
-              setSelectedObjects(objectIds, activeId ?? "");
-            }}
-            onMoveObject={moveObjectWithHistory}
-            onResizeObject={resizeObjectWithHistory}
-            editorZoom={editorZoom}
-          />
-        ) : (
-          <div className="screen-editor-empty-state">Select or create a screen</div>
-        )}
-        <div className="screen-editor-zoom-controls" title="Ctrl + wheel to zoom">
+        <div className="screen-editor-canvas-scroll">
+          {screen ? (
+            <HmiStage
+              project={project ?? undefined!}
+              mode="editor"
+              screen={screen}
+              tags={tags}
+              libraries={libraries}
+              selectedObjectIds={selection.selectedObjectIds}
+              activeObjectId={selection.activeObjectId}
+              selectionRect={selectionRect}
+              showObjectFrames={showObjectFrames}
+              onSelectionRectChange={(rect) => setSelectionRect(rect)}
+              onSelectObject={({ objectId, additive }) => {
+                if (additive) {
+                  toggleSelectedObject(objectId);
+                } else {
+                  setSelectedObjects([objectId], objectId);
+                }
+              }}
+              onDoubleClickObject={() => onOpenObjectProperties()}
+              onContextMenuObject={({ objectId, clientX, clientY, additive }) => {
+                if (additive) {
+                  toggleSelectedObject(objectId);
+                } else {
+                  setSelectedObjects([objectId], objectId);
+                }
+                setContextMenu({ visible: true, x: clientX, y: clientY });
+              }}
+              onSelectObjects={(objectIds, activeId) => {
+                setSelectedObjects(objectIds, activeId ?? "");
+              }}
+              onMoveObject={moveObjectWithHistory}
+              onResizeObject={resizeObjectWithHistory}
+              editorZoom={editorZoom}
+            />
+          ) : (
+            <div className="screen-editor-empty-state">Select or create a screen</div>
+          )}
+        </div>
+        <div
+          className="screen-editor-zoom-controls"
+          title={wheelZoomEnabled ? "Mouse wheel zoom is enabled" : "Mouse wheel zoom is disabled"}
+        >
           <WorkbenchButton
             className="screen-editor-zoom-button"
             onClick={() => setEditorZoom((prev) => clampZoom(prev / ZOOM_STEP))}

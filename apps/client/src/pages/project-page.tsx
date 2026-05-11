@@ -16,6 +16,7 @@ type ProjectSettingsFormState = {
   notes: string;
   theme: ProjectTheme;
   hideMainMenu: boolean;
+  editorWheelZoomEnabled: boolean;
 };
 
 function toFormState(project: ScadaProject): ProjectSettingsFormState {
@@ -30,6 +31,7 @@ function toFormState(project: ScadaProject): ProjectSettingsFormState {
     notes: project.projectInfo?.notes ?? "",
     theme: project.uiSettings?.theme ?? "light",
     hideMainMenu: project.uiSettings?.hideMainMenu ?? false,
+    editorWheelZoomEnabled: project.uiSettings?.editorWheelZoomEnabled ?? true,
   };
 }
 
@@ -53,6 +55,7 @@ function applySettingsToProject(project: ScadaProject, form: ProjectSettingsForm
   const nextUiSettings = {
     theme: form.theme,
     hideMainMenu: form.hideMainMenu,
+    editorWheelZoomEnabled: form.editorWheelZoomEnabled,
   };
 
   return {
@@ -164,8 +167,14 @@ export function ProjectPage() {
                   <Form.Item label="Hide Left Main Menu" valuePropName="checked">
                     <Switch checked={formState.hideMainMenu} onChange={(checked) => onFormPatch({ hideMainMenu: checked })} />
                   </Form.Item>
+                  <Form.Item label="Enable mouse wheel zoom in editor" valuePropName="checked">
+                    <Switch
+                      checked={formState.editorWheelZoomEnabled}
+                      onChange={(checked) => onFormPatch({ editorWheelZoomEnabled: checked })}
+                    />
+                  </Form.Item>
                   <Typography.Text type="secondary">
-                    Предпросмотр: {previewTitle} • theme {formState.theme} • main menu {formState.hideMainMenu ? "hidden" : "visible"}
+                    Preview: {previewTitle} - theme {formState.theme} - main menu {formState.hideMainMenu ? "hidden" : "visible"}
                   </Typography.Text>
                 </Form>
               </Card>
@@ -198,3 +207,4 @@ export function ProjectPage() {
     />
   );
 }
+

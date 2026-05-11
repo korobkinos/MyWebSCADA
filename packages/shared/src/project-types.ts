@@ -237,6 +237,7 @@ export type ProjectInfo = {
 export type ProjectUiSettings = {
   theme?: ProjectTheme;
   hideMainMenu?: boolean;
+  editorWheelZoomEnabled?: boolean;
 };
 
 export type ProjectRuntimeSettings = {

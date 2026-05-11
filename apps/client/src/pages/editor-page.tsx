@@ -152,6 +152,7 @@ export function EditorPage() {
   const navigate = useNavigate();
   const project = useScadaStore((s) => s.project);
   const tags = useScadaStore((s) => s.tags);
+  const drivers = useScadaStore((s) => s.drivers);
   const assets = useScadaStore((s) => s.assets);
   const libraries = useScadaStore((s) => s.libraries);
   const runtime = useScadaStore((s) => s.runtime);
@@ -742,16 +743,20 @@ export function EditorPage() {
         }
         const MAX_ASSET_SIZE_BYTES = 10 * 1024 * 1024;
         if (file.size > MAX_ASSET_SIZE_BYTES) {
+          appendEditorLog("error", `action=asset-upload status=ERROR file=${file.name} error=file-too-large`);
           void message.error("File is too large. Max size is 10 MB.");
           return;
         }
+        appendEditorLog("info", `action=asset-upload status=START file=${file.name}`);
         const uploaded = await api.uploadAsset(file, assetUploadName.trim() || undefined);
         await loadAssets();
         await loadProject();
         setAssetUploadName("");
+        appendEditorLog("success", `action=asset-upload status=OK asset=${uploaded.name} id=${uploaded.id}`);
         void message.success(`Asset uploaded: ${uploaded.name}`);
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
+        appendEditorLog("error", `action=asset-upload status=ERROR file=${file.name} error=${text || "unknown error"}`);
         if (text.toLowerCase().includes("too large") || text.toLowerCase().includes("file size")) {
           void message.error("File is too large. Max size is 10 MB.");
         } else {
@@ -759,7 +764,7 @@ export function EditorPage() {
         }
       }
     },
-    [assetUploadName, loadAssets, loadProject, project],
+    [appendEditorLog, assetUploadName, loadAssets, loadProject, project],
   );
 
   const onSaveSelectionAsLibraryElement = useCallback(async () => {
@@ -958,6 +963,7 @@ export function EditorPage() {
     async (assetId: string) => {
       try {
         const target = useScadaStore.getState().assets.find((a) => a.id === assetId);
+        appendEditorLog("info", `action=asset-delete status=START assetId=${assetId} name=${target?.name ?? ""}`);
 
         const result = await api.deleteAsset(assetId);
 
@@ -970,14 +976,17 @@ export function EditorPage() {
         }
 
         if (result.used) {
+          appendEditorLog("warning", `action=asset-delete status=OK assetId=${assetId} used=true`);
           void message.warning("Asset deleted. Some objects now reference missing asset.");
         } else {
+          appendEditorLog("success", `action=asset-delete status=OK assetId=${assetId} used=false`);
           void message.success(`Asset deleted${target?.name ? `: ${target.name}` : ""}`);
         }
       } catch (error) {
         const err = error as Error & { status?: number; details?: unknown };
         const text = err.message || String(error);
         const normalized = text.toLowerCase();
+        appendEditorLog("error", `action=asset-delete status=ERROR assetId=${assetId} error=${text || "unknown error"}`);
 
         console.error("Asset delete failed", error);
 
@@ -1003,7 +1012,7 @@ export function EditorPage() {
         void message.error(text || "Failed to delete asset");
       }
     },
-    [closeWindow, loadAssets, loadProject, viewAssetId],
+    [appendEditorLog, closeWindow, loadAssets, loadProject, viewAssetId],
   );
 
   const moveAssetToFolder = useCallback(
@@ -1017,17 +1026,57 @@ export function EditorPage() {
         if (normalizeAssetFolderPath(current.folderPath ?? "") === normalized) {
           return;
         }
+        const targetFolderLabel = normalized || "root";
+        appendEditorLog("info", `action=asset-move status=START asset=${current.name} id=${assetId} to=${targetFolderLabel}`);
         await api.updateAsset(assetId, { folderPath: normalized });
         await loadAssets();
         await loadProject();
+        appendEditorLog("success", `action=asset-move status=OK asset=${current.name} id=${assetId} to=${targetFolderLabel}`);
         void message.success("Asset moved");
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
+        appendEditorLog("error", `action=asset-move status=ERROR assetId=${assetId} error=${text || "unknown error"}`);
         void message.error(text || "Failed to move asset");
       }
     },
-    [loadAssets, loadProject],
+    [appendEditorLog, loadAssets, loadProject],
   );
+
+  const renameAsset = useCallback(
+    async (assetId: string, name: string) => {
+      const nextName = name.trim();
+      if (!nextName) {
+        void message.warning("Asset name is required");
+        return;
+      }
+      try {
+        const current = useScadaStore.getState().assets.find((item) => item.id === assetId);
+        appendEditorLog("info", `action=asset-rename status=START assetId=${assetId} from=${current?.name ?? ""} to=${nextName}`);
+        await api.updateAsset(assetId, { name: nextName });
+        await loadAssets();
+        await loadProject();
+        appendEditorLog("success", `action=asset-rename status=OK assetId=${assetId} from=${current?.name ?? ""} to=${nextName}`);
+        void message.success("Asset renamed");
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        appendEditorLog("error", `action=asset-rename status=ERROR assetId=${assetId} to=${nextName} error=${text || "unknown error"}`);
+        void message.error(text || "Failed to rename asset");
+      }
+    },
+    [appendEditorLog, loadAssets, loadProject],
+  );
+
+  const refreshAssets = useCallback(async () => {
+    try {
+      appendEditorLog("info", "action=asset-refresh status=START");
+      await loadAssets();
+      appendEditorLog("success", "action=asset-refresh status=OK");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      appendEditorLog("error", `action=asset-refresh status=ERROR error=${text || "unknown error"}`);
+      void message.error(text || "Failed to refresh assets");
+    }
+  }, [appendEditorLog, loadAssets]);
 
   const saveObjectProperties = useCallback(async () => {
     const state = useScadaStore.getState();
@@ -1215,7 +1264,7 @@ export function EditorPage() {
       minWidth: 380,
       minHeight: 260,
       render: () => (
-        <ScreenEditorDriversWindow />
+        <ScreenEditorDriversWindow drivers={drivers} />
       ),
     },
     {
@@ -1230,6 +1279,8 @@ export function EditorPage() {
           onUploadAsset={onUploadProjectAsset}
           onAddAssetAsImage={addAssetAsImage}
           onMoveAssetToFolder={moveAssetToFolder}
+          onRenameAsset={renameAsset}
+          onRefreshAssets={refreshAssets}
           onDeleteAsset={handleDeleteAsset}
           onViewAsset={(asset) => {
             setViewAssetId(asset.id);

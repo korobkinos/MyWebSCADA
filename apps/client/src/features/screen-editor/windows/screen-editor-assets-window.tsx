@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Asset } from "@web-scada/shared";
 import {
   WorkbenchButton,
@@ -26,11 +26,13 @@ function getFolderSegments(path: string): string[] {
 }
 
 function getParentFolder(path: string): string {
-  const segments = getFolderSegments(path);
-  if (segments.length <= 1) {
+  const normalized = normalizeFolderPath(path);
+  if (!normalized) {
     return "";
   }
-  return segments.slice(0, -1).join("/");
+  const parts = normalized.split("/");
+  parts.pop();
+  return parts.join("/");
 }
 
 function readStoredFolders(): string[] {
@@ -85,6 +87,8 @@ type ScreenEditorAssetsWindowProps = {
   onViewAsset?: (asset: Asset) => void;
   onDeleteAsset?: (assetId: string) => void | Promise<void>;
   onMoveAssetToFolder?: (assetId: string, folderPath: string) => Promise<void> | void;
+  onRenameAsset?: (assetId: string, name: string) => Promise<void> | void;
+  onRefreshAssets?: () => Promise<void> | void;
 };
 
 export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
@@ -95,6 +99,8 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
     onViewAsset,
     onDeleteAsset,
     onMoveAssetToFolder,
+    onRenameAsset,
+    onRefreshAssets,
   } = props;
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -104,6 +110,9 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+  const [operationText, setOperationText] = useState<string | null>(null);
+  const [renameAssetId, setRenameAssetId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const allFolderPaths = useMemo(() => {
     const fromAssets = assets
@@ -162,11 +171,22 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
     setAssetScalePercent((prev) => Math.min(140, prev + 10));
   };
 
+  const runAssetOperation = useCallback(async (label: string, action: () => Promise<void>) => {
+    setOperationText(label);
+    try {
+      await action();
+    } finally {
+      setOperationText(null);
+    }
+  }, []);
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.currentTarget.value = "";
     if (file) {
-      void onUploadAsset(file);
+      void runAssetOperation("Uploading image...", async () => {
+        await onUploadAsset(file);
+      });
     }
   };
 
@@ -203,7 +223,9 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
     if (!assetId || !onMoveAssetToFolder) {
       return;
     }
-    void Promise.resolve(onMoveAssetToFolder(assetId, folderPath));
+    void runAssetOperation("Moving asset...", async () => {
+      await Promise.resolve(onMoveAssetToFolder(assetId, folderPath));
+    });
   };
 
   const createFolder = () => {
@@ -220,96 +242,132 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
     setNewFolderName("");
   };
 
+  const startRenameAsset = (asset: Asset) => {
+    setRenameAssetId(asset.id);
+    setRenameValue(asset.name);
+  };
+
+  const cancelRenameAsset = () => {
+    setRenameAssetId(null);
+    setRenameValue("");
+  };
+
+  const saveRenameAsset = (asset: Asset) => {
+    if (!onRenameAsset) {
+      return;
+    }
+    const nextName = renameValue.trim();
+    if (!nextName || nextName === asset.name) {
+      cancelRenameAsset();
+      return;
+    }
+    void runAssetOperation("Renaming asset...", async () => {
+      await Promise.resolve(onRenameAsset(asset.id, nextName));
+    });
+    cancelRenameAsset();
+  };
+
   return (
     <div className="screen-editor-window-content screen-editor-assets-window">
-      <WorkbenchSection title="UPLOAD ASSET">
-        <div style={{ padding: "0 10px" }}>
+      <WorkbenchSection title="ASSETS">
+        <div className="screen-editor-assets-toolbar">
           <WorkbenchButton onClick={() => uploadInputRef.current?.click()}>
-            Upload image
+            Upload Image
           </WorkbenchButton>
-          <input
-            ref={uploadInputRef}
-            type="file"
-            accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
-            style={{ display: "none" }}
-            onChange={handleFileChange}
-          />
-        </div>
-      </WorkbenchSection>
 
-      <WorkbenchSection
-        title="ASSETS"
-        actions={(
-          <div className="screen-editor-assets-header-actions">
-            {isCreatingFolder ? (
-              <div className="screen-editor-assets-folder-create">
-                <input
-                  className="workbench-input screen-editor-assets-folder-create__input"
-                  value={newFolderName}
-                  onChange={(event) => setNewFolderName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      createFolder();
-                    }
-                    if (event.key === "Escape") {
-                      setIsCreatingFolder(false);
-                      setNewFolderName("");
-                    }
-                  }}
-                  placeholder="Folder name"
-                />
-                <WorkbenchButton className="screen-editor-asset-scale-button" onClick={createFolder}>
-                  Create
-                </WorkbenchButton>
-                <WorkbenchButton
-                  className="screen-editor-asset-scale-button"
-                  onClick={() => {
+          {isCreatingFolder ? (
+            <div className="screen-editor-assets-folder-create">
+              <input
+                className="workbench-input screen-editor-assets-folder-create__input"
+                value={newFolderName}
+                onChange={(event) => setNewFolderName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    createFolder();
+                  }
+                  if (event.key === "Escape") {
                     setIsCreatingFolder(false);
                     setNewFolderName("");
-                  }}
-                >
-                  Cancel
-                </WorkbenchButton>
-              </div>
-            ) : (
-              <WorkbenchButton className="screen-editor-asset-scale-button" onClick={() => setIsCreatingFolder(true)}>
-                New Folder
-              </WorkbenchButton>
-            )}
-            <div className="screen-editor-asset-scale-controls">
-              <WorkbenchButton
-                className="screen-editor-asset-scale-button"
-                onClick={zoomOutAssets}
-                disabled={assetScalePercent <= 80}
-                title="Zoom out assets"
-              >
-                -
-              </WorkbenchButton>
-              <WorkbenchButton
-                className="screen-editor-asset-scale-button screen-editor-asset-scale-button--label"
-                onClick={() => setAssetScalePercent(100)}
-                title="Reset assets zoom"
-              >
-                {assetScalePercent}%
+                  }
+                }}
+                placeholder="Folder name"
+              />
+              <WorkbenchButton className="screen-editor-asset-scale-button" onClick={createFolder}>
+                Create
               </WorkbenchButton>
               <WorkbenchButton
                 className="screen-editor-asset-scale-button"
-                onClick={zoomInAssets}
-                disabled={assetScalePercent >= 140}
-                title="Zoom in assets"
+                onClick={() => {
+                  setIsCreatingFolder(false);
+                  setNewFolderName("");
+                }}
               >
-                +
+                Cancel
               </WorkbenchButton>
             </div>
+          ) : (
+            <WorkbenchButton className="screen-editor-asset-scale-button" onClick={() => setIsCreatingFolder(true)}>
+              New Folder
+            </WorkbenchButton>
+          )}
+
+          {onRefreshAssets ? (
+            <WorkbenchButton
+              className="screen-editor-asset-scale-button"
+              onClick={() => {
+                void runAssetOperation("Refreshing assets...", async () => {
+                  await Promise.resolve(onRefreshAssets());
+                });
+              }}
+            >
+              Refresh
+            </WorkbenchButton>
+          ) : null}
+
+          <div className="screen-editor-assets-toolbar__spacer" />
+
+          <div className="screen-editor-asset-scale-controls">
+            <span className="screen-editor-assets-tile-size-label">Tile: {assetScalePercent}%</span>
+            <WorkbenchButton
+              className="screen-editor-asset-scale-button"
+              onClick={zoomOutAssets}
+              disabled={assetScalePercent <= 80}
+              title="Decrease tile size"
+            >
+              -
+            </WorkbenchButton>
+            <WorkbenchButton
+              className="screen-editor-asset-scale-button"
+              onClick={zoomInAssets}
+              disabled={assetScalePercent >= 140}
+              title="Increase tile size"
+            >
+              +
+            </WorkbenchButton>
           </div>
-        )}
-      >
+        </div>
+
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+          style={{ display: "none" }}
+          onChange={handleFileChange}
+        />
+
+        {operationText ? (
+          <div className="screen-editor-operation-bar">
+            <div className="screen-editor-operation-bar__spinner" />
+            <span>{operationText}</span>
+          </div>
+        ) : null}
+
         <div className="screen-editor-assets-breadcrumbs">
           {breadcrumbs.map((item, index) => (
             <button
               key={item.path || "root"}
               type="button"
-              className="screen-editor-assets-breadcrumb"
+              className={`screen-editor-assets-breadcrumb${item.path === currentFolder ? " screen-editor-assets-breadcrumb--active" : ""}`}
               onClick={() => setCurrentFolder(item.path)}
             >
               {index > 0 ? <span className="screen-editor-assets-breadcrumb-sep">/</span> : null}
@@ -317,6 +375,7 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
             </button>
           ))}
         </div>
+
         <div
           className="screen-editor-asset-grid"
           style={
@@ -372,60 +431,122 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
               {assets.length === 0 ? "No assets uploaded yet" : "Folder is empty"}
             </div>
           ) : (
-            visibleAssets.map((asset) => (
-              <div
-                key={asset.id}
-                className="screen-editor-asset-tile"
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "copyMove";
-                  event.dataTransfer.setData(
-                    "application/web-scada-item",
-                    JSON.stringify({
-                      kind: "asset",
-                      assetId: asset.id,
-                    }),
-                  );
-                  event.dataTransfer.setData("text/plain", getAssetDisplayPath(asset));
-                }}
-              >
-                <div className="screen-editor-asset-thumb">
-                  {asset.previewUrl ? (
-                    <img src={asset.previewUrl} alt={asset.name} draggable={false} />
+            visibleAssets.map((asset) => {
+              const isRenaming = renameAssetId === asset.id;
+              const currentAssetFolder = normalizeFolderPath(asset.folderPath ?? "");
+              const parentFolder = getParentFolder(currentAssetFolder);
+              const canMoveAsset = Boolean(onMoveAssetToFolder) && currentAssetFolder.length > 0;
+
+              return (
+                <div
+                  key={asset.id}
+                  className="screen-editor-asset-tile"
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "copyMove";
+                    event.dataTransfer.setData(
+                      "application/web-scada-item",
+                      JSON.stringify({
+                        kind: "asset",
+                        assetId: asset.id,
+                      }),
+                    );
+                    event.dataTransfer.setData("text/plain", getAssetDisplayPath(asset));
+                  }}
+                >
+                  <div className="screen-editor-asset-thumb">
+                    {asset.previewUrl ? (
+                      <img src={asset.previewUrl} alt={asset.name} draggable={false} />
+                    ) : (
+                      <div className="screen-editor-asset-thumb__placeholder">
+                        No preview
+                      </div>
+                    )}
+                  </div>
+
+                  {isRenaming ? (
+                    <div className="screen-editor-asset-rename-row">
+                      <input
+                        className="workbench-input screen-editor-asset-rename-input"
+                        value={renameValue}
+                        maxLength={120}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            saveRenameAsset(asset);
+                          }
+                          if (event.key === "Escape") {
+                            cancelRenameAsset();
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <WorkbenchButton className="screen-editor-asset-action-button" onClick={() => saveRenameAsset(asset)}>
+                        Save
+                      </WorkbenchButton>
+                      <WorkbenchButton className="screen-editor-asset-action-button" onClick={cancelRenameAsset}>
+                        Cancel
+                      </WorkbenchButton>
+                    </div>
                   ) : (
-                    <div className="screen-editor-asset-thumb__placeholder">
-                      No preview
+                    <div className="screen-editor-asset-tile__name" title={getAssetDisplayPath(asset)}>
+                      {asset.name}
                     </div>
                   )}
-                </div>
 
-                <div className="screen-editor-asset-tile__name" title={getAssetDisplayPath(asset)}>
-                  {asset.name}
-                </div>
+                  <div className="screen-editor-asset-tile__meta">
+                    {asset.type?.toUpperCase() ?? ""}
+                    {asset.width && asset.height ? ` · ${asset.width}x${asset.height}` : ""}
+                    {asset.size ? ` · ${(asset.size / 1024).toFixed(1)} KB` : ""}
+                  </div>
 
-                <div className="screen-editor-asset-tile__meta">
-                  {asset.type?.toUpperCase() ?? ""}
-                  {asset.width && asset.height
-                    ? ` · ${asset.width}×${asset.height}`
-                    : ""}
-                  {asset.size ? ` · ${(asset.size / 1024).toFixed(1)} KB` : ""}
-                </div>
+                  <div className="screen-editor-asset-tile__actions">
+                    <WorkbenchButton
+                      variant="primary"
+                      className="screen-editor-asset-action-button"
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onDragStart={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={() => onAddAssetAsImage(asset)}
+                    >
+                      Add
+                    </WorkbenchButton>
 
-                <div className="screen-editor-asset-tile__actions">
-                  <WorkbenchButton
-                    variant="primary"
-                    className="screen-editor-asset-action-button"
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onDragStart={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                    onClick={() => onAddAssetAsImage(asset)}
-                  >
-                    Add
-                  </WorkbenchButton>
+                    {onViewAsset ? (
+                      <WorkbenchButton
+                        className="screen-editor-asset-action-button"
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onDragStart={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={() => onViewAsset(asset)}
+                      >
+                        View
+                      </WorkbenchButton>
+                    ) : null}
 
-                  {onViewAsset ? (
+                    {onDeleteAsset ? (
+                      <WorkbenchButton
+                        variant="danger"
+                        className="screen-editor-asset-action-button"
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onDragStart={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={() => {
+                          void runAssetOperation("Deleting asset...", async () => {
+                            await Promise.resolve(onDeleteAsset(asset.id));
+                          });
+                        }}
+                      >
+                        Del
+                      </WorkbenchButton>
+                    ) : null}
+
                     <WorkbenchButton
                       className="screen-editor-asset-action-button"
                       onMouseDown={(event) => event.stopPropagation()}
@@ -433,32 +554,60 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
                         event.preventDefault();
                         event.stopPropagation();
                       }}
-                      onClick={() => onViewAsset(asset)}
+                      disabled={!canMoveAsset}
+                      onClick={() => {
+                        if (!onMoveAssetToFolder) {
+                          return;
+                        }
+                        void runAssetOperation("Moving asset...", async () => {
+                          await Promise.resolve(onMoveAssetToFolder(asset.id, parentFolder));
+                        });
+                      }}
                     >
-                      View
+                      Up
                     </WorkbenchButton>
-                  ) : null}
 
-                  {onDeleteAsset ? (
                     <WorkbenchButton
-                      variant="danger"
                       className="screen-editor-asset-action-button"
                       onMouseDown={(event) => event.stopPropagation()}
                       onDragStart={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
                       }}
-                      onClick={() => void onDeleteAsset(asset.id)}
+                      disabled={!canMoveAsset}
+                      onClick={() => {
+                        if (!onMoveAssetToFolder) {
+                          return;
+                        }
+                        void runAssetOperation("Moving asset...", async () => {
+                          await Promise.resolve(onMoveAssetToFolder(asset.id, ""));
+                        });
+                      }}
                     >
-                      Del
+                      Root
                     </WorkbenchButton>
-                  ) : null}
+
+                    {onRenameAsset ? (
+                      <WorkbenchButton
+                        className="screen-editor-asset-action-button"
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onDragStart={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={() => startRenameAsset(asset)}
+                      >
+                        Rename
+                      </WorkbenchButton>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </WorkbenchSection>
     </div>
   );
 }
+

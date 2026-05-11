@@ -731,6 +731,7 @@ const projectInfoSchema = z.object({
 const projectUiSettingsSchema = z.object({
   theme: z.enum(["light", "dark"]).optional(),
   hideMainMenu: z.boolean().optional(),
+  editorWheelZoomEnabled: z.boolean().optional(),
 });
 
 const projectRuntimeSettingsSchema = z.object({

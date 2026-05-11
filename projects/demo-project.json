@@ -49,26 +49,25 @@
     {
       "id": "471c21da-a815-4098-afba-a186c20872ce",
       "name": "538e4fd5-8312-4d97-8d5c-7f5d673ac09b",
-      "folderPath": "Valves",
       "type": "png",
       "mimeType": "image/png",
       "fileName": "471c21da-a815-4098-afba-a186c20872ce.png",
       "size": 1794877,
       "createdAt": "2026-05-11T12:07:39.630Z",
-      "updatedAt": "2026-05-11T15:49:01.596Z",
+      "updatedAt": "2026-05-11T16:49:59.364Z",
       "storagePath": "assets/471c21da-a815-4098-afba-a186c20872ce.png",
       "previewUrl": "/api/assets/471c21da-a815-4098-afba-a186c20872ce/file"
     },
     {
       "id": "d70458aa-3e17-4cde-bf28-4eb41f33735e",
-      "name": "15.09.13 - 6",
+      "name": "programmator",
       "folderPath": "Valves",
       "type": "jpg",
       "mimeType": "image/jpeg",
       "fileName": "d70458aa-3e17-4cde-bf28-4eb41f33735e.jpg",
       "size": 190874,
       "createdAt": "2026-05-11T15:47:40.556Z",
-      "updatedAt": "2026-05-11T15:48:50.239Z",
+      "updatedAt": "2026-05-11T16:52:12.111Z",
       "storagePath": "assets/d70458aa-3e17-4cde-bf28-4eb41f33735e.jpg",
       "previewUrl": "/api/assets/d70458aa-3e17-4cde-bf28-4eb41f33735e/file"
     }
