@@ -195,7 +195,6 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     const project = await api.getProject();
     set({
       project,
-      assets: project.assets ?? [],
       currentScreenId: project.startScreenId ?? project.screens[0]?.id ?? null,
       selection: { selectedObjectIds: [] },
     });

@@ -87,7 +87,7 @@ export class AssetService {
     return asset;
   }
 
-  public async deleteProjectAsset(assetId: string): Promise<void> {
+  public async deleteProjectAsset(assetId: string): Promise<{ used: boolean }> {
     const project = this.projectService.getProject();
     const assets = project.assets ?? [];
     const target = assets.find((item) => item.id === assetId);
@@ -95,9 +95,7 @@ export class AssetService {
       throw new Error("Asset not found");
     }
 
-    if (isAssetUsedInProject(project, assetId)) {
-      throw new Error("Asset is used in project objects and cannot be deleted");
-    }
+    const used = isAssetUsedInProject(project, assetId);
 
     const projectDir = path.dirname(this.projectService.getProjectFile());
     const absolutePath = path.join(projectDir, target.storagePath);
@@ -108,6 +106,8 @@ export class AssetService {
       assets: assets.filter((item) => item.id !== assetId),
     };
     await this.projectService.saveProject(next);
+
+    return { used };
   }
 }
 

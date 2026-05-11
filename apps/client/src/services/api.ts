@@ -240,7 +240,8 @@ export const api = {
     }
     return request<Asset>("/api/assets/upload", { method: "POST", body: form });
   },
-  deleteAsset: (assetId: string) => request<{ ok: boolean }>(`/api/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" }),
+  deleteAsset: (assetId: string) =>
+    request<{ ok: boolean; used?: boolean }>(`/api/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" }),
 
   listLibraries: () => request<ElementLibrary[]>("/api/libraries"),
   getLibrary: (libraryId: string) => request<ElementLibrary>(`/api/libraries/${encodeURIComponent(libraryId)}`),

@@ -894,7 +894,7 @@ export function EditorPage() {
       try {
         const target = useScadaStore.getState().assets.find((a) => a.id === assetId);
 
-        await api.deleteAsset(assetId);
+        const result = await api.deleteAsset(assetId);
 
         await loadAssets();
         await loadProject();
@@ -904,22 +904,17 @@ export function EditorPage() {
           closeWindow("assetViewer");
         }
 
-        void message.success(`Asset deleted${target?.name ? `: ${target.name}` : ""}`);
+        if (result.used) {
+          void message.warning("Asset deleted. Some objects now reference missing asset.");
+        } else {
+          void message.success(`Asset deleted${target?.name ? `: ${target.name}` : ""}`);
+        }
       } catch (error) {
         const err = error as Error & { status?: number; details?: unknown };
         const text = err.message || String(error);
         const normalized = text.toLowerCase();
 
         console.error("Asset delete failed", error);
-
-        if (
-          err.status === 409 ||
-          normalized.includes("used in project") ||
-          normalized.includes("cannot be deleted")
-        ) {
-          void message.warning("Asset is used on screens. Remove image objects first.");
-          return;
-        }
 
         if (
           err.status === 403 ||

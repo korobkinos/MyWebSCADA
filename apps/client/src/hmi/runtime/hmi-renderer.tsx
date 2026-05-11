@@ -1166,19 +1166,20 @@ function ImageNode({
   const stateSrc = stateEntry?.src;
   const stateAssetId = stateEntry?.assetId;
   const activeAssetId = stateAssetId ?? object.assetId;
-  const source =
-    stateSrc ??
-    resolveAssetUrl(activeAssetId, {
-      projectAssets: project.assets ?? [],
-      scopedAssets,
-      libraries,
-    }) ??
-    object.src;
+  const resolvedUrl = resolveAssetUrl(activeAssetId, {
+    projectAssets: project.assets ?? [],
+    scopedAssets,
+    libraries,
+  });
+  const source = stateSrc ?? resolvedUrl ?? object.src;
   const { image, status: imageStatus } = useImage(source);
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, object.fit),
     [image?.height, image?.width, object.fit, object.height, object.width],
   );
+
+  // Determine if the asset is missing (assetId is set but asset was not found)
+  const isAssetMissing = Boolean(activeAssetId) && !resolvedUrl && !stateSrc && !object.src;
 
   return (
     <Group
@@ -1206,11 +1207,43 @@ function ImageNode({
           crop={placement.crop}
           perfectDrawEnabled={false}
         />
-      ) : source && imageStatus === "loading" ? null : (
+      ) : source && imageStatus === "loading" ? null : isAssetMissing ? (
+        <>
+          <Rect
+            width={object.width}
+            height={object.height}
+            fill="#2a1f1f"
+            stroke="#f14c4c"
+            strokeWidth={1}
+            dash={[4, 3]}
+          />
+          <Text
+            text="asset not found"
+            width={object.width}
+            height={object.height}
+            align="center"
+            verticalAlign="middle"
+            fill="#f14c4c"
+            fontSize={12}
+          />
+        </>
+      ) : source && imageStatus === "error" ? (
         <>
           <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} />
           <Text
-            text={source ? (activeAssetId ? `Asset not found: ${activeAssetId}` : "Failed to load image") : "Image source is empty"}
+            text="Failed to load image"
+            width={object.width}
+            height={object.height}
+            fill="#ff7875"
+            align="center"
+            verticalAlign="middle"
+          />
+        </>
+      ) : (
+        <>
+          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} />
+          <Text
+            text="Image source is empty"
             width={object.width}
             height={object.height}
             fill="#ff7875"

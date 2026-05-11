@@ -827,18 +827,15 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const { assetId } = request.params as { assetId: string };
     try {
-      await deps.assetService.deleteProjectAsset(assetId);
+      const result = await deps.assetService.deleteProjectAsset(assetId);
+      return reply.send({ ok: true, used: result.used });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (msg.includes("used in project")) {
-        return reply.code(409).send({ error: "Conflict", message: msg });
-      }
       if (msg.includes("not found")) {
         return reply.code(404).send({ error: "Not Found", message: msg });
       }
       throw error;
     }
-    return reply.send({ ok: true });
   });
 
   app.get("/api/libraries", async () => deps.libraryService.listLibraries());
