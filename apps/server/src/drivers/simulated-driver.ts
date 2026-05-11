@@ -61,40 +61,60 @@ export class SimulatedDriver implements Driver {
 
     if (tag.dataType === "BOOL") {
       if (pattern === "static") {
-        return false;
+        return Boolean(address.value ?? false);
       }
-      const periodMs = Number(address.periodMs ?? tag.scanRateMs ?? 1000);
+      const periodMs = Number(address.periodMs ?? tag.scanRateMs ?? this.config.updateIntervalMs ?? 1000);
       return Math.floor((now - this.startTs) / periodMs) % 2 === 0;
     }
 
-    if (tag.dataType === "REAL" || tag.dataType === "INT" || tag.dataType === "DINT") {
-      const periodMs = Number(address.periodMs ?? 5000);
+    if (tag.dataType === "REAL" || tag.dataType === "INT" || tag.dataType === "DINT" || tag.dataType === "UINT" || tag.dataType === "UDINT") {
+      const periodMs = Number(address.periodMs ?? this.config.updateIntervalMs ?? 5000);
       const elapsed = (now - this.startTs) % periodMs;
       const phase = (elapsed / periodMs) * Math.PI * 2;
-      const min = Number(address.min ?? 0);
-      const max = Number(address.max ?? 100);
+      const min = Number(address.min ?? this.config.defaultMin ?? 0);
+      const max = Number(address.max ?? this.config.defaultMax ?? 100);
+      const step = Number(address.step ?? this.config.defaultStep ?? (tag.dataType === "REAL" ? 0.1 : 1));
       const amplitude = Number(address.amplitude ?? (max - min) / 2);
       const center = min + (max - min) / 2;
 
       if (pattern === "random") {
-        return min + Math.random() * (max - min);
+        const random = min + Math.random() * (max - min);
+        if (Number.isFinite(step) && step > 0) {
+          return Math.round(random / step) * step;
+        }
+        return random;
       }
 
       if (pattern === "static") {
         return toNumber(address.value as TagScalarValue);
       }
 
-      const sine = center + Math.sin(phase) * amplitude;
+      const raw = center + Math.sin(phase) * amplitude;
+      const sine = Number.isFinite(step) && step > 0
+        ? Math.round(raw / step) * step
+        : raw;
       if (tag.dataType === "REAL") {
         return Number(sine.toFixed(2));
       }
       return Math.round(sine);
     }
 
+    if (pattern === "static" && typeof address.value === "string") {
+      return address.value;
+    }
     return `${tag.name}`;
   }
 
-  private defaultPattern(tag: TagDefinition): "toggle" | "sine" {
-    return tag.dataType === "BOOL" ? "toggle" : "sine";
+  private defaultPattern(tag: TagDefinition): "toggle" | "sine" | "random" | "static" {
+    if (this.config.defaultMode === "manual") {
+      return "static";
+    }
+    if (this.config.defaultMode === "random") {
+      return "random";
+    }
+    if (tag.dataType === "BOOL") {
+      return "toggle";
+    }
+    return "sine";
   }
 }

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Asset } from "@web-scada/shared";
+import { FolderAddOutlined, MinusOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { message } from "antd";
 import {
   WorkbenchButton,
-  WorkbenchSection,
+  WorkbenchIconButton,
 } from "../../../components/workbench";
 import { getAssetDisplayPath, normalizeAssetFolderPath } from "../../../utils/asset-path";
 
@@ -597,98 +598,111 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
 
   return (
     <div className="screen-editor-window-content screen-editor-assets-window">
-      <WorkbenchSection title="ASSETS">
-        <div className="screen-editor-assets-toolbar">
-          <WorkbenchButton onClick={() => uploadInputRef.current?.click()}>
-            Upload Image
-          </WorkbenchButton>
+      <div className="screen-editor-assets-toolbar">
+        <WorkbenchIconButton
+          onClick={() => uploadInputRef.current?.click()}
+          title="Upload Image"
+          icon={<UploadOutlined />}
+        />
 
-          {isCreatingFolder ? (
-            <div className="screen-editor-assets-folder-create">
-              <input
-                className="workbench-input screen-editor-assets-folder-create__input"
-                value={newFolderName}
-                onChange={(event) => setNewFolderName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    createFolder();
-                  }
-                  if (event.key === "Escape") {
-                    setIsCreatingFolder(false);
-                    setNewFolderName("");
-                  }
-                }}
-                placeholder="Folder name"
-              />
-              <WorkbenchButton className="screen-editor-asset-scale-button" onClick={createFolder}>
-                Create
-              </WorkbenchButton>
-              <WorkbenchButton
-                className="screen-editor-asset-scale-button"
-                onClick={() => {
+        {isCreatingFolder ? (
+          <div className="screen-editor-assets-folder-create">
+            <input
+              className="workbench-input screen-editor-assets-folder-create__input"
+              value={newFolderName}
+              onChange={(event) => setNewFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  createFolder();
+                }
+                if (event.key === "Escape") {
                   setIsCreatingFolder(false);
                   setNewFolderName("");
-                }}
-              >
-                Cancel
-              </WorkbenchButton>
-            </div>
-          ) : (
-            <WorkbenchButton className="screen-editor-asset-scale-button" onClick={() => setIsCreatingFolder(true)}>
-              New Folder
+                }
+              }}
+              placeholder="Folder name"
+            />
+            <WorkbenchButton className="screen-editor-asset-scale-button" onClick={createFolder}>
+              Create
             </WorkbenchButton>
-          )}
-
-          {onRefreshAssets ? (
             <WorkbenchButton
               className="screen-editor-asset-scale-button"
               onClick={() => {
-                void runAssetOperation("Refreshing assets...", async () => {
-                  await Promise.resolve(onRefreshAssets());
-                });
+                setIsCreatingFolder(false);
+                setNewFolderName("");
               }}
             >
-              Refresh
-            </WorkbenchButton>
-          ) : null}
-
-          <div className="screen-editor-assets-toolbar__spacer" />
-
-          <div className="screen-editor-asset-scale-controls">
-            <span className="screen-editor-assets-tile-size-label">Tile: {assetScalePercent}%</span>
-            <WorkbenchButton
-              className="screen-editor-asset-scale-button"
-              onClick={zoomOutAssets}
-              disabled={assetScalePercent <= 80}
-              title="Decrease tile size"
-            >
-              -
-            </WorkbenchButton>
-            <WorkbenchButton
-              className="screen-editor-asset-scale-button"
-              onClick={zoomInAssets}
-              disabled={assetScalePercent >= 140}
-              title="Increase tile size"
-            >
-              +
+              Cancel
             </WorkbenchButton>
           </div>
-        </div>
+        ) : (
+          <WorkbenchIconButton
+            onClick={() => setIsCreatingFolder(true)}
+            title="New Folder"
+            icon={<FolderAddOutlined />}
+          />
+        )}
 
-        <input
-          ref={uploadInputRef}
-          type="file"
-          accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
-
-        {operationText ? (
-          <div className="screen-editor-operation-bar">
-            <div className="screen-editor-operation-bar__spinner" />
-            <span>{operationText}</span>
-          </div>
+        {onRefreshAssets ? (
+          <WorkbenchIconButton
+            onClick={() => {
+              void runAssetOperation("Refreshing assets...", async () => {
+                await Promise.resolve(onRefreshAssets());
+              });
+            }}
+            title="Refresh"
+            icon={<ReloadOutlined />}
+          />
         ) : null}
+
+        <div className="screen-editor-assets-toolbar__spacer" />
+
+        <div className="screen-editor-asset-scale-controls">
+          <span className="screen-editor-assets-toolbar-label">Tile</span>
+          <span className="screen-editor-assets-tile-size-label">{assetScalePercent}%</span>
+          <WorkbenchIconButton
+            onClick={zoomOutAssets}
+            disabled={assetScalePercent <= 80}
+            title="Decrease Tile Size"
+            icon={<MinusOutlined />}
+          />
+          <WorkbenchIconButton
+            onClick={zoomInAssets}
+            disabled={assetScalePercent >= 140}
+            title="Increase Tile Size"
+            icon={<PlusOutlined />}
+          />
+        </div>
+      </div>
+
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
+        style={{ display: "none" }}
+        onChange={handleFileChange}
+      />
+
+      <div className="screen-editor-assets-breadcrumbs">
+        {breadcrumbs.map((item, index) => (
+          <button
+            key={item.path || "root"}
+            type="button"
+            className={`screen-editor-assets-breadcrumb${item.path === currentFolder ? " screen-editor-assets-breadcrumb--active" : ""}`}
+            onClick={() => setCurrentFolder(item.path)}
+          >
+            {index > 0 ? <span className="screen-editor-assets-breadcrumb-sep">/</span> : null}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {operationText ? (
+        <div className="screen-editor-operation-bar">
+          <div className="screen-editor-operation-bar__spinner" />
+          <span>{operationText}</span>
+        </div>
+      ) : null}
 
         {folderRename ? (
           <div className="screen-editor-assets-inline-panel">
@@ -767,38 +781,24 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
           </div>
         ) : null}
 
-        <div className="screen-editor-assets-breadcrumbs">
-          {breadcrumbs.map((item, index) => (
-            <button
-              key={item.path || "root"}
-              type="button"
-              className={`screen-editor-assets-breadcrumb${item.path === currentFolder ? " screen-editor-assets-breadcrumb--active" : ""}`}
-              onClick={() => setCurrentFolder(item.path)}
-            >
-              {index > 0 ? <span className="screen-editor-assets-breadcrumb-sep">/</span> : null}
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-
-        <div
-          className="screen-editor-asset-grid"
-          style={
-            {
-              "--screen-editor-asset-scale": String(assetScalePercent / 100),
-            } as React.CSSProperties
+      <div
+        className="screen-editor-asset-grid"
+        style={
+          {
+            "--screen-editor-asset-scale": String(assetScalePercent / 100),
+          } as React.CSSProperties
+        }
+        onDragOver={(event) => {
+          if (!onMoveAssetToFolder) {
+            return;
           }
-          onDragOver={(event) => {
-            if (!onMoveAssetToFolder) {
-              return;
-            }
-            if (canAcceptAssetDrag(event)) {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-            }
-          }}
-          onDrop={(event) => moveAsset(event, currentFolder)}
-        >
+          if (canAcceptAssetDrag(event)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+          }
+        }}
+        onDrop={(event) => moveAsset(event, currentFolder)}
+      >
           {visibleFolders.map((folderPath) => {
             const name = getFolderName(folderPath);
             const isDragOver = dragOverFolder === folderPath;
@@ -915,8 +915,7 @@ export function ScreenEditorAssetsWindow(props: ScreenEditorAssetsWindowProps) {
               );
             })
           )}
-        </div>
-      </WorkbenchSection>
+      </div>
 
       {assetContextMenu ? (
         <div

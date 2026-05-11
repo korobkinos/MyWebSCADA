@@ -21,6 +21,11 @@ export type DriverBaseConfig = {
 
 export type SimulatedDriverConfig = DriverBaseConfig & {
   type: "simulated";
+  updateIntervalMs?: number;
+  defaultMode?: "manual" | "random" | "ramp";
+  defaultMin?: number;
+  defaultMax?: number;
+  defaultStep?: number;
 };
 
 export type OpcUaDriverConfig = DriverBaseConfig & {
@@ -239,6 +244,7 @@ export type ProjectUiSettings = {
   theme?: ProjectTheme;
   hideMainMenu?: boolean;
   editorWheelZoomEnabled?: boolean;
+  windowTitle?: string;
 };
 
 export type ProjectRuntimeSettings = {

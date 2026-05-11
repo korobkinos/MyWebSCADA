@@ -7,6 +7,7 @@ import {
   type AuthLoginRequest,
   type ChangeOwnPasswordRequest,
   type CreateUserRequest,
+  type DriverConfig,
   type MacroDefinition,
   type MacroTrigger,
   type OpcUaDriverConfig,
@@ -189,6 +190,20 @@ const opcUaImportSubtreeSchema = z.object({
   scanRateMs: z.number().int().positive().optional(),
   maxNodes: z.number().int().positive().max(100_000).optional(),
 });
+const opcUaConfigQuerySchema = z.object({
+  driverId: z.string().min(1).optional(),
+});
+const opcUaConfigUpdateSchema = z.object({
+  driverId: z.string().min(1).optional(),
+  config: opcUaDriverConfigSchema,
+});
+const opcUaConnectSchema = z.object({
+  driverId: z.string().min(1).optional(),
+  config: opcUaDriverConfigSchema.optional(),
+});
+const opcUaDisconnectSchema = z.object({
+  driverId: z.string().min(1),
+});
 
 type AuthContext = {
   userId: string;
@@ -262,6 +277,38 @@ function resolveOpcUaConfigFromPayload(
     throw new Error(`Driver ${payload.driverId} is not OPC UA`);
   }
   return driver;
+}
+
+async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): Promise<ScadaProject> {
+  const saved = await deps.projectService.saveProject(nextProject);
+  const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
+  deps.tagStore.setDefinitions([...(saved.tags ?? []), ...variableDefinitions]);
+  deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
+  deps.macroService.configure(saved);
+
+  if (deps.runtimeService.getState().running) {
+    await deps.runtimeService.stop();
+    await deps.runtimeService.start(saved);
+  }
+
+  return saved;
+}
+
+function withUpdatedDriver(project: ScadaProject, nextDriver: DriverConfig, driverId?: string): ScadaProject {
+  const targetId = driverId?.trim() || nextDriver.id;
+  const index = project.drivers.findIndex((driver) => driver.id === targetId);
+  if (index < 0) {
+    return {
+      ...project,
+      drivers: [...project.drivers, nextDriver],
+    };
+  }
+  const drivers = [...project.drivers];
+  drivers[index] = nextDriver;
+  return {
+    ...project,
+    drivers,
+  };
 }
 
 async function parseUpload(request: FastifyRequest): Promise<{
@@ -561,6 +608,48 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     return reply.send({ ok: true, ...result });
   });
 
+  app.get("/api/drivers/opcua/config", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.view");
+    if (!auth) {
+      return;
+    }
+    const query = opcUaConfigQuerySchema.parse(request.query ?? {});
+    const project = deps.projectService.getProject();
+    const target = query.driverId
+      ? project.drivers.find((driver) => driver.id === query.driverId && driver.type === "opcua")
+      : project.drivers.find((driver) => driver.type === "opcua");
+    if (!target || target.type !== "opcua") {
+      return reply.code(404).send({ ok: false, message: "OPC UA driver not found" });
+    }
+    return reply.send({ ok: true, config: target });
+  });
+
+  app.put("/api/drivers/opcua/config", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.write");
+    if (!auth) {
+      return;
+    }
+    const payload = opcUaConfigUpdateSchema.parse(request.body ?? {});
+    const project = deps.projectService.getProject();
+    const targetId = payload.driverId?.trim();
+    if (targetId) {
+      const existing = project.drivers.find((driver) => driver.id === targetId);
+      if (existing && existing.type !== "opcua") {
+        return reply.code(400).send({ ok: false, message: `Driver ${targetId} is not OPC UA` });
+      }
+    }
+    const nextConfig: OpcUaDriverConfig = {
+      ...payload.config,
+      id: targetId || payload.config.id,
+      type: "opcua",
+      enabled: payload.config.enabled ?? true,
+    };
+    const nextProject = withUpdatedDriver(project, nextConfig, targetId);
+    const saved = await persistProjectUpdate(deps, nextProject);
+    const savedConfig = saved.drivers.find((driver) => driver.id === nextConfig.id && driver.type === "opcua");
+    return reply.send({ ok: true, config: savedConfig ?? nextConfig });
+  });
+
   app.post("/api/drivers/opcua/test", async (request, reply) => {
     const auth = await requirePermission(request, reply, deps, "drivers.view");
     if (!auth) {
@@ -583,6 +672,63 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         message: error instanceof Error ? error.message : String(error),
       });
     }
+  });
+
+  app.post("/api/drivers/opcua/connect", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.write");
+    if (!auth) {
+      return;
+    }
+    const payload = opcUaConnectSchema.parse(request.body ?? {});
+    const project = deps.projectService.getProject();
+    try {
+      const config = resolveOpcUaConfigFromPayload(project, payload);
+      const status = await deps.driverManager.connectDriver({
+        ...config,
+        type: "opcua",
+        enabled: true,
+      });
+      return reply.send({ ok: true, status });
+    } catch (error) {
+      return reply.code(400).send({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.post("/api/drivers/opcua/disconnect", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.write");
+    if (!auth) {
+      return;
+    }
+    const payload = opcUaDisconnectSchema.parse(request.body ?? {});
+    try {
+      const status = await deps.driverManager.disconnectDriver(payload.driverId);
+      return reply.send({ ok: true, status });
+    } catch (error) {
+      return reply.code(400).send({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get("/api/drivers/opcua/status", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.view");
+    if (!auth) {
+      return;
+    }
+    const query = opcUaConfigQuerySchema.parse(request.query ?? {});
+    const statuses = deps.driverManager.getStatuses();
+    if (!query.driverId) {
+      return reply.send({ ok: true, statuses });
+    }
+    const status = statuses.find((item) => item.id === query.driverId) ?? deps.driverManager.getStatus(query.driverId);
+    if (!status) {
+      return reply.code(404).send({ ok: false, message: `Driver ${query.driverId} status not found` });
+    }
+    return reply.send({ ok: true, status });
   });
 
   app.post("/api/drivers/opcua/browse", async (request, reply) => {

@@ -50,6 +50,61 @@ export class DriverManager {
     return [...this.statuses.values()];
   }
 
+  public getStatus(driverId: string): DriverStatus | undefined {
+    const driver = this.drivers.get(driverId);
+    if (driver) {
+      const status = driver.getStatus();
+      this.statuses.set(driverId, status);
+      return status;
+    }
+    return this.statuses.get(driverId);
+  }
+
+  public async connectDriver(config: DriverConfig): Promise<DriverStatus> {
+    const existing = this.drivers.get(config.id);
+    if (existing) {
+      await existing.stop().catch(() => undefined);
+      this.drivers.delete(config.id);
+    }
+
+    const normalized: DriverConfig = config.enabled ? config : { ...config, enabled: true };
+    const driver = createDriver(normalized);
+    this.drivers.set(normalized.id, driver);
+    this.statuses.set(normalized.id, driver.getStatus());
+    try {
+      await driver.start();
+    } finally {
+      this.statuses.set(normalized.id, driver.getStatus());
+    }
+    return this.statuses.get(normalized.id)!;
+  }
+
+  public async disconnectDriver(driverId: string): Promise<DriverStatus> {
+    const driver = this.drivers.get(driverId);
+    if (!driver) {
+      const fallback: DriverStatus = this.statuses.get(driverId) ?? {
+        id: driverId,
+        type: "opcua",
+        health: "stopped",
+        updatedAt: Date.now(),
+      };
+      const next = { ...fallback, health: "stopped" as const, message: "Disconnected by user", updatedAt: Date.now() };
+      this.statuses.set(driverId, next);
+      return next;
+    }
+
+    await driver.stop().catch(() => undefined);
+    this.drivers.delete(driverId);
+    const next: DriverStatus = {
+      ...driver.getStatus(),
+      health: "stopped",
+      message: "Disconnected by user",
+      updatedAt: Date.now(),
+    };
+    this.statuses.set(driverId, next);
+    return next;
+  }
+
   public async readTag(tag: TagDefinition): Promise<TagValue> {
     if (!tag.driverId) {
       return {

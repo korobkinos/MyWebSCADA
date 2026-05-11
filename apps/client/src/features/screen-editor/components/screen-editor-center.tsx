@@ -1,8 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import {
+  AppstoreOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  EyeOutlined,
+  FontSizeOutlined,
+  MinusOutlined,
+  RedoOutlined,
+  SaveOutlined,
+  SettingOutlined,
+  SnippetsOutlined,
+  UndoOutlined,
+  UnorderedListOutlined,
+} from "@ant-design/icons";
 import { HmiStage } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
   WorkbenchButton,
+  WorkbenchIconButton,
   WorkbenchTabs,
 } from "../../../components/workbench";
 import { isTextEditingTarget } from "../../../utils/keyboard";
@@ -245,93 +260,53 @@ export function ScreenEditorCenter({
       <div className="screen-editor-toolbar">
         <div className="screen-editor-toolbar__row">
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton
+            <WorkbenchIconButton
               onClick={() => void handleSaveProject()}
               disabled={!isProjectDirty || isSavingProject}
-              title="Save project"
-            >
-              Save
-            </WorkbenchButton>
-            <WorkbenchButton onClick={undo} disabled={!canUndo} title="Undo">
-              Undo
-            </WorkbenchButton>
-            <WorkbenchButton onClick={redo} disabled={!canRedo} title="Redo">
-              Redo
-            </WorkbenchButton>
+              title="Save Project"
+              icon={<SaveOutlined />}
+            />
+            <WorkbenchIconButton onClick={undo} disabled={!canUndo} title="Undo" icon={<UndoOutlined />} />
+            <WorkbenchIconButton onClick={redo} disabled={!canRedo} title="Redo" icon={<RedoOutlined />} />
           </div>
 
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("text"))} title="Add text">
-              Text
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("line"))} title="Add line">
-              Line
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))} title="Add rectangle">
-              Rect
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("square")} title="Add square">
-              Square
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("circle")} title="Add circle">
-              Circle
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("triangle")} title="Add triangle">
-              Triangle
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("button"))} title="Add button">
-              Button
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("switch"))} title="Add switch">
-              Switch
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))} title="Add value display">
-              Value
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add state indicator">
-              Indicator
-            </WorkbenchButton>
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("text"))} title="Add Text" icon={<FontSizeOutlined />} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("line"))} title="Add Line" icon={<MinusOutlined />} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))} title="Add Rectangle" icon={<span>R</span>} />
+            <WorkbenchIconButton onClick={() => addPrimitiveShape("square")} title="Add Square" icon={<span>Sq</span>} />
+            <WorkbenchIconButton onClick={() => addPrimitiveShape("circle")} title="Add Circle" icon={<span>O</span>} />
+            <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle")} title="Add Triangle" icon={<span>Tr</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("button"))} title="Add Button" icon={<span>B</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("switch"))} title="Add Switch" icon={<span>Sw</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))} title="Add Value Display" icon={<span>V</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<span>I</span>} />
           </div>
 
           <div className="screen-editor-toolbar__spacer" />
 
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton onClick={() => navigate("/runtime")} title="Open runtime preview">
-              Preview
-            </WorkbenchButton>
-            <WorkbenchButton onClick={onOpenScreenSettings} title="Open screen settings">
-              Screen
-            </WorkbenchButton>
-            <WorkbenchButton onClick={onOpenLayers} title="Open layers window">
-              Layers
-            </WorkbenchButton>
-            <WorkbenchButton onClick={onOpenObjectProperties} title="Open object properties window">
-              Properties
-            </WorkbenchButton>
-            <WorkbenchButton
+            <WorkbenchIconButton onClick={() => navigate("/runtime")} title="Preview" icon={<EyeOutlined />} />
+            <WorkbenchIconButton onClick={onOpenScreenSettings} title="Open Screen Settings" icon={<AppstoreOutlined />} />
+            <WorkbenchIconButton onClick={onOpenLayers} title="Open Layers Window" icon={<UnorderedListOutlined />} />
+            <WorkbenchIconButton onClick={onOpenObjectProperties} title="Open Object Properties Window" icon={<SettingOutlined />} />
+            <WorkbenchIconButton
               onClick={onOpenSaveSelection}
               disabled={!canSaveSelection}
-              title="Save selected objects as library element"
-            >
-              Save Selection
-            </WorkbenchButton>
+              title="Save Selection As Element"
+              icon={<SaveOutlined />}
+            />
           </div>
 
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton onClick={copySelectionToClipboard} disabled={!canCopy} title="Copy selected objects">
-              Copy
-            </WorkbenchButton>
-            <WorkbenchButton onClick={pasteFromClipboard} disabled={!canPaste} title="Paste objects">
-              Paste
-            </WorkbenchButton>
-            <WorkbenchButton
-              variant="danger"
+            <WorkbenchIconButton onClick={copySelectionToClipboard} disabled={!canCopy} title="Copy" icon={<CopyOutlined />} />
+            <WorkbenchIconButton onClick={pasteFromClipboard} disabled={!canPaste} title="Paste" icon={<SnippetsOutlined />} />
+            <WorkbenchIconButton
               onClick={deleteSelectionWithHistory}
               disabled={!canDelete}
-              title="Delete selected objects"
-            >
-              Delete
-            </WorkbenchButton>
+              title="Delete"
+              icon={<DeleteOutlined />}
+            />
           </div>
         </div>
 

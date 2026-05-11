@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "name": "Maxim Web SCADA Lite",
+  "name": "Max Web SCADA Lite",
   "projectInfo": {
     "title": "Maxim Web SCADA Lite",
     "subtitle": "Maxim Web SCADA Lite"
@@ -8,7 +8,8 @@
   "uiSettings": {
     "theme": "dark",
     "hideMainMenu": true,
-    "editorWheelZoomEnabled": false
+    "editorWheelZoomEnabled": false,
+    "windowTitle": "Котёл K-11"
   },
   "assets": [
     {
@@ -94,7 +95,11 @@
     {
       "id": "sim_1",
       "type": "simulated",
-      "enabled": true
+      "enabled": true,
+      "updateIntervalMs": 200,
+      "defaultMin": 0,
+      "defaultMax": 10,
+      "defaultStep": 1
     },
     {
       "id": "opcua_f6g773",
@@ -113,15 +118,17 @@
   "tags": [
     {
       "name": "Boiler.Pressure",
-      "dataType": "REAL",
+      "sourceType": "simulated",
+      "dataType": "INT",
       "driverId": "sim_1",
       "address": {
         "pattern": "sine",
-        "periodMs": 6000,
-        "min": 8,
-        "max": 16
+        "periodMs": 1000,
+        "min": 0,
+        "max": 1000,
+        "step": 1
       },
-      "scanRateMs": 500
+      "scanRateMs": 1000
     },
     {
       "name": "Burner_1.Flame",
@@ -156,6 +163,7 @@
     },
     {
       "name": "Burner_1.PZK_1.VisualState",
+      "sourceType": "simulated",
       "dataType": "INT",
       "driverId": "sim_1",
       "address": {
@@ -13347,7 +13355,7 @@
       "kind": "screen",
       "width": 1800,
       "height": 1000,
-      "background": "rgb(40,28,72)",
+      "background": "#0a0709",
       "objects": [
         {
           "id": "title",
@@ -13395,7 +13403,7 @@
           "y": 86,
           "width": 180,
           "height": 30,
-          "tag": "VALUE_ZALUPA",
+          "tag": "Burner_1.PZK_1.VisualState",
           "suffix": " z",
           "badQualityText": "BAD",
           "textStyle": {

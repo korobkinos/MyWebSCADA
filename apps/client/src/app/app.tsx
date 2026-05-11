@@ -141,8 +141,21 @@ export function App() {
     }
   }, [project?.uiSettings?.hideMainMenu]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const windowTitle = project?.uiSettings?.windowTitle?.trim()
+      || project?.projectInfo?.title?.trim()
+      || project?.name?.trim()
+      || "Web SCADA";
+    document.title = windowTitle;
+  }, [project?.name, project?.projectInfo?.title, project?.uiSettings?.windowTitle]);
+
+  const effectiveUiTheme: ProjectTheme = isEditorRoute ? "dark" : uiTheme;
+
   const themeConfig = useMemo(() => {
-    if (uiTheme === "dark") {
+    if (effectiveUiTheme === "dark") {
       return {
         algorithm: antdTheme.darkAlgorithm,
         token: {
@@ -162,7 +175,7 @@ export function App() {
         colorPrimary: "#1677ff",
       },
     } as const;
-  }, [uiTheme]);
+  }, [effectiveUiTheme]);
 
   if (!authResolved) {
     return <CenteredSpinner />;

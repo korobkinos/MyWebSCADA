@@ -31,6 +31,19 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
     setDefaultTool(readStoredTool());
   }, [project]);
 
+  useEffect(() => {
+    if ((project.uiSettings?.theme ?? "dark") === "dark") {
+      return;
+    }
+    onUpdateProject({
+      ...project,
+      uiSettings: {
+        ...(project.uiSettings ?? {}),
+        theme: "dark",
+      },
+    });
+  }, [onUpdateProject, project]);
+
   const updateProjectInfo = (patch: Partial<NonNullable<ScadaProject["projectInfo"]>>) => {
     onUpdateProject({
       ...project,
@@ -89,6 +102,14 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
               onChange={(event) => updateProjectInfo({ subtitle: event.target.value })}
             />
           </label>
+          <label className="screen-editor-settings-field">
+            <span>Window Title</span>
+            <input
+              className="workbench-input"
+              value={project.uiSettings?.windowTitle ?? ""}
+              onChange={(event) => updateUiSettings({ windowTitle: event.target.value })}
+            />
+          </label>
         </div>
       </WorkbenchSection>
 
@@ -117,17 +138,6 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
               onChange={(event) => updateUiSettings({ hideMainMenu: event.target.checked })}
             />
             <span>Hide main menu</span>
-          </label>
-          <label className="screen-editor-settings-field">
-            <span>Theme</span>
-            <select
-              className="workbench-select"
-              value={project.uiSettings?.theme ?? "dark"}
-              onChange={(event) => updateUiSettings({ theme: event.target.value as "light" | "dark" })}
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
           </label>
           <label className="screen-editor-settings-field">
             <span>Default Tool</span>

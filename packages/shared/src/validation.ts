@@ -680,6 +680,11 @@ const simulatedDriverSchema = z.object({
   type: z.literal("simulated"),
   enabled: z.boolean(),
   name: z.string().optional(),
+  updateIntervalMs: z.number().int().positive().optional(),
+  defaultMode: z.enum(["manual", "random", "ramp"]).optional(),
+  defaultMin: z.number().optional(),
+  defaultMax: z.number().optional(),
+  defaultStep: z.number().optional(),
 });
 
 const opcuaDriverSchema = z.object({
@@ -733,6 +738,7 @@ const projectUiSettingsSchema = z.object({
   theme: z.enum(["light", "dark"]).optional(),
   hideMainMenu: z.boolean().optional(),
   editorWheelZoomEnabled: z.boolean().optional(),
+  windowTitle: z.string().optional(),
 });
 
 const projectRuntimeSettingsSchema = z.object({

@@ -42,6 +42,18 @@ export type OpcUaDriverConfigInput = {
   reconnectMs?: number;
 };
 
+export type SimulatedDriverSettingsInput = {
+  id: string;
+  type: "simulated";
+  enabled?: boolean;
+  name?: string;
+  updateIntervalMs?: number;
+  defaultMode?: "manual" | "random" | "ramp";
+  defaultMin?: number;
+  defaultMax?: number;
+  defaultStep?: number;
+};
+
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
 
 function getEngineerToken(): string | null {
@@ -156,6 +168,29 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ config }),
     }),
+  getOpcUaConfig: (driverId?: string) =>
+    request<{ ok: boolean; config: OpcUaDriverConfigInput }>(
+      `/api/drivers/opcua/config${driverId ? `?driverId=${encodeURIComponent(driverId)}` : ""}`,
+    ),
+  updateOpcUaConfig: (payload: { config: OpcUaDriverConfigInput; driverId?: string }) =>
+    request<{ ok: boolean; config: OpcUaDriverConfigInput }>("/api/drivers/opcua/config", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  opcUaConnect: (payload: { driverId?: string; config?: OpcUaDriverConfigInput }) =>
+    request<{ ok: boolean; status?: DriverStatus; message?: string }>("/api/drivers/opcua/connect", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  opcUaDisconnect: (driverId: string) =>
+    request<{ ok: boolean; status?: DriverStatus; message?: string }>("/api/drivers/opcua/disconnect", {
+      method: "POST",
+      body: JSON.stringify({ driverId }),
+    }),
+  getOpcUaStatus: (driverId?: string) =>
+    request<{ ok: boolean; status?: DriverStatus; statuses?: DriverStatus[]; message?: string }>(
+      `/api/drivers/opcua/status${driverId ? `?driverId=${encodeURIComponent(driverId)}` : ""}`,
+    ),
   opcUaBrowse: (payload: { driverId?: string; config?: OpcUaDriverConfigInput; nodeId?: string; search?: string }) =>
     request<{ ok: boolean; nodeId: string; nodes: OpcUaBrowseItem[]; message?: string }>("/api/drivers/opcua/browse", {
       method: "POST",
