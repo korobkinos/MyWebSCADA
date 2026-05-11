@@ -36,6 +36,12 @@ export type OpcUaImportCandidate = {
 
 const OPCUA_BROWSE_RESULT_MASK_ALL_FIELDS = 0x3f;
 const OPCUA_NODECLASS_UNSPECIFIED = 0;
+const OPCUA_NODECLASS_WITH_POTENTIAL_CHILDREN = new Set<number>([
+  NodeClass.Unspecified,
+  NodeClass.Object,
+  NodeClass.Variable,
+  NodeClass.View,
+]);
 
 function isBlankOrNullLike(value: string | undefined): boolean {
   if (!value) {
@@ -150,8 +156,8 @@ export async function browseOpcUaNode(
   const references = result.references ?? [];
   const term = search?.trim().toLowerCase();
 
-  const items = await Promise.all(
-    references.map(async (ref): Promise<OpcUaBrowseItem> => {
+  const enriched = await Promise.all(
+    references.map(async (ref) => {
       const refNodeId = ref.nodeId.toString();
       let browseName = toQualifiedNameText(ref.browseName);
       let displayName = toLocalizedText(ref.displayName);
@@ -180,7 +186,7 @@ export async function browseOpcUaNode(
         if (!displayName) {
           displayName = toLocalizedText(displayNameAttr?.value?.value);
         }
-        if (nodeClassNumeric === undefined) {
+        if (nodeClassNumeric === undefined || nodeClassNumeric === OPCUA_NODECLASS_UNSPECIFIED) {
           const rawNodeClass = nodeClassAttr?.value?.value;
           if (typeof rawNodeClass === "number") {
             nodeClassNumeric = rawNodeClass;
@@ -192,25 +198,62 @@ export async function browseOpcUaNode(
         writable = typeof access === "number" ? (access & 0x2) !== 0 : undefined;
       }
 
-      const resolvedNodeClass = nodeClassNumeric ?? NodeClass.Unspecified;
-      const nodeClassName = NodeClass[resolvedNodeClass] ?? String(resolvedNodeClass);
-      const hasChildren =
-        resolvedNodeClass === NodeClass.Object ||
-        resolvedNodeClass === NodeClass.Variable ||
-        resolvedNodeClass === NodeClass.View ||
-        resolvedNodeClass === NodeClass.Unspecified;
-
       return {
         nodeId: refNodeId,
         browseName: isBlankOrNullLike(browseName) ? refNodeId : browseName!,
         displayName: isBlankOrNullLike(displayName) ? (isBlankOrNullLike(browseName) ? refNodeId : browseName!) : displayName!,
-        nodeClass: nodeClassName,
+        nodeClassNumeric: nodeClassNumeric ?? NodeClass.Unspecified,
         dataType,
         writable,
-        hasChildren,
       };
     }),
   );
+
+  const nodesToCheck = enriched
+    .filter((item) => OPCUA_NODECLASS_WITH_POTENTIAL_CHILDREN.has(item.nodeClassNumeric) || item.nodeClassNumeric > 0)
+    .map((item) => item.nodeId);
+
+  const hasChildrenByNodeId = new Map<string, boolean>();
+  if (nodesToCheck.length > 0) {
+    try {
+      const browseResults = await session.browse(
+        nodesToCheck.map((childNodeId) => ({
+          nodeId: childNodeId,
+          browseDirection: BrowseDirection.Forward,
+          includeSubtypes: true,
+          referenceTypeId: "HierarchicalReferences",
+          resultMask: OPCUA_BROWSE_RESULT_MASK_ALL_FIELDS,
+        })),
+      );
+      const list = Array.isArray(browseResults) ? browseResults : [browseResults];
+      list.forEach((childBrowseResult, index) => {
+        const currentNodeId = nodesToCheck[index];
+        if (!currentNodeId) {
+          return;
+        }
+        const refs = childBrowseResult?.references ?? [];
+        const hasContinuationPoint = Boolean(childBrowseResult?.continuationPoint?.length);
+        hasChildrenByNodeId.set(currentNodeId, refs.length > 0 || hasContinuationPoint);
+      });
+    } catch {
+      for (const currentNodeId of nodesToCheck) {
+        hasChildrenByNodeId.set(currentNodeId, true);
+      }
+    }
+  }
+
+  const items = enriched.map<OpcUaBrowseItem>((item) => {
+    const nodeClassName = NodeClass[item.nodeClassNumeric] ?? String(item.nodeClassNumeric);
+    return {
+      nodeId: item.nodeId,
+      browseName: item.browseName,
+      displayName: item.displayName,
+      nodeClass: nodeClassName,
+      dataType: item.dataType,
+      writable: item.writable,
+      hasChildren: hasChildrenByNodeId.get(item.nodeId) ?? false,
+    };
+  });
 
   if (!term) {
     return items;

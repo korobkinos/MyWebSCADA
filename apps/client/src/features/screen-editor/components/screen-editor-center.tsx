@@ -3,7 +3,6 @@ import { HmiStage } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
   WorkbenchButton,
-  WorkbenchPanelToolbar,
   WorkbenchTabs,
 } from "../../../components/workbench";
 import type { EditorCommand, HmiObject, HmiScreen, ScadaProject } from "@web-scada/shared";
@@ -23,6 +22,9 @@ export type ScreenEditorCenterProps = {
   toggleSelectedObject: (id: string) => void;
   setSelectedObjects: (ids: string[], activeId?: string) => void;
   onOpenObjectProperties: () => void;
+  onOpenLayers: () => void;
+  onOpenSaveSelection: () => void;
+  canSaveSelection: boolean;
   setContextMenu: (v: any) => void;
   handleDrop: (event: DragEvent<HTMLDivElement>, position?: DropPosition) => void;
   moveObjectWithHistory: (id: string, x: number, y: number) => void;
@@ -70,6 +72,9 @@ export function ScreenEditorCenter({
   toggleSelectedObject,
   setSelectedObjects,
   onOpenObjectProperties,
+  onOpenLayers,
+  onOpenSaveSelection,
+  canSaveSelection,
   setContextMenu,
   handleDrop,
   moveObjectWithHistory,
@@ -117,63 +122,162 @@ export function ScreenEditorCenter({
           },
         ]}
       />
-      <WorkbenchPanelToolbar
-        left={
-          <>
-            <WorkbenchButton onClick={() => void handleSaveProject()} disabled={!isProjectDirty || isSavingProject}>
+
+      <div className="screen-editor-toolbar">
+        <div className="screen-editor-toolbar__row">
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton
+              onClick={() => void handleSaveProject()}
+              disabled={!isProjectDirty || isSavingProject}
+              title="Save project"
+            >
               Save
             </WorkbenchButton>
-            <WorkbenchButton onClick={undo} disabled={!canUndo}>↩</WorkbenchButton>
-            <WorkbenchButton onClick={redo} disabled={!canRedo}>↪</WorkbenchButton>
-          </>
-        }
-        center={
-          <>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("text"))}>Text</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("line"))}>Line</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))}>Rect</WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("square")}>Square</WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("circle")}>Circle</WorkbenchButton>
-            <WorkbenchButton onClick={() => addPrimitiveShape("triangle")}>Triangle</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("button"))}>Button</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("switch"))}>Switch</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))}>Value</WorkbenchButton>
-            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))}>Indicator</WorkbenchButton>
-          </>
-        }
-        right={
-          <>
-            <WorkbenchButton onClick={() => navigate("/runtime")}>▶ Preview</WorkbenchButton>
-            <WorkbenchButton onClick={copySelectionToClipboard} disabled={!canCopy}>Copy</WorkbenchButton>
-            <WorkbenchButton onClick={pasteFromClipboard} disabled={!canPaste}>Paste</WorkbenchButton>
-            <WorkbenchButton variant="danger" onClick={deleteSelectionWithHistory} disabled={!canDelete}>Del</WorkbenchButton>
-          </>
-        }
-      />
-      <div style={{ padding: "4px 10px", display: "flex", gap: 4, flexWrap: "wrap", background: "#252526", borderBottom: "1px solid #3c3c3c" }}>
-        <WorkbenchButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize}>W=</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize}>H=</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize}>□=</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute}>↔</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute}>↕</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign}>⊣</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign}>⟷</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign}>⊢</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign}>⊤</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign}>↕c</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign}>⊥</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>Group</WorkbenchButton>
-        <WorkbenchButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</WorkbenchButton>
-        <WorkbenchButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length}>Clone</WorkbenchButton>
-        <input
-          className="workbench-input"
-          type="number"
-          value={spacingGap ?? ""}
-          onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-          placeholder="Gap"
-          style={{ width: 60 }}
-        />
+            <WorkbenchButton onClick={undo} disabled={!canUndo} title="Undo">
+              Undo
+            </WorkbenchButton>
+            <WorkbenchButton onClick={redo} disabled={!canRedo} title="Redo">
+              Redo
+            </WorkbenchButton>
+          </div>
+
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("text"))} title="Add text">
+              Text
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("line"))} title="Add line">
+              Line
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))} title="Add rectangle">
+              Rect
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addPrimitiveShape("square")} title="Add square">
+              Square
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addPrimitiveShape("circle")} title="Add circle">
+              Circle
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addPrimitiveShape("triangle")} title="Add triangle">
+              Triangle
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("button"))} title="Add button">
+              Button
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("switch"))} title="Add switch">
+              Switch
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))} title="Add value display">
+              Value
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add state indicator">
+              Indicator
+            </WorkbenchButton>
+          </div>
+
+          <div className="screen-editor-toolbar__spacer" />
+
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton onClick={() => navigate("/runtime")} title="Open runtime preview">
+              Preview
+            </WorkbenchButton>
+            <WorkbenchButton onClick={onOpenLayers} title="Open layers window">
+              Layers
+            </WorkbenchButton>
+            <WorkbenchButton onClick={onOpenObjectProperties} title="Open object properties window">
+              Properties
+            </WorkbenchButton>
+            <WorkbenchButton
+              onClick={onOpenSaveSelection}
+              disabled={!canSaveSelection}
+              title="Save selected objects as library element"
+            >
+              Save Selection
+            </WorkbenchButton>
+          </div>
+
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton onClick={copySelectionToClipboard} disabled={!canCopy} title="Copy selected objects">
+              Copy
+            </WorkbenchButton>
+            <WorkbenchButton onClick={pasteFromClipboard} disabled={!canPaste} title="Paste objects">
+              Paste
+            </WorkbenchButton>
+            <WorkbenchButton
+              variant="danger"
+              onClick={deleteSelectionWithHistory}
+              disabled={!canDelete}
+              title="Delete selected objects"
+            >
+              Delete
+            </WorkbenchButton>
+          </div>
+        </div>
+
+        <div className="screen-editor-toolbar__row">
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize} title="Make same width">
+              Same W
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize} title="Make same height">
+              Same H
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size">
+              Same Size
+            </WorkbenchButton>
+          </div>
+
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute} title="Distribute horizontally">
+              Dist H
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically">
+              Dist V
+            </WorkbenchButton>
+            <input
+              className="workbench-input screen-editor-toolbar__gap-input"
+              type="number"
+              value={spacingGap ?? ""}
+              onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
+              placeholder="Gap"
+              title="Distribution gap"
+            />
+          </div>
+
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign} title="Align left">
+              Align L
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign} title="Align horizontal center">
+              Align C
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign} title="Align right">
+              Align R
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign} title="Align top">
+              Align T
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign} title="Align vertical center">
+              Align M
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign} title="Align bottom">
+              Align B
+            </WorkbenchButton>
+          </div>
+
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup} title="Group selected objects">
+              Group
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup} title="Ungroup selected objects">
+              Ungroup
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length} title="Clone selected objects">
+              Clone
+            </WorkbenchButton>
+          </div>
+        </div>
       </div>
+
       <div
         className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}`}
         onContextMenu={(event) => {

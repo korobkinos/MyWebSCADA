@@ -13059,6 +13059,38 @@
       },
       "writable": true,
       "scanRateMs": 500
+    },
+    {
+      "id": "tag_oseu20",
+      "name": "VALUE_ZALUPA",
+      "description": "VALUE",
+      "sourceType": "opcua",
+      "dataType": "REAL",
+      "driverId": "opcua_f6g773",
+      "nodeId": "ns=2;s=Application.GVL_MAIN.AI_MAIN[1].STATUS",
+      "address": {
+        "nodeId": "ns=2;s=Application.GVL_MAIN.AI_MAIN[1].STATUS"
+      },
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-05-11T13:04:06.304Z",
+      "updatedAt": "2026-05-11T14:32:29.765Z"
+    },
+    {
+      "id": "tag_1xdrnd",
+      "name": "VALUE11111111",
+      "description": "VALUE",
+      "sourceType": "opcua",
+      "dataType": "REAL",
+      "driverId": "opcua_f6g773",
+      "nodeId": "ns=2;s=Application.GVL_MAIN.AI_MAIN[1].VALUE",
+      "address": {
+        "nodeId": "ns=2;s=Application.GVL_MAIN.AI_MAIN[1].VALUE"
+      },
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-05-11T13:19:06.474Z",
+      "updatedAt": "2026-05-11T13:19:06.474Z"
     }
   ],
   "variables": [
@@ -13343,12 +13375,13 @@
         {
           "id": "pressure_value",
           "type": "value-display",
-          "x": 220,
-          "y": 95,
+          "name": "xxx",
+          "x": 256,
+          "y": 86,
           "width": 180,
           "height": 30,
-          "tag": "GVL_BURNER_RUNTIME.burner_count",
-          "suffix": " ",
+          "tag": "VALUE_ZALUPA",
+          "suffix": " z",
           "badQualityText": "BAD",
           "textStyle": {
             "fontFamily": "Consolas",
@@ -13860,6 +13893,27 @@
           "assetId": "471c21da-a815-4098-afba-a186c20872ce",
           "fit": "contain",
           "preserveAspectRatio": true
+        },
+        {
+          "id": "value-display_dfe1jd",
+          "type": "value-display",
+          "name": "xxx_1",
+          "x": 288,
+          "y": 356,
+          "width": 180,
+          "height": 30,
+          "tag": "VALUE11111111",
+          "suffix": " zazaza",
+          "badQualityText": "BAD",
+          "textStyle": {
+            "fontFamily": "Consolas",
+            "fontSize": 18,
+            "fontStyle": "normal",
+            "color": "#91caff",
+            "horizontalAlign": "right",
+            "verticalAlign": "middle",
+            "padding": 2
+          }
         }
       ]
     },

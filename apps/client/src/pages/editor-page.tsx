@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   Asset,
@@ -25,6 +25,16 @@ import {
   Typography,
   message,
 } from "antd";
+import {
+  ApiOutlined,
+  AppstoreOutlined,
+  FileImageOutlined,
+  FolderOpenOutlined,
+  PlayCircleOutlined,
+  SearchOutlined,
+  TagsOutlined,
+  UnorderedListOutlined,
+} from "@ant-design/icons";
 import { api } from "../services/api";
 import { FloatingPanel } from "../components/floating-panel";
 import { ObjectPropertyPanel } from "../components/object-property-panel";
@@ -42,16 +52,19 @@ import {
 } from "../components/workbench";
 import {
   ScreenEditorAssetsWindow,
+  ScreenEditorLayersWindow,
   ScreenEditorLibrariesWindow,
-  ScreenEditorTagsWindow,
   ScreenEditorDriversWindow,
+  ScreenEditorRuntimeWindow,
+  ScreenEditorSaveSelectionWindow,
+  ScreenEditorScreensWindow,
+  ScreenEditorSearchWindow,
+  ScreenEditorTagsWindow,
 } from "../features/screen-editor/windows";
 import {
   ScreenEditorCenter,
-  ScreenEditorLeftPanel,
-  ScreenEditorRightPanel,
   ScreenEditorBottomPanel,
-  type ScreenEditorActivityId,
+  type ScreenEditorLogEntry,
 } from "../features/screen-editor/components";
 
 type CloneOptions = {
@@ -140,6 +153,7 @@ export function EditorPage() {
   const tags = useScadaStore((s) => s.tags);
   const assets = useScadaStore((s) => s.assets);
   const libraries = useScadaStore((s) => s.libraries);
+  const runtime = useScadaStore((s) => s.runtime);
   const currentScreenId = useScadaStore((s) => s.currentScreenId);
   const selection = useScadaStore((s) => s.selection);
   const setCurrentScreen = useScadaStore((s) => s.setCurrentScreen);
@@ -152,29 +166,27 @@ export function EditorPage() {
   const updateObject = useScadaStore((s) => s.updateObject);
   const setScreenObjects = useScadaStore((s) => s.setScreenObjects);
   const removeObject = useScadaStore((s) => s.removeObject);
-  const removeSelectedUnlocked = useScadaStore((s) => s.removeSelectedUnlocked);
   const addObject = useScadaStore((s) => s.addObject);
   const addScreen = useScadaStore((s) => s.addScreen);
-  const updateScreen = useScadaStore((s) => s.updateScreen);
   const saveProject = useScadaStore((s) => s.saveProject);
   const loadProject = useScadaStore((s) => s.loadProject);
   const loadAssets = useScadaStore((s) => s.loadAssets);
   const loadLibraries = useScadaStore((s) => s.loadLibraries);
+  const startRuntime = useScadaStore((s) => s.startRuntime);
+  const stopRuntime = useScadaStore((s) => s.stopRuntime);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
 
   const [pendingDeleteScreenId, setPendingDeleteScreenId] = useState<string | null>(null);
   const [newScreenKind, setNewScreenKind] = useState<ScreenKind>("screen");
   const [newLibraryId, setNewLibraryId] = useState("custom-equipment");
-  const [newLibraryName, setNewLibraryName] = useState("Пользовательская библиотека");
-  const [selectionIds, setSelectionIds] = useState<string[]>([]);
-  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [newLibraryName, setNewLibraryName] = useState("Custom Library");
   const [saveTargetLibraryId, setSaveTargetLibraryId] = useState("");
-  const [saveElementName, setSaveElementName] = useState("Новый элемент");
+  const [saveElementName, setSaveElementName] = useState("New Element");
   const [saveElementDescription, setSaveElementDescription] = useState("");
   const [saveElementCategory, setSaveElementCategory] = useState("General");
   const [assetUploadName, setAssetUploadName] = useState("");
   const [spacingGap, setSpacingGap] = useState<number | undefined>(undefined);
-  const [showObjectFrames, setShowObjectFrames] = useState(false);
+  const [showObjectFrames] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneOptions, setCloneOptions] = useState<CloneOptions>({
     count: 2,
@@ -185,7 +197,6 @@ export function EditorPage() {
     startIndex: 1,
     step: 1,
   });
-  const [activeActivityId, setActiveActivityId] = useState<ScreenEditorActivityId>("explorer");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; visible: boolean }>({
     x: 0,
     y: 0,
@@ -194,17 +205,43 @@ export function EditorPage() {
   const [objectClipboard, setObjectClipboard] = useState<HmiObject[]>([]);
   const [pasteIteration, setPasteIteration] = useState(0);
   const [screenSearch, setScreenSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [screenKindFilter, setScreenKindFilter] = useState<"all" | ScreenKind>("all");
   const [screenViewMode, setScreenViewMode] = useState<"grid" | "list">("grid");
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("Loaded");
   const [savedProjectSignature, setSavedProjectSignature] = useState<string | null>(null);
+  const [editorLog, setEditorLog] = useState<ScreenEditorLogEntry[]>([]);
   const [viewAssetId, setViewAssetId] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [floatingLibraries, setFloatingLibraries] = useState<boolean>(false);
   const [floatingAssets, setFloatingAssets] = useState<boolean>(false);
   const [floatingLibRect, setFloatingLibRect] = useState({ x: 120, y: 120, width: 460, height: 520 });
   const [floatingAssetRect, setFloatingAssetRect] = useState({ x: 180, y: 160, width: 480, height: 520 });
+  const {
+    openWindows,
+    openWindow,
+    closeWindow,
+    focusWindow,
+    moveWindow,
+    resizeWindow,
+    isWindowOpen,
+  } = useWorkbenchWindows();
+
+  const appendEditorLog = useCallback((level: ScreenEditorLogEntry["level"], messageText: string) => {
+    const now = new Date();
+    const entry: ScreenEditorLogEntry = {
+      id: `${now.getTime()}_${Math.random().toString(36).slice(2, 7)}`,
+      time: now.toLocaleTimeString(),
+      level,
+      message: messageText,
+    };
+    setEditorLog((prev) => [...prev.slice(-199), entry]);
+  }, []);
+
+  const clearEditorLog = useCallback(() => {
+    setEditorLog([]);
+  }, []);
 
   const screen = useMemo(
     () => project?.screens.find((s) => s.id === currentScreenId) ?? project?.screens[0],
@@ -227,6 +264,17 @@ export function EditorPage() {
     (selection.activeObjectId ? selectedObjects.find((obj) => obj.id === selection.activeObjectId) : undefined) ??
     selectedObjects[0] ??
     null;
+  const selectedBounds = useMemo(
+    () => (selectedObjects.length ? computeBounds(selectedObjects) : null),
+    [selectedObjects],
+  );
+  const startScreenName = useMemo(() => {
+    const startId = project?.startScreenId;
+    if (!startId) {
+      return "-";
+    }
+    return project?.screens.find((item) => item.id === startId)?.name ?? startId;
+  }, [project]);
   const history = useSnapshotHistory<HmiObject[]>({ maxSteps: 50 });
 
   const captureObjects = useCallback((): HmiObject[] => structuredClone(screen?.objects ?? []), [screen?.objects]);
@@ -298,6 +346,26 @@ export function EditorPage() {
       runWithHistory(label, () => updateObject(screen.id, objectId, patch));
     },
     [runWithHistory, screen, updateObject],
+  );
+
+  const patchActiveObject = useCallback(
+    (patch: Partial<HmiObject>) => {
+      if (!screen) {
+        return;
+      }
+      const state = useScadaStore.getState();
+      const objectId = state.selection.activeObjectId ?? state.selection.selectedObjectIds[0];
+      if (!objectId) {
+        return;
+      }
+      const currentScreen = state.project?.screens.find((item) => item.id === screen.id);
+      const currentObject = currentScreen?.objects.find((item) => item.id === objectId);
+      if (!currentObject) {
+        return;
+      }
+      updateObjectWithHistory(objectId, patch, `Patch object ${currentObject.name?.trim() || currentObject.id}`);
+    },
+    [screen, updateObjectWithHistory],
   );
 
   const removeObjectWithHistory = useCallback(
@@ -423,17 +491,20 @@ export function EditorPage() {
     setIsSavingProject(true);
     try {
       await saveProject();
+      const latestProject = useScadaStore.getState().project;
       setSaveStatusText("Saved");
-      setSavedProjectSignature(currentProjectSignature);
+      setSavedProjectSignature(buildProjectSaveSignature(latestProject));
+      appendEditorLog("success", "action=save-project status=OK");
       void message.success("Project saved");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setSaveStatusText("Save failed");
+      appendEditorLog("error", `action=save-project status=ERROR error=${errorMessage || "unknown error"}`);
       void message.error(errorMessage || "Failed to save project");
     } finally {
       setIsSavingProject(false);
     }
-  }, [currentProjectSignature, saveProject]);
+  }, [appendEditorLog, saveProject]);
 
   const runCommand = useCallback(
     (command: EditorCommand) => {
@@ -621,6 +692,15 @@ export function EditorPage() {
     [project, updateProjectJson],
   );
 
+  const selectObjectFromSearch = useCallback(
+    (screenId: string, objectId: string) => {
+      setCurrentScreen(screenId);
+      setSelectedObjects([objectId], objectId);
+      closeWindow("search");
+    },
+    [closeWindow, setCurrentScreen, setSelectedObjects],
+  );
+
   const createLibrary = useCallback(async () => {
     if (!newLibraryId.trim()) {
       void message.warning("Library ID is required");
@@ -644,26 +724,6 @@ export function EditorPage() {
       } catch (error) {
         void message.error(error instanceof Error ? error.message : "Failed to attach library");
       }
-    },
-    [updateProjectJson],
-  );
-
-  const detachLibrary = useCallback(
-    async (libraryId: string) => {
-      Modal.confirm({
-        title: "Detach library",
-        content: "Remove this library from the project? Library file will not be deleted.",
-        okText: "Detach",
-        onOk: async () => {
-          try {
-            const next = await api.detachLibrary(libraryId);
-            updateProjectJson(next);
-            void message.success("Library detached");
-          } catch (error) {
-            void message.error(error instanceof Error ? error.message : "Failed to detach library");
-          }
-        },
-      });
     },
     [updateProjectJson],
   );
@@ -702,6 +762,10 @@ export function EditorPage() {
   );
 
   const onSaveSelectionAsLibraryElement = useCallback(async () => {
+    if (!selectedObjects.length) {
+      void message.warning("Select one or more objects on canvas");
+      return;
+    }
     if (!saveTargetLibraryId) {
       void message.warning("Select library");
       return;
@@ -710,6 +774,8 @@ export function EditorPage() {
       void message.warning("Element name is required");
       return;
     }
+    const normalizedObjects = normalizeObjects(selectedObjects);
+    const bounds = computeBounds(selectedObjects);
     const now = new Date().toISOString();
     const element: LibraryElement = {
       id: id("element"),
@@ -717,9 +783,9 @@ export function EditorPage() {
       name: saveElementName.trim(),
       description: saveElementDescription.trim(),
       category: saveElementCategory.trim(),
-      width: screen?.width ?? 220,
-      height: screen?.height ?? 120,
-      objects: structuredClone(selectedObjects),
+      width: bounds.width,
+      height: bounds.height,
+      objects: normalizedObjects,
       bindings: [],
       parameters: [],
       stateRules: [],
@@ -731,12 +797,15 @@ export function EditorPage() {
       element.objects = copiedObjects;
       await api.createLibraryElement(saveTargetLibraryId, element);
       await loadLibraries();
-      setSaveModalOpen(false);
+      closeWindow("saveSelectionAsElement");
+      appendEditorLog("success", `action=save-library-element status=OK element=${element.name} id=${element.id}`);
       void message.success("Element saved to library");
     } catch (error) {
+      const errorText = error instanceof Error ? error.message : "Failed to save element";
+      appendEditorLog("error", `action=save-library-element status=ERROR element=${element.name} id=${element.id} error=${errorText}`);
       void message.error(error instanceof Error ? error.message : "Failed to save element");
     }
-  }, [assets, loadLibraries, saveElementCategory, saveElementDescription, saveElementName, saveTargetLibraryId, screen?.height, screen?.width, selectedObjects]);
+  }, [appendEditorLog, assets, closeWindow, loadLibraries, saveElementCategory, saveElementDescription, saveElementName, saveTargetLibraryId, selectedObjects]);
 
   const filteredScreens = useMemo(() => {
     const list = project?.screens ?? [];
@@ -884,16 +953,6 @@ export function EditorPage() {
     );
   }
 
-  const {
-    openWindows,
-    openWindow,
-    closeWindow,
-    focusWindow,
-    moveWindow,
-    resizeWindow,
-    isWindowOpen,
-  } = useWorkbenchWindows();
-
   const handleDeleteAsset = useCallback(
     async (assetId: string) => {
       try {
@@ -946,7 +1005,175 @@ export function EditorPage() {
     [closeWindow, loadAssets, loadProject, viewAssetId],
   );
 
+  const saveObjectProperties = useCallback(async () => {
+    const state = useScadaStore.getState();
+    const objectId = state.selection.activeObjectId ?? state.selection.selectedObjectIds[0];
+    if (!screen || !objectId) {
+      appendEditorLog("warning", "action=save-object status=ERROR error=no-object-selected");
+      return;
+    }
+    const object = state.project?.screens
+      .find((item) => item.id === screen.id)
+      ?.objects.find((item) => item.id === objectId);
+    if (!object) {
+      appendEditorLog("warning", "action=save-object status=ERROR error=object-not-found");
+      return;
+    }
+    const objectName = object.name?.trim() || object.id;
+    try {
+      setIsSavingProject(true);
+      await saveProject();
+      const latestProject = useScadaStore.getState().project;
+      setSaveStatusText("Saved");
+      setSavedProjectSignature(buildProjectSaveSignature(latestProject));
+      appendEditorLog("success", `action=save-object status=OK object=${objectName} id=${object.id}`);
+      void message.success(`Object saved: ${objectName}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setSaveStatusText("Save failed");
+      appendEditorLog(
+        "error",
+        `action=save-object status=ERROR object=${objectName} id=${object.id} error=${errorMessage || "unknown error"}`,
+      );
+      void message.error(errorMessage || "Failed to save object");
+    } finally {
+      setIsSavingProject(false);
+    }
+  }, [appendEditorLog, saveProject, screen]);
+
+  const deleteActiveObject = useCallback(() => {
+    const state = useScadaStore.getState();
+    const objectId = state.selection.activeObjectId ?? state.selection.selectedObjectIds[0];
+    if (!objectId) {
+      return;
+    }
+    const object = state.project?.screens
+      .find((item) => item.id === screen.id)
+      ?.objects.find((item) => item.id === objectId);
+    if (!object) {
+      return;
+    }
+    if (object.locked) {
+      void message.warning("Locked object cannot be deleted");
+      return;
+    }
+    removeObjectWithHistory(object.id);
+    closeWindow("objectProperties");
+  }, [closeWindow, removeObjectWithHistory, screen.id]);
+
   const windowDefinitions: WorkbenchWindowDefinition[] = [
+    {
+      id: "screens",
+      title: "Screens",
+      defaultRect: { x: 90, y: 80, width: 440, height: 620 },
+      minWidth: 320,
+      minHeight: 360,
+      render: () => (
+        <ScreenEditorScreensWindow
+          screens={filteredScreens}
+          currentScreenId={screen.id}
+          startScreenId={project.startScreenId}
+          search={screenSearch}
+          onSearchChange={setScreenSearch}
+          kindFilter={screenKindFilter}
+          onKindFilterChange={setScreenKindFilter}
+          viewMode={screenViewMode}
+          onViewModeChange={setScreenViewMode}
+          newScreenKind={newScreenKind}
+          onNewScreenKindChange={setNewScreenKind}
+          onCreateScreen={addScreen}
+          onSelectScreen={setCurrentScreen}
+          onDuplicateScreen={duplicateScreenLocal}
+          onSetStartScreen={setStartScreen}
+          onDeleteScreen={requestDeleteScreen}
+        />
+      ),
+    },
+    {
+      id: "search",
+      title: "Search",
+      defaultRect: { x: 120, y: 100, width: 520, height: 620 },
+      minWidth: 360,
+      minHeight: 360,
+      render: () => (
+        <ScreenEditorSearchWindow
+          screens={project.screens}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          onSelectScreen={setCurrentScreen}
+          onSelectObject={selectObjectFromSearch}
+        />
+      ),
+    },
+    {
+      id: "runtime",
+      title: "Runtime",
+      defaultRect: { x: 160, y: 120, width: 420, height: 360 },
+      minWidth: 320,
+      minHeight: 260,
+      render: () => (
+        <ScreenEditorRuntimeWindow
+          runtime={runtime}
+          startScreenName={startScreenName}
+          currentScreenName={screen.name}
+          onOpenRuntime={() => navigate('/runtime')}
+          onStartRuntime={startRuntime}
+          onStopRuntime={stopRuntime}
+        />
+      ),
+    },
+    {
+      id: "layers",
+      title: "Layers / Object Tree",
+      defaultRect: { x: 220, y: 140, width: 420, height: 620 },
+      minWidth: 320,
+      minHeight: 360,
+      render: () => (
+        <ScreenEditorLayersWindow
+          screen={screen}
+          libraries={libraries}
+          selectedObjectIds={selection.selectedObjectIds}
+          activeObjectId={selection.activeObjectId}
+          onSelectObject={(objectId) => setSelectedObjects([objectId], objectId)}
+          onOpenObjectPropertiesForObject={(objectId) => {
+            setSelectedObjects([objectId], objectId);
+            openDefinedWindow("objectProperties");
+          }}
+          onDeleteSelected={deleteSelectionWithHistory}
+          onLockSelected={() => runCommand({ type: 'lockSelected' })}
+          onUnlockSelected={() => runCommand({ type: 'unlockSelected' })}
+          canDelete={canDelete}
+          canLock={canLock}
+          canUnlock={canUnlock}
+        />
+      ),
+    },
+    {
+      id: "saveSelectionAsElement",
+      title: "Save Selection As Library Element",
+      defaultRect: { x: 260, y: 120, width: 520, height: 460 },
+      minWidth: 420,
+      minHeight: 320,
+      render: () => (
+        <ScreenEditorSaveSelectionWindow
+          selectedObjects={selectedObjects}
+          libraries={libraries}
+          targetLibraryId={saveTargetLibraryId}
+          setTargetLibraryId={setSaveTargetLibraryId}
+          elementName={saveElementName}
+          setElementName={setSaveElementName}
+          category={saveElementCategory}
+          setCategory={setSaveElementCategory}
+          description={saveElementDescription}
+          setDescription={setSaveElementDescription}
+          width={selectedBounds?.width ?? screen.width}
+          height={selectedBounds?.height ?? screen.height}
+          onSave={onSaveSelectionAsLibraryElement}
+          onCancel={() => closeWindow('saveSelectionAsElement')}
+          onOpenLibraries={() => openDefinedWindow('libraries')}
+        />
+      ),
+    },
     {
       id: "tags",
       title: "Tags",
@@ -974,17 +1201,17 @@ export function EditorPage() {
       minWidth: 420,
       minHeight: 320,
       render: () => (
-    <ScreenEditorAssetsWindow
-      assets={assets}
-      onUploadAsset={onUploadProjectAsset}
-      onAddAssetAsImage={addAssetAsImage}
-      onDeleteAsset={handleDeleteAsset}
-      onViewAsset={(asset) => {
-        setViewAssetId(asset.id);
-        openDefinedWindow("assetViewer");
-      }}
-    />
-  ),
+        <ScreenEditorAssetsWindow
+          assets={assets}
+          onUploadAsset={onUploadProjectAsset}
+          onAddAssetAsImage={addAssetAsImage}
+          onDeleteAsset={handleDeleteAsset}
+          onViewAsset={(asset) => {
+            setViewAssetId(asset.id);
+            openDefinedWindow('assetViewer');
+          }}
+        />
+      ),
     },
     {
       id: "libraries",
@@ -1015,7 +1242,7 @@ export function EditorPage() {
       minHeight: 260,
       render: () =>
         viewAsset ? (
-          <div className="screen-editor-asset-viewer">
+          <div className="screen-editor-window-content screen-editor-asset-viewer">
             <div className="screen-editor-asset-viewer__preview">
               {viewAsset.previewUrl ? (
                 <img src={viewAsset.previewUrl} alt={viewAsset.name} />
@@ -1026,16 +1253,16 @@ export function EditorPage() {
             <div className="screen-editor-asset-viewer__info">
               <div><strong>Name:</strong> {viewAsset.name}</div>
               <div><strong>ID:</strong> {viewAsset.id}</div>
-              <div><strong>Type:</strong> {viewAsset.type?.toUpperCase() ?? "—"}</div>
+              <div><strong>Type:</strong> {viewAsset.type?.toUpperCase() ?? '-'}</div>
               <div>
-                <strong>Size:</strong>{" "}
+                <strong>Size:</strong>{' '}
                 {viewAsset.width && viewAsset.height
-                  ? `${viewAsset.width} × ${viewAsset.height} px`
-                  : "—"}
+                  ? `${viewAsset.width} x ${viewAsset.height} px`
+                  : '-'}
               </div>
               <div>
-                <strong>File size:</strong>{" "}
-                {viewAsset.size ? `${(viewAsset.size / 1024).toFixed(1)} KB` : "—"}
+                <strong>File size:</strong>{' '}
+                {viewAsset.size ? `${(viewAsset.size / 1024).toFixed(1)} KB` : '-'}
               </div>
               <div className="screen-editor-asset-viewer__actions">
                 <WorkbenchButton
@@ -1058,30 +1285,24 @@ export function EditorPage() {
       minWidth: 320,
       minHeight: 360,
       render: () => (
-        <div className="screen-editor-object-properties-window">
+        <div className="screen-editor-window-content screen-editor-object-properties-window">
+          <div className="object-property-panel-toolbar">
+            <WorkbenchButton
+              variant="primary"
+              onClick={() => void saveObjectProperties()}
+              disabled={!activeObject || isSavingProject}
+            >
+              Save Object
+            </WorkbenchButton>
+          </div>
           <ObjectPropertyPanel
             project={project}
             screen={screen}
             assets={assets}
             libraries={libraries}
             object={activeObject}
-            onPatch={(patch) => {
-              if (!activeObject) {
-                return;
-              }
-              updateObjectWithHistory(activeObject.id, patch, "Object properties change");
-            }}
-            onDelete={() => {
-              if (!activeObject) {
-                return;
-              }
-              if (activeObject.locked) {
-                void message.warning("Locked object cannot be deleted");
-                return;
-              }
-              removeObjectWithHistory(activeObject.id);
-              closeWindow("objectProperties");
-            }}
+            onPatch={patchActiveObject}
+            onDelete={deleteActiveObject}
           />
         </div>
       ),
@@ -1096,37 +1317,22 @@ export function EditorPage() {
   };
 
   const activityItems = [
-    { id: "explorer", title: "Explorer", icon: "📁", active: activeActivityId === "explorer", onClick: () => setActiveActivityId("explorer") },
-    { id: "search", title: "Search", icon: "🔎", active: activeActivityId === "search", onClick: () => setActiveActivityId("search") },
-    { id: "tags", title: "Tags", icon: "🏷️", active: isWindowOpen("tags"), onClick: () => openDefinedWindow("tags") },
-    { id: "assets", title: "Assets", icon: "🧩", active: isWindowOpen("assets"), onClick: () => openDefinedWindow("assets") },
-    { id: "libraries", title: "Libraries", icon: "📚", active: isWindowOpen("libraries"), onClick: () => openDefinedWindow("libraries") },
-    { id: "drivers", title: "Drivers", icon: "⚙️", active: isWindowOpen("drivers"), onClick: () => openDefinedWindow("drivers") },
-    { id: "runtime", title: "Runtime", icon: "▶️", active: activeActivityId === "runtime", onClick: () => setActiveActivityId("runtime") },
+    { id: "screens", title: "Screens", icon: <AppstoreOutlined />, active: isWindowOpen("screens"), onClick: () => openDefinedWindow("screens") },
+    { id: "search", title: "Search", icon: <SearchOutlined />, active: isWindowOpen("search"), onClick: () => openDefinedWindow("search") },
+    { id: "tags", title: "Tags", icon: <TagsOutlined />, active: isWindowOpen("tags"), onClick: () => openDefinedWindow("tags") },
+    { id: "assets", title: "Assets", icon: <FileImageOutlined />, active: isWindowOpen("assets"), onClick: () => openDefinedWindow("assets") },
+    { id: "libraries", title: "Libraries", icon: <FolderOpenOutlined />, active: isWindowOpen("libraries"), onClick: () => openDefinedWindow("libraries") },
+    { id: "drivers", title: "Drivers", icon: <ApiOutlined />, active: isWindowOpen("drivers"), onClick: () => openDefinedWindow("drivers") },
+    { id: "runtime", title: "Runtime", icon: <PlayCircleOutlined />, active: isWindowOpen("runtime"), onClick: () => openDefinedWindow("runtime") },
+    { id: "layers", title: "Layers", icon: <UnorderedListOutlined />, active: isWindowOpen("layers"), onClick: () => openDefinedWindow("layers") },
   ];
 
   return (
     <div className="screen-editor-workbench-page">
       <ScadaWorkbenchLayout
         autoSaveId="my-web-scada-screen-editor"
-        leftTitle="Explorer"
-        rightTitle="Properties"
         bottomTitle="Terminal"
         activityItems={activityItems}
-        leftPanel={{
-          defaultSize: 20,
-          minSize: 14,
-          maxSize: 36,
-          collapsible: true,
-          collapsedSize: 0,
-        }}
-        rightPanel={{
-          defaultSize: 24,
-          minSize: 14,
-          maxSize: 42,
-          collapsible: true,
-          collapsedSize: 0,
-        }}
         bottomPanel={{
           defaultSize: 18,
           minSize: 8,
@@ -1134,31 +1340,6 @@ export function EditorPage() {
           collapsible: true,
           collapsedSize: 0,
         }}
-        left={
-          <ScreenEditorLeftPanel
-            screen={screen}
-            project={project}
-            libraries={libraries}
-            assets={assets}
-            screenSearch={screenSearch}
-            setScreenSearch={setScreenSearch}
-            screenKindFilter={screenKindFilter}
-            setScreenKindFilter={setScreenKindFilter}
-            screenViewMode={screenViewMode}
-            setScreenViewMode={setScreenViewMode}
-            filteredScreens={filteredScreens}
-            newScreenKind={newScreenKind}
-            setNewScreenKind={setNewScreenKind}
-            addScreen={addScreen}
-            setCurrentScreen={setCurrentScreen}
-            duplicateScreenLocal={duplicateScreenLocal}
-            setStartScreen={setStartScreen}
-            requestDeleteScreen={requestDeleteScreen}
-            activeActivityId={activeActivityId}
-            navigate={navigate}
-            openDefinedWindow={openDefinedWindow}
-          />
-        }
         center={
           <ScreenEditorCenter
             screen={screen}
@@ -1171,7 +1352,10 @@ export function EditorPage() {
             setSelectionRect={setSelectionRect}
             toggleSelectedObject={toggleSelectedObject}
             setSelectedObjects={setSelectedObjects}
-            onOpenObjectProperties={() => openDefinedWindow("objectProperties")}
+            onOpenObjectProperties={() => openDefinedWindow('objectProperties')}
+            onOpenLayers={() => openDefinedWindow('layers')}
+            onOpenSaveSelection={() => openDefinedWindow('saveSelectionAsElement')}
+            canSaveSelection={selectedObjects.length > 0}
             setContextMenu={setContextMenu}
             handleDrop={handleDrop}
             moveObjectWithHistory={moveObjectWithHistory}
@@ -1207,27 +1391,17 @@ export function EditorPage() {
             navigate={navigate}
           />
         }
-        right={
-          <ScreenEditorRightPanel
-            activeObject={activeObject}
-            screenObjects={screen.objects}
-            selection={selection}
-            setSelectedObjects={setSelectedObjects}
-            onOpenObjectProperties={() => openDefinedWindow("objectProperties")}
-            removeObjectWithHistory={removeObjectWithHistory}
-            setSaveModalOpen={setSaveModalOpen}
-          />
-        }
         bottom={
           <ScreenEditorBottomPanel
             screen={screen}
             activeObject={activeObject}
             isProjectDirty={isProjectDirty}
             saveStatusText={saveStatusText}
+            logs={editorLog}
+            onClearLogs={clearEditorLog}
           />
         }
       />
-
       <WorkbenchWindowManager
         windows={openWindows}
         definitions={windowDefinitions}
@@ -1265,25 +1439,6 @@ export function EditorPage() {
           </div>
         </div>
       ) : null}
-
-      <Modal
-        title="Save As Library Element"
-        open={saveModalOpen}
-        onCancel={() => setSaveModalOpen(false)}
-        onOk={() => void onSaveSelectionAsLibraryElement()}
-      >
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <Select
-            value={saveTargetLibraryId}
-            onChange={setSaveTargetLibraryId}
-            placeholder="Select library"
-            options={libraries.map((item) => ({ label: item.name, value: item.id }))}
-          />
-          <Input value={saveElementName} onChange={(e) => setSaveElementName(e.target.value)} placeholder="Element name" />
-          <Input value={saveElementDescription} onChange={(e) => setSaveElementDescription(e.target.value)} placeholder="Description" />
-          <Input value={saveElementCategory} onChange={(e) => setSaveElementCategory(e.target.value)} placeholder="Category" />
-        </Space>
-      </Modal>
 
       <Modal
         title="Clone"
@@ -1455,6 +1610,8 @@ export function EditorPage() {
         >
           <Space direction="vertical" style={{ width: "100%" }}>
             <Button type="text" size="small" block onClick={() => openDefinedWindow("objectProperties")} disabled={!activeObject}>Properties</Button>
+            <Button type="text" size="small" block onClick={() => openDefinedWindow("layers")}>Layers</Button>
+            <Button type="text" size="small" block onClick={() => openDefinedWindow("saveSelectionAsElement")} disabled={!selectedObjects.length}>Save Selection</Button>
             <Button type="text" size="small" block onClick={copySelectionToClipboard} disabled={!canCopy}>Copy</Button>
             <Button type="text" size="small" block onClick={pasteFromClipboard} disabled={!canPaste}>Paste</Button>
             <Button type="text" size="small" block onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length}>Clone...</Button>
@@ -1757,3 +1914,4 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, "");
   return clean || `element-${Math.random().toString(36).slice(2, 8)}`;
 }
+

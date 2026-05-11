@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { InternalVariableDefinition, TagDefinition, TagSourceType } from "@web-scada/shared";
+import { createPortal } from "react-dom";
+import type { TagDefinition, TagSourceType } from "@web-scada/shared";
 import { message } from "antd";
-import { WorkbenchButton, WorkbenchTreeItem } from "../../../components/workbench";
+import { WorkbenchButton, WorkbenchWindow, type WorkbenchWindowRect } from "../../../components/workbench";
+import { api, type OpcUaBrowseItem } from "../../../services/api";
 import { useScadaStore } from "../../../store/scada-store";
 
 type TagEditorMode = "view" | "add" | "edit";
@@ -13,6 +15,7 @@ type TagColumnConfig = {
   defaultWidth: number;
   minWidth: number;
 };
+type TagColumnVisibility = Record<TagColumnId, boolean>;
 
 const TAG_COLUMNS: TagColumnConfig[] = [
   { id: "name", title: "NAME", defaultWidth: 260, minWidth: 140 },
@@ -26,9 +29,31 @@ const TAG_COLUMNS: TagColumnConfig[] = [
 
 const TAG_DETAILS_WIDTH_STORAGE_KEY = "screenEditor.tags.detailsWidth";
 const TAG_COLUMNS_WIDTH_STORAGE_KEY = "screenEditor.tags.columnWidths";
-const DEFAULT_DETAILS_WIDTH = 340;
+const TAG_COLUMN_VISIBILITY_STORAGE_KEY = "screenEditor.tags.columnVisibility";
+const TAG_PAGE_SIZE_STORAGE_KEY = "screenEditor.tags.pageSize";
+const OPC_BROWSER_RECT_STORAGE_KEY = "screenEditor.tags.opcBrowserRect";
+const DEFAULT_DETAILS_WIDTH = 360;
 const MIN_DETAILS_WIDTH = 260;
 const MAX_DETAILS_WIDTH = 640;
+const DEFAULT_PAGE_SIZE = 100;
+const OPC_BROWSER_MIN_WIDTH = 720;
+const OPC_BROWSER_MIN_HEIGHT = 420;
+const OPC_BROWSER_DEFAULT_RECT: WorkbenchWindowRect = { x: 120, y: 80, width: 980, height: 650 };
+
+function createDefaultColumnVisibility(): TagColumnVisibility {
+  return TAG_COLUMNS.reduce<TagColumnVisibility>(
+    (acc, column) => ({ ...acc, [column.id]: true }),
+    {
+      name: true,
+      source: true,
+      dataType: true,
+      driver: true,
+      address: true,
+      group: true,
+      writable: true,
+    },
+  );
+}
 
 function clampDetailsWidth(value: number): number {
   return Math.min(MAX_DETAILS_WIDTH, Math.max(MIN_DETAILS_WIDTH, value));
@@ -70,6 +95,29 @@ function parseStoredColumnWidths(raw: string | null): Record<TagColumnId, number
   }
 }
 
+function parseStoredColumnVisibility(raw: string | null): TagColumnVisibility {
+  const defaults = createDefaultColumnVisibility();
+  if (!raw) {
+    return defaults;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<Record<TagColumnId, unknown>>;
+    const next = TAG_COLUMNS.reduce<TagColumnVisibility>((acc, column) => {
+      const candidate = parsed[column.id];
+      acc[column.id] = candidate === false ? false : true;
+      return acc;
+    }, { ...defaults });
+    next.name = true;
+    if (!Object.values(next).some(Boolean)) {
+      next.name = true;
+    }
+    return next;
+  } catch {
+    return defaults;
+  }
+}
+
 const sourceTypeOptions: Array<{ label: string; value: TagSourceType }> = [
   { label: "OPC UA", value: "opcua" },
   { label: "LW", value: "lw" },
@@ -88,6 +136,348 @@ const dataTypeOptions: TagDefinition["dataType"][] = [
   "REAL",
   "STRING",
 ];
+const OPC_UA_BROWSE_ROOT_NODE_ID = "RootFolder";
+
+function clampOpcBrowserRect(rect: WorkbenchWindowRect): WorkbenchWindowRect {
+  return {
+    x: Math.max(0, Math.round(rect.x)),
+    y: Math.max(0, Math.round(rect.y)),
+    width: Math.max(OPC_BROWSER_MIN_WIDTH, Math.round(rect.width)),
+    height: Math.max(OPC_BROWSER_MIN_HEIGHT, Math.round(rect.height)),
+  };
+}
+
+function parseStoredOpcBrowserRect(raw: string | null): WorkbenchWindowRect {
+  if (!raw) {
+    return OPC_BROWSER_DEFAULT_RECT;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<Record<keyof WorkbenchWindowRect, unknown>>;
+    if (
+      typeof parsed.x !== "number" ||
+      typeof parsed.y !== "number" ||
+      typeof parsed.width !== "number" ||
+      typeof parsed.height !== "number"
+    ) {
+      return OPC_BROWSER_DEFAULT_RECT;
+    }
+    return clampOpcBrowserRect({
+      x: parsed.x,
+      y: parsed.y,
+      width: parsed.width,
+      height: parsed.height,
+    });
+  } catch {
+    return OPC_BROWSER_DEFAULT_RECT;
+  }
+}
+
+function getOpcUaParentNodeId(nodeId: string): string | null {
+  const text = nodeId.trim();
+
+  if (!text || text === OPC_UA_BROWSE_ROOT_NODE_ID) {
+    return null;
+  }
+
+  const marker = ";s=";
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex >= 0) {
+    const prefix = text.slice(0, markerIndex + marker.length);
+    const path = text.slice(markerIndex + marker.length);
+    const lastSlash = path.lastIndexOf("/");
+    const lastDot = path.lastIndexOf(".");
+    const separatorIndex = Math.max(lastSlash, lastDot);
+    if (separatorIndex > 0) {
+      return `${prefix}${path.slice(0, separatorIndex)}`;
+    }
+    return OPC_UA_BROWSE_ROOT_NODE_ID;
+  }
+
+  return OPC_UA_BROWSE_ROOT_NODE_ID;
+}
+
+function mapOpcUaDataTypeToTagDataType(dataType?: string): TagDefinition["dataType"] {
+  const normalized = (dataType ?? "").toLowerCase();
+
+  if (normalized.includes("boolean") || normalized.includes("bool")) {
+    return "BOOL";
+  }
+  if (normalized.includes("udint") || normalized.includes("uint32")) {
+    return "UDINT";
+  }
+  if (normalized.includes("dint") || normalized.includes("int32")) {
+    return "DINT";
+  }
+  if (normalized.includes("uint16") || normalized.includes("ushort") || normalized.includes("uint")) {
+    return "UINT";
+  }
+  if (normalized.includes("int16") || normalized.includes("short") || normalized.includes("integer") || normalized.includes("int")) {
+    return "INT";
+  }
+  if (
+    normalized.includes("double")
+    || normalized.includes("float")
+    || normalized.includes("real")
+    || normalized.includes("number")
+    || normalized.includes("decimal")
+  ) {
+    return "REAL";
+  }
+  if (normalized.includes("string") || normalized.includes("text")) {
+    return "STRING";
+  }
+
+  return "REAL";
+}
+
+function makeTagNameFromOpcNode(node: OpcUaBrowseItem): string {
+  const raw = node.displayName || node.browseName || node.nodeId;
+  const normalized = raw
+    .replace(/^.*[:/]/, "")
+    .replace(/[^\w.]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || "opcua_tag";
+}
+
+function canBrowseOpcNode(node: OpcUaBrowseItem): boolean {
+  return node.hasChildren === true;
+}
+
+type OpcUaBrowserContentProps = {
+  opcUaDrivers: Array<{ id: string; name?: string }>;
+  mode: "single" | "multi";
+  driverId: string;
+  nodeId: string;
+  search: string;
+  loading: boolean;
+  error: string | null;
+  nodes: OpcUaBrowseItem[];
+  selectedNodeIds: Set<string>;
+  focusNodeId: string;
+  historyLength: number;
+  canGoUp: boolean;
+  onDriverChange: (driverId: string) => void;
+  onBack: () => void;
+  onUp: () => void;
+  onRoot: () => void;
+  onRefresh: () => void;
+  onSearchChange: (value: string) => void;
+  onRowClick: (node: OpcUaBrowseItem) => void;
+  onRowDoubleClick: (node: OpcUaBrowseItem) => void;
+  onToggleSelection: (nodeId: string) => void;
+  onSingleSelect: (nodeId: string) => void;
+  onOpenNode: (node: OpcUaBrowseItem) => void;
+  onSelectNode: (node: OpcUaBrowseItem) => void;
+  onCancel: () => void;
+  onConfirmSingle: () => void;
+  onConfirmMulti: () => void;
+};
+
+function OpcUaBrowserContent({
+  opcUaDrivers,
+  mode,
+  driverId,
+  nodeId,
+  search,
+  loading,
+  error,
+  nodes,
+  selectedNodeIds,
+  focusNodeId,
+  historyLength,
+  canGoUp,
+  onDriverChange,
+  onBack,
+  onUp,
+  onRoot,
+  onRefresh,
+  onSearchChange,
+  onRowClick,
+  onRowDoubleClick,
+  onToggleSelection,
+  onSingleSelect,
+  onOpenNode,
+  onSelectNode,
+  onCancel,
+  onConfirmSingle,
+  onConfirmMulti,
+}: OpcUaBrowserContentProps) {
+  return (
+    <div className="screen-editor-window-content screen-editor-opc-browser-content">
+      <div className="screen-editor-opc-browser-toolbar">
+        <select
+          className="workbench-select"
+          value={driverId}
+          onChange={(event) => onDriverChange(event.target.value)}
+        >
+          <option value="">Select driver</option>
+          {opcUaDrivers.map((driver) => (
+            <option key={driver.id} value={driver.id}>
+              {driver.name ?? driver.id}
+            </option>
+          ))}
+        </select>
+        <WorkbenchButton
+          onClick={onBack}
+          disabled={historyLength === 0 || loading || !driverId}
+        >
+          Back
+        </WorkbenchButton>
+        <WorkbenchButton
+          onClick={onUp}
+          disabled={!canGoUp || loading || !driverId}
+        >
+          Up
+        </WorkbenchButton>
+        <WorkbenchButton
+          onClick={onRoot}
+          disabled={nodeId === OPC_UA_BROWSE_ROOT_NODE_ID || loading || !driverId}
+        >
+          Root
+        </WorkbenchButton>
+        <WorkbenchButton
+          variant="primary"
+          onClick={onRefresh}
+          disabled={loading || !driverId}
+        >
+          {loading ? "Loading..." : "Refresh"}
+        </WorkbenchButton>
+        <div className="screen-editor-opc-browser-current-node" title={nodeId || OPC_UA_BROWSE_ROOT_NODE_ID}>
+          Current NodeId: {nodeId || OPC_UA_BROWSE_ROOT_NODE_ID}
+        </div>
+        <input
+          className="workbench-input screen-editor-opc-browser-toolbar__search"
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder="Search"
+        />
+      </div>
+
+      <div className="screen-editor-opc-browser-list">
+        <div className="screen-editor-opc-browser-row screen-editor-opc-browser-row--header">
+          <div className="screen-editor-opc-browser-cell">S</div>
+          <div className="screen-editor-opc-browser-cell">Browse Name</div>
+          <div className="screen-editor-opc-browser-cell">Display Name</div>
+          <div className="screen-editor-opc-browser-cell">Node Class</div>
+          <div className="screen-editor-opc-browser-cell">Data Type</div>
+          <div className="screen-editor-opc-browser-cell">Writable</div>
+          <div className="screen-editor-opc-browser-cell">NodeId</div>
+          <div className="screen-editor-opc-browser-cell">Actions</div>
+        </div>
+        {error ? (
+          <div className="screen-editor-empty-state">{error}</div>
+        ) : null}
+        {!error && nodes.length === 0 && !loading ? (
+          <div className="screen-editor-empty-state">No nodes</div>
+        ) : null}
+        {nodes.map((node) => {
+          const isChecked = selectedNodeIds.has(node.nodeId);
+          const isFocused = focusNodeId === node.nodeId;
+          const isSelected = mode === "multi" ? isChecked : isFocused;
+          const isBrowsable = canBrowseOpcNode(node);
+          return (
+            <div
+              key={node.nodeId}
+              className={[
+                "screen-editor-opc-browser-row",
+                isBrowsable ? "screen-editor-opc-browser-row--folder" : "screen-editor-opc-browser-row--leaf",
+                isSelected ? "screen-editor-opc-browser-row--selected" : "",
+              ].filter(Boolean).join(" ")}
+              onClick={() => onRowClick(node)}
+              onDoubleClick={() => onRowDoubleClick(node)}
+            >
+              <div className="screen-editor-opc-browser-cell">
+                {mode === "multi" ? (
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => onToggleSelection(node.nodeId)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                ) : (
+                  <input
+                    type="radio"
+                    checked={isChecked}
+                    onChange={() => onSingleSelect(node.nodeId)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                )}
+              </div>
+              <div className="screen-editor-opc-browser-cell" title={node.browseName}>{node.browseName || "-"}</div>
+              <div className="screen-editor-opc-browser-cell" title={node.displayName}>{node.displayName || "-"}</div>
+              <div className="screen-editor-opc-browser-cell" title={node.nodeClass}>{node.nodeClass || "-"}</div>
+              <div className="screen-editor-opc-browser-cell" title={node.dataType}>{node.dataType || "-"}</div>
+              <div className="screen-editor-opc-browser-cell">{node.writable ? "Yes" : "No"}</div>
+              <div className="screen-editor-opc-browser-cell" title={node.nodeId}>{node.nodeId}</div>
+              <div className="screen-editor-opc-browser-cell screen-editor-opc-browser-cell--actions">
+                {isBrowsable ? (
+                  <WorkbenchButton
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenNode(node);
+                    }}
+                  >
+                    Open
+                  </WorkbenchButton>
+                ) : (
+                  <WorkbenchButton
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectNode(node);
+                    }}
+                  >
+                    Select
+                  </WorkbenchButton>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="screen-editor-opc-browser-footer">
+        <WorkbenchButton onClick={onCancel}>Cancel</WorkbenchButton>
+        {mode === "single" ? (
+          <WorkbenchButton
+            variant="primary"
+            onClick={onConfirmSingle}
+            disabled={selectedNodeIds.size === 0}
+          >
+            Select Node
+          </WorkbenchButton>
+        ) : (
+          <WorkbenchButton
+            variant="primary"
+            onClick={onConfirmMulti}
+            disabled={selectedNodeIds.size === 0}
+          >
+            Import Selected
+          </WorkbenchButton>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function makeUniqueTagName(base: string, tags: TagDefinition[], reservedNames?: Set<string>): string {
+  const fallback = base.trim() || "opcua_tag";
+  const usedNames = new Set(tags.map((item) => item.name));
+  if (reservedNames) {
+    for (const name of reservedNames) {
+      usedNames.add(name);
+    }
+  }
+  if (!usedNames.has(fallback)) {
+    return fallback;
+  }
+  let suffix = 2;
+  let next = `${fallback}_${suffix}`;
+  while (usedNames.has(next)) {
+    suffix += 1;
+    next = `${fallback}_${suffix}`;
+  }
+  return next;
+}
 
 function createId(): string {
   return `tag_${Math.random().toString(36).slice(2, 8)}`;
@@ -179,8 +569,6 @@ export function ScreenEditorTagsWindow() {
   const runtimeTags = useScadaStore((s) => s.tags);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
   const saveProject = useScadaStore((s) => s.saveProject);
-  const addVariable = useScadaStore((s) => s.addVariable);
-  const macros = useScadaStore((s) => s.macros);
 
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
@@ -191,8 +579,16 @@ export function ScreenEditorTagsWindow() {
   const [editorMode, setEditorMode] = useState<TagEditorMode>("view");
   const [draftTag, setDraftTag] = useState<TagDefinition | null>(null);
   const [pendingDeleteTagId, setPendingDeleteTagId] = useState<string | null>(null);
-  const [newVarName, setNewVarName] = useState("Counter1");
-  const [newVarType, setNewVarType] = useState<InternalVariableDefinition["dataType"]>("REAL");
+  const [columnsPanelOpen, setColumnsPanelOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(() => {
+    if (typeof window === "undefined") {
+      return DEFAULT_PAGE_SIZE;
+    }
+    const saved = window.localStorage.getItem(TAG_PAGE_SIZE_STORAGE_KEY);
+    const parsed = saved ? Number(saved) : Number.NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PAGE_SIZE;
+  });
   const [detailsWidth, setDetailsWidth] = useState<number>(() => {
     if (typeof window === "undefined") {
       return DEFAULT_DETAILS_WIDTH;
@@ -207,8 +603,36 @@ export function ScreenEditorTagsWindow() {
     }
     return parseStoredColumnWidths(window.localStorage.getItem(TAG_COLUMNS_WIDTH_STORAGE_KEY));
   });
+  const [columnVisibility, setColumnVisibility] = useState<TagColumnVisibility>(() => {
+    if (typeof window === "undefined") {
+      return createDefaultColumnVisibility();
+    }
+    return parseStoredColumnVisibility(window.localStorage.getItem(TAG_COLUMN_VISIBILITY_STORAGE_KEY));
+  });
   const [isDetailsResizeActive, setIsDetailsResizeActive] = useState(false);
+  const [opcBrowseOpen, setOpcBrowseOpen] = useState(false);
+  const [opcBrowserRect, setOpcBrowserRect] = useState<WorkbenchWindowRect>(() => {
+    if (typeof window === "undefined") {
+      return OPC_BROWSER_DEFAULT_RECT;
+    }
+    return parseStoredOpcBrowserRect(window.localStorage.getItem(OPC_BROWSER_RECT_STORAGE_KEY));
+  });
+  const [opcBrowserZIndex, setOpcBrowserZIndex] = useState(40);
+  const [opcBrowseDriverId, setOpcBrowseDriverId] = useState("");
+  const [opcBrowseNodeId, setOpcBrowseNodeId] = useState(OPC_UA_BROWSE_ROOT_NODE_ID);
+  const [opcBrowseSearch, setOpcBrowseSearch] = useState("");
+  const [opcBrowseLoading, setOpcBrowseLoading] = useState(false);
+  const [opcBrowseError, setOpcBrowseError] = useState<string | null>(null);
+  const [opcBrowseNodes, setOpcBrowseNodes] = useState<OpcUaBrowseItem[]>([]);
+  const [opcBrowseSelectedNodeIds, setOpcBrowseSelectedNodeIds] = useState<Set<string>>(() => new Set());
+  const [opcBrowseMode, setOpcBrowseMode] = useState<"single" | "multi">("single");
+  const [opcBrowseFocusNodeId, setOpcBrowseFocusNodeId] = useState("");
+  const [opcBrowseHistory, setOpcBrowseHistory] = useState<string[]>([]);
+  const [opcBrowsePreselectNodeId, setOpcBrowsePreselectNodeId] = useState<string | null>(null);
+  const [opcReadLoading, setOpcReadLoading] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const detailsWidthDraftRef = useRef(detailsWidth);
 
   if (!project) {
     return (
@@ -220,8 +644,7 @@ export function ScreenEditorTagsWindow() {
 
   const tags = project.tags ?? [];
   const drivers = project.drivers ?? [];
-  const internalVariables = project.variables ?? [];
-  const macrosToShow = macros.length > 0 ? macros : project.macros ?? [];
+  const opcUaDrivers = useMemo(() => drivers.filter((driver) => driver.type === "opcua"), [drivers]);
 
   const groupOptions = useMemo(
     () => [...new Set(tags.map((tag) => tag.group).filter((value): value is string => Boolean(value)))],
@@ -255,6 +678,35 @@ export function ScreenEditorTagsWindow() {
     [driverFilter, groupFilter, search, sourceFilter, tags],
   );
 
+  useEffect(() => {
+    setPage(1);
+  }, [search, sourceFilter, driverFilter, groupFilter]);
+
+  const totalRows = filteredTags.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePage = Math.min(page, totalPages);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const pageRows = useMemo(
+    () => filteredTags.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filteredTags, pageSize, safePage],
+  );
+
+  const visibleColumns = useMemo(() => {
+    const next = TAG_COLUMNS.filter((column) => columnVisibility[column.id] !== false);
+    return next.length > 0 ? next : TAG_COLUMNS.filter((column) => column.id === "name");
+  }, [columnVisibility]);
+
+  const tagGridTemplateColumns = useMemo(
+    () => visibleColumns.map((column) => `${columnWidths[column.id] ?? column.defaultWidth}px`).join(" "),
+    [columnWidths, visibleColumns],
+  );
+
   const selectedTag = tags.find((tag) => tagKey(tag) === selectedId) ?? filteredTags[0] ?? null;
   const sourceType = draftTag?.sourceType ?? "simulated";
   const editorDriverOptions = drivers.filter((driver) => {
@@ -272,6 +724,352 @@ export function ScreenEditorTagsWindow() {
       ...project,
       tags: nextTags,
     });
+  };
+
+  const browseOpcUaNodes = async (
+    params?: { driverId?: string; nodeId?: string; search?: string },
+  ): Promise<{ nodeId: string; nodes: OpcUaBrowseItem[] } | null> => {
+    const driverId = params?.driverId ?? opcBrowseDriverId;
+    const nodeId = params?.nodeId ?? opcBrowseNodeId;
+    const searchValue = params?.search ?? opcBrowseSearch;
+    if (!driverId) {
+      setOpcBrowseError("Select OPC UA driver");
+      setOpcBrowseNodes([]);
+      return null;
+    }
+
+    setOpcBrowseLoading(true);
+    setOpcBrowseError(null);
+    try {
+      const response = await api.opcUaBrowse({
+        driverId,
+        nodeId: nodeId || OPC_UA_BROWSE_ROOT_NODE_ID,
+        search: searchValue.trim() ? searchValue.trim() : undefined,
+      });
+      setOpcBrowseDriverId(driverId);
+      const resolvedNodeId = response.nodeId || nodeId || OPC_UA_BROWSE_ROOT_NODE_ID;
+      const resolvedNodes = response.nodes ?? [];
+      setOpcBrowseNodeId(resolvedNodeId);
+      setOpcBrowseNodes(resolvedNodes);
+      if (opcBrowsePreselectNodeId) {
+        const preselected = resolvedNodes.find((node) => node.nodeId === opcBrowsePreselectNodeId);
+        if (preselected) {
+          setOpcBrowseSelectedNodeIds(new Set([preselected.nodeId]));
+          setOpcBrowseFocusNodeId(preselected.nodeId);
+        }
+        setOpcBrowsePreselectNodeId(null);
+      }
+      return { nodeId: resolvedNodeId, nodes: resolvedNodes };
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Failed to browse OPC UA nodes";
+      setOpcBrowseNodes([]);
+      setOpcBrowseError(text);
+      void message.error(text);
+      return null;
+    } finally {
+      setOpcBrowseLoading(false);
+    }
+  };
+
+  const closeOpcBrowseDialog = (): void => {
+    setOpcBrowseOpen(false);
+    setOpcBrowseError(null);
+    setOpcBrowseLoading(false);
+    setOpcBrowseSelectedNodeIds(new Set());
+    setOpcBrowseFocusNodeId("");
+    setOpcBrowseHistory([]);
+    setOpcBrowsePreselectNodeId(null);
+  };
+
+  const openOpcBrowseForTag = (): void => {
+    if (!draftTag || draftTag.sourceType !== "opcua") {
+      return;
+    }
+    const initialDriverId = draftTag.driverId ?? opcUaDrivers[0]?.id ?? "";
+    if (!initialDriverId) {
+      void message.warning("No OPC UA drivers configured");
+      return;
+    }
+    const targetNodeId = draftTag.nodeId?.trim() ?? "";
+    const initialNodeId = targetNodeId
+      ? getOpcUaParentNodeId(targetNodeId) ?? OPC_UA_BROWSE_ROOT_NODE_ID
+      : OPC_UA_BROWSE_ROOT_NODE_ID;
+    setOpcBrowseMode("single");
+    setOpcBrowseDriverId(initialDriverId);
+    setOpcBrowseNodeId(initialNodeId);
+    setOpcBrowseSearch("");
+    setOpcBrowseNodes([]);
+    setOpcBrowseSelectedNodeIds(new Set());
+    setOpcBrowseFocusNodeId("");
+    setOpcBrowseHistory([]);
+    setOpcBrowsePreselectNodeId(targetNodeId || null);
+    setOpcBrowserZIndex((value) => value + 1);
+    setOpcBrowseOpen(true);
+    void browseOpcUaNodes({ driverId: initialDriverId, nodeId: initialNodeId, search: "" });
+  };
+
+  const openOpcBrowseImport = (): void => {
+    const initialDriverId = opcUaDrivers[0]?.id ?? "";
+    if (!initialDriverId) {
+      void message.warning("No OPC UA drivers configured");
+      return;
+    }
+    setOpcBrowseMode("multi");
+    setOpcBrowseDriverId(initialDriverId);
+    setOpcBrowseNodeId(OPC_UA_BROWSE_ROOT_NODE_ID);
+    setOpcBrowseSearch("");
+    setOpcBrowseNodes([]);
+    setOpcBrowseSelectedNodeIds(new Set());
+    setOpcBrowseFocusNodeId("");
+    setOpcBrowseHistory([]);
+    setOpcBrowsePreselectNodeId(null);
+    setOpcBrowserZIndex((value) => value + 1);
+    setOpcBrowseOpen(true);
+    void browseOpcUaNodes({ driverId: initialDriverId, nodeId: OPC_UA_BROWSE_ROOT_NODE_ID, search: "" });
+  };
+
+  const applyOpcUaNodeToDraft = (node: OpcUaBrowseItem): void => {
+    if (!draftTag) {
+      return;
+    }
+    setDraftTag((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      const generatedBaseName = makeTagNameFromOpcNode(node);
+      const generatedName = makeUniqueTagName(
+        generatedBaseName,
+        tags.filter((item) => !editingId || tagKey(item) !== editingId),
+      );
+      const isNewTag = editorMode === "add";
+      return {
+        ...prev,
+        sourceType: "opcua",
+        driverId: opcBrowseDriverId || prev.driverId,
+        nodeId: node.nodeId,
+        address: { nodeId: node.nodeId },
+        name: isNewTag && !prev.name.trim() ? generatedName : prev.name,
+        description: prev.description?.trim() ? prev.description : (node.displayName || node.browseName || prev.description),
+        dataType: mapOpcUaDataTypeToTagDataType(node.dataType),
+        writable: node.writable ?? prev.writable ?? false,
+        scanRateMs: prev.scanRateMs ?? 500,
+      };
+    });
+    closeOpcBrowseDialog();
+  };
+
+  const importSelectedOpcUaNodes = (): void => {
+    if (!opcBrowseDriverId) {
+      void message.error("Select OPC UA driver");
+      return;
+    }
+    const selectedNodes = opcBrowseNodes.filter((node) => opcBrowseSelectedNodeIds.has(node.nodeId));
+    if (!selectedNodes.length) {
+      void message.warning("Select at least one node");
+      return;
+    }
+
+    const existingNodeKeySet = new Set(
+      tags
+        .filter((tag) => tag.sourceType === "opcua")
+        .map((tag) => `${tag.driverId ?? ""}::${tag.nodeId ?? ""}`),
+    );
+    const reservedNames = new Set(tags.map((tag) => tag.name));
+    const nextTags = [...tags];
+    let skipped = 0;
+
+    for (const node of selectedNodes) {
+      const nodeKey = `${opcBrowseDriverId}::${node.nodeId}`;
+      if (existingNodeKeySet.has(nodeKey)) {
+        skipped += 1;
+        continue;
+      }
+      const baseName = makeTagNameFromOpcNode(node);
+      const uniqueName = makeUniqueTagName(baseName, tags, reservedNames);
+      reservedNames.add(uniqueName);
+      existingNodeKeySet.add(nodeKey);
+      const stamp = nowIso();
+      nextTags.push({
+        id: createId(),
+        name: uniqueName,
+        description: node.displayName || node.browseName || undefined,
+        sourceType: "opcua",
+        dataType: mapOpcUaDataTypeToTagDataType(node.dataType),
+        driverId: opcBrowseDriverId,
+        nodeId: node.nodeId,
+        address: { nodeId: node.nodeId },
+        writable: Boolean(node.writable),
+        scanRateMs: 500,
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+    }
+
+    if (nextTags.length === tags.length) {
+      void message.warning(skipped > 0 ? `Skipped ${skipped} already imported nodes` : "Nothing imported");
+      return;
+    }
+
+    saveTags(nextTags);
+    const lastImportedTag = nextTags[nextTags.length - 1];
+    if (lastImportedTag) {
+      setSelectedId(tagKey(lastImportedTag));
+    }
+    closeOpcBrowseDialog();
+    if (skipped > 0) {
+      void message.warning(`Imported ${nextTags.length - tags.length} nodes. Skipped ${skipped} already imported nodes`);
+    } else {
+      void message.success(`Imported ${nextTags.length - tags.length} OPC UA tags`);
+    }
+  };
+
+  const readOpcUaNodeTest = async (): Promise<void> => {
+    if (!draftTag?.driverId || !draftTag.nodeId?.trim()) {
+      void message.warning("Select driver and NodeId first");
+      return;
+    }
+    setOpcReadLoading(true);
+    try {
+      const result = await api.opcUaRead({
+        driverId: draftTag.driverId,
+        nodeId: draftTag.nodeId.trim(),
+      });
+      setDraftTag((prev) =>
+        prev
+          ? {
+              ...prev,
+              dataType: mapOpcUaDataTypeToTagDataType(result.dataType),
+            }
+          : prev,
+      );
+      void message.success(`Read OK (${result.quality})`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Read failed";
+      void message.error(text);
+    } finally {
+      setOpcReadLoading(false);
+    }
+  };
+
+  const toggleOpcBrowseNodeSelection = (nodeId: string): void => {
+    setOpcBrowseSelectedNodeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  };
+
+  const openOpcBrowseNode = (node: OpcUaBrowseItem): void => {
+    if (!canBrowseOpcNode(node)) {
+      if (opcBrowseMode === "single") {
+        applyOpcUaNodeToDraft(node);
+        return;
+      }
+      setOpcBrowseFocusNodeId(node.nodeId);
+      toggleOpcBrowseNodeSelection(node.nodeId);
+      return;
+    }
+    const currentNodeId = opcBrowseNodeId || OPC_UA_BROWSE_ROOT_NODE_ID;
+    if (node.nodeId !== currentNodeId) {
+      setOpcBrowseHistory((prev) =>
+        prev[prev.length - 1] === currentNodeId ? prev : [...prev, currentNodeId],
+      );
+    }
+    setOpcBrowseNodeId(node.nodeId);
+    void browseOpcUaNodes({ nodeId: node.nodeId });
+  };
+
+  const goBackOpcNode = (): void => {
+    const previousNodeId = opcBrowseHistory[opcBrowseHistory.length - 1];
+    if (!previousNodeId) {
+      return;
+    }
+    setOpcBrowseHistory((prev) => prev.slice(0, -1));
+    setOpcBrowseNodeId(previousNodeId);
+    void browseOpcUaNodes({ nodeId: previousNodeId });
+  };
+
+  const goUpOpcNode = (): void => {
+    const currentNodeId = opcBrowseNodeId || OPC_UA_BROWSE_ROOT_NODE_ID;
+    const parentNodeId = getOpcUaParentNodeId(currentNodeId);
+    if (!parentNodeId) {
+      return;
+    }
+    setOpcBrowseHistory((prev) =>
+      prev[prev.length - 1] === currentNodeId ? prev : [...prev, currentNodeId],
+    );
+    setOpcBrowseNodeId(parentNodeId);
+    void browseOpcUaNodes({ nodeId: parentNodeId });
+  };
+
+  const goRootOpcNode = (): void => {
+    setOpcBrowseHistory([]);
+    setOpcBrowseNodeId(OPC_UA_BROWSE_ROOT_NODE_ID);
+    void browseOpcUaNodes({ nodeId: OPC_UA_BROWSE_ROOT_NODE_ID });
+  };
+
+  const opcBrowseParentNodeId = getOpcUaParentNodeId(opcBrowseNodeId || OPC_UA_BROWSE_ROOT_NODE_ID);
+
+  const focusOpcBrowserWindow = useCallback(() => {
+    setOpcBrowserZIndex((value) => value + 1);
+  }, []);
+
+  const handleOpcDriverChange = (nextDriverId: string): void => {
+    setOpcBrowseDriverId(nextDriverId);
+    setOpcBrowseNodeId(OPC_UA_BROWSE_ROOT_NODE_ID);
+    setOpcBrowseSelectedNodeIds(new Set());
+    setOpcBrowseFocusNodeId("");
+    setOpcBrowseHistory([]);
+    setOpcBrowsePreselectNodeId(null);
+    void browseOpcUaNodes({
+      driverId: nextDriverId,
+      nodeId: OPC_UA_BROWSE_ROOT_NODE_ID,
+      search: "",
+    });
+  };
+
+  const handleOpcNodeRowClick = (node: OpcUaBrowseItem): void => {
+    setOpcBrowseFocusNodeId(node.nodeId);
+    if (opcBrowseMode === "multi") {
+      toggleOpcBrowseNodeSelection(node.nodeId);
+      return;
+    }
+    setOpcBrowseSelectedNodeIds(new Set([node.nodeId]));
+  };
+
+  const handleOpcNodeRowDoubleClick = (node: OpcUaBrowseItem): void => {
+    if (canBrowseOpcNode(node)) {
+      openOpcBrowseNode(node);
+      return;
+    }
+    if (opcBrowseMode === "single") {
+      applyOpcUaNodeToDraft(node);
+      return;
+    }
+    toggleOpcBrowseNodeSelection(node.nodeId);
+  };
+
+  const handleOpcLeafSelect = (node: OpcUaBrowseItem): void => {
+    if (opcBrowseMode === "single") {
+      applyOpcUaNodeToDraft(node);
+      return;
+    }
+    setOpcBrowseFocusNodeId(node.nodeId);
+    toggleOpcBrowseNodeSelection(node.nodeId);
+  };
+
+  const confirmSingleOpcNodeSelection = (): void => {
+    const selectedNodeId = [...opcBrowseSelectedNodeIds][0];
+    const selectedNode = opcBrowseNodes.find((node) => node.nodeId === selectedNodeId);
+    if (!selectedNode) {
+      void message.warning("Select a node");
+      return;
+    }
+    applyOpcUaNodeToDraft(selectedNode);
   };
 
   const openAdd = (): void => {
@@ -506,25 +1304,6 @@ export function ScreenEditorTagsWindow() {
     importInputRef.current?.click();
   };
 
-  const addInternalVariable = (): void => {
-    const name = newVarName.trim();
-    if (!name) {
-      void message.error("Variable name is required");
-      return;
-    }
-    if (internalVariables.some((item) => item.name === name)) {
-      void message.error("Internal variable name must be unique");
-      return;
-    }
-    addVariable(name, newVarType, newVarType === "BOOL" ? false : 0);
-    setNewVarName("");
-  };
-
-  const tagGridTemplateColumns = useMemo(
-    () => TAG_COLUMNS.map((column) => `${columnWidths[column.id] ?? column.defaultWidth}px`).join(" "),
-    [columnWidths],
-  );
-
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -539,6 +1318,32 @@ export function ScreenEditorTagsWindow() {
     window.localStorage.setItem(TAG_COLUMNS_WIDTH_STORAGE_KEY, JSON.stringify(columnWidths));
   }, [columnWidths]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(TAG_COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(columnVisibility));
+  }, [columnVisibility]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(TAG_PAGE_SIZE_STORAGE_KEY, String(pageSize));
+  }, [pageSize]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(OPC_BROWSER_RECT_STORAGE_KEY, JSON.stringify(opcBrowserRect));
+  }, [opcBrowserRect]);
+
+  useEffect(() => {
+    detailsWidthDraftRef.current = detailsWidth;
+    bodyRef.current?.style.setProperty("--tags-details-width", `${detailsWidth}px`);
+  }, [detailsWidth]);
+
   const startDetailsResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
 
@@ -547,7 +1352,9 @@ export function ScreenEditorTagsWindow() {
 
     const onMove = (moveEvent: MouseEvent): void => {
       const delta = startX - moveEvent.clientX;
-      setDetailsWidth(clampDetailsWidth(startWidth + delta));
+      const next = clampDetailsWidth(startWidth + delta);
+      detailsWidthDraftRef.current = next;
+      bodyRef.current?.style.setProperty("--tags-details-width", `${next}px`);
     };
 
     const onUp = (): void => {
@@ -556,8 +1363,10 @@ export function ScreenEditorTagsWindow() {
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       setIsDetailsResizeActive(false);
+      setDetailsWidth(detailsWidthDraftRef.current);
     };
 
+    detailsWidthDraftRef.current = startWidth;
     setIsDetailsResizeActive(true);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -632,11 +1441,17 @@ export function ScreenEditorTagsWindow() {
         <WorkbenchButton onClick={onImportClick}>
           Import CSV
         </WorkbenchButton>
+        <WorkbenchButton onClick={openOpcBrowseImport} disabled={opcUaDrivers.length === 0}>
+          Import from OPC UA
+        </WorkbenchButton>
         <WorkbenchButton onClick={() => void saveProject()}>
           Save Project
         </WorkbenchButton>
         <WorkbenchButton onClick={resetWidths}>
           Reset Widths
+        </WorkbenchButton>
+        <WorkbenchButton onClick={() => setColumnsPanelOpen((open) => !open)}>
+          Columns
         </WorkbenchButton>
 
         <input
@@ -700,13 +1515,35 @@ export function ScreenEditorTagsWindow() {
           ))}
         </select>
         <div className="screen-editor-tags-window__toolbar-meta">
-          Total: {tags.length} | Filtered: {filteredTags.length} | Runtime: {Object.keys(runtimeTags).length}
+          Total: {tags.length} | Filtered: {totalRows} | Runtime: {Object.keys(runtimeTags).length}
         </div>
       </div>
 
+      {columnsPanelOpen ? (
+        <div className="screen-editor-tags-columns-panel">
+          {TAG_COLUMNS.map((column) => (
+            <label key={column.id} className="screen-editor-tags-column-toggle">
+              <input
+                type="checkbox"
+                checked={columnVisibility[column.id] !== false}
+                disabled={column.id === "name"}
+                onChange={(event) =>
+                  setColumnVisibility((prev) => ({
+                    ...prev,
+                    [column.id]: event.target.checked,
+                    name: true,
+                  }))}
+              />
+              <span>{column.title}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+
       <div
+        ref={bodyRef}
         className="screen-editor-tags-window__body"
-        style={{ "--screen-editor-tags-details-width": `${detailsWidth}px` } as CSSProperties}
+        style={{ "--tags-details-width": `${detailsWidth}px` } as CSSProperties}
       >
         <div className="screen-editor-tags-window__list">
           <div className="screen-editor-tags-table">
@@ -714,7 +1551,7 @@ export function ScreenEditorTagsWindow() {
               className="screen-editor-tags-row screen-editor-tags-row--header"
               style={{ gridTemplateColumns: tagGridTemplateColumns }}
             >
-              {TAG_COLUMNS.map((column) => (
+              {visibleColumns.map((column) => (
                 <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell">
                   <span>{column.title}</span>
                   <span
@@ -724,7 +1561,7 @@ export function ScreenEditorTagsWindow() {
                 </div>
               ))}
             </div>
-            {filteredTags.map((tag) => {
+            {pageRows.map((tag) => {
               const key = tagKey(tag);
               const selected = selectedTag ? tagKey(selectedTag) === key : false;
               const address = formatAddressCell(tag);
@@ -753,7 +1590,7 @@ export function ScreenEditorTagsWindow() {
                   onDoubleClick={() => openEdit(tag)}
                   style={{ gridTemplateColumns: tagGridTemplateColumns }}
                 >
-                  {TAG_COLUMNS.map((column) => {
+                  {visibleColumns.map((column) => {
                     const value = rowCells[column.id];
                     return (
                       <div key={column.id} className="screen-editor-tags-cell" title={value}>
@@ -764,7 +1601,7 @@ export function ScreenEditorTagsWindow() {
                 </div>
               );
             })}
-            {filteredTags.length === 0 ? (
+            {pageRows.length === 0 ? (
               <div className="screen-editor-empty-state">No tags match the filters</div>
             ) : null}
           </div>
@@ -832,6 +1669,7 @@ export function ScreenEditorTagsWindow() {
                   <select
                     className="workbench-select"
                     value={draftTag.dataType}
+                    disabled={sourceType === "opcua"}
                     onChange={(event) =>
                       setDraftTag((prev) =>
                         prev
@@ -848,6 +1686,9 @@ export function ScreenEditorTagsWindow() {
                       </option>
                     ))}
                   </select>
+                  {sourceType === "opcua" ? (
+                    <span className="screen-editor-tag-editor__hint">Autofilled from OPC UA Browser / Read Test</span>
+                  ) : null}
                 </label>
 
                 {sourceType === "opcua" ? (
@@ -870,11 +1711,32 @@ export function ScreenEditorTagsWindow() {
                     </label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">NodeId</span>
-                      <input
-                        className="workbench-input"
-                        value={draftTag.nodeId ?? ""}
-                        onChange={(event) => setDraftTag((prev) => (prev ? { ...prev, nodeId: event.target.value } : prev))}
-                      />
+                      <div className="screen-editor-tag-editor__row">
+                        <input
+                          className="workbench-input"
+                          value={draftTag.nodeId ?? ""}
+                          onChange={(event) => setDraftTag((prev) => (prev ? { ...prev, nodeId: event.target.value } : prev))}
+                        />
+                        <WorkbenchButton
+                          variant="primary"
+                          onClick={openOpcBrowseForTag}
+                          disabled={opcUaDrivers.length === 0}
+                        >
+                          Browse...
+                        </WorkbenchButton>
+                        <WorkbenchButton
+                          onClick={() => void readOpcUaNodeTest()}
+                          disabled={!draftTag.driverId || !draftTag.nodeId?.trim() || opcReadLoading}
+                        >
+                          Read Test
+                        </WorkbenchButton>
+                      </div>
+                      <span className="screen-editor-tag-editor__hint">Use Browse to select a node from OPC UA server</span>
+                      {opcUaDrivers.length === 0 ? (
+                        <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+                          No OPC UA drivers configured
+                        </span>
+                      ) : null}
                     </label>
                   </>
                 ) : null}
@@ -1081,71 +1943,94 @@ export function ScreenEditorTagsWindow() {
               </div>
             ) : null}
           </div>
-
-          <div className="screen-editor-tags-side-section">
-            <div className="screen-editor-tags-side-section__title">
-              Internal Variables (LW)
-            </div>
-            <div className="screen-editor-tags-side-section__controls">
-              <input
-                className="workbench-input"
-                value={newVarName}
-                onChange={(event) => setNewVarName(event.target.value)}
-                placeholder="Variable name"
-              />
-              <select
-                className="workbench-select"
-                value={newVarType}
-                onChange={(event) => setNewVarType(event.target.value as InternalVariableDefinition["dataType"])}
-              >
-                <option value="BOOL">BOOL</option>
-                <option value="INT">INT</option>
-                <option value="DINT">DINT</option>
-                <option value="REAL">REAL</option>
-                <option value="STRING">STRING</option>
-              </select>
-              <WorkbenchButton onClick={addInternalVariable}>
-                Add
-              </WorkbenchButton>
-            </div>
-            <div className="screen-editor-tags-side-section__list">
-              {internalVariables.length === 0 ? (
-                <div className="screen-editor-empty-state">No variables</div>
-              ) : (
-                internalVariables.slice(0, 100).map((variable) => (
-                  <WorkbenchTreeItem key={variable.name}>
-                    <span>{variable.name} ({variable.dataType})</span>
-                  </WorkbenchTreeItem>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="screen-editor-tags-side-section">
-            <div className="screen-editor-tags-side-section__title">Macros</div>
-            <div className="screen-editor-tags-side-section__list">
-              {macrosToShow.length === 0 ? (
-                <div className="screen-editor-empty-state">No macros</div>
-              ) : (
-                macrosToShow.map((macro) => (
-                  <WorkbenchTreeItem key={macro.id}>
-                    <span className="screen-editor-tag-macro-row">
-                      <span>{macro.name}</span>
-                      <span
-                        className={[
-                          "screen-editor-tag-macro-badge",
-                          macro.enabled ?? true ? "screen-editor-tag-macro-badge--enabled" : "",
-                        ].filter(Boolean).join(" ")}
-                      >
-                        {macro.enabled ?? true ? "EN" : "DIS"}
-                      </span>
-                    </span>
-                  </WorkbenchTreeItem>
-                ))
-              )}
-            </div>
-          </div>
         </div>
+      </div>
+
+      {opcBrowseOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div className="screen-editor-opc-browser-layer">
+              <WorkbenchWindow
+                id="opcUaBrowser"
+                title="BROWSE OPC UA"
+                rect={opcBrowserRect}
+                zIndex={opcBrowserZIndex}
+                minWidth={OPC_BROWSER_MIN_WIDTH}
+                minHeight={OPC_BROWSER_MIN_HEIGHT}
+                onClose={closeOpcBrowseDialog}
+                onFocus={focusOpcBrowserWindow}
+                onMove={(x, y) =>
+                  setOpcBrowserRect((prev) =>
+                    clampOpcBrowserRect({ ...prev, x, y }),
+                  )}
+                onResize={(rect) => setOpcBrowserRect(clampOpcBrowserRect(rect))}
+              >
+                <OpcUaBrowserContent
+                  opcUaDrivers={opcUaDrivers}
+                  mode={opcBrowseMode}
+                  driverId={opcBrowseDriverId}
+                  nodeId={opcBrowseNodeId}
+                  search={opcBrowseSearch}
+                  loading={opcBrowseLoading}
+                  error={opcBrowseError}
+                  nodes={opcBrowseNodes}
+                  selectedNodeIds={opcBrowseSelectedNodeIds}
+                  focusNodeId={opcBrowseFocusNodeId}
+                  historyLength={opcBrowseHistory.length}
+                  canGoUp={Boolean(opcBrowseParentNodeId)}
+                  onDriverChange={handleOpcDriverChange}
+                  onBack={goBackOpcNode}
+                  onUp={goUpOpcNode}
+                  onRoot={goRootOpcNode}
+                  onRefresh={() => void browseOpcUaNodes()}
+                  onSearchChange={setOpcBrowseSearch}
+                  onRowClick={handleOpcNodeRowClick}
+                  onRowDoubleClick={handleOpcNodeRowDoubleClick}
+                  onToggleSelection={toggleOpcBrowseNodeSelection}
+                  onSingleSelect={(nodeId) => {
+                    setOpcBrowseSelectedNodeIds(new Set([nodeId]));
+                    setOpcBrowseFocusNodeId(nodeId);
+                  }}
+                  onOpenNode={openOpcBrowseNode}
+                  onSelectNode={handleOpcLeafSelect}
+                  onCancel={closeOpcBrowseDialog}
+                  onConfirmSingle={confirmSingleOpcNodeSelection}
+                  onConfirmMulti={importSelectedOpcUaNodes}
+                />
+              </WorkbenchWindow>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      <div className="screen-editor-tags-pagination">
+        <span>
+          Rows: {totalRows} · Page {safePage} / {totalPages}
+        </span>
+        <WorkbenchButton disabled={safePage <= 1} onClick={() => setPage(1)}>
+          First
+        </WorkbenchButton>
+        <WorkbenchButton disabled={safePage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
+          Prev
+        </WorkbenchButton>
+        <WorkbenchButton disabled={safePage >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
+          Next
+        </WorkbenchButton>
+        <WorkbenchButton disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>
+          Last
+        </WorkbenchButton>
+        <select
+          className="workbench-select screen-editor-tags-page-size"
+          value={pageSize}
+          onChange={(event) => {
+            setPageSize(Number(event.target.value));
+            setPage(1);
+          }}
+        >
+          <option value={50}>50</option>
+          <option value={100}>100</option>
+          <option value={200}>200</option>
+          <option value={500}>500</option>
+        </select>
       </div>
     </div>
   );

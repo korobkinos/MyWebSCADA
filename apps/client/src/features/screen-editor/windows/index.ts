@@ -2,3 +2,8 @@ export * from "./screen-editor-assets-window";
 export * from "./screen-editor-libraries-window";
 export * from "./screen-editor-tags-window";
 export * from "./screen-editor-drivers-window";
+export * from "./screen-editor-screens-window";
+export * from "./screen-editor-search-window";
+export * from "./screen-editor-runtime-window";
+export * from "./screen-editor-layers-window";
+export * from "./screen-editor-save-selection-window";

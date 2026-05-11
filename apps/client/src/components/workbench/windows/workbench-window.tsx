@@ -44,6 +44,7 @@ export function WorkbenchWindow({
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
+      event.stopPropagation();
       onFocus();
       const target = event.target as HTMLElement;
       const isHeader = target.closest(".workbench-window__header");
@@ -116,6 +117,9 @@ export function WorkbenchWindow({
         zIndex,
       }}
       onMouseDown={handleMouseDown}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      data-window-id={id}
     >
       <div className="workbench-window__header">
         <span className="workbench-window__title">{title}</span>
@@ -126,9 +130,10 @@ export function WorkbenchWindow({
               event.stopPropagation();
               onClose();
             }}
+            aria-label="Close window"
             title="Close"
           >
-            ×
+            x
           </button>
         </div>
       </div>
