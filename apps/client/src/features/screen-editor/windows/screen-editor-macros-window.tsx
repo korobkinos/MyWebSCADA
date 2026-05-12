@@ -78,6 +78,22 @@ function parseErrorText(error: unknown): string {
   return String(error);
 }
 
+function createMacroId(prefix = "macro"): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function createUniqueMacroName(macros: MacroWithExtras[], baseName: string): string {
+  const taken = new Set(macros.map((macro) => macro.name.trim().toLowerCase()));
+  if (!taken.has(baseName.trim().toLowerCase())) {
+    return baseName;
+  }
+  let index = 2;
+  while (taken.has(`${baseName} ${index}`.trim().toLowerCase())) {
+    index += 1;
+  }
+  return `${baseName} ${index}`;
+}
+
 function walkObjects(objects: HmiObject[], visitor: (obj: HmiObject) => void): void {
   for (const object of objects) {
     visitor(object);
@@ -114,11 +130,13 @@ export function ScreenEditorMacrosWindow() {
   const updateMacro = useScadaStore((s) => s.updateMacro);
   const runMacro = useScadaStore((s) => s.runMacro);
   const saveProject = useScadaStore((s) => s.saveProject);
+  const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
 
   const [search, setSearch] = useState("");
   const [selectedMacroId, setSelectedMacroId] = useState<string | null>(null);
   const [draftMacro, setDraftMacro] = useState<MacroDraft | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [triggerDraft, setTriggerDraft] = useState<TriggerDraft>({
     type: "interval",
     intervalMs: "1000",
@@ -194,10 +212,6 @@ export function ScreenEditorMacrosWindow() {
       }
     }
   }, [appendConsole, loadMacros]);
-
-  useEffect(() => {
-    void refreshMacros(true);
-  }, [refreshMacros]);
 
   useEffect(() => {
     if (macroSource.length === 0) {
@@ -332,7 +346,7 @@ export function ScreenEditorMacrosWindow() {
   }, []);
 
   const onSaveMacro = useCallback(async () => {
-    if (!selectedMacro || !draftMacro) {
+    if (!project || !selectedMacro || !draftMacro) {
       return;
     }
 
@@ -356,6 +370,31 @@ export function ScreenEditorMacrosWindow() {
         triggers: draftMacro.triggers,
         options: draftMacro.options,
       };
+      const existsInBackendList = macros.some((macro) => macro.id === selectedMacro.id);
+      if (!existsInBackendList) {
+        const localUpdated: MacroWithExtras = {
+          id: selectedMacro.id,
+          name,
+          description: draftMacro.description || undefined,
+          enabled: draftMacro.enabled,
+          language: "javascript-lite",
+          code: draftMacro.code,
+          triggers: (draftMacro.triggers as MacroTrigger[] | undefined) ?? [],
+          options: draftMacro.options,
+        };
+        const nextMacros = macroSource.map((macro) => (macro.id === selectedMacro.id ? localUpdated : macro));
+        updateProjectJson({
+          ...project,
+          macros: nextMacros,
+        });
+        selectMacro(localUpdated);
+        setDirty(false);
+        const ts = formatTimestamp();
+        setLastSaveAt(ts);
+        appendConsole("success", `Macro saved locally: ${localUpdated.name}`);
+        void message.success("Macro saved locally. Click Save Project to persist");
+        return;
+      }
       const updated = await updateMacro(selectedMacro.id, payload);
       await loadMacros();
 
@@ -376,7 +415,7 @@ export function ScreenEditorMacrosWindow() {
     } finally {
       setSaving(false);
     }
-  }, [appendConsole, draftMacro, loadMacros, selectMacro, selectedMacro, updateMacro]);
+  }, [appendConsole, draftMacro, loadMacros, macroSource, macros, project, selectMacro, selectedMacro, updateMacro, updateProjectJson]);
 
   const onRunMacro = useCallback(async () => {
     if (!selectedMacro) {
@@ -416,6 +455,106 @@ export function ScreenEditorMacrosWindow() {
     }
   }, [appendConsole, currentScreenId, runMacro, selectedMacro]);
 
+  const onAddMacro = useCallback(() => {
+    if (!project) {
+      return;
+    }
+    const existingIds = new Set(macroSource.map((macro) => macro.id));
+    let id = createMacroId();
+    while (existingIds.has(id)) {
+      id = createMacroId();
+    }
+    const name = createUniqueMacroName(macroSource, "New macro");
+    const created: MacroWithExtras = {
+      id,
+      name,
+      description: "",
+      enabled: true,
+      language: "javascript-lite",
+      code: "// New macro\n",
+      triggers: [],
+    };
+    const nextMacros = [...macroSource, created];
+    updateProjectJson({
+      ...project,
+      macros: nextMacros,
+    });
+    setSelectedMacroId(created.id);
+    setDraftMacro(toDraft(created));
+    setDirty(true);
+    setRunResult(null);
+    setRunError(null);
+    appendConsole("success", `Macro created: ${created.name} (${created.id})`);
+    void message.success("Macro created");
+  }, [appendConsole, macroSource, project, updateProjectJson]);
+
+  const onDuplicateMacro = useCallback(() => {
+    if (!project || !selectedMacro) {
+      return;
+    }
+    const existingIds = new Set(macroSource.map((macro) => macro.id));
+    let id = createMacroId();
+    while (existingIds.has(id)) {
+      id = createMacroId();
+    }
+    const baseName = `${selectedMacro.name || "Macro"} Copy`;
+    const duplicate = structuredClone(selectedMacro) as MacroWithExtras;
+    duplicate.id = id;
+    duplicate.name = createUniqueMacroName(macroSource, baseName);
+    const nextMacros = [...macroSource, duplicate];
+    updateProjectJson({
+      ...project,
+      macros: nextMacros,
+    });
+    setSelectedMacroId(duplicate.id);
+    setDraftMacro(toDraft(duplicate));
+    setDirty(true);
+    setRunResult(null);
+    setRunError(null);
+    appendConsole("success", `Macro duplicated: ${duplicate.name} (${duplicate.id})`);
+    void message.success("Macro duplicated");
+  }, [appendConsole, macroSource, project, selectedMacro, updateProjectJson]);
+
+  const confirmDeleteMacro = useCallback(() => {
+    if (!project || !selectedMacroId) {
+      return;
+    }
+    const deleteIndex = macroSource.findIndex((macro) => macro.id === selectedMacroId);
+    if (deleteIndex < 0) {
+      void message.error("Selected macro not found");
+      return;
+    }
+    const deleted = macroSource[deleteIndex];
+    if (!deleted) {
+      return;
+    }
+    const nextMacros = macroSource.filter((macro) => macro.id !== selectedMacroId);
+    updateProjectJson({
+      ...project,
+      macros: nextMacros,
+    });
+    const nextSelected = nextMacros[deleteIndex] ?? nextMacros[deleteIndex - 1] ?? null;
+    if (nextSelected) {
+      setSelectedMacroId(nextSelected.id);
+      setDraftMacro(toDraft(nextSelected));
+    } else {
+      setSelectedMacroId(null);
+      setDraftMacro(null);
+    }
+    setDirty(true);
+    setRunResult(null);
+    setRunError(null);
+    appendConsole("warn", `Macro deleted: ${deleted.name} (${deleted.id})`);
+    void message.success("Macro deleted");
+  }, [appendConsole, macroSource, project, selectedMacroId, updateProjectJson]);
+
+  const onDeleteMacro = useCallback(() => {
+    if (!selectedMacroId) {
+      return;
+    }
+    setDeleteConfirmOpen(true);
+  }, [selectedMacroId]);
+
   if (!project) {
     return (
       <div className="screen-editor-window-content screen-editor-macros-window">
@@ -433,9 +572,19 @@ export function ScreenEditorMacrosWindow() {
           placeholder="Search macros"
           onChange={(event) => setSearch(event.target.value)}
         />
-        <WorkbenchButton disabled icon={<PlusOutlined />} title="Add Macro (not implemented)" />
-        <WorkbenchButton disabled icon={<CopyOutlined />} title="Duplicate Macro (not implemented)" />
-        <WorkbenchButton disabled icon={<DeleteOutlined />} title="Delete Macro (not implemented)" />
+        <WorkbenchButton icon={<PlusOutlined />} title="Add Macro" onClick={onAddMacro} />
+        <WorkbenchButton
+          icon={<CopyOutlined />}
+          title="Duplicate Macro"
+          onClick={onDuplicateMacro}
+          disabled={!selectedMacro}
+        />
+        <WorkbenchButton
+          icon={<DeleteOutlined />}
+          title="Delete Macro"
+          onClick={onDeleteMacro}
+          disabled={!selectedMacroId}
+        />
         <WorkbenchButton
           variant="primary"
           icon={<SaveOutlined />}
@@ -686,6 +835,30 @@ export function ScreenEditorMacrosWindow() {
           </div>
         </Panel>
       </PanelGroup>
+
+      <Modal
+        title="Delete macro?"
+        open={deleteConfirmOpen}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        footer={
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <WorkbenchButton onClick={() => setDeleteConfirmOpen(false)}>Cancel</WorkbenchButton>
+            <WorkbenchButton
+              variant="danger"
+              onClick={() => {
+                confirmDeleteMacro();
+                setDeleteConfirmOpen(false);
+              }}
+            >
+              Delete
+            </WorkbenchButton>
+          </div>
+        }
+      >
+        <div>
+          Delete &quot;{selectedMacro?.name ?? "selected macro"}&quot;?
+        </div>
+      </Modal>
 
       <Modal
         title="Macro Help & Syntax"
