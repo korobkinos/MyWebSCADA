@@ -120,6 +120,13 @@ export function HmiStage({
   }, [mode, screen.height, screen.width, viewport.height, viewport.width]);
 
   const effectiveEditorZoom = mode === "editor" ? Math.min(3, Math.max(0.1, editorZoom)) : 1;
+  const effectiveRenderContext = useMemo(
+    () => ({
+      ...renderContext,
+      userRoleLevel: currentUserRoleLevel ?? renderContext.userRoleLevel,
+    }),
+    [currentUserRoleLevel, renderContext],
+  );
   const stageScale = mode === "runtime" ? runtimeScale : effectiveEditorZoom;
   const stageWidth = mode === "editor" ? screen.width * effectiveEditorZoom : screen.width;
   const stageHeight = mode === "editor" ? screen.height * effectiveEditorZoom : screen.height;
@@ -264,10 +271,7 @@ export function HmiStage({
             mode={mode}
             tags={tags}
             libraries={libraries}
-            renderContext={{
-              ...renderContext,
-              userRoleLevel: currentUserRoleLevel ?? renderContext.userRoleLevel,
-            }}
+            renderContext={effectiveRenderContext}
             selectedObjectIds={selectedObjectIds}
             onSelectObject={onSelectObject}
             onMoveObject={onMoveObject}

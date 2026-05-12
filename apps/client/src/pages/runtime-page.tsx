@@ -43,6 +43,8 @@ const RUNTIME_ACCESS_WINDOW_ID = "runtimeAccessRequired";
 const RUNTIME_AUTH_WINDOW_ID = "runtimeAuthorization";
 const COMMAND_WARNING_COOLDOWN_MS = 1200;
 const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
+const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
+const COMMAND_WARNING_RETENTION_MS = 30_000;
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const project = useScadaStore((s) => s.project);
@@ -62,7 +64,12 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   const [popupState, dispatchPopup] = useReducer(popupReducer, undefined, createInitialPopupState);
   const dragRefs = useRef<Record<string, { dx: number; dy: number }>>({});
-  const pendingCommandKeysRef = useRef(new Map<string, { startedAt: number; timeoutMs: number }>());
+  const pendingCommandKeysRef = useRef(new Map<string, { startedAt: number; timeoutMs: number; popupInstanceId?: string }>());
+  const activeRuntimeCommandsRef = useRef(new Map<string, {
+    commandKey: string;
+    popupInstanceId?: string;
+    abortController?: AbortController;
+  }>());
   const commandWarningTimestampsRef = useRef(new Map<string, number>());
   const runtimeRootRef = useRef<HTMLDivElement | null>(null);
   const debugActionTiming =
@@ -102,6 +109,16 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           ?? project.screens[0]
         : undefined,
     [currentScreenId, project],
+  );
+  const runtimeUserRoles = useMemo(() => authUser?.roles ?? [], [authUser?.roles]);
+  const mainRenderContext = useMemo(
+    () => ({
+      screenId: screen?.id,
+      userRoles: runtimeUserRoles,
+      userRoleLevel,
+      isAuthenticated: Boolean(authUser),
+    }),
+    [authUser, runtimeUserRoles, screen?.id, userRoleLevel],
   );
 
   useEffect(() => {
@@ -427,12 +444,60 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   const shouldShowCommandWarning = (commandKey: string): boolean => {
     const now = Date.now();
+    if (commandWarningTimestampsRef.current.size >= COMMAND_WARNING_MAP_MAX_SIZE) {
+      for (const [key, timestamp] of commandWarningTimestampsRef.current.entries()) {
+        if (now - timestamp > COMMAND_WARNING_RETENTION_MS) {
+          commandWarningTimestampsRef.current.delete(key);
+        }
+      }
+      if (commandWarningTimestampsRef.current.size >= COMMAND_WARNING_MAP_MAX_SIZE) {
+        commandWarningTimestampsRef.current.clear();
+      }
+    }
     const lastAt = commandWarningTimestampsRef.current.get(commandKey) ?? 0;
     if (now - lastAt < COMMAND_WARNING_COOLDOWN_MS) {
       return false;
     }
     commandWarningTimestampsRef.current.set(commandKey, now);
     return true;
+  };
+
+  const abortPopupRuntimeCommands = (popupInstanceId: string): void => {
+    let abortedCount = 0;
+    for (const meta of activeRuntimeCommandsRef.current.values()) {
+      if (meta.popupInstanceId !== popupInstanceId) {
+        continue;
+      }
+      meta.abortController?.abort();
+      abortedCount += 1;
+    }
+    for (const [commandKey, pending] of pendingCommandKeysRef.current.entries()) {
+      if (pending.popupInstanceId === popupInstanceId) {
+        pendingCommandKeysRef.current.delete(commandKey);
+      }
+    }
+    debugRuntimeCommand("popup-close-abort", {
+      popupInstanceId,
+      abortedCount,
+    });
+  };
+
+  const closePopupById = (popupInstanceId?: string): void => {
+    if (popupInstanceId) {
+      abortPopupRuntimeCommands(popupInstanceId);
+      dispatchPopup({ type: "close", payload: { id: popupInstanceId } });
+      return;
+    }
+    const top = popupState.items.reduce<PopupInstance | undefined>(
+      (acc, item) => (!acc || item.zIndex > acc.zIndex ? item : acc),
+      undefined,
+    );
+    if (top) {
+      abortPopupRuntimeCommands(top.id);
+      dispatchPopup({ type: "close", payload: { id: top.id } });
+      return;
+    }
+    dispatchPopup({ type: "close", payload: {} });
   };
 
   const logRuntimeCommand = (params: {
@@ -510,7 +575,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     );
     const existing = pendingCommandKeysRef.current.get(params.commandKey);
     if (existing) {
-      if (Date.now() - existing.startedAt <= existing.timeoutMs * 3) {
+      if (Date.now() - existing.startedAt <= existing.timeoutMs + 750) {
         const warnText = params.macroId
           ? "Macro ignored: already pending"
           : "Command ignored: already pending";
@@ -555,7 +620,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       pendingCommandKeysRef.current.delete(params.commandKey);
     }
 
-    pendingCommandKeysRef.current.set(params.commandKey, { startedAt: Date.now(), timeoutMs });
+    pendingCommandKeysRef.current.set(params.commandKey, {
+      startedAt: Date.now(),
+      timeoutMs,
+      popupInstanceId: params.context.popupInstanceId,
+    });
     const startedAt = Date.now();
     debugRuntimeCommand(
       "start",
@@ -569,6 +638,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     );
     const commandMeta = createManualCommandMeta(params.commandKey, timeoutMs);
     const abortController = typeof AbortController !== "undefined" ? new AbortController() : undefined;
+    activeRuntimeCommandsRef.current.set(commandMeta.commandId, {
+      commandKey: params.commandKey,
+      popupInstanceId: params.context.popupInstanceId,
+      abortController,
+    });
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
     try {
@@ -649,6 +723,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       if (timeoutHandle) {
         clearTimeout(timeoutHandle);
       }
+      activeRuntimeCommandsRef.current.delete(commandMeta.commandId);
       pendingCommandKeysRef.current.delete(params.commandKey);
     }
   };
@@ -950,7 +1025,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "closePopup") {
-      dispatchPopup({ type: "close", payload: { id: action.popupInstanceId } });
+      closePopupById(action.popupInstanceId);
     }
   };
 
@@ -963,7 +1038,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       libraries={libraries}
       fullscreenRuntime={fullscreen}
       currentUserRoleLevel={userRoleLevel}
-      renderContext={{ screenId: screen.id, userRoles: authUser?.roles ?? [], userRoleLevel, isAuthenticated: Boolean(authUser) }}
+      renderContext={mainRenderContext}
       onAction={(action, context) => executeAction(action, context)}
     />
   );
@@ -1035,7 +1110,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           >
             <span>{item.title ?? popupScreen.name}</span>
             {item.closable ? (
-              <Button size="small" onClick={() => dispatchPopup({ type: "close", payload: { id: item.id } })}>
+              <Button size="small" onClick={() => closePopupById(item.id)}>
                 X
               </Button>
             ) : null}
@@ -1055,7 +1130,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
               tagPrefix: item.tagPrefix,
               parameters: item.args,
               args: item.args,
-              userRoles: authUser?.roles ?? [],
+              userRoles: runtimeUserRoles,
               userRoleLevel,
               isAuthenticated: Boolean(authUser),
             }}

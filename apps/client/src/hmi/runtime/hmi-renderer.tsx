@@ -939,7 +939,17 @@ function GroupNode({
       ...renderContext,
       parameters: withRuntimeScopeParameter(renderContext.parameters, object.id),
     }),
-    [object.id, renderContext],
+    [
+      object.id,
+      renderContext.bindings,
+      renderContext.isAuthenticated,
+      renderContext.parameters,
+      renderContext.screenId,
+      renderContext.popupInstanceId,
+      renderContext.tagPrefix,
+      renderContext.userRoleLevel,
+      renderContext.userRoles,
+    ],
   );
   const virtualScreen: HmiScreen = {
     id: object.id,
@@ -1016,11 +1026,14 @@ function FrameNode({
   const screen = project.screens.find((item) => item.id === object.screenId);
   const hasCycle = frameStack.includes(object.screenId);
 
-  const context: RenderContext = {
-    tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
-    parameters: withRuntimeScopeParameter(renderContext.parameters, object.id),
-    bindings: renderContext.bindings,
-  };
+  const context: RenderContext = useMemo(
+    () => ({
+      tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
+      parameters: withRuntimeScopeParameter(renderContext.parameters, object.id),
+      bindings: renderContext.bindings,
+    }),
+    [object.id, object.tagPrefix, renderContext.bindings, renderContext.parameters, renderContext.tagPrefix],
+  );
 
   if (!screen) {
     return <MissingNode commonGroupProps={commonGroupProps} message={`Screen not found: ${object.screenId}`} />;
@@ -1549,6 +1562,7 @@ function MissingNode({ commonGroupProps, message }: { commonGroupProps: Record<s
 
 const warnedBindingIssues = new Set<string>();
 const warnedBindingReferenceMisses = new Set<string>();
+const MAX_WARNED_RUNTIME_KEYS = 500;
 
 function warnLibraryBindingIssuesOnce(
   libraryId: string,
@@ -1556,12 +1570,15 @@ function warnLibraryBindingIssuesOnce(
   instanceId: string,
   issues: Array<{ key: string; displayName?: string; required: boolean; reason: string; fallbackBaseTag?: string }>,
 ) {
-  const key = `${libraryId}:${elementId}:${instanceId}:${issues
+  const key = `${libraryId}:${elementId}:${issues
     .map((item) => `${item.key}:${item.reason}:${item.required ? 1 : 0}`)
     .sort()
     .join("|")}`;
   if (warnedBindingIssues.has(key)) {
     return;
+  }
+  if (warnedBindingIssues.size >= MAX_WARNED_RUNTIME_KEYS) {
+    warnedBindingIssues.clear();
   }
   warnedBindingIssues.add(key);
   // eslint-disable-next-line no-console
@@ -1579,9 +1596,12 @@ function warnMissingBindingReferencesOnce(
   instanceId: string,
   refs: string[],
 ) {
-  const key = `${libraryId}:${elementId}:${instanceId}:${refs.slice().sort().join("|")}`;
+  const key = `${libraryId}:${elementId}:${refs.slice().sort().join("|")}`;
   if (warnedBindingReferenceMisses.has(key)) {
     return;
+  }
+  if (warnedBindingReferenceMisses.size >= MAX_WARNED_RUNTIME_KEYS) {
+    warnedBindingReferenceMisses.clear();
   }
   warnedBindingReferenceMisses.add(key);
   // eslint-disable-next-line no-console
