@@ -43,6 +43,7 @@ type HmiStageProps = {
   showObjectFrames?: boolean;
   fullscreenRuntime?: boolean;
   editorZoom?: number;
+  currentUserRoleLevel?: number;
 };
 
 export function HmiStage({
@@ -66,6 +67,7 @@ export function HmiStage({
   showObjectFrames = false,
   fullscreenRuntime = false,
   editorZoom = 1,
+  currentUserRoleLevel,
 }: HmiStageProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -262,7 +264,10 @@ export function HmiStage({
             mode={mode}
             tags={tags}
             libraries={libraries}
-            renderContext={renderContext}
+            renderContext={{
+              ...renderContext,
+              userRoleLevel: currentUserRoleLevel ?? renderContext.userRoleLevel,
+            }}
             selectedObjectIds={selectedObjectIds}
             onSelectObject={onSelectObject}
             onMoveObject={onMoveObject}

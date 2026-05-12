@@ -56,6 +56,7 @@ export function App() {
   const isLoginRoute = location.pathname === "/login";
   const isWorkbenchDemoRoute = location.pathname === "/workbench-demo";
   const isEditorRoute = location.pathname === "/editor";
+  const isProtectedRoute = !isRuntimeRoute && !isLoginRoute && !isWorkbenchDemoRoute;
   const [bootError, setBootError] = useState<string | null>(null);
   const [mainMenuHidden, setMainMenuHidden] = useState<boolean>(() => {
     if (typeof window === "undefined") {
@@ -122,11 +123,13 @@ export function App() {
   useEffect(() => {
     const onInvalidAuth = () => {
       logout();
-      navigate("/login");
+      if (isProtectedRoute) {
+        navigate("/login", { replace: true });
+      }
     };
     window.addEventListener("scada-auth-invalid", onInvalidAuth);
     return () => window.removeEventListener("scada-auth-invalid", onInvalidAuth);
-  }, [logout, navigate]);
+  }, [isProtectedRoute, logout, navigate]);
 
   useEffect(() => {
     const projectTheme = project?.uiSettings?.theme;
@@ -292,7 +295,7 @@ export function App() {
             icon: <LogoutOutlined />,
             onClick: () => {
               logout();
-              navigate("/login");
+              navigate("/runtime", { replace: true });
             },
           }
         : {
@@ -405,7 +408,7 @@ export function App() {
             icon={<LogoutOutlined />}
             onClick={() => {
               logout();
-              navigate("/login");
+              navigate("/runtime", { replace: true });
             }}
           >
             Logout ({authUser?.username ?? "anonymous"})

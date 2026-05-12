@@ -1,7 +1,12 @@
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  clampAccessRoleLevel,
+  roleLevelFromRoles,
+} from "@web-scada/shared";
 import type {
+  AccessRoleLevel,
   AdminChangePasswordRequest,
   AppPermission,
   AppRole,
@@ -15,6 +20,7 @@ import { ROLE_PERMISSIONS } from "./permissions.js";
 
 type StoredUser = Omit<AppUser, "permissions"> & {
   permissions?: AppPermission[];
+  roleLevel?: AccessRoleLevel;
   passwordHash: string;
 };
 
@@ -26,6 +32,7 @@ const appPermissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>(
   (value) => typeof value === "string",
   { message: "Invalid permission" },
 );
+const accessRoleLevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 
 const storedUserSchema: z.ZodType<StoredUser> = z.object({
   id: z.string().min(1),
@@ -33,6 +40,7 @@ const storedUserSchema: z.ZodType<StoredUser> = z.object({
   displayName: z.string().optional(),
   enabled: z.boolean(),
   roles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])),
+  roleLevel: accessRoleLevelSchema.optional(),
   permissions: z.array(appPermissionSchema).optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
@@ -66,17 +74,31 @@ function toPermissionSet(roles: AppRole[], direct: AppPermission[] = []): Set<Ap
 }
 
 function sanitizeUser(user: StoredUser): AppUser {
+  const roleLevel = normalizeStoredRoleLevel(user.roleLevel, user.roles);
   return {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
     enabled: user.enabled,
     roles: user.roles,
+    roleLevel,
     permissions: [...toPermissionSet(user.roles, user.permissions ?? [])],
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     lastLoginAt: user.lastLoginAt,
   };
+}
+
+function normalizeStoredRoleLevel(level: number | undefined, roles: readonly string[]): AccessRoleLevel {
+  if (typeof level === "number" && Number.isFinite(level)) {
+    const clamped = clampAccessRoleLevel(level, 1);
+    return clamped > 0 ? clamped : 1;
+  }
+  return roleLevelFromRoles(roles);
+}
+
+function isSuperadmin(user: StoredUser): boolean {
+  return normalizeStoredRoleLevel(user.roleLevel, user.roles) >= 4;
 }
 
 function hashPassword(password: string): string {
@@ -118,6 +140,7 @@ export class AuthService {
       displayName: "Administrator",
       enabled: true,
       roles: ["admin"],
+      roleLevel: 4,
       permissions: [],
       createdAt,
       updatedAt: createdAt,
@@ -187,12 +210,14 @@ export class AuthService {
     }
     const createdAt = nowIso();
     const roles: AppRole[] = payload.roles?.length ? payload.roles : ["viewer"];
+    const roleLevel = normalizeStoredRoleLevel(payload.roleLevel, roles);
     const user: StoredUser = {
       id: randomUUID(),
       username,
       displayName: payload.displayName?.trim() || undefined,
       enabled: payload.enabled ?? true,
       roles,
+      roleLevel,
       permissions: payload.permissions ?? [],
       createdAt,
       updatedAt: createdAt,
@@ -210,8 +235,30 @@ export class AuthService {
       throw new Error("User not found");
     }
 
+    const nextUsername = payload.username ? normalizeUsername(payload.username) : user.username;
+    if (!nextUsername) {
+      throw new Error("Username is required");
+    }
+    const duplicate = store.users.find((item) => item.id !== user.id && item.username === nextUsername);
+    if (duplicate) {
+      throw new Error("Username already exists");
+    }
+
     const nextRoles = payload.roles ?? user.roles;
+    const nextRoleLevel = normalizeStoredRoleLevel(payload.roleLevel ?? user.roleLevel, nextRoles);
     const nextEnabled = payload.enabled ?? user.enabled;
+    if (!nextEnabled && isSuperadmin(user)) {
+      const enabledSuperadmins = store.users.filter((item) => item.enabled && item.id !== user.id && isSuperadmin(item));
+      if (enabledSuperadmins.length === 0) {
+        throw new Error("Cannot disable the last enabled superadmin");
+      }
+    }
+    if (nextRoleLevel < 4 && isSuperadmin(user)) {
+      const otherSuperadmins = store.users.filter((item) => item.id !== user.id && item.enabled && isSuperadmin(item));
+      if (otherSuperadmins.length === 0) {
+        throw new Error("Cannot remove superadmin level from the last enabled superadmin");
+      }
+    }
     if (!nextEnabled && user.roles.includes("admin")) {
       const enabledAdmins = store.users.filter((item) => item.enabled && item.roles.includes("admin") && item.id !== user.id);
       if (enabledAdmins.length === 0) {
@@ -225,8 +272,10 @@ export class AuthService {
       }
     }
 
+    user.username = nextUsername;
     user.displayName = payload.displayName?.trim() || undefined;
     user.roles = nextRoles;
+    user.roleLevel = nextRoleLevel;
     user.permissions = payload.permissions ?? user.permissions ?? [];
     user.enabled = nextEnabled;
     user.updatedAt = nowIso();
@@ -244,6 +293,12 @@ export class AuthService {
       const otherAdmins = store.users.filter((item) => item.roles.includes("admin") && item.id !== userId && item.enabled);
       if (otherAdmins.length === 0) {
         throw new Error("Cannot delete the last enabled admin");
+      }
+    }
+    if (isSuperadmin(target)) {
+      const otherSuperadmins = store.users.filter((item) => item.id !== userId && item.enabled && isSuperadmin(item));
+      if (otherSuperadmins.length === 0) {
+        throw new Error("Cannot delete the last enabled superadmin");
       }
     }
     store.users = store.users.filter((item) => item.id !== userId);

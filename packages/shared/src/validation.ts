@@ -42,6 +42,8 @@ const hmiBaseSchema = z.object({
   rotation: z.number().optional(),
   visible: z.boolean().optional(),
   visibleForRoles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),
+  requiredVisibleRole: z.number().int().min(0).max(4).optional(),
+  requiredActionRole: z.number().int().min(0).max(4).optional(),
   locked: z.boolean().optional(),
   opacity: z.number().min(0).max(1).optional(),
   minWidth: z.number().positive().optional(),
@@ -54,6 +56,7 @@ const appRoleSchema = z.enum(["admin", "engineer", "operator", "viewer"]);
 const runtimeActionAccessSchema = z.object({
   requireAuth: z.boolean().optional(),
   requiredRoles: z.array(appRoleSchema).optional(),
+  requiredRoleLevel: z.number().int().min(0).max(4).optional(),
 });
 
 export const assetSchema = z.object({

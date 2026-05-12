@@ -11,8 +11,39 @@ import { CommandService } from "./command-service.js";
 import { InternalVariableService } from "./internal-variable-service.js";
 import { TagStore } from "../tags/tag-store.js";
 
+type MacroRunReason = "disabled" | "already_running";
+
+type MacroRunStatus = {
+  status: "ok" | "skipped";
+  reason?: MacroRunReason;
+  effects?: MacroUiEffect[];
+};
+
+type MacroExecutionDiagnostics = {
+  lookupMs: number;
+  compileMs: number;
+  executionMs: number;
+  totalMs: number;
+  cacheStatus: "hit" | "miss";
+};
+
+type MacroRunInternalResult = MacroRunStatus & {
+  diagnostics: MacroExecutionDiagnostics;
+};
+
+type CompiledMacro = {
+  macroId: string;
+  macroName: string;
+  code: string;
+  compiledAt: number;
+  script: vm.Script;
+};
+
 export class MacroService {
   private macros: MacroDefinition[] = [];
+  private readonly compiledMacros = new Map<string, CompiledMacro>();
+  private readonly manualInFlight = new Set<string>();
+  private readonly slowExecutionWarnMs = 250;
 
   public constructor(
     private readonly tagStore: TagStore,
@@ -21,7 +52,23 @@ export class MacroService {
   ) {}
 
   public configure(project: ScadaProject): void {
-    this.macros = project.macros ?? [];
+    const nextMacros = project.macros ?? [];
+    const nextMacroIds = new Set(nextMacros.map((macro) => macro.id));
+
+    for (const macroId of this.compiledMacros.keys()) {
+      if (!nextMacroIds.has(macroId)) {
+        this.compiledMacros.delete(macroId);
+      }
+    }
+
+    for (const macro of nextMacros) {
+      const cached = this.compiledMacros.get(macro.id);
+      if (cached && cached.code !== macro.code) {
+        this.compiledMacros.delete(macro.id);
+      }
+    }
+
+    this.macros = nextMacros;
     console.log(`[MacroService] Configured with ${this.macros.length} macros`);
   }
 
@@ -37,51 +84,72 @@ export class MacroService {
     macroId: string,
     args?: Record<string, unknown>,
     options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
-  ): Promise<{ status: "ok" | "skipped"; reason?: "disabled"; effects?: MacroUiEffect[] }> {
+  ): Promise<MacroRunStatus> {
+    const result = await this.runInternal(macroId, args, options);
+    return {
+      status: result.status,
+      reason: result.reason,
+      effects: result.effects,
+    };
+  }
+
+  public async runManual(
+    macroId: string,
+    args?: Record<string, unknown>,
+    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+  ): Promise<MacroRunInternalResult> {
+    if (this.manualInFlight.has(macroId)) {
+      return {
+        status: "skipped",
+        reason: "already_running",
+        diagnostics: {
+          lookupMs: 0,
+          compileMs: 0,
+          executionMs: 0,
+          totalMs: 0,
+          cacheStatus: "hit",
+        },
+      };
+    }
+
+    this.manualInFlight.add(macroId);
+    try {
+      return await this.runInternal(macroId, args, options);
+    } finally {
+      this.manualInFlight.delete(macroId);
+    }
+  }
+
+  private async runInternal(
+    macroId: string,
+    args?: Record<string, unknown>,
+    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+  ): Promise<MacroRunInternalResult> {
+    const startedAt = Date.now();
+    const lookupStartedAt = Date.now();
     const macro = this.macros.find((item) => item.id === macroId);
+    const lookupMs = Date.now() - lookupStartedAt;
     if (!macro) {
       throw new Error(`Macro ${macroId} not found`);
     }
     if ((macro.enabled ?? true) === false && !options?.allowDisabledForTest) {
       console.warn(`[macro:${macro.id}] Macro is disabled and was not executed`);
-      return { status: "skipped", reason: "disabled" };
+      return {
+        status: "skipped",
+        reason: "disabled",
+        diagnostics: {
+          lookupMs,
+          compileMs: 0,
+          executionMs: 0,
+          totalMs: Date.now() - startedAt,
+          cacheStatus: "hit",
+        },
+      };
     }
 
-    const jsCode = ts.transpileModule(macro.code, {
-      compilerOptions: {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ESNext,
-      },
-    }).outputText;
-
-    const wrapped =
-      `\n(async (api, args) => {\n` +
-      `const {\n` +
-      `  readTag,\n` +
-      `  writeTag,\n` +
-      `  pulseTag,\n` +
-      `  toggleTag,\n` +
-      `  getTagQuality,\n` +
-      `  tagExists,\n` +
-      `  getLW,\n` +
-      `  setLW,\n` +
-      `  getVar,\n` +
-      `  setVar,\n` +
-      `  readVariable,\n` +
-      `  writeVariable,\n` +
-      `  openPopup,\n` +
-      `  closePopup,\n` +
-      `  openScreen,\n` +
-      `  getCurrentTagPrefix,\n` +
-      `  getContext,\n` +
-      `  resolveTag,\n` +
-      `  log,\n` +
-      `  warn,\n` +
-      `  error,\n` +
-      `} = api;\n` +
-      `${jsCode}\n` +
-      `})`;
-    const script = new vm.Script(wrapped, { filename: `macro-${macro.id}.ts` });
+    const compileStartedAt = Date.now();
+    const { compiled, cacheStatus } = this.getCompiledMacro(macro);
+    const compileMs = Date.now() - compileStartedAt;
 
     const context = vm.createContext({
       console,
@@ -91,7 +159,7 @@ export class MacroService {
       clearTimeout,
     });
 
-    const fn = script.runInContext(context) as (api: MacroApi, args: Record<string, unknown>) => Promise<void>;
+    const fn = compiled.script.runInContext(context) as (api: MacroApi, args: Record<string, unknown>) => Promise<void>;
     const commandService = this.commandService;
     const internalVariableService = this.internalVariableService;
     const tagStore = this.tagStore;
@@ -168,8 +236,92 @@ export class MacroService {
       error: (...items) => console.error(`[macro:${macro.id}]`, ...items),
     };
 
+    const executionStartedAt = Date.now();
     await fn(api, args ?? {});
-    return { status: "ok", effects };
+    const executionMs = Date.now() - executionStartedAt;
+    const totalMs = Date.now() - startedAt;
+
+    if (executionMs > this.slowExecutionWarnMs) {
+      console.warn(
+        `[MacroService] Slow macro execution macroId=${macro.id} macroName=${macro.name} executionMs=${executionMs} totalMs=${totalMs}`,
+      );
+    }
+
+    return {
+      status: "ok",
+      effects,
+      diagnostics: {
+        lookupMs,
+        compileMs,
+        executionMs,
+        totalMs,
+        cacheStatus,
+      },
+    };
+  }
+
+  private getCompiledMacro(macro: MacroDefinition): { compiled: CompiledMacro; cacheStatus: "hit" | "miss" } {
+    const cached = this.compiledMacros.get(macro.id);
+    if (cached && cached.code === macro.code) {
+      return { compiled: cached, cacheStatus: "hit" };
+    }
+    const compiled = this.compileMacro(macro);
+    this.compiledMacros.set(macro.id, compiled);
+    return { compiled, cacheStatus: "miss" };
+  }
+
+  private compileMacro(macro: MacroDefinition): CompiledMacro {
+    try {
+      const jsCode = ts.transpileModule(macro.code, {
+        compilerOptions: {
+          target: ts.ScriptTarget.ES2022,
+          module: ts.ModuleKind.ESNext,
+        },
+      }).outputText;
+
+      const wrapped =
+        `\n(async (api, args) => {\n` +
+        `const {\n` +
+        `  readTag,\n` +
+        `  writeTag,\n` +
+        `  pulseTag,\n` +
+        `  toggleTag,\n` +
+        `  getTagQuality,\n` +
+        `  tagExists,\n` +
+        `  getLW,\n` +
+        `  setLW,\n` +
+        `  getVar,\n` +
+        `  setVar,\n` +
+        `  readVariable,\n` +
+        `  writeVariable,\n` +
+        `  openPopup,\n` +
+        `  closePopup,\n` +
+        `  openScreen,\n` +
+        `  getCurrentTagPrefix,\n` +
+        `  getContext,\n` +
+        `  resolveTag,\n` +
+        `  log,\n` +
+        `  warn,\n` +
+        `  error,\n` +
+        `} = api;\n` +
+        `${jsCode}\n` +
+        `})`;
+      const script = new vm.Script(wrapped, { filename: `macro-${macro.id}.ts` });
+      const compiledAt = Date.now();
+
+      console.log(`[MacroService] Compiled macro macroId=${macro.id} macroName=${macro.name}`);
+
+      return {
+        macroId: macro.id,
+        macroName: macro.name,
+        code: macro.code,
+        compiledAt,
+        script,
+      };
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to compile macro ${macro.id} (${macro.name}): ${text}`);
+    }
   }
 }
 

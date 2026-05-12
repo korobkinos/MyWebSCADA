@@ -36,6 +36,7 @@ import {
   SearchOutlined,
   TagsOutlined,
   UnorderedListOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import { api } from "../services/api";
 import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
@@ -67,6 +68,7 @@ import {
   ScreenEditorScreenSettingsWindow,
   ScreenEditorTagsWindow,
   ScreenEditorMacrosWindow,
+  ScreenEditorUserManagementWindow,
 } from "../features/screen-editor/windows";
 import {
   ScreenEditorCenter,
@@ -183,6 +185,11 @@ export function EditorPage() {
   const stopRuntime = useScadaStore((s) => s.stopRuntime);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
   const setTagValues = useScadaStore((s) => s.setTagValues);
+  const hasPermission = useScadaStore((s) => s.hasPermission);
+  const canUsersView = hasPermission("users.view");
+  const canUsersWrite = hasPermission("users.write");
+  const canUsersDelete = hasPermission("users.delete");
+  const canUsersChangePassword = hasPermission("users.changePassword");
 
   const [pendingDeleteScreenId, setPendingDeleteScreenId] = useState<string | null>(null);
   const [newScreenKind, setNewScreenKind] = useState<ScreenKind>("screen");
@@ -1250,6 +1257,22 @@ export function EditorPage() {
           onUpdateProject={updateProjectJson}
           onSaveProject={handleSaveProject}
           isSavingProject={isSavingProject}
+          canUsersView={canUsersView}
+          onOpenUserManagement={() => openDefinedWindow("userManagement")}
+        />
+      ),
+    },
+    {
+      id: "userManagement",
+      title: "User Management",
+      defaultRect: { x: 210, y: 110, width: 780, height: 640 },
+      minWidth: 520,
+      minHeight: 360,
+      render: () => (
+        <ScreenEditorUserManagementWindow
+          canWrite={canUsersWrite}
+          canDelete={canUsersDelete}
+          canChangePassword={canUsersChangePassword}
         />
       ),
     },
@@ -1503,7 +1526,10 @@ export function EditorPage() {
     { id: "runtime", title: "Runtime", icon: <PlayCircleOutlined />, active: isWindowOpen("runtime"), onClick: () => openDefinedWindow("runtime") },
     { id: "layers", title: "Layers", icon: <UnorderedListOutlined />, active: isWindowOpen("layers"), onClick: () => openDefinedWindow("layers") },
     { id: "projectSettings", title: "Project Settings", icon: <SettingOutlined />, active: isWindowOpen("projectSettings"), onClick: () => openDefinedWindow("projectSettings") },
-  ];
+    canUsersView
+      ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: isWindowOpen("userManagement"), onClick: () => openDefinedWindow("userManagement") }
+      : null,
+  ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   return (
     <div className="screen-editor-workbench-page">

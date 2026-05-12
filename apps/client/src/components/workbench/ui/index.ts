@@ -3,6 +3,7 @@ export * from "./workbench-icon-button";
 export * from "./workbench-input";
 export * from "./workbench-select";
 export * from "./workbench-section";
+export * from "./workbench-collapsible-section";
 export * from "./workbench-tree-item";
 export * from "./workbench-tabs";
 export * from "./workbench-panel-toolbar";

@@ -22,7 +22,7 @@ type Props = {
     macroId: string,
     args?: Record<string, unknown>,
     options?: { allowDisabledForTest?: boolean },
-  ) => Promise<{ ok: boolean; status?: "ok" | "skipped"; reason?: "disabled" }>;
+  ) => Promise<{ ok: boolean; status?: "ok" | "skipped"; reason?: "disabled" | "already_running" }>;
   onSaveMacro?: (
     macroId: string,
     payload: {

@@ -2,7 +2,10 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import {
+  clampAccessRoleLevel,
   combineTagPrefix,
+  hasRoleAccess,
+  roleLevelFromRoles,
   resolveLibraryElementInstanceBindingsDetailed,
   isBindingReference,
   extractBindingKey,
@@ -499,7 +502,7 @@ function ObjectNode({
             return;
           }
           onAction?.(
-            {
+            withActionRoleLevel({
               type: "writeNumberPrompt",
               target: "tag",
               name: resolvedObject.tag,
@@ -507,7 +510,7 @@ function ObjectNode({
               max: resolvedObject.max,
               confirm: resolvedObject.confirm,
               confirmText: resolvedObject.confirmText,
-            },
+            }, resolvedObject.requiredActionRole),
             renderContext,
           );
         }}
@@ -581,11 +584,11 @@ function ObjectNode({
             return;
           }
           onAction?.(
-            {
+            withActionRoleLevel({
               type: "write",
               tag: resolvedObject.tag,
               value: !isOn,
-            },
+            }, resolvedObject.requiredActionRole),
             renderContext,
           );
         }}
@@ -637,7 +640,7 @@ function ObjectNode({
           if (!action) {
             return;
           }
-          onAction?.(action, renderContext);
+          onAction?.(withActionRoleLevel(action, resolvedObject.requiredActionRole), renderContext);
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -802,15 +805,31 @@ function isObjectVisibleByRole(object: HmiObject, mode: "editor" | "runtime", co
   if (mode !== "runtime") {
     return true;
   }
+  if (!hasRoleAccess(context.userRoleLevel, object.requiredVisibleRole)) {
+    return false;
+  }
   const roles = (object.visibleForRoles ?? []).map((role) => role.trim()).filter(Boolean);
   if (roles.length === 0) {
     return true;
   }
-  if (!context.isAuthenticated) {
-    return false;
+  const fallbackLevel = context.isAuthenticated === false ? 0 : roleLevelFromRoles(context.userRoles);
+  const userLevel = typeof context.userRoleLevel === "number"
+    ? clampAccessRoleLevel(context.userRoleLevel, 0)
+    : fallbackLevel;
+  return roles.some((role) => hasRoleAccess(userLevel, roleLevelFromRoles([role])));
+}
+
+function withActionRoleLevel(action: RuntimeAction, objectRequiredActionRole: number | undefined): RuntimeAction {
+  if (typeof objectRequiredActionRole !== "number") {
+    return action;
   }
-  const userRoles = (context.userRoles ?? []).map((role) => role.trim());
-  return roles.some((role) => userRoles.includes(role));
+  return {
+    ...action,
+    requiredRoleLevel: clampAccessRoleLevel(
+      action.requiredRoleLevel ?? objectRequiredActionRole,
+      0,
+    ),
+  };
 }
 
 function GroupNode({
@@ -1114,14 +1133,14 @@ function LibraryInstanceNode({
         const baseOnClick = commonGroupProps.onClick as ((evt: KonvaEventObject<MouseEvent>) => void) | undefined;
         baseOnClick?.(event);
         if (!interactive && object.action) {
-          onAction?.(object.action, context);
+          onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), context);
         }
       }}
       onTap={(event) => {
         const baseOnTap = commonGroupProps.onTap as ((evt: KonvaEventObject<Event>) => void) | undefined;
         baseOnTap?.(event);
         if (!interactive && object.action) {
-          onAction?.(object.action, context);
+          onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), context);
         }
       }}
     >
@@ -1206,7 +1225,7 @@ function ImageNode({
           return;
         }
         if (object.action) {
-          onAction?.(object.action, renderContext);
+          onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), renderContext);
         }
       }}
     >
@@ -1343,7 +1362,7 @@ function ButtonNode({
           return;
         }
         if (!isDisabled) {
-          onAction?.(object.action, renderContext);
+          onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), renderContext);
         }
       }}
     >

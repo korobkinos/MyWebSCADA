@@ -4,6 +4,9 @@ import { DriverManager } from "../drivers/driver-manager.js";
 import { InternalVariableService } from "./internal-variable-service.js";
 
 export class CommandService {
+  private readonly driverWriteTimeoutMs = 2000;
+  private readonly slowWriteWarnMs = 250;
+
   public constructor(
     private readonly tagStore: TagStore,
     private readonly driverManager: DriverManager,
@@ -11,6 +14,7 @@ export class CommandService {
   ) {}
 
   public async writeTag(name: string, value: TagScalarValue): Promise<void> {
+    const startedAt = Date.now();
     const tag = this.tagStore.getDefinition(name);
     if (!tag) {
       throw new Error(`Tag ${name} is not found`);
@@ -21,7 +25,11 @@ export class CommandService {
       return;
     }
 
-    await this.driverManager.writeTag(tag, value);
+    await this.withTimeout(
+      this.driverManager.writeTag(tag, value),
+      this.driverWriteTimeoutMs,
+      `Write timeout for tag ${name} after ${this.driverWriteTimeoutMs} ms`,
+    );
     this.tagStore.upsertValue({
       name,
       value,
@@ -29,6 +37,11 @@ export class CommandService {
       timestamp: Date.now(),
       source: "command",
     });
+
+    const durationMs = Date.now() - startedAt;
+    if (durationMs > this.slowWriteWarnMs) {
+      console.warn(`[CommandService] Slow writeTag name=${name} durationMs=${durationMs}`);
+    }
   }
 
   public async writeVariable(name: string, value: TagScalarValue): Promise<void> {
@@ -46,5 +59,21 @@ export class CommandService {
     const current = this.tagStore.getValue(name);
     const next = !(Boolean(current?.value));
     await this.writeTag(name, next);
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeoutPromise = new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      });
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
   }
 }

@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
+  ACCESS_ROLE_LABELS_RU,
+  clampAccessRoleLevel,
+  getUserRoleLevel,
+  hasRoleAccess,
   type AppRole,
+  type AccessRoleLevel,
   createInitialPopupState,
   popupReducer,
   resolveRuntimeAction,
@@ -13,6 +18,7 @@ import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
 import { updateRuntimeTagSubscriptions } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
+import { WorkbenchAuthDialog, WorkbenchButton } from "../components/workbench";
 
 type RuntimePageProps = {
   fullscreen?: boolean;
@@ -31,9 +37,13 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const startRuntime = useScadaStore((s) => s.startRuntime);
   const stopRuntime = useScadaStore((s) => s.stopRuntime);
   const authUser = useScadaStore((s) => s.authUser);
+  const login = useScadaStore((s) => s.login);
+  const userRoleLevel = getUserRoleLevel(authUser);
 
   const [popupState, dispatchPopup] = useReducer(popupReducer, undefined, createInitialPopupState);
   const dragRefs = useRef<Record<string, { dx: number; dy: number }>>({});
+  const macroRunGuardsRef = useRef(new Map<string, { running: boolean; lastStartedAt: number }>());
+  const macroWarningTimestampsRef = useRef(new Map<string, number>());
   const runtimeRootRef = useRef<HTMLDivElement | null>(null);
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
@@ -46,11 +56,34 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     action?: Extract<RuntimeAction, { type: "writeNumberPrompt" }>;
     value?: number;
   }>({ open: false });
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [accessDialog, setAccessDialog] = useState<{
+    open: boolean;
+    requiredRole: AccessRoleLevel;
+    details?: string;
+  }>({
+    open: false,
+    requiredRole: 1,
+  });
 
   const screen = useMemo(
-    () => project?.screens.find((item) => item.id === currentScreenId) ?? project?.screens[0],
+    () =>
+      project
+        ? project.screens.find((item) => item.id === currentScreenId)
+          ?? project.screens.find((item) => item.id === project.startScreenId)
+          ?? project.screens[0]
+        : undefined,
     [currentScreenId, project],
   );
+
+  useEffect(() => {
+    if (!screen) {
+      return;
+    }
+    if (currentScreenId !== screen.id) {
+      setCurrentScreen(screen.id);
+    }
+  }, [currentScreenId, screen, setCurrentScreen]);
 
   const modalOpen = popupState.items.some((item) => item.modal);
 
@@ -116,19 +149,32 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
   }
 
+  const openAccessDialog = (requiredRole: AccessRoleLevel, details?: string) => {
+    setAccessDialog({
+      open: true,
+      requiredRole,
+      details,
+    });
+  };
+
   const executeAction = async (inputAction: RuntimeAction, context: RenderContext): Promise<void> => {
     const action = resolveRuntimeAction(inputAction, context);
     const userRoles = ((authUser?.roles ?? []) as AppRole[]).map((role) => role.trim()).filter(Boolean);
     const requiredRoles = (action.requiredRoles ?? []).map((role) => role.trim()).filter(Boolean);
+    const requiredRoleLevel = clampAccessRoleLevel(action.requiredRoleLevel, 0);
+    if (!hasRoleAccess(userRoleLevel, requiredRoleLevel)) {
+      openAccessDialog(requiredRoleLevel);
+      return;
+    }
     const requiresAuth = action.requireAuth === true || requiredRoles.length > 0;
     if (requiresAuth && !authUser) {
-      void message.warning("Авторизуйтесь для выполнения этого действия");
+      openAccessDialog(1);
       return;
     }
     if (requiredRoles.length > 0) {
       const allowed = requiredRoles.some((role) => userRoles.includes(role as AppRole));
       if (!allowed) {
-        void message.warning(`Недостаточно прав. Требуются роли: ${requiredRoles.join(", ")}`);
+        openAccessDialog(Math.max(requiredRoleLevel, 1) as AccessRoleLevel, `Legacy roles: ${requiredRoles.join(", ")}`);
         return;
       }
     }
@@ -192,19 +238,48 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         void message.error(`Macro ${action.macroId} not found`);
         return;
       }
-      const result = await runMacro(action.macroId, action.args, {
-        context: {
-          popupInstanceId: context.popupInstanceId,
-          screenId: context.screenId,
-          tagPrefix: context.tagPrefix,
-          parameters: context.parameters,
-        },
-      });
-      if (result.status === "skipped") {
-        void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is disabled and was not executed`);
+      const guardKey = getMacroActionKey(action, context);
+      const now = Date.now();
+      const guard = macroRunGuardsRef.current.get(guardKey) ?? { running: false, lastStartedAt: 0 };
+      if (guard.running) {
+        return;
       }
-      for (const effect of result.effects ?? []) {
-        await executeAction(effect as RuntimeAction, context);
+      if (now - guard.lastStartedAt < 200) {
+        return;
+      }
+      guard.running = true;
+      guard.lastStartedAt = now;
+      macroRunGuardsRef.current.set(guardKey, guard);
+      try {
+        const result = await runMacro(action.macroId, action.args, {
+          context: {
+            popupInstanceId: context.popupInstanceId,
+            screenId: context.screenId,
+            tagPrefix: context.tagPrefix,
+            parameters: context.parameters,
+          },
+        });
+        if (result.status === "skipped" && result.reason === "disabled") {
+          void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is disabled and was not executed`);
+        } else if (result.status === "skipped" && result.reason === "already_running") {
+          const lastWarningAt = macroWarningTimestampsRef.current.get(guardKey) ?? 0;
+          if (Date.now() - lastWarningAt >= 1500) {
+            macroWarningTimestampsRef.current.set(guardKey, Date.now());
+            void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is already running`);
+          }
+        }
+        for (const effect of result.effects ?? []) {
+          await executeAction(effect as RuntimeAction, context);
+        }
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        void message.error(`Macro "${selectedMacro?.name ?? action.macroId}" failed: ${text}`);
+      } finally {
+        const currentGuard = macroRunGuardsRef.current.get(guardKey);
+        if (currentGuard) {
+          currentGuard.running = false;
+          macroRunGuardsRef.current.set(guardKey, currentGuard);
+        }
       }
       return;
     }
@@ -271,7 +346,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       tags={tags}
       libraries={libraries}
       fullscreenRuntime={fullscreen}
-      renderContext={{ screenId: screen.id, userRoles: authUser?.roles ?? [], isAuthenticated: Boolean(authUser) }}
+      currentUserRoleLevel={userRoleLevel}
+      renderContext={{ screenId: screen.id, userRoles: authUser?.roles ?? [], userRoleLevel, isAuthenticated: Boolean(authUser) }}
       onAction={(action, context) => {
         void executeAction(action, context);
       }}
@@ -357,6 +433,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             tags={tags}
             libraries={libraries}
             fullscreenRuntime={false}
+            currentUserRoleLevel={userRoleLevel}
             renderContext={{
               popupInstanceId: item.id,
               screenId: popupScreen.id,
@@ -365,6 +442,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
               parameters: item.args,
               args: item.args,
               userRoles: authUser?.roles ?? [],
+              userRoleLevel,
               isAuthenticated: Boolean(authUser),
             }}
             onAction={(action, context) => {
@@ -375,6 +453,38 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       ))}
     </>
   );
+
+  const accessDialogElement = accessDialog.open ? (
+    <div className="workbench-auth-dialog-backdrop">
+      <div className="workbench-auth-dialog runtime-access-dialog">
+        <div className="workbench-auth-dialog__header">Access Required</div>
+        <div className="workbench-auth-dialog__body">
+          <div className="runtime-access-dialog__text">
+            This action requires role: <strong>{ACCESS_ROLE_LABELS_RU[accessDialog.requiredRole]}</strong>.
+          </div>
+          {accessDialog.details ? (
+            <div className="runtime-access-dialog__text" style={{ marginTop: 6 }}>
+              {accessDialog.details}
+            </div>
+          ) : null}
+          <div className="workbench-auth-dialog__actions">
+            <WorkbenchButton
+              variant="primary"
+              onClick={() => {
+                setAccessDialog((prev) => ({ ...prev, open: false }));
+                setAuthDialogOpen(true);
+              }}
+            >
+              Authorize
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => setAccessDialog((prev) => ({ ...prev, open: false }))}>
+              Cancel
+            </WorkbenchButton>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   if (fullscreen) {
     return (
@@ -417,6 +527,22 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             setNumberPrompt({ open: false });
           }}
           onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
+        />
+        {accessDialogElement}
+        <WorkbenchAuthDialog
+          open={authDialogOpen}
+          onClose={() => setAuthDialogOpen(false)}
+          onSubmit={async (username, password) => {
+            try {
+              const ok = await login(username, password);
+              if (!ok) {
+                return { ok: false, error: "Invalid credentials." };
+              }
+              return { ok: true };
+            } catch (error) {
+              return { ok: false, error: error instanceof Error ? error.message : String(error) };
+            }
+          }}
         />
       </div>
     );
@@ -475,8 +601,38 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         }}
         onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
       />
+      {accessDialogElement}
+      <WorkbenchAuthDialog
+        open={authDialogOpen}
+        onClose={() => setAuthDialogOpen(false)}
+        onSubmit={async (username, password) => {
+          try {
+            const ok = await login(username, password);
+            if (!ok) {
+              return { ok: false, error: "Invalid credentials." };
+            }
+            return { ok: true };
+          } catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+          }
+        }}
+      />
     </Space>
   );
+}
+
+function getMacroActionKey(action: Extract<RuntimeAction, { type: "runMacro" }>, context: RenderContext): string {
+  const objectId =
+    typeof context.parameters?.objectId === "string"
+      ? context.parameters.objectId.trim()
+      : "";
+  return [
+    context.screenId ?? "",
+    context.popupInstanceId ?? "",
+    context.tagPrefix ?? "",
+    objectId,
+    action.macroId,
+  ].join("::");
 }
 
 function getPopupKey(action: Extract<RuntimeAction, { type: "openPopup" }>): string | undefined {

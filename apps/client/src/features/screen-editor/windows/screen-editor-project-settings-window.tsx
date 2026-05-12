@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ScadaProject } from "@web-scada/shared";
 import {
   WorkbenchButton,
-  WorkbenchSection,
+  WorkbenchCollapsibleSection,
 } from "../../../components/workbench";
 
 type EditorTool = "select" | "pan";
@@ -21,10 +21,12 @@ type ScreenEditorProjectSettingsWindowProps = {
   onUpdateProject: (next: ScadaProject) => void;
   onSaveProject: () => Promise<void>;
   isSavingProject: boolean;
+  canUsersView: boolean;
+  onOpenUserManagement: () => void;
 };
 
 export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSettingsWindowProps) {
-  const { project, onUpdateProject, onSaveProject, isSavingProject } = props;
+  const { project, onUpdateProject, onSaveProject, isSavingProject, canUsersView, onOpenUserManagement } = props;
   const [defaultTool, setDefaultTool] = useState<EditorTool>(() => readStoredTool());
 
   useEffect(() => {
@@ -76,7 +78,7 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
 
   return (
     <div className="screen-editor-window-content screen-editor-project-settings-window">
-      <WorkbenchSection title="PROJECT">
+      <WorkbenchCollapsibleSection title="PROJECT" storageKey="project-settings.project">
         <div className="screen-editor-settings-form">
           <label className="screen-editor-settings-field">
             <span>Name</span>
@@ -111,9 +113,9 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
             />
           </label>
         </div>
-      </WorkbenchSection>
+      </WorkbenchCollapsibleSection>
 
-      <WorkbenchSection title="EDITOR SETTINGS">
+      <WorkbenchCollapsibleSection title="EDITOR SETTINGS" storageKey="project-settings.editor">
         <div className="screen-editor-settings-form">
           <label className="screen-editor-settings-check">
             <input
@@ -130,14 +132,6 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
               onChange={(event) => updateEditorSettings({ showObjectFrames: event.target.checked })}
             />
             <span>Show object frames</span>
-          </label>
-          <label className="screen-editor-settings-check">
-            <input
-              type="checkbox"
-              checked={project.uiSettings?.hideMainMenu ?? false}
-              onChange={(event) => updateUiSettings({ hideMainMenu: event.target.checked })}
-            />
-            <span>Hide main menu</span>
           </label>
           <label className="screen-editor-settings-field">
             <span>Default Tool</span>
@@ -160,7 +154,28 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
             </select>
           </label>
         </div>
-      </WorkbenchSection>
+      </WorkbenchCollapsibleSection>
+
+      <WorkbenchCollapsibleSection title="AUTHORIZATION / RUNTIME" storageKey="project-settings.auth-runtime" defaultCollapsed>
+        <div className="screen-editor-settings-form">
+          <label className="screen-editor-settings-check">
+            <input
+              type="checkbox"
+              checked={project.uiSettings?.hideMainMenu ?? false}
+              onChange={(event) => updateUiSettings({ hideMainMenu: event.target.checked })}
+            />
+            <span>Runtime hides main menu</span>
+          </label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#9d9d9d", fontSize: 12 }}>
+              Manage users, passwords and role levels.
+            </span>
+            <WorkbenchButton onClick={onOpenUserManagement} disabled={!canUsersView}>
+              Open User Management
+            </WorkbenchButton>
+          </div>
+        </div>
+      </WorkbenchCollapsibleSection>
 
       <div className="screen-editor-settings-actions">
         <WorkbenchButton variant="primary" onClick={() => void onSaveProject()} disabled={isSavingProject}>

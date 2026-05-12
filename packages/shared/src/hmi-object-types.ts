@@ -1,5 +1,5 @@
 import type { ElementBindingAssignment } from "./asset-library-types";
-import type { AppRole } from "./auth-types";
+import type { AccessRoleLevel, AppRole } from "./auth-types";
 
 export type ExpressionBinding = {
   mode: "tag" | "expr";
@@ -61,6 +61,8 @@ export type HmiObjectBase = {
   rotation?: number;
   visible?: boolean;
   visibleForRoles?: AppRole[];
+  requiredVisibleRole?: AccessRoleLevel;
+  requiredActionRole?: AccessRoleLevel;
   locked?: boolean;
   opacity?: number;
 
@@ -133,6 +135,7 @@ export type StateIndicatorObject = HmiObjectBase & {
 export type RuntimeAction = {
   requireAuth?: boolean;
   requiredRoles?: AppRole[];
+  requiredRoleLevel?: AccessRoleLevel;
 } & (
   | {
       type: "openScreen";

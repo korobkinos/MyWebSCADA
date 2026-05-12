@@ -8,6 +8,7 @@
       "roles": [
         "admin"
       ],
+      "roleLevel": 4,
       "permissions": [],
       "createdAt": "2026-05-08T07:59:46.962Z",
       "updatedAt": "2026-05-11T19:58:41.780Z",

@@ -1,5 +1,23 @@
 export type AppRole = "admin" | "engineer" | "operator" | "viewer";
 
+export type AccessRoleLevel = 0 | 1 | 2 | 3 | 4;
+
+export const ACCESS_ROLE_LABELS: Record<AccessRoleLevel, string> = {
+  0: "No role / Everyone",
+  1: "User",
+  2: "Instrumentation",
+  3: "Administrator",
+  4: "Superadmin",
+};
+
+export const ACCESS_ROLE_LABELS_RU: Record<AccessRoleLevel, string> = {
+  0: "Не задано / всем",
+  1: "Пользователь",
+  2: "КИПовец",
+  3: "Администратор",
+  4: "Суперадмин",
+};
+
 export type AppPermission =
   | "runtime.view"
   | "runtime.control"
@@ -42,6 +60,7 @@ export type AppUser = {
   displayName?: string;
   enabled: boolean;
   roles: AppRole[];
+  roleLevel?: AccessRoleLevel;
   permissions: AppPermission[];
   createdAt: string;
   updatedAt: string;
@@ -73,13 +92,16 @@ export type CreateUserRequest = {
   displayName?: string;
   password: string;
   roles?: AppRole[];
+  roleLevel?: AccessRoleLevel;
   permissions?: AppPermission[];
   enabled?: boolean;
 };
 
 export type UpdateUserRequest = {
+  username?: string;
   displayName?: string;
   roles?: AppRole[];
+  roleLevel?: AccessRoleLevel;
   permissions?: AppPermission[];
   enabled?: boolean;
 };
@@ -87,3 +109,50 @@ export type UpdateUserRequest = {
 export type AdminChangePasswordRequest = {
   newPassword: string;
 };
+
+const ACCESS_ROLE_LEVEL_MIN = 0;
+const ACCESS_ROLE_LEVEL_MAX = 4;
+
+export function clampAccessRoleLevel(value: unknown, fallback: AccessRoleLevel = 0): AccessRoleLevel {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  const clamped = Math.min(ACCESS_ROLE_LEVEL_MAX, Math.max(ACCESS_ROLE_LEVEL_MIN, Math.trunc(numeric)));
+  return clamped as AccessRoleLevel;
+}
+
+export function roleLevelFromRoles(roles: readonly string[] | null | undefined): AccessRoleLevel {
+  const normalized = (roles ?? []).map((role) => role.trim().toLowerCase()).filter(Boolean);
+  if (normalized.includes("superadmin")) {
+    return 4;
+  }
+  if (normalized.includes("admin")) {
+    return 3;
+  }
+  if (normalized.includes("engineer") || normalized.includes("kip") || normalized.includes("instrumentation")) {
+    return 2;
+  }
+  if (normalized.includes("operator") || normalized.includes("user") || normalized.includes("viewer")) {
+    return 1;
+  }
+  return 1;
+}
+
+export function getUserRoleLevel(user: Pick<AppUser, "roleLevel" | "roles"> | null | undefined): AccessRoleLevel {
+  if (!user) {
+    return 0;
+  }
+  if (typeof user.roleLevel === "number" && Number.isFinite(user.roleLevel)) {
+    return clampAccessRoleLevel(user.roleLevel, 1);
+  }
+  return roleLevelFromRoles(user.roles);
+}
+
+export function hasRoleAccess(userLevel: number | null | undefined, required: number | null | undefined): boolean {
+  const requiredLevel = clampAccessRoleLevel(required, 0);
+  if (requiredLevel <= 0) {
+    return true;
+  }
+  return clampAccessRoleLevel(userLevel, 0) >= requiredLevel;
+}

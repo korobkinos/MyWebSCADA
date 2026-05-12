@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { ACCESS_ROLE_LABELS_RU } from "@web-scada/shared";
 import type {
+  AccessRoleLevel,
   AppRole,
   Asset,
   ElementBindingDefinition,
@@ -13,9 +15,10 @@ import type {
   TextStyle,
 } from "@web-scada/shared";
 import { parseTagSegments, resolveElementBindingAssignment, resolveLibraryElementInstanceBindingsDetailed, resolveRuntimeValueSync } from "@web-scada/shared";
-import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
+import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 import { getAssetDisplayPath } from "../utils/asset-path";
+import { WorkbenchCollapsibleSection } from "./workbench";
 
 type Props = {
   project: ScadaProject;
@@ -34,6 +37,13 @@ const roleOptions: Array<{ label: string; value: AppRole }> = [
   { label: "engineer", value: "engineer" },
   { label: "operator", value: "operator" },
   { label: "viewer", value: "viewer" },
+];
+const accessRoleOptions: Array<{ label: string; value: AccessRoleLevel }> = [
+  { label: `0 — ${ACCESS_ROLE_LABELS_RU[0]}`, value: 0 },
+  { label: `1 — ${ACCESS_ROLE_LABELS_RU[1]}`, value: 1 },
+  { label: `2 — ${ACCESS_ROLE_LABELS_RU[2]}`, value: 2 },
+  { label: `3 — ${ACCESS_ROLE_LABELS_RU[3]}`, value: 3 },
+  { label: `4 — ${ACCESS_ROLE_LABELS_RU[4]}`, value: 4 },
 ];
 
 function ColorField({
@@ -444,16 +454,6 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
         <span>Locked</span>
         <Switch checked={object.locked ?? false} onChange={(checked) => onPatch({ locked: checked })} />
       </Space>
-      <Form.Item label="Visible For Roles" style={{ marginTop: 8 }}>
-        <Select
-          mode="multiple"
-          allowClear
-          value={object.visibleForRoles ?? []}
-          options={roleOptions}
-          placeholder="empty = visible for everyone"
-          onChange={(value) => onPatch({ visibleForRoles: value as AppRole[] } as Partial<HmiObject>)}
-        />
-      </Form.Item>
       <Form.Item label="Opacity (0..1)" style={{ marginTop: 8 }}>
         <InputNumber
           style={{ width: "100%" }}
@@ -561,6 +561,38 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
     <Typography.Text type="secondary">This object has no text style settings.</Typography.Text>
   );
 
+  const accessContent = (
+    <>
+      <Form.Item label="Visible Role">
+        <Select
+          value={(object.requiredVisibleRole ?? 0) as AccessRoleLevel}
+          options={accessRoleOptions}
+          onChange={(value) => onPatch({ requiredVisibleRole: Number(value) as AccessRoleLevel } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+      <Form.Item label="Action Role">
+        <Select
+          value={(object.requiredActionRole ?? 0) as AccessRoleLevel}
+          options={accessRoleOptions}
+          onChange={(value) => onPatch({ requiredActionRole: Number(value) as AccessRoleLevel } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        Action role is used only for interactive runtime actions.
+      </Typography.Text>
+      <Form.Item label="Legacy Visible For Roles" style={{ marginTop: 8 }}>
+        <Select
+          mode="multiple"
+          allowClear
+          value={object.visibleForRoles ?? []}
+          options={roleOptions}
+          placeholder="empty = visible for everyone"
+          onChange={(value) => onPatch({ visibleForRoles: value as AppRole[] } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+    </>
+  );
+
   const advancedContent = (
     <>
       <Typography.Text type="secondary">Danger zone</Typography.Text>
@@ -574,15 +606,21 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
   return (
     <div className="object-property-panel object-property-panel--workbench">
       <Form layout="vertical" size="small">
-        <Tabs
-          defaultActiveKey="general"
-          items={[
-            { key: "general", label: "General", children: generalContent },
-            { key: "object", label: "Object", children: objectContent },
-            { key: "text", label: "Text", children: textContent },
-            { key: "advanced", label: "Advanced", children: advancedContent },
-          ]}
-        />
+        <WorkbenchCollapsibleSection title="GENERAL" storageKey={`object-panel.general.${object.type}`}>
+          {generalContent}
+        </WorkbenchCollapsibleSection>
+        <WorkbenchCollapsibleSection title="OBJECT / SPECIFIC" storageKey={`object-panel.specific.${object.type}`}>
+          {objectContent}
+        </WorkbenchCollapsibleSection>
+        <WorkbenchCollapsibleSection title="TEXT" storageKey={`object-panel.text.${object.type}`} defaultCollapsed>
+          {textContent}
+        </WorkbenchCollapsibleSection>
+        <WorkbenchCollapsibleSection title="ACCESS / SECURITY" storageKey={`object-panel.access.${object.type}`}>
+          {accessContent}
+        </WorkbenchCollapsibleSection>
+        <WorkbenchCollapsibleSection title="ADVANCED" storageKey={`object-panel.advanced.${object.type}`} defaultCollapsed>
+          {advancedContent}
+        </WorkbenchCollapsibleSection>
       </Form>
     </div>
   );

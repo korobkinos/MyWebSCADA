@@ -102,7 +102,7 @@ export type MacroUiEffect = Extract<RuntimeAction, { type: "openPopup" | "closeP
 export type MacroRunResult = {
   ok: boolean;
   status?: "ok" | "skipped";
-  reason?: "disabled";
+  reason?: "disabled" | "already_running";
   effects?: MacroUiEffect[];
 };
 

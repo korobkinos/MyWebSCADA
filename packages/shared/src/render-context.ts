@@ -7,6 +7,7 @@ export type RenderContext = {
   bindings?: Record<string, string>;
   args?: Record<string, unknown>;
   userRoles?: string[];
+  userRoleLevel?: number;
   isAuthenticated?: boolean;
 };
 

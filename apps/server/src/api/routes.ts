@@ -103,17 +103,21 @@ const changeOwnPasswordSchema: z.ZodType<ChangeOwnPasswordRequest> = z.object({
 const adminChangePasswordSchema: z.ZodType<AdminChangePasswordRequest> = z.object({
   newPassword: z.string().min(4),
 });
+const accessRoleLevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 const createUserSchema: z.ZodType<CreateUserRequest> = z.object({
   username: z.string().min(1),
   displayName: z.string().optional(),
   password: z.string().min(4),
   roles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),
+  roleLevel: accessRoleLevelSchema.optional(),
   permissions: z.array(permissionSchema).optional(),
   enabled: z.boolean().optional(),
 });
 const updateUserSchema: z.ZodType<UpdateUserRequest> = z.object({
+  username: z.string().min(1).optional(),
   displayName: z.string().optional(),
   roles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),
+  roleLevel: accessRoleLevelSchema.optional(),
   permissions: z.array(permissionSchema).optional(),
   enabled: z.boolean().optional(),
 });
@@ -601,11 +605,47 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const params = request.params as { id: string };
     const payload = macroRunSchema.parse(request.body ?? {});
-    const result = await deps.macroService.run(params.id, payload.args, {
-      allowDisabledForTest: payload.allowDisabledForTest,
-      context: payload.context,
-    });
-    return reply.send({ ok: true, ...result });
+    const startedAt = Date.now();
+    try {
+      const result = await deps.macroService.runManual(params.id, payload.args, {
+        allowDisabledForTest: payload.allowDisabledForTest,
+        context: payload.context,
+      });
+      const durationMs = Date.now() - startedAt;
+      request.log.info(
+        {
+          macroId: params.id,
+          status: result.status,
+          reason: result.reason,
+          durationMs,
+          diagnostics: result.diagnostics,
+        },
+        "manual macro run completed",
+      );
+      return reply.send({
+        ok: true,
+        status: result.status,
+        reason: result.reason,
+        effects: result.effects,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const durationMs = Date.now() - startedAt;
+      request.log.error(
+        {
+          macroId: params.id,
+          durationMs,
+          message,
+        },
+        "manual macro run failed",
+      );
+      return reply.code(500).send({
+        ok: false,
+        status: "error",
+        message,
+        macroId: params.id,
+      });
+    }
   });
 
   app.get("/api/drivers/opcua/config", async (request, reply) => {

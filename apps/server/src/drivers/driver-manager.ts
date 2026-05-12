@@ -256,8 +256,21 @@ public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
     if (!driver) {
       throw new Error(`Driver ${driverId} is unavailable`);
     }
-
-    await driver.writeTag(tag, value);
+    const startedAt = Date.now();
+    try {
+      await driver.writeTag(tag, value);
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      const text = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[DriverManager] writeTag failed driverId=${driverId} tag=${tag.name} durationMs=${durationMs} error=${text}`,
+      );
+      throw error;
+    }
+    const durationMs = Date.now() - startedAt;
+    if (durationMs > 250) {
+      console.warn(`[DriverManager] Slow writeTag driverId=${driverId} tag=${tag.name} durationMs=${durationMs}`);
+    }
   }
 
   private resolveDriverId(tag: TagDefinition): string | undefined {
