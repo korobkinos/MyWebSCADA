@@ -115,6 +115,9 @@ function collectObjectTags(
     case "image":
       addTag(out, resolvedObject.stateTag, context);
       return;
+    case "button":
+      addTag(out, resolvedObject.disabledTag, context);
+      return;
     case "valueSelect":
       if (resolvedObject.target.type === "tag") {
         addTag(out, resolvedObject.target.tag, context);

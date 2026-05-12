@@ -802,6 +802,14 @@ function SpecificPropertyFields({
           <span>Show text</span>
           <Switch checked={object.showText ?? true} onChange={(checked) => onPatch({ showText: checked } as Partial<HmiObject>)} />
         </Space>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.disabledTag ?? ""}
+          bindingLabel="Disabled Binding"
+          tagLabel="Disabled Tag"
+          onChange={(nextValue) => onPatch({ disabledTag: nextValue } as Partial<HmiObject>)}
+        />
         <Form.Item label="Background Asset">
           <Select
             value={object.backgroundAssetId}

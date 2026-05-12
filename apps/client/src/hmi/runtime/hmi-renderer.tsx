@@ -57,7 +57,7 @@ type HmiRendererProps = {
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
-  onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
   onDoubleClickObject?: (objectId: string) => void;
   onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
   showObjectFrames?: boolean;
@@ -78,7 +78,7 @@ type BaseNodeProps = {
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
-  onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
   onDoubleClickObject?: (objectId: string) => void;
   onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
   showObjectFrames: boolean;
@@ -222,6 +222,9 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
       break;
     case "image":
       candidates.push(object.stateTag);
+      break;
+    case "button":
+      candidates.push(object.disabledTag);
       break;
     case "valueSelect":
       if (object.target.type === "tag") {
@@ -568,6 +571,7 @@ function ObjectNode({
         interactive={interactive}
         onSelectObject={onSelectObject}
         onAction={onAction}
+        tags={tags}
         renderContext={renderContext}
         forceFrame={showObjectFrames}
       />
@@ -1304,6 +1308,7 @@ function ButtonNode({
   interactive,
   onSelectObject,
   onAction,
+  tags,
   renderContext,
   forceFrame = false,
 }: {
@@ -1315,12 +1320,16 @@ function ButtonNode({
   scopedAssets?: Record<string, Asset>;
   interactive: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
-  onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
+  tags: TagMap;
   renderContext: RenderContext;
   forceFrame?: boolean;
 }) {
   const [pressed, setPressed] = useState(false);
-  const isDisabled = !interactive && !onAction;
+  const [executing, setExecuting] = useState(false);
+  const resolvedDisabledTag = resolveTagName(object.disabledTag, renderContext);
+  const disabledByTag = !interactive && isDisabledTagValueTrue(resolvedDisabledTag ? tags[resolvedDisabledTag]?.value : undefined);
+  const isDisabled = disabledByTag || (!interactive && !onAction) || executing;
   const normalSrc = resolveAssetUrl(object.backgroundAssetId, {
     projectAssets: project.assets ?? [],
     scopedAssets,
@@ -1357,7 +1366,22 @@ function ButtonNode({
         }
       }}
       onMouseUp={() => setPressed(false)}
-      onMouseLeave={() => setPressed(false)}
+      onMouseEnter={(evt: KonvaEventObject<MouseEvent>) => {
+        if (interactive) {
+          return;
+        }
+        const container = evt.target.getStage()?.container();
+        if (container) {
+          container.style.cursor = isDisabled ? "not-allowed" : "pointer";
+        }
+      }}
+      onMouseLeave={(evt: KonvaEventObject<MouseEvent>) => {
+        setPressed(false);
+        const container = evt.target.getStage()?.container();
+        if (container) {
+          container.style.cursor = "default";
+        }
+      }}
       onClick={(evt: KonvaEventObject<MouseEvent>) => {
         if (interactive) {
           onSelectObject?.({
@@ -1367,7 +1391,18 @@ function ButtonNode({
           return;
         }
         if (!isDisabled) {
-          onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), renderContext);
+          const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now());
+          setExecuting(true);
+          const result = onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), nextContext);
+          if (result && typeof (result as Promise<void>).finally === "function") {
+            void (result as Promise<void>).finally(() => {
+              setExecuting(false);
+            });
+          } else {
+            window.setTimeout(() => {
+              setExecuting(false);
+            }, 0);
+          }
         }
       }}
     >
@@ -1538,6 +1573,7 @@ function collectMissingBindingReferencesFromObjects(
       collectMissingBindingReference(object.target.tag, resolvedBindings, output);
     }
     if (object.type === "button") {
+      collectMissingBindingReference(object.disabledTag, resolvedBindings, output);
       collectMissingBindingReferencesFromAction(object.action, resolvedBindings, output);
     }
     if (object.type === "valve") {
@@ -1811,6 +1847,28 @@ function resolveObjectParameters(object: HmiObject, params: Record<string, unkno
     return object;
   }
   return resolveParameters(object, params) as HmiObject;
+}
+
+function withRuntimeActionContext(context: RenderContext, objectId: string, clickTs: number): RenderContext {
+  return {
+    ...context,
+    parameters: {
+      ...(context.parameters ?? {}),
+      __runtimeObjectId: objectId,
+      __actionClickTs: clickTs,
+    },
+  };
+}
+
+function isDisabledTagValueTrue(value: unknown): boolean {
+  if (value === true || value === 1) {
+    return true;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "true" || normalized === "1";
+  }
+  return false;
 }
 
 function renderBoxText(

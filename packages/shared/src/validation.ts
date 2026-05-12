@@ -239,6 +239,7 @@ const buttonObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   type: z.literal("button"),
   text: z.string().optional(),
   showText: z.boolean().optional(),
+  disabledTag: z.string().optional(),
   backgroundAssetId: z.string().optional(),
   pressedBackgroundAssetId: z.string().optional(),
   disabledBackgroundAssetId: z.string().optional(),

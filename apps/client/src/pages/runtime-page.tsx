@@ -60,6 +60,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const macroRunGuardsRef = useRef(new Map<string, { running: boolean; lastStartedAt: number }>());
   const macroWarningTimestampsRef = useRef(new Map<string, number>());
   const runtimeRootRef = useRef<HTMLDivElement | null>(null);
+  const debugActionTiming =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("debugActionTiming") === "1";
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     text: string;
@@ -238,8 +242,108 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     return clampAccessRoleLevel(Math.max(explicitRoleLevel, derivedFromLegacyRoles), 0);
   };
 
+  const getActionClickTimestamp = (context: RenderContext): number | undefined => {
+    const raw = context.parameters?.__actionClickTs;
+    return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+  };
+
+  const getRuntimeActionObjectId = (context: RenderContext): string | undefined => {
+    const runtimeObjectId = context.parameters?.__runtimeObjectId;
+    if (typeof runtimeObjectId === "string" && runtimeObjectId.trim()) {
+      return runtimeObjectId.trim();
+    }
+    const legacyObjectId = context.parameters?.objectId;
+    if (typeof legacyObjectId === "string" && legacyObjectId.trim()) {
+      return legacyObjectId.trim();
+    }
+    return undefined;
+  };
+
+  const stripRuntimeActionMeta = (parameters: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+    if (!parameters) {
+      return undefined;
+    }
+    const entries = Object.entries(parameters).filter(([key]) => !key.startsWith("__"));
+    if (!entries.length) {
+      return undefined;
+    }
+    return Object.fromEntries(entries);
+  };
+
+  const roundMs = (value: number): number => Math.round(value * 1000) / 1000;
+
+  const logActionTiming = (params: {
+    actionType: RuntimeAction["type"];
+    actionId: string;
+    status: string;
+    context: RenderContext;
+    clickTs?: number;
+    requestStartTs: number;
+    responseTs?: number;
+    details?: Record<string, unknown>;
+  }): void => {
+    if (!debugActionTiming) {
+      return;
+    }
+    const responseTs = params.responseTs ?? performance.now();
+    const clickToRequestMs = typeof params.clickTs === "number" ? roundMs(params.requestStartTs - params.clickTs) : undefined;
+    const requestDurationMs = roundMs(responseTs - params.requestStartTs);
+    const totalFromClickMs = typeof params.clickTs === "number" ? roundMs(responseTs - params.clickTs) : undefined;
+    // eslint-disable-next-line no-console
+    console.debug("[RuntimeActionTiming]", {
+      actionType: params.actionType,
+      actionId: params.actionId,
+      status: params.status,
+      clickToRequestMs,
+      requestDurationMs,
+      totalFromClickMs,
+      screenId: params.context.screenId,
+      popupInstanceId: params.context.popupInstanceId,
+      tagPrefix: params.context.tagPrefix,
+      objectId: getRuntimeActionObjectId(params.context),
+      ...params.details,
+    });
+  };
+
+  const runTimedRequest = async <T,>(
+    params: {
+      action: RuntimeAction;
+      actionId: string;
+      context: RenderContext;
+      clickTs?: number;
+      run: () => Promise<T>;
+      statusFromResult?: (result: T) => string;
+    },
+  ): Promise<T> => {
+    const requestStartTs = performance.now();
+    try {
+      const result = await params.run();
+      logActionTiming({
+        actionType: params.action.type,
+        actionId: params.actionId,
+        status: params.statusFromResult?.(result) ?? "ok",
+        context: params.context,
+        clickTs: params.clickTs,
+        requestStartTs,
+      });
+      return result;
+    } catch (error) {
+      logActionTiming({
+        actionType: params.action.type,
+        actionId: params.actionId,
+        status: "error",
+        context: params.context,
+        clickTs: params.clickTs,
+        requestStartTs,
+        details: { error: error instanceof Error ? error.message : String(error) },
+      });
+      throw error;
+    }
+  };
+
   const executeAction = async (inputAction: RuntimeAction, context: RenderContext): Promise<void> => {
     const action = resolveRuntimeAction(inputAction, context);
+    const clickTs = getActionClickTimestamp(context);
     const actor = useScadaStore.getState().authUser;
     const actorRoleLevel = getUserRoleLevel(actor);
     const requiredRoleLevel = resolveRequiredRoleLevel(action);
@@ -272,12 +376,24 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "write") {
-      await writeTag(action.tag, action.value);
+      await runTimedRequest({
+        action,
+        actionId: action.tag,
+        context,
+        clickTs,
+        run: () => writeTag(action.tag, action.value),
+      });
       return;
     }
 
     if (action.type === "pulse") {
-      await writeTag(action.tag, action.value);
+      await runTimedRequest({
+        action,
+        actionId: action.tag,
+        context,
+        clickTs,
+        run: () => writeTag(action.tag, action.value),
+      });
       setTimeout(() => {
         void writeTag(action.tag, false);
       }, action.durationMs);
@@ -286,15 +402,33 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
     if (action.type === "toggle") {
       const current = tags[action.tag];
-      await writeTag(action.tag, !Boolean(current?.value));
+      await runTimedRequest({
+        action,
+        actionId: action.tag,
+        context,
+        clickTs,
+        run: () => writeTag(action.tag, !Boolean(current?.value)),
+      });
       return;
     }
 
     if (action.type === "writeConst") {
       if (action.target === "variable") {
-        await writeVariable(action.name, action.value);
+        await runTimedRequest({
+          action,
+          actionId: action.name,
+          context,
+          clickTs,
+          run: () => writeVariable(action.name, action.value),
+        });
       } else {
-        await writeTag(action.name, action.value);
+        await runTimedRequest({
+          action,
+          actionId: action.name,
+          context,
+          clickTs,
+          run: () => writeTag(action.name, action.value),
+        });
       }
       return;
     }
@@ -324,22 +458,49 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       const now = Date.now();
       const guard = macroRunGuardsRef.current.get(guardKey) ?? { running: false, lastStartedAt: 0 };
       if (guard.running) {
+        if (debugActionTiming) {
+          logActionTiming({
+            actionType: action.type,
+            actionId: action.macroId,
+            status: "blocked_local_guard",
+            context,
+            clickTs,
+            requestStartTs: performance.now(),
+          });
+        }
         return;
       }
       if (now - guard.lastStartedAt < 200) {
+        if (debugActionTiming) {
+          logActionTiming({
+            actionType: action.type,
+            actionId: action.macroId,
+            status: "debounced",
+            context,
+            clickTs,
+            requestStartTs: performance.now(),
+          });
+        }
         return;
       }
       guard.running = true;
       guard.lastStartedAt = now;
       macroRunGuardsRef.current.set(guardKey, guard);
       try {
-        const result = await runMacro(action.macroId, action.args, {
-          context: {
-            popupInstanceId: context.popupInstanceId,
-            screenId: context.screenId,
-            tagPrefix: context.tagPrefix,
-            parameters: context.parameters,
-          },
+        const result = await runTimedRequest({
+          action,
+          actionId: action.macroId,
+          context,
+          clickTs,
+          run: () => runMacro(action.macroId, action.args, {
+            context: {
+              popupInstanceId: context.popupInstanceId,
+              screenId: context.screenId,
+              tagPrefix: context.tagPrefix,
+              parameters: stripRuntimeActionMeta(context.parameters),
+            },
+          }),
+          statusFromResult: (value) => value.status === "skipped" ? `skipped:${value.reason ?? "unknown"}` : (value.status ?? "ok"),
         });
         if (result.status === "skipped" && result.reason === "disabled") {
           void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is disabled and was not executed`);
@@ -367,12 +528,24 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "setLW") {
-      await writeVariable(`LW${Math.max(0, Math.floor(action.address))}`, action.value);
+      await runTimedRequest({
+        action,
+        actionId: `LW${Math.max(0, Math.floor(action.address))}`,
+        context,
+        clickTs,
+        run: () => writeVariable(`LW${Math.max(0, Math.floor(action.address))}`, action.value),
+      });
       return;
     }
 
     if (action.type === "setInternalVar") {
-      await writeVariable(action.name, action.value);
+      await runTimedRequest({
+        action,
+        actionId: action.name,
+        context,
+        clickTs,
+        run: () => writeVariable(action.name, action.value),
+      });
       return;
     }
 
@@ -430,9 +603,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       fullscreenRuntime={fullscreen}
       currentUserRoleLevel={userRoleLevel}
       renderContext={{ screenId: screen.id, userRoles: authUser?.roles ?? [], userRoleLevel, isAuthenticated: Boolean(authUser) }}
-      onAction={(action, context) => {
-        void executeAction(action, context);
-      }}
+      onAction={(action, context) => executeAction(action, context)}
     />
   );
 
@@ -528,7 +699,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
               isAuthenticated: Boolean(authUser),
             }}
             onAction={(action, context) => {
-              void executeAction(action, context);
+              return executeAction(action, context);
             }}
           />
         </div>
@@ -738,10 +909,15 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 }
 
 function getMacroActionKey(action: Extract<RuntimeAction, { type: "runMacro" }>, context: RenderContext): string {
-  const objectId =
+  const runtimeObjectId =
+    typeof context.parameters?.__runtimeObjectId === "string"
+      ? context.parameters.__runtimeObjectId.trim()
+      : "";
+  const legacyObjectId =
     typeof context.parameters?.objectId === "string"
       ? context.parameters.objectId.trim()
       : "";
+  const objectId = runtimeObjectId || legacyObjectId;
   return [
     context.screenId ?? "",
     context.popupInstanceId ?? "",

@@ -128,6 +128,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         minHeight: 24,
         text: "Start",
         showText: true,
+        disabledTag: "",
         backgroundColor: "#0958d9",
         pressedBackgroundColor: "#0747b3",
         disabledBackgroundColor: "#434343",

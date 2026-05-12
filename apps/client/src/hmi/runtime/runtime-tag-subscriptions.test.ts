@@ -123,4 +123,69 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).toContain("LW10");
     expect(subscriptions).toContain("GVL_VALVE.valves[69].VisualState");
   });
+
+  it("collects button disabledTag with relative prefix in popup context", () => {
+    const screen: HmiScreen = {
+      id: "popup-control",
+      name: "Popup control",
+      kind: "popup",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "btn-open",
+          type: "button",
+          x: 10,
+          y: 10,
+          width: 120,
+          height: 40,
+          text: "Open",
+          showText: true,
+          disabledTag: ".DisableOpen",
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+          action: { type: "write", tag: ".OpenCmd", value: true },
+        },
+      ],
+    };
+
+    const rootScreen: HmiScreen = {
+      id: "main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [rootScreen, screen],
+      startScreenId: rootScreen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [] as ElementLibrary[],
+      screen: rootScreen,
+      tags: {},
+      popups: [{
+        screen,
+        tagPrefix: "VALVES.PZK_1",
+      }],
+    });
+
+    expect(subscriptions).toContain("VALVES.PZK_1.DisableOpen");
+    expect(subscriptions).toContain("VALVES.PZK_1.OpenCmd");
+  });
 });

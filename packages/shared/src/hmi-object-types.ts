@@ -226,6 +226,7 @@ export type ButtonObject = HmiObjectBase & {
   type: "button";
   text?: string;
   showText?: boolean;
+  disabledTag?: string;
   backgroundAssetId?: string;
   pressedBackgroundAssetId?: string;
   disabledBackgroundAssetId?: string;

@@ -37,7 +37,7 @@ type HmiStageProps = {
   onSelectionRectChange?: (rect?: SelectionRect) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
-  onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
   onDoubleClickObject?: (objectId: string) => void;
   onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
   showObjectFrames?: boolean;
