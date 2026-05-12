@@ -6,6 +6,7 @@ import { buildInternalAndLwTagDefinitions, InternalVariableService } from "./int
 import { collectAlwaysActiveMacroTags } from "./macro-tag-resolver.js";
 import { MacroService } from "./macro-service.js";
 import { MacroRuntimeRegistry } from "./macro-runtime-registry.js";
+import { logPerf } from "./perf-logger.js";
 
 export class RuntimeService {
   private readonly rateTimers = new Map<number, NodeJS.Timeout>();
@@ -183,6 +184,7 @@ export class RuntimeService {
     }
 
     this.inFlightRates.add(rate);
+    const startedAt = Date.now();
     try {
       const values = await this.driverManager.readTags(targets);
       const definitionsByName = new Map(targets.map((tag) => [tag.name, tag]));
@@ -199,6 +201,26 @@ export class RuntimeService {
           value: scaledValue,
         });
       }
+      logPerf({
+        component: "runtime",
+        action: "poll-rate",
+        rateMs: rate,
+        targetCount: targets.length,
+        valueCount: values.length,
+        durationMs: Date.now() - startedAt,
+        status: "ok",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logPerf({
+        component: "runtime",
+        action: "poll-rate",
+        rateMs: rate,
+        targetCount: targets.length,
+        durationMs: Date.now() - startedAt,
+        status: "error",
+        message,
+      });
     } finally {
       this.inFlightRates.delete(rate);
     }

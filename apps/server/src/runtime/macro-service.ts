@@ -10,6 +10,7 @@ import type {
 import { CommandService } from "./command-service.js";
 import { InternalVariableService } from "./internal-variable-service.js";
 import { TagStore } from "../tags/tag-store.js";
+import { logPerf } from "./perf-logger.js";
 
 type MacroRunReason = "disabled" | "already_running";
 
@@ -134,6 +135,13 @@ export class MacroService {
     }
     if ((macro.enabled ?? true) === false && !options?.allowDisabledForTest) {
       console.warn(`[macro:${macro.id}] Macro is disabled and was not executed`);
+      logPerf({
+        component: "macro",
+        action: "run",
+        macroId: macro.id,
+        status: "skipped_disabled",
+        durationMs: Date.now() - startedAt,
+      });
       return {
         status: "skipped",
         reason: "disabled",
@@ -246,6 +254,17 @@ export class MacroService {
         `[MacroService] Slow macro execution macroId=${macro.id} macroName=${macro.name} executionMs=${executionMs} totalMs=${totalMs}`,
       );
     }
+    logPerf({
+      component: "macro",
+      action: "run",
+      macroId: macro.id,
+      status: "ok",
+      lookupMs,
+      compileMs,
+      executionMs,
+      totalMs,
+      cache: cacheStatus,
+    });
 
     return {
       status: "ok",

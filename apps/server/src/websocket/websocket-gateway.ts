@@ -3,6 +3,7 @@ import type WebSocket from "ws";
 import { runtimeWsClientMessageSchema, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
 import { CommandService } from "../runtime/command-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
+import { logPerf } from "../runtime/perf-logger.js";
 import { TagStore } from "../tags/tag-store.js";
 
 export class WebSocketGateway {
@@ -79,6 +80,7 @@ export class WebSocketGateway {
     if (this.queue.size === 0) {
       return;
     }
+    const startedAt = Date.now();
 
     const updates = [...this.queue.values()].map((item) => ({
       name: item.name,
@@ -113,6 +115,13 @@ export class WebSocketGateway {
         client.send(serialized);
       }
     }
+    logPerf({
+      component: "websocket",
+      action: "broadcast",
+      updates: updates.length,
+      clients: this.clients.size,
+      durationMs: Date.now() - startedAt,
+    });
   }
 
   private handleClientMessage(client: WebSocket, raw: string): void {

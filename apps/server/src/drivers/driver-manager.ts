@@ -1,4 +1,5 @@
 import type { DriverConfig, TagDefinition, TagScalarValue, TagValue } from "@web-scada/shared";
+import { logPerf } from "../runtime/perf-logger.js";
 import type { Driver, DriverStatus } from "./driver.js";
 import { OpcUaDriver } from "./opcua-driver.js";
 import { SimulatedDriver } from "./simulated-driver.js";
@@ -10,10 +11,22 @@ function createDriver(config: DriverConfig): Driver {
   return new OpcUaDriver(config);
 }
 
+type IndexedTag = {
+  tag: TagDefinition;
+  index: number;
+};
+
+type DriverReadResult = {
+  driverId: string;
+  indexedTags: IndexedTag[];
+  values: TagValue[];
+};
+
 export class DriverManager {
   private readonly drivers = new Map<string, Driver>();
   private readonly statuses = new Map<string, DriverStatus>();
   private defaultSimulatedDriverId: string | null = null;
+  private readonly driverReadTimeoutMs = 2000;
 
   public configure(configs: DriverConfig[]): void {
     this.statuses.clear();
@@ -133,23 +146,52 @@ export class DriverManager {
       };
     }
 
-    return driver.readTag(tag);
+    const startedAt = Date.now();
+    try {
+      const value = await this.withTimeout(
+        driver.readTag(tag),
+        this.driverReadTimeoutMs,
+        `Read timeout for tag ${tag.name} after ${this.driverReadTimeoutMs} ms`,
+      );
+      logPerf({
+        component: "driver-manager",
+        action: "readTag",
+        driverId,
+        tag: tag.name,
+        durationMs: Date.now() - startedAt,
+        status: "ok",
+      });
+      return value;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logPerf({
+        component: "driver-manager",
+        action: "readTag",
+        driverId,
+        tag: tag.name,
+        durationMs: Date.now() - startedAt,
+        status: "error",
+        message,
+      });
+      return {
+        name: tag.name,
+        value: null,
+        quality: "Bad",
+        timestamp: Date.now(),
+        source: driverId,
+      };
+    }
   }
 
+  public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
+    if (tags.length === 0) {
+      return [];
+    }
 
-public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
-  if (tags.length === 0) {
-    return [];
-  }
-
-  type IndexedTag = {
-    tag: TagDefinition;
-    index: number;
-  };
-
-  const timestamp = Date.now();
-  const result: Array<TagValue | undefined> = new Array(tags.length);
-  const byDriver = new Map<string, IndexedTag[]>();
+    const timestamp = Date.now();
+    const startedAt = Date.now();
+    const result: Array<TagValue | undefined> = new Array(tags.length);
+    const byDriver = new Map<string, IndexedTag[]>();
 
     for (let index = 0; index < tags.length; index += 1) {
       const tag = tags[index]!;
@@ -161,9 +203,9 @@ public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
           value: null,
           quality: "Bad",
           timestamp,
-        source: "none",
-      };
-      continue;
+          source: "none",
+        };
+        continue;
       }
 
       const group = byDriver.get(driverId);
@@ -172,67 +214,43 @@ public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
       } else {
         byDriver.set(driverId, [{ tag, index }]);
       }
-  }
-
-  for (const [driverId, indexedTags] of byDriver.entries()) {
-    const driver = this.drivers.get(driverId);
-
-    if (!driver) {
-      const driverTimestamp = Date.now();
-      for (const item of indexedTags) {
-        result[item.index] = {
-          name: item.tag.name,
-          value: null,
-          quality: "Bad",
-          timestamp: driverTimestamp,
-          source: driverId,
-        };
-      }
-      continue;
     }
 
-    const driverTags = indexedTags.map((item) => item.tag);
+    const tasks = [...byDriver.entries()].map(([driverId, indexedTags]) => this.readDriverTags(driverId, indexedTags));
+    const settled = await Promise.allSettled(tasks);
 
-    if (driver.readTags) {
-      const values = await driver.readTags(driverTags);
-
-      // Основной путь: драйвер вернул значения в том же порядке, что и получил теги.
-      // Дополнительная защита: если порядок нарушен, пытаемся сопоставить по имени тега.
-      const valuesByName = new Map(values.map((value) => [value.name, value]));
-
-      for (let localIndex = 0; localIndex < indexedTags.length; localIndex += 1) {
-        const item = indexedTags[localIndex]!;
-        const valueByPosition = values[localIndex];
-        const valueByName = valuesByName.get(item.tag.name);
-
-        result[item.index] = valueByName ?? valueByPosition ?? {
-          name: item.tag.name,
+    for (const settledItem of settled) {
+      if (settledItem.status !== "fulfilled") {
+        continue;
+      }
+      const readResult = settledItem.value;
+      const valuesByName = new Map(readResult.values.map((value) => [value.name, value]));
+      for (let localIndex = 0; localIndex < readResult.indexedTags.length; localIndex += 1) {
+        const target = readResult.indexedTags[localIndex]!;
+        const valueByPosition = readResult.values[localIndex];
+        const valueByName = valuesByName.get(target.tag.name);
+        result[target.index] = valueByName ?? valueByPosition ?? {
+          name: target.tag.name,
           value: null,
           quality: "Bad",
           timestamp: Date.now(),
-          source: driverId,
+          source: readResult.driverId,
         };
       }
-      continue;
     }
 
-    const values = await Promise.all(driverTags.map((tag) => driver.readTag(tag)));
-    for (let localIndex = 0; localIndex < indexedTags.length; localIndex += 1) {
-      const item = indexedTags[localIndex]!;
-      result[item.index] = values[localIndex] ?? {
-        name: item.tag.name,
-        value: null,
-        quality: "Bad",
-        timestamp: Date.now(),
-        source: driverId,
-      };
-    }
-  }
+    logPerf({
+      component: "driver-manager",
+      action: "readTags",
+      tagCount: tags.length,
+      driverCount: byDriver.size,
+      durationMs: Date.now() - startedAt,
+    });
 
-  return result.map((value, index) => {
-    if (value) {
-      return value;
-    }
+    return result.map((value, index) => {
+      if (value) {
+        return value;
+      }
 
       const tag = tags[index]!;
       return {
@@ -243,8 +261,7 @@ public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
         source: this.resolveDriverId(tag) ?? "none",
       };
     });
-}
-
+  }
 
   public async writeTag(tag: TagDefinition, value: TagScalarValue): Promise<void> {
     const driverId = this.resolveDriverId(tag);
@@ -256,6 +273,7 @@ public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
     if (!driver) {
       throw new Error(`Driver ${driverId} is unavailable`);
     }
+
     const startedAt = Date.now();
     try {
       await driver.writeTag(tag, value);
@@ -267,9 +285,95 @@ public async readTags(tags: TagDefinition[]): Promise<TagValue[]> {
       );
       throw error;
     }
+
     const durationMs = Date.now() - startedAt;
     if (durationMs > 250) {
       console.warn(`[DriverManager] Slow writeTag driverId=${driverId} tag=${tag.name} durationMs=${durationMs}`);
+    }
+  }
+
+  private async readDriverTags(driverId: string, indexedTags: IndexedTag[]): Promise<DriverReadResult> {
+    const driver = this.drivers.get(driverId);
+
+    if (!driver) {
+      const driverTimestamp = Date.now();
+      return {
+        driverId,
+        indexedTags,
+        values: indexedTags.map((item) => ({
+          name: item.tag.name,
+          value: null,
+          quality: "Bad" as const,
+          timestamp: driverTimestamp,
+          source: driverId,
+        })),
+      };
+    }
+
+    const driverTags = indexedTags.map((item) => item.tag);
+    const startedAt = Date.now();
+    try {
+      const values = driver.readTags
+        ? await this.withTimeout(
+            driver.readTags(driverTags),
+            this.driverReadTimeoutMs,
+            `Read timeout for driver ${driverId} after ${this.driverReadTimeoutMs} ms`,
+          )
+        : await this.withTimeout(
+            Promise.all(driverTags.map((tag) => driver.readTag(tag))),
+            this.driverReadTimeoutMs,
+            `Read timeout for driver ${driverId} after ${this.driverReadTimeoutMs} ms`,
+          );
+
+      logPerf({
+        component: "driver-manager",
+        action: "driver-read",
+        driverId,
+        tagCount: driverTags.length,
+        durationMs: Date.now() - startedAt,
+        status: "ok",
+      });
+
+      return { driverId, indexedTags, values };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logPerf({
+        component: "driver-manager",
+        action: "driver-read",
+        driverId,
+        tagCount: driverTags.length,
+        durationMs: Date.now() - startedAt,
+        status: "error",
+        message,
+      });
+      const failTimestamp = Date.now();
+      return {
+        driverId,
+        indexedTags,
+        values: indexedTags.map((item) => ({
+          name: item.tag.name,
+          value: null,
+          quality: "Bad" as const,
+          timestamp: failTimestamp,
+          source: driverId,
+        })),
+      };
+    }
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeoutPromise = new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      });
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
   }
 

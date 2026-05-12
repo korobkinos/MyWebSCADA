@@ -2,6 +2,7 @@ import type { TagScalarValue } from "@web-scada/shared";
 import { TagStore } from "../tags/tag-store.js";
 import { DriverManager } from "../drivers/driver-manager.js";
 import { InternalVariableService } from "./internal-variable-service.js";
+import { logPerf } from "./perf-logger.js";
 
 export class CommandService {
   private readonly driverWriteTimeoutMs = 2000;
@@ -22,6 +23,14 @@ export class CommandService {
 
     if (!tag.driverId && tag.sourceType !== "simulated") {
       this.internalVariableService.write(name, value);
+      logPerf({
+        component: "command",
+        action: "write-tag",
+        target: name,
+        targetType: tag.sourceType ?? "internal",
+        durationMs: Date.now() - startedAt,
+        status: "ok",
+      });
       return;
     }
 
@@ -39,13 +48,29 @@ export class CommandService {
     });
 
     const durationMs = Date.now() - startedAt;
+    logPerf({
+      component: "command",
+      action: "write-tag",
+      target: name,
+      targetType: tag.sourceType ?? "driver",
+      durationMs,
+      status: "ok",
+    });
     if (durationMs > this.slowWriteWarnMs) {
       console.warn(`[CommandService] Slow writeTag name=${name} durationMs=${durationMs}`);
     }
   }
 
   public async writeVariable(name: string, value: TagScalarValue): Promise<void> {
+    const startedAt = Date.now();
     this.internalVariableService.write(name, value);
+    logPerf({
+      component: "command",
+      action: "write-variable",
+      target: name,
+      durationMs: Date.now() - startedAt,
+      status: "ok",
+    });
   }
 
   public async pulseTag(name: string, value: TagScalarValue, durationMs: number): Promise<void> {
