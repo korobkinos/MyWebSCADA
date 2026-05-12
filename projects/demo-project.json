@@ -13492,6 +13492,7 @@
           "width": 220,
           "height": 40,
           "text": "Counter++",
+          "pressedBackgroundColor": "#b307a5",
           "textStyle": {
             "fontFamily": "Arial",
             "fontSize": 14,
@@ -13809,7 +13810,7 @@
           "height": 44,
           "minWidth": 70,
           "minHeight": 28,
-          "tag": "Burner_1.StartCmd",
+          "tag": "VALVES.PZK_2.OpenCmd",
           "onText": "ON",
           "offText": "OFF",
           "textStyle": {
@@ -13836,7 +13837,7 @@
           "text": "На второй экран",
           "showText": true,
           "backgroundColor": "#0958d9",
-          "pressedBackgroundColor": "#0747b3",
+          "pressedBackgroundColor": "#969ba4",
           "disabledBackgroundColor": "#434343",
           "borderColor": "#0958d9",
           "borderWidth": 1,

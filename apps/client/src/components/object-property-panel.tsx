@@ -647,7 +647,11 @@ function SpecificPropertyFields({
   if (object.type === "text") {
     return (
       <Form.Item label="Text">
-        <Input value={object.text} onChange={(e) => onPatch({ text: e.target.value } as Partial<HmiObject>)} />
+        <Input.TextArea
+          rows={3}
+          value={object.text ?? ""}
+          onChange={(e) => onPatch({ text: e.target.value } as Partial<HmiObject>)}
+        />
       </Form.Item>
     );
   }

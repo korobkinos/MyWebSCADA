@@ -38,7 +38,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         height: 40,
         minWidth: 60,
         minHeight: 24,
-        text: "New text",
+        text: "Text",
         textStyle: { ...defaultTextStyle, horizontalAlign: "left" },
       };
     case "line":
