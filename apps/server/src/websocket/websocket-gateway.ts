@@ -5,6 +5,7 @@ import { CommandService } from "../runtime/command-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
 import { logPerf } from "../runtime/perf-logger.js";
 import { TagStore } from "../tags/tag-store.js";
+import { ManualCommandError } from "../runtime/manual-command-error.js";
 
 export class WebSocketGateway {
   private readonly clients = new Set<WebSocket>();
@@ -128,7 +129,20 @@ export class WebSocketGateway {
     try {
       const parsed = runtimeWsClientMessageSchema.parse(JSON.parse(raw));
       if (parsed.type === "write-tag") {
-        void this.commandService.writeTag(parsed.payload.name, parsed.payload.value);
+        void this.commandService.writeTag(parsed.payload.name, parsed.payload.value, {
+          manual: true,
+          commandMeta: parsed.payload.commandMeta,
+        }).catch((error) => {
+          if (error instanceof ManualCommandError) {
+            console.warn("[WebSocketGateway] Manual write rejected", {
+              commandKey: parsed.payload.commandMeta?.commandKey ?? `tag:${parsed.payload.name}`,
+              reason: error.reason,
+              message: error.message,
+            });
+            return;
+          }
+          console.error("[WebSocketGateway] Manual write failed", error);
+        });
         return;
       }
 

@@ -882,6 +882,14 @@ export const writeTagMessageSchema = z.object({
   payload: z.object({
     name: z.string().min(1),
     value: z.union([z.boolean(), z.number(), z.string(), z.null()]),
+    commandMeta: z
+      .object({
+        commandId: z.string().min(1),
+        commandKey: z.string().min(1),
+        createdAt: z.number().int(),
+        ttlMs: z.number().int().positive(),
+      })
+      .optional(),
   }),
 });
 

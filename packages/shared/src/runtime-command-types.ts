@@ -1,0 +1,20 @@
+export const COMMAND_TIMEOUT_MS = 1000;
+
+export type ManualCommandMeta = {
+  commandId: string;
+  commandKey: string;
+  createdAt: number;
+  ttlMs: number;
+};
+
+export type ManualCommandRejectReason =
+  | "already_pending"
+  | "busy"
+  | "expired"
+  | "timeout"
+  | "driver_offline"
+  | "error";
+
+export type MacroRunSkipReason = "disabled" | "already_running";
+
+export type MacroRunReason = ManualCommandRejectReason | MacroRunSkipReason;

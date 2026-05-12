@@ -10,6 +10,7 @@ import type {
   LibraryElement,
   MacroDefinition,
   MacroRunResult,
+  ManualCommandMeta,
   PasswordPolicy,
   RuntimeState,
   ScadaProject,
@@ -260,11 +261,6 @@ export const api = {
       },
     ),
   getVariables: () => request<TagValue[]>("/api/variables"),
-  writeVariable: (name: string, value: boolean | number | string | null) =>
-    request<{ ok: boolean }>(`/api/variables/${encodeURIComponent(name)}/write`, {
-      method: "POST",
-      body: JSON.stringify({ value }),
-    }),
   listMacros: () => request<MacroDefinition[]>("/api/macros"),
   getMacro: (id: string) => request<MacroDefinition>(`/api/macros/${encodeURIComponent(id)}`),
   updateMacro: (id: string, payload: {
@@ -283,16 +279,33 @@ export const api = {
   runMacro: (
     id: string,
     args?: Record<string, unknown>,
-    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown>; signal?: AbortSignal; commandMeta?: ManualCommandMeta },
   ) =>
     request<MacroRunResult>(`/api/macros/${encodeURIComponent(id)}/run`, {
       method: "POST",
-      body: JSON.stringify({ args: args ?? {}, allowDisabledForTest: options?.allowDisabledForTest, context: options?.context }),
+      signal: options?.signal,
+      body: JSON.stringify({
+        args: args ?? {},
+        allowDisabledForTest: options?.allowDisabledForTest,
+        context: options?.context,
+        commandMeta: options?.commandMeta,
+      }),
     }),
-  writeTag: (name: string, value: boolean | number | string | null) =>
+  writeTag: (name: string, value: boolean | number | string | null, options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta }) =>
     request<{ ok: boolean }>(`/api/tags/${encodeURIComponent(name)}/write`, {
       method: "POST",
-      body: JSON.stringify({ value }),
+      signal: options?.signal,
+      body: JSON.stringify({ value, commandMeta: options?.commandMeta }),
+    }),
+  writeVariable: (
+    name: string,
+    value: boolean | number | string | null,
+    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta },
+  ) =>
+    request<{ ok: boolean }>(`/api/variables/${encodeURIComponent(name)}/write`, {
+      method: "POST",
+      signal: options?.signal,
+      body: JSON.stringify({ value, commandMeta: options?.commandMeta }),
     }),
   startRuntime: () => request<RuntimeState>("/api/runtime/start", { method: "POST" }),
   stopRuntime: () => request<RuntimeState>("/api/runtime/stop", { method: "POST" }),

@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   ACCESS_ROLE_LABELS_RU,
+  COMMAND_TIMEOUT_MS,
   clampAccessRoleLevel,
   getUserRoleLevel,
   hasRoleAccess,
   roleLevelFromRoles,
   type AccessRoleLevel,
+  type ManualCommandMeta,
+  type ManualCommandRejectReason,
   createInitialPopupState,
   popupReducer,
   resolveRuntimeAction,
@@ -38,6 +41,7 @@ type RuntimeAccessState = {
 
 const RUNTIME_ACCESS_WINDOW_ID = "runtimeAccessRequired";
 const RUNTIME_AUTH_WINDOW_ID = "runtimeAuthorization";
+const COMMAND_WARNING_COOLDOWN_MS = 1200;
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const project = useScadaStore((s) => s.project);
@@ -57,8 +61,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   const [popupState, dispatchPopup] = useReducer(popupReducer, undefined, createInitialPopupState);
   const dragRefs = useRef<Record<string, { dx: number; dy: number }>>({});
-  const macroRunGuardsRef = useRef(new Map<string, { running: boolean; lastStartedAt: number }>());
-  const macroWarningTimestampsRef = useRef(new Map<string, number>());
+  const pendingCommandKeysRef = useRef(new Map<string, { startedAt: number }>());
+  const commandWarningTimestampsRef = useRef(new Map<string, number>());
   const runtimeRootRef = useRef<HTMLDivElement | null>(null);
   const debugActionTiming =
     import.meta.env.DEV &&
@@ -73,6 +77,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const [numberPrompt, setNumberPrompt] = useState<{
     open: boolean;
     action?: Extract<RuntimeAction, { type: "writeNumberPrompt" }>;
+    context?: RenderContext;
     value?: number;
   }>({ open: false });
   const [accessState, setAccessState] = useState<RuntimeAccessState>({
@@ -341,13 +346,186 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
   };
 
+  const createManualCommandMeta = (commandKey: string): ManualCommandMeta => ({
+    commandId: `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    commandKey,
+    createdAt: Date.now(),
+    ttlMs: COMMAND_TIMEOUT_MS,
+  });
+
+  const shouldShowCommandWarning = (commandKey: string): boolean => {
+    const now = Date.now();
+    const lastAt = commandWarningTimestampsRef.current.get(commandKey) ?? 0;
+    if (now - lastAt < COMMAND_WARNING_COOLDOWN_MS) {
+      return false;
+    }
+    commandWarningTimestampsRef.current.set(commandKey, now);
+    return true;
+  };
+
+  const logRuntimeCommand = (params: {
+    level: "warning" | "error";
+    reason: ManualCommandRejectReason | "disabled" | "already_running";
+    actionType: RuntimeAction["type"];
+    commandKey: string;
+    context: RenderContext;
+    macroId?: string;
+    durationMs?: number;
+    messageText?: string;
+  }): void => {
+    const payload = {
+      timestamp: new Date().toISOString(),
+      level: params.level,
+      actionType: params.actionType,
+      commandKey: params.commandKey,
+      objectId: getRuntimeActionObjectId(params.context),
+      macroId: params.macroId,
+      reason: params.reason,
+      durationMs: params.durationMs,
+      message: params.messageText,
+    };
+    if (params.level === "error") {
+      // eslint-disable-next-line no-console
+      console.error("[RuntimeCommand]", payload);
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.warn("[RuntimeCommand]", payload);
+  };
+
+  const parseManualCommandError = (error: unknown): { reason: ManualCommandRejectReason; messageText: string } => {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return {
+        reason: "timeout",
+        messageText: `Command timeout after ${COMMAND_TIMEOUT_MS} ms`,
+      };
+    }
+
+    const err = error as { message?: string; reason?: string; status?: number; details?: { reason?: string; message?: string } } | undefined;
+    const explicitReason = typeof err?.reason === "string"
+      ? err.reason
+      : typeof err?.details?.reason === "string"
+        ? err.details.reason
+        : undefined;
+    const reason = toManualCommandRejectReason(explicitReason, err?.status);
+    const messageText = (typeof err?.details?.message === "string" && err.details.message.trim())
+      || (typeof err?.message === "string" && err.message.trim())
+      || "Command failed";
+    return { reason, messageText };
+  };
+
+  const runGuardedManualCommand = async <T,>(params: {
+    action: RuntimeAction;
+    context: RenderContext;
+    clickTs?: number;
+    commandKey: string;
+    actionId: string;
+    macroId?: string;
+    run: (signal: AbortSignal | undefined, commandMeta: ManualCommandMeta) => Promise<T>;
+    statusFromResult?: (result: T) => string;
+  }): Promise<T | undefined> => {
+    const existing = pendingCommandKeysRef.current.get(params.commandKey);
+    if (existing) {
+      if (Date.now() - existing.startedAt <= COMMAND_TIMEOUT_MS * 3) {
+        const warnText = params.macroId
+          ? "Macro ignored: already pending"
+          : "Command ignored: already pending";
+        logRuntimeCommand({
+          level: "warning",
+          reason: "already_pending",
+          actionType: params.action.type,
+          commandKey: params.commandKey,
+          context: params.context,
+          macroId: params.macroId,
+          messageText: warnText,
+        });
+        if (shouldShowCommandWarning(params.commandKey)) {
+          void message.warning(warnText);
+        }
+        if (debugActionTiming) {
+          logActionTiming({
+            actionType: params.action.type,
+            actionId: params.actionId,
+            status: "already_pending",
+            context: params.context,
+            clickTs: params.clickTs,
+            requestStartTs: performance.now(),
+          });
+        }
+        return undefined;
+      }
+      pendingCommandKeysRef.current.delete(params.commandKey);
+    }
+
+    pendingCommandKeysRef.current.set(params.commandKey, { startedAt: Date.now() });
+    const startedAt = Date.now();
+    const commandMeta = createManualCommandMeta(params.commandKey);
+    const abortController = typeof AbortController !== "undefined" ? new AbortController() : undefined;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const timedResult = await runTimedRequest({
+        action: params.action,
+        actionId: params.actionId,
+        context: params.context,
+        clickTs: params.clickTs,
+        statusFromResult: params.statusFromResult,
+        run: async () => {
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutHandle = setTimeout(() => {
+              abortController?.abort();
+              const timeoutError = new Error(`Command timeout after ${COMMAND_TIMEOUT_MS} ms`) as Error & { reason?: ManualCommandRejectReason };
+              timeoutError.reason = "timeout";
+              reject(timeoutError);
+            }, COMMAND_TIMEOUT_MS);
+          });
+          return await Promise.race([
+            params.run(abortController?.signal, commandMeta),
+            timeoutPromise,
+          ]);
+        },
+      });
+      return timedResult;
+    } catch (error) {
+      const parsed = parseManualCommandError(error);
+      const durationMs = Date.now() - startedAt;
+      const level: "warning" | "error" = parsed.reason === "busy" ? "warning" : "error";
+      logRuntimeCommand({
+        level,
+        reason: parsed.reason,
+        actionType: params.action.type,
+        commandKey: params.commandKey,
+        context: params.context,
+        macroId: params.macroId,
+        durationMs,
+        messageText: parsed.messageText,
+      });
+      const toastText = params.macroId
+        ? `Macro failed: ${parsed.messageText}`
+        : `Command failed: ${parsed.messageText}`;
+      if (parsed.reason === "busy") {
+        void message.warning(toastText);
+      } else {
+        void message.error(toastText);
+      }
+      return undefined;
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      pendingCommandKeysRef.current.delete(params.commandKey);
+    }
+  };
+
   const executeAction = async (inputAction: RuntimeAction, context: RenderContext): Promise<void> => {
     const action = resolveRuntimeAction(inputAction, context);
     const clickTs = getActionClickTimestamp(context);
     const actor = useScadaStore.getState().authUser;
-    const actorRoleLevel = getUserRoleLevel(actor);
+    const guestRuntimeActionsEnabled = project.runtimeSettings?.allowGuestRuntimeActions !== false;
+    const guestRuntimeControlAllowed = !actor && guestRuntimeActionsEnabled && isGuestRuntimeControlAction(action);
+    const actorRoleLevel = guestRuntimeControlAllowed ? 1 : getUserRoleLevel(actor);
     const requiredRoleLevel = resolveRequiredRoleLevel(action);
-    const requiresAuth = action.requireAuth === true || requiredRoleLevel > 0;
+    const requiresAuth = action.requireAuth === true;
 
     if (requiresAuth && !actor) {
       openAccessWindow({
@@ -376,24 +554,29 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "write") {
-      await runTimedRequest({
+      await runGuardedManualCommand({
         action,
         actionId: action.tag,
         context,
         clickTs,
-        run: () => writeTag(action.tag, action.value),
+        commandKey: getRuntimeActionCommandKey(action, context),
+        run: (signal, commandMeta) => writeTag(action.tag, action.value, { signal, commandMeta }),
       });
       return;
     }
 
     if (action.type === "pulse") {
-      await runTimedRequest({
+      const result = await runGuardedManualCommand({
         action,
         actionId: action.tag,
         context,
         clickTs,
-        run: () => writeTag(action.tag, action.value),
+        commandKey: getRuntimeActionCommandKey(action, context),
+        run: (signal, commandMeta) => writeTag(action.tag, action.value, { signal, commandMeta }),
       });
+      if (result === undefined) {
+        return;
+      }
       setTimeout(() => {
         void writeTag(action.tag, false);
       }, action.durationMs);
@@ -402,39 +585,42 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
     if (action.type === "toggle") {
       const current = tags[action.tag];
-      await runTimedRequest({
+      await runGuardedManualCommand({
         action,
         actionId: action.tag,
         context,
         clickTs,
-        run: () => writeTag(action.tag, !Boolean(current?.value)),
+        commandKey: getRuntimeActionCommandKey(action, context),
+        run: (signal, commandMeta) => writeTag(action.tag, !Boolean(current?.value), { signal, commandMeta }),
       });
       return;
     }
 
     if (action.type === "writeConst") {
       if (action.target === "variable") {
-        await runTimedRequest({
+        await runGuardedManualCommand({
           action,
           actionId: action.name,
           context,
           clickTs,
-          run: () => writeVariable(action.name, action.value),
+          commandKey: getRuntimeActionCommandKey(action, context),
+          run: (signal, commandMeta) => writeVariable(action.name, action.value, { signal, commandMeta }),
         });
       } else {
-        await runTimedRequest({
+        await runGuardedManualCommand({
           action,
           actionId: action.name,
           context,
           clickTs,
-          run: () => writeTag(action.name, action.value),
+          commandKey: getRuntimeActionCommandKey(action, context),
+          run: (signal, commandMeta) => writeTag(action.name, action.value, { signal, commandMeta }),
         });
       }
       return;
     }
 
     if (action.type === "writeNumberPrompt") {
-      setNumberPrompt({ open: true, action, value: undefined });
+      setNumberPrompt({ open: true, action, context, value: undefined });
       return;
     }
 
@@ -454,97 +640,86 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         void message.error(`Macro ${action.macroId} not found`);
         return;
       }
-      const guardKey = getMacroActionKey(action, context);
-      const now = Date.now();
-      const guard = macroRunGuardsRef.current.get(guardKey) ?? { running: false, lastStartedAt: 0 };
-      if (guard.running) {
-        if (debugActionTiming) {
-          logActionTiming({
-            actionType: action.type,
-            actionId: action.macroId,
-            status: "blocked_local_guard",
-            context,
-            clickTs,
-            requestStartTs: performance.now(),
-          });
-        }
+      const commandKey = getRuntimeActionCommandKey(action, context);
+      const result = await runGuardedManualCommand({
+        action,
+        actionId: action.macroId,
+        context,
+        clickTs,
+        commandKey,
+        macroId: action.macroId,
+        run: (signal, commandMeta) => runMacro(action.macroId, action.args, {
+          signal,
+          commandMeta,
+          context: {
+            popupInstanceId: context.popupInstanceId,
+            screenId: context.screenId,
+            tagPrefix: context.tagPrefix,
+            parameters: stripRuntimeActionMeta(context.parameters),
+          },
+        }),
+        statusFromResult: (value) => value.status === "skipped" ? `skipped:${value.reason ?? "unknown"}` : (value.status ?? "ok"),
+      });
+      if (!result) {
         return;
       }
-      if (now - guard.lastStartedAt < 200) {
-        if (debugActionTiming) {
-          logActionTiming({
-            actionType: action.type,
-            actionId: action.macroId,
-            status: "debounced",
-            context,
-            clickTs,
-            requestStartTs: performance.now(),
-          });
-        }
-        return;
-      }
-      guard.running = true;
-      guard.lastStartedAt = now;
-      macroRunGuardsRef.current.set(guardKey, guard);
-      try {
-        const result = await runTimedRequest({
-          action,
-          actionId: action.macroId,
+      if (result.status === "skipped" && result.reason === "disabled") {
+        logRuntimeCommand({
+          level: "warning",
+          reason: "disabled",
+          actionType: action.type,
+          commandKey,
           context,
-          clickTs,
-          run: () => runMacro(action.macroId, action.args, {
-            context: {
-              popupInstanceId: context.popupInstanceId,
-              screenId: context.screenId,
-              tagPrefix: context.tagPrefix,
-              parameters: stripRuntimeActionMeta(context.parameters),
-            },
-          }),
-          statusFromResult: (value) => value.status === "skipped" ? `skipped:${value.reason ?? "unknown"}` : (value.status ?? "ok"),
+          macroId: action.macroId,
+          messageText: `Macro "${selectedMacro?.name ?? action.macroId}" is disabled`,
         });
-        if (result.status === "skipped" && result.reason === "disabled") {
+        if (shouldShowCommandWarning(commandKey)) {
           void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is disabled and was not executed`);
-        } else if (result.status === "skipped" && result.reason === "already_running") {
-          const lastWarningAt = macroWarningTimestampsRef.current.get(guardKey) ?? 0;
-          if (Date.now() - lastWarningAt >= 1500) {
-            macroWarningTimestampsRef.current.set(guardKey, Date.now());
-            void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is already running`);
-          }
         }
-        for (const effect of result.effects ?? []) {
-          await executeAction(effect as RuntimeAction, context);
+        return;
+      }
+      if (result.status === "skipped" && result.reason === "already_running") {
+        logRuntimeCommand({
+          level: "warning",
+          reason: "already_running",
+          actionType: action.type,
+          commandKey,
+          context,
+          macroId: action.macroId,
+          messageText: "Macro ignored: already running",
+        });
+        if (shouldShowCommandWarning(commandKey)) {
+          void message.warning(`Macro "${selectedMacro?.name ?? action.macroId}" is already running`);
         }
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        void message.error(`Macro "${selectedMacro?.name ?? action.macroId}" failed: ${text}`);
-      } finally {
-        const currentGuard = macroRunGuardsRef.current.get(guardKey);
-        if (currentGuard) {
-          currentGuard.running = false;
-          macroRunGuardsRef.current.set(guardKey, currentGuard);
-        }
+        return;
+      }
+      for (const effect of result.effects ?? []) {
+        await executeAction(effect as RuntimeAction, context);
       }
       return;
     }
 
     if (action.type === "setLW") {
-      await runTimedRequest({
+      await runGuardedManualCommand({
         action,
         actionId: `LW${Math.max(0, Math.floor(action.address))}`,
         context,
         clickTs,
-        run: () => writeVariable(`LW${Math.max(0, Math.floor(action.address))}`, action.value),
+        commandKey: getRuntimeActionCommandKey(action, context),
+        run: (signal, commandMeta) =>
+          writeVariable(`LW${Math.max(0, Math.floor(action.address))}`, action.value, { signal, commandMeta }),
       });
       return;
     }
 
     if (action.type === "setInternalVar") {
-      await runTimedRequest({
+      await runGuardedManualCommand({
         action,
         actionId: action.name,
         context,
         clickTs,
-        run: () => writeVariable(action.name, action.value),
+        commandKey: getRuntimeActionCommandKey(action, context),
+        run: (signal, commandMeta) => writeVariable(action.name, action.value, { signal, commandMeta }),
       });
       return;
     }
@@ -821,8 +996,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           onCloseNumberPrompt={() => setNumberPrompt({ open: false })}
           onApplyNumberPrompt={async () => {
             const action = numberPrompt.action;
+            const promptContext = numberPrompt.context;
             const value = numberPrompt.value;
-            if (!action || typeof value !== "number" || Number.isNaN(value)) {
+            if (!action || !promptContext || typeof value !== "number" || Number.isNaN(value)) {
               void message.warning("Numeric value is required");
               return;
             }
@@ -834,11 +1010,15 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
               void message.warning(`Value must be <= ${action.max}`);
               return;
             }
-            if (action.target === "variable") {
-              await writeVariable(action.name, value);
-            } else {
-              await writeTag(action.name, value);
-            }
+            await executeAction(
+              {
+                type: "writeConst",
+                target: action.target,
+                name: action.name,
+                value,
+              },
+              promptContext,
+            );
             setNumberPrompt({ open: false });
           }}
           onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
@@ -880,8 +1060,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           onCloseNumberPrompt={() => setNumberPrompt({ open: false })}
           onApplyNumberPrompt={async () => {
             const action = numberPrompt.action;
+            const promptContext = numberPrompt.context;
             const value = numberPrompt.value;
-            if (!action || typeof value !== "number" || Number.isNaN(value)) {
+            if (!action || !promptContext || typeof value !== "number" || Number.isNaN(value)) {
               void message.warning("Numeric value is required");
               return;
             }
@@ -893,11 +1074,15 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
               void message.warning(`Value must be <= ${action.max}`);
               return;
             }
-            if (action.target === "variable") {
-              await writeVariable(action.name, value);
-            } else {
-              await writeTag(action.name, value);
-            }
+            await executeAction(
+              {
+                type: "writeConst",
+                target: action.target,
+                name: action.name,
+                value,
+              },
+              promptContext,
+            );
             setNumberPrompt({ open: false });
           }}
           onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
@@ -908,23 +1093,68 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   );
 }
 
-function getMacroActionKey(action: Extract<RuntimeAction, { type: "runMacro" }>, context: RenderContext): string {
-  const runtimeObjectId =
-    typeof context.parameters?.__runtimeObjectId === "string"
-      ? context.parameters.__runtimeObjectId.trim()
-      : "";
-  const legacyObjectId =
-    typeof context.parameters?.objectId === "string"
+function getRuntimeActionCommandKey(action: RuntimeAction, context: RenderContext): string {
+  if (action.type === "runMacro") {
+    return `macro:${action.macroId}`;
+  }
+  if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+    return `tag:${action.tag}`;
+  }
+  if (action.type === "writeConst") {
+    if (action.target === "variable") {
+      return `variable:${action.name}`;
+    }
+    return `tag:${action.name}`;
+  }
+  if (action.type === "setLW") {
+    return `lw:${Math.max(0, Math.floor(action.address))}`;
+  }
+  if (action.type === "setInternalVar") {
+    return `variable:${action.name}`;
+  }
+  if (action.type === "openScreen") {
+    return `navigation:openScreen:${action.screenId}`;
+  }
+  if (action.type === "openPopup") {
+    const popupKey = getPopupKey(action) ?? action.popupScreenId;
+    return `navigation:openPopup:${popupKey}`;
+  }
+  if (action.type === "closePopup") {
+    return `navigation:closePopup:${action.popupInstanceId ?? "active"}`;
+  }
+  const objectId = typeof context.parameters?.__runtimeObjectId === "string"
+    ? context.parameters.__runtimeObjectId.trim()
+    : typeof context.parameters?.objectId === "string"
       ? context.parameters.objectId.trim()
       : "";
-  const objectId = runtimeObjectId || legacyObjectId;
-  return [
-    context.screenId ?? "",
-    context.popupInstanceId ?? "",
-    context.tagPrefix ?? "",
-    objectId,
-    action.macroId,
-  ].join("::");
+  return objectId ? `object:${objectId}` : `action:${action.type}`;
+}
+
+function toManualCommandRejectReason(reason: string | undefined, status: number | undefined): ManualCommandRejectReason {
+  if (reason === "already_pending" || reason === "busy" || reason === "expired" || reason === "timeout" || reason === "driver_offline") {
+    return reason;
+  }
+  if (status === 408) {
+    return "timeout";
+  }
+  if (status === 409) {
+    return "busy";
+  }
+  if (status === 410) {
+    return "expired";
+  }
+  return "error";
+}
+
+function isGuestRuntimeControlAction(action: RuntimeAction): boolean {
+  return action.type === "runMacro"
+    || action.type === "write"
+    || action.type === "pulse"
+    || action.type === "toggle"
+    || action.type === "writeConst"
+    || action.type === "writeNumberPrompt"
+    || action.type === "setLW"
+    || action.type === "setInternalVar";
 }
 
 function getPopupKey(action: Extract<RuntimeAction, { type: "openPopup" }>): string | undefined {
@@ -949,7 +1179,7 @@ function RuntimeDialogs({
   onChangeNumberValue,
 }: {
   confirmState: { open: boolean; text: string };
-  numberPrompt: { open: boolean; action?: Extract<RuntimeAction, { type: "writeNumberPrompt" }>; value?: number };
+  numberPrompt: { open: boolean; action?: Extract<RuntimeAction, { type: "writeNumberPrompt" }>; context?: RenderContext; value?: number };
   onConfirm: () => Promise<void>;
   onCancelConfirm: () => void;
   onCloseNumberPrompt: () => void;

@@ -1,6 +1,7 @@
 import type { HmiObject, RuntimeAction, TextStyle } from "./hmi-object-types";
 import type { TagDataType, TagDefinition, TagScalarValue } from "./tag-types";
 import type { Asset, AssetGroup, ProjectLibraryRef } from "./asset-library-types";
+import type { MacroRunReason } from "./runtime-command-types";
 
 export type DriverHealth = "disabled" | "stopped" | "starting" | "running" | "error" | "reconnecting";
 
@@ -102,7 +103,7 @@ export type MacroUiEffect = Extract<RuntimeAction, { type: "openPopup" | "closeP
 export type MacroRunResult = {
   ok: boolean;
   status?: "ok" | "skipped";
-  reason?: "disabled" | "already_running";
+  reason?: MacroRunReason;
   effects?: MacroUiEffect[];
 };
 

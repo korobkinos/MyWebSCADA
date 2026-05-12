@@ -37,6 +37,7 @@ import { buildInternalAndLwTagDefinitions, InternalVariableService } from "../ru
 import { MacroService } from "../runtime/macro-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
 import { TagStore } from "../tags/tag-store.js";
+import { ManualCommandError, toManualCommandStatusCode } from "../runtime/manual-command-error.js";
 
 type ApiDeps = {
   projectService: ProjectService;
@@ -96,7 +97,16 @@ function removeLibraryElementInstances(project: ScadaProject, libraryId: string,
   };
 }
 
-const writeSchema = z.object({ value: z.union([z.boolean(), z.number(), z.string(), z.null()]) });
+const commandMetaSchema = z.object({
+  commandId: z.string().min(1),
+  commandKey: z.string().min(1),
+  createdAt: z.number().int(),
+  ttlMs: z.number().int().positive(),
+});
+const writeSchema = z.object({
+  value: z.union([z.boolean(), z.number(), z.string(), z.null()]),
+  commandMeta: commandMetaSchema.optional(),
+});
 const permissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>((value) => typeof value === "string");
 const loginSchema: z.ZodType<AuthLoginRequest> = z.object({
   username: z.string().min(1),
@@ -140,6 +150,7 @@ const macroRunSchema = z.object({
   args: z.record(z.unknown()).optional(),
   allowDisabledForTest: z.boolean().optional(),
   context: z.record(z.unknown()).optional(),
+  commandMeta: commandMetaSchema.optional(),
 });
 const macroUpdateSchema = z.object({
   name: z.string().min(1),
@@ -298,7 +309,7 @@ function isGuestRuntimePermissionAllowed(deps: ApiDeps, permission: AppPermissio
   if (!GUEST_RUNTIME_PERMISSIONS.has(permission)) {
     return false;
   }
-  return deps.projectService.getProject().runtimeSettings?.allowGuestRuntimeActions === true;
+  return deps.projectService.getProject().runtimeSettings?.allowGuestRuntimeActions !== false;
 }
 
 async function requireSuperadmin(request: FastifyRequest, reply: FastifyReply, deps: ApiDeps): Promise<AuthContext | null> {
@@ -651,8 +662,29 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const params = request.params as { name: string };
     const payload = writeSchema.parse(request.body);
-    await deps.commandService.writeTag(params.name, payload.value);
-    return reply.send({ ok: true });
+    try {
+      await deps.commandService.writeTag(params.name, payload.value, {
+        manual: true,
+        commandMeta: payload.commandMeta,
+      });
+      return reply.send({ ok: true });
+    } catch (error) {
+      if (error instanceof ManualCommandError) {
+        request.log.warn({
+          timestamp: new Date().toISOString(),
+          commandKey: payload.commandMeta?.commandKey ?? `tag:${params.name}`,
+          actionType: "writeTag",
+          reason: error.reason,
+          message: error.message,
+        }, "manual tag command rejected");
+        return reply.code(toManualCommandStatusCode(error.reason)).send({
+          ok: false,
+          reason: error.reason,
+          message: error.message,
+        });
+      }
+      throw error;
+    }
   });
 
   app.get("/api/variables", async () => deps.internalVariableService.getAll());
@@ -664,8 +696,29 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const params = request.params as { name: string };
     const payload = writeSchema.parse(request.body);
-    await deps.commandService.writeVariable(params.name, payload.value);
-    return reply.send({ ok: true });
+    try {
+      await deps.commandService.writeVariable(params.name, payload.value, {
+        manual: true,
+        commandMeta: payload.commandMeta,
+      });
+      return reply.send({ ok: true });
+    } catch (error) {
+      if (error instanceof ManualCommandError) {
+        request.log.warn({
+          timestamp: new Date().toISOString(),
+          commandKey: payload.commandMeta?.commandKey ?? `variable:${params.name}`,
+          actionType: "writeVariable",
+          reason: error.reason,
+          message: error.message,
+        }, "manual variable command rejected");
+        return reply.code(toManualCommandStatusCode(error.reason)).send({
+          ok: false,
+          reason: error.reason,
+          message: error.message,
+        });
+      }
+      throw error;
+    }
   });
 
   app.get("/api/macros", async () => deps.macroService.list());
@@ -736,6 +789,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       const result = await deps.macroService.runManual(params.id, payload.args, {
         allowDisabledForTest: payload.allowDisabledForTest,
         context: payload.context,
+        commandMeta: payload.commandMeta,
       });
       const durationMs = Date.now() - startedAt;
       request.log.info(
@@ -755,6 +809,25 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         effects: result.effects,
       });
     } catch (error) {
+      if (error instanceof ManualCommandError) {
+        const durationMs = Date.now() - startedAt;
+        request.log.warn(
+          {
+            macroId: params.id,
+            commandKey: payload.commandMeta?.commandKey ?? `macro:${params.id}`,
+            reason: error.reason,
+            durationMs,
+            message: error.message,
+          },
+          "manual macro run rejected",
+        );
+        return reply.code(toManualCommandStatusCode(error.reason)).send({
+          ok: false,
+          reason: error.reason,
+          message: error.message,
+          macroId: params.id,
+        });
+      }
       const message = error instanceof Error ? error.message : String(error);
       const durationMs = Date.now() - startedAt;
       request.log.error(

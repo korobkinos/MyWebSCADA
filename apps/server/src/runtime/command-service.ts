@@ -1,12 +1,20 @@
-import type { TagScalarValue } from "@web-scada/shared";
+import { COMMAND_TIMEOUT_MS, type ManualCommandMeta, type TagScalarValue } from "@web-scada/shared";
 import { TagStore } from "../tags/tag-store.js";
 import { DriverManager } from "../drivers/driver-manager.js";
 import { InternalVariableService } from "./internal-variable-service.js";
 import { logPerf } from "./perf-logger.js";
+import { ManualCommandError } from "./manual-command-error.js";
+
+type CommandExecutionOptions = {
+  manual?: boolean;
+  commandMeta?: ManualCommandMeta;
+};
 
 export class CommandService {
-  private readonly driverWriteTimeoutMs = 2000;
+  private readonly driverWriteTimeoutMs = COMMAND_TIMEOUT_MS;
   private readonly slowWriteWarnMs = 250;
+  private readonly manualInFlight = new Map<string, number>();
+  private readonly staleManualInFlightMs = COMMAND_TIMEOUT_MS * 4;
 
   public constructor(
     private readonly tagStore: TagStore,
@@ -14,7 +22,44 @@ export class CommandService {
     private readonly internalVariableService: InternalVariableService,
   ) {}
 
-  public async writeTag(name: string, value: TagScalarValue): Promise<void> {
+  public async writeTag(name: string, value: TagScalarValue, options?: CommandExecutionOptions): Promise<void> {
+    if (options?.manual) {
+      this.ensureFreshManualMeta(options.commandMeta);
+      const commandKey = this.getCommandKey(options.commandMeta, `tag:${name}`);
+      await this.withManualInFlight(commandKey, async () => {
+        await this.writeTagInternal(name, value, commandKey, true);
+      });
+      return;
+    }
+    await this.writeTagInternal(name, value);
+  }
+
+  public async writeVariable(name: string, value: TagScalarValue, options?: CommandExecutionOptions): Promise<void> {
+    if (options?.manual) {
+      this.ensureFreshManualMeta(options.commandMeta);
+      const commandKey = this.getCommandKey(options.commandMeta, `variable:${name}`);
+      await this.withManualInFlight(commandKey, async () => {
+        await this.writeVariableInternal(name, value);
+      });
+      return;
+    }
+    await this.writeVariableInternal(name, value);
+  }
+
+  public async pulseTag(name: string, value: TagScalarValue, durationMs: number): Promise<void> {
+    await this.writeTag(name, value);
+    setTimeout(() => {
+      void this.writeTag(name, false).catch(() => undefined);
+    }, durationMs);
+  }
+
+  public async toggleTag(name: string): Promise<void> {
+    const current = this.tagStore.getValue(name);
+    const next = !(Boolean(current?.value));
+    await this.writeTag(name, next);
+  }
+
+  private async writeTagInternal(name: string, value: TagScalarValue, commandKey?: string, manual = false): Promise<void> {
     const startedAt = Date.now();
     const tag = this.tagStore.getDefinition(name);
     if (!tag) {
@@ -34,10 +79,22 @@ export class CommandService {
       return;
     }
 
+    if (manual && tag.driverId) {
+      const status = this.driverManager.getStatus(tag.driverId);
+      if (!status || status.health !== "running") {
+        throw new ManualCommandError(
+          "driver_offline",
+          `Command rejected: tag ${name} driver offline`,
+        );
+      }
+    }
+
     await this.withTimeout(
       this.driverManager.writeTag(tag, value),
       this.driverWriteTimeoutMs,
-      `Write timeout for tag ${name} after ${this.driverWriteTimeoutMs} ms`,
+      commandKey
+        ? `Command timeout: ${commandKey} after ${this.driverWriteTimeoutMs} ms`
+        : `Write timeout for tag ${name} after ${this.driverWriteTimeoutMs} ms`,
     );
     this.tagStore.upsertValue({
       name,
@@ -61,7 +118,7 @@ export class CommandService {
     }
   }
 
-  public async writeVariable(name: string, value: TagScalarValue): Promise<void> {
+  private async writeVariableInternal(name: string, value: TagScalarValue): Promise<void> {
     const startedAt = Date.now();
     this.internalVariableService.write(name, value);
     logPerf({
@@ -73,17 +130,46 @@ export class CommandService {
     });
   }
 
-  public async pulseTag(name: string, value: TagScalarValue, durationMs: number): Promise<void> {
-    await this.writeTag(name, value);
-    setTimeout(() => {
-      void this.writeTag(name, false).catch(() => undefined);
-    }, durationMs);
+  private getCommandKey(meta: ManualCommandMeta | undefined, fallback: string): string {
+    const fromMeta = meta?.commandKey?.trim();
+    return fromMeta || fallback;
   }
 
-  public async toggleTag(name: string): Promise<void> {
-    const current = this.tagStore.getValue(name);
-    const next = !(Boolean(current?.value));
-    await this.writeTag(name, next);
+  private ensureFreshManualMeta(meta: ManualCommandMeta | undefined): void {
+    if (!meta) {
+      return;
+    }
+    const ttlMs = meta.ttlMs > 0 ? meta.ttlMs : COMMAND_TIMEOUT_MS;
+    if (Date.now() - meta.createdAt > ttlMs) {
+      throw new ManualCommandError("expired", "Command expired");
+    }
+  }
+
+  private async withManualInFlight<T>(commandKey: string, run: () => Promise<T>): Promise<T> {
+    this.cleanupStaleManualInFlight();
+    if (this.manualInFlight.has(commandKey)) {
+      throw new ManualCommandError("busy", "Command target is busy");
+    }
+    this.manualInFlight.set(commandKey, Date.now());
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof Error && /timeout/i.test(error.message)) {
+        throw new ManualCommandError("timeout", error.message);
+      }
+      throw error;
+    } finally {
+      this.manualInFlight.delete(commandKey);
+    }
+  }
+
+  private cleanupStaleManualInFlight(): void {
+    const now = Date.now();
+    for (const [key, startedAt] of this.manualInFlight.entries()) {
+      if (now - startedAt > this.staleManualInFlightMs) {
+        this.manualInFlight.delete(key);
+      }
+    }
   }
 
   private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {

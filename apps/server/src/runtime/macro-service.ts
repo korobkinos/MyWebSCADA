@@ -1,5 +1,6 @@
 import * as vm from "node:vm";
 import ts from "typescript";
+import { COMMAND_TIMEOUT_MS, type MacroRunReason, type ManualCommandMeta } from "@web-scada/shared";
 import type {
   MacroDefinition,
   MacroRuntimeContext,
@@ -11,8 +12,7 @@ import { CommandService } from "./command-service.js";
 import { InternalVariableService } from "./internal-variable-service.js";
 import { TagStore } from "../tags/tag-store.js";
 import { logPerf } from "./perf-logger.js";
-
-type MacroRunReason = "disabled" | "already_running";
+import { ManualCommandError } from "./manual-command-error.js";
 
 type MacroRunStatus = {
   status: "ok" | "skipped";
@@ -43,8 +43,9 @@ type CompiledMacro = {
 export class MacroService {
   private macros: MacroDefinition[] = [];
   private readonly compiledMacros = new Map<string, CompiledMacro>();
-  private readonly manualInFlight = new Set<string>();
+  private readonly manualInFlight = new Map<string, number>();
   private readonly slowExecutionWarnMs = 250;
+  private readonly staleManualInFlightMs = COMMAND_TIMEOUT_MS * 4;
 
   public constructor(
     private readonly tagStore: TagStore,
@@ -97,34 +98,36 @@ export class MacroService {
   public async runManual(
     macroId: string,
     args?: Record<string, unknown>,
-    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown>; commandMeta?: ManualCommandMeta },
   ): Promise<MacroRunInternalResult> {
-    if (this.manualInFlight.has(macroId)) {
-      return {
-        status: "skipped",
-        reason: "already_running",
-        diagnostics: {
-          lookupMs: 0,
-          compileMs: 0,
-          executionMs: 0,
-          totalMs: 0,
-          cacheStatus: "hit",
-        },
-      };
-    }
-
-    this.manualInFlight.add(macroId);
-    try {
-      return await this.runInternal(macroId, args, options);
-    } finally {
-      this.manualInFlight.delete(macroId);
-    }
+    this.ensureFreshManualMeta(options?.commandMeta);
+    const commandKey = this.getManualCommandKey(macroId, options?.commandMeta);
+    return await this.withManualInFlight(commandKey, async () => {
+      const timeoutMs = this.getManualTimeoutMs(options?.commandMeta);
+      const deadlineAt = Date.now() + timeoutMs;
+      try {
+        return await this.withTimeout(
+          this.runInternal(macroId, args, options, deadlineAt),
+          timeoutMs,
+          `Macro timeout: ${commandKey} after ${timeoutMs} ms`,
+        );
+      } catch (error) {
+        if (error instanceof ManualCommandError) {
+          throw error;
+        }
+        if (error instanceof Error && /timeout/i.test(error.message)) {
+          throw new ManualCommandError("timeout", error.message);
+        }
+        throw error;
+      }
+    });
   }
 
   private async runInternal(
     macroId: string,
     args?: Record<string, unknown>,
     options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+    deadlineAt?: number,
   ): Promise<MacroRunInternalResult> {
     const startedAt = Date.now();
     const lookupStartedAt = Date.now();
@@ -173,13 +176,20 @@ export class MacroService {
     const tagStore = this.tagStore;
     const runtimeContext = toMacroRuntimeContext(options?.context);
     const effects: MacroUiEffect[] = [];
+    const ensureNotTimedOut = () => {
+      if (deadlineAt !== undefined && Date.now() > deadlineAt) {
+        throw new ManualCommandError("timeout", "Macro timeout");
+      }
+    };
 
     const api: MacroApi = {
       readTag: (name) => tagStore.getValue(name)?.value ?? null,
       writeTag: async (name, value) => {
+        ensureNotTimedOut();
         await commandService.writeTag(name, value);
       },
       pulseTag: async (name, value, durationMs, resetValue) => {
+        ensureNotTimedOut();
         await commandService.writeTag(name, value);
         const rollback = resetValue === undefined ? false : resetValue;
         const delay = Math.max(1, Math.floor(durationMs));
@@ -188,23 +198,28 @@ export class MacroService {
         }, delay);
       },
       toggleTag: async (name) => {
+        ensureNotTimedOut();
         await commandService.toggleTag(name);
       },
       getTagQuality: (name) => tagStore.getValue(name)?.quality ?? (tagStore.getDefinition(name) ? "Uncertain" : "Bad"),
       tagExists: (name) => Boolean(tagStore.getDefinition(name)),
       getLW: (address) => internalVariableService.get(`LW${Math.max(0, Math.floor(address))}`)?.value ?? null,
       setLW: (address, value) => {
+        ensureNotTimedOut();
         internalVariableService.write(`LW${Math.max(0, Math.floor(address))}`, value);
       },
       getVar: (name) => internalVariableService.get(name)?.value ?? null,
       setVar: (name, value) => {
+        ensureNotTimedOut();
         internalVariableService.write(name, value);
       },
       readVariable: (name) => internalVariableService.get(name)?.value ?? null,
       writeVariable: (name, value) => {
+        ensureNotTimedOut();
         internalVariableService.write(name, value);
       },
       openPopup: (popupScreenId, popupOptions) => {
+        ensureNotTimedOut();
         effects.push({
           type: "openPopup",
           popupScreenId,
@@ -216,12 +231,14 @@ export class MacroService {
         });
       },
       closePopup: (popupInstanceId) => {
+        ensureNotTimedOut();
         effects.push({
           type: "closePopup",
           popupInstanceId,
         });
       },
       openScreen: (screenId) => {
+        ensureNotTimedOut();
         effects.push({
           type: "openScreen",
           screenId,
@@ -340,6 +357,66 @@ export class MacroService {
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to compile macro ${macro.id} (${macro.name}): ${text}`);
+    }
+  }
+
+  private getManualCommandKey(macroId: string, commandMeta: ManualCommandMeta | undefined): string {
+    const fromMeta = commandMeta?.commandKey?.trim();
+    return fromMeta || `macro:${macroId}`;
+  }
+
+  private getManualTimeoutMs(commandMeta: ManualCommandMeta | undefined): number {
+    if (!commandMeta) {
+      return COMMAND_TIMEOUT_MS;
+    }
+    return commandMeta.ttlMs > 0 ? commandMeta.ttlMs : COMMAND_TIMEOUT_MS;
+  }
+
+  private ensureFreshManualMeta(commandMeta: ManualCommandMeta | undefined): void {
+    if (!commandMeta) {
+      return;
+    }
+    const ttlMs = this.getManualTimeoutMs(commandMeta);
+    if (Date.now() - commandMeta.createdAt > ttlMs) {
+      throw new ManualCommandError("expired", "Command expired");
+    }
+  }
+
+  private async withManualInFlight<T>(commandKey: string, run: () => Promise<T>): Promise<T> {
+    this.cleanupStaleManualInFlight();
+    if (this.manualInFlight.has(commandKey)) {
+      throw new ManualCommandError("busy", "Command target is busy");
+    }
+    this.manualInFlight.set(commandKey, Date.now());
+    try {
+      return await run();
+    } finally {
+      this.manualInFlight.delete(commandKey);
+    }
+  }
+
+  private cleanupStaleManualInFlight(): void {
+    const now = Date.now();
+    for (const [key, startedAt] of this.manualInFlight.entries()) {
+      if (now - startedAt > this.staleManualInFlightMs) {
+        this.manualInFlight.delete(key);
+      }
+    }
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeoutPromise = new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new ManualCommandError("timeout", timeoutMessage));
+        }, timeoutMs);
+      });
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
   }
 }

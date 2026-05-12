@@ -1,3 +1,5 @@
+import type { ManualCommandMeta } from "./runtime-command-types";
+
 export type TagUpdateMessage = {
   type: "tag-update";
   payload: {
@@ -21,6 +23,7 @@ export type WriteTagMessage = {
   payload: {
     name: string;
     value: boolean | number | string | null;
+    commandMeta?: ManualCommandMeta;
   };
 };
 

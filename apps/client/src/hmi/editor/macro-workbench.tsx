@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import type { HmiObject, HmiScreen, MacroDefinition, MacroTrigger, ScadaProject, TagDefinition } from "@web-scada/shared";
+import type { HmiObject, HmiScreen, MacroDefinition, MacroRunResult, MacroTrigger, ScadaProject, TagDefinition } from "@web-scada/shared";
 import { LeftOutlined, RightOutlined, UpOutlined } from "@ant-design/icons";
 import { Button, Card, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tag, Typography, message } from "antd";
 import { macroApiDocumentation, macroExamples, type MacroApiDocItem } from "./macro-api-doc";
@@ -22,7 +22,7 @@ type Props = {
     macroId: string,
     args?: Record<string, unknown>,
     options?: { allowDisabledForTest?: boolean },
-  ) => Promise<{ ok: boolean; status?: "ok" | "skipped"; reason?: "disabled" | "already_running" }>;
+  ) => Promise<MacroRunResult>;
   onSaveMacro?: (
     macroId: string,
     payload: {

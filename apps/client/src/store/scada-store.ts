@@ -13,6 +13,7 @@ import type {
   InternalVariableDefinition,
   MacroDefinition,
   MacroRunResult,
+  ManualCommandMeta,
   RuntimeState,
   ScadaProject,
   ScreenKind,
@@ -48,12 +49,20 @@ type ScadaState = {
   loadLibraries: () => Promise<void>;
   startRuntime: () => Promise<void>;
   stopRuntime: () => Promise<void>;
-  writeTag: (name: string, value: boolean | number | string | null) => Promise<void>;
-  writeVariable: (name: string, value: boolean | number | string | null) => Promise<void>;
+  writeTag: (
+    name: string,
+    value: boolean | number | string | null,
+    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta },
+  ) => Promise<void>;
+  writeVariable: (
+    name: string,
+    value: boolean | number | string | null,
+    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta },
+  ) => Promise<void>;
   runMacro: (
     macroId: string,
     args?: Record<string, unknown>,
-    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown> },
+    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown>; signal?: AbortSignal; commandMeta?: ManualCommandMeta },
   ) => Promise<MacroRunResult>;
   updateMacro: (macroId: string, payload: {
     name: string;
@@ -278,12 +287,12 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     set({ runtime });
   },
 
-  async writeTag(name, value) {
-    await api.writeTag(name, value);
+  async writeTag(name, value, options) {
+    await api.writeTag(name, value, options);
   },
 
-  async writeVariable(name, value) {
-    await api.writeVariable(name, value);
+  async writeVariable(name, value, options) {
+    await api.writeVariable(name, value, options);
   },
 
   async runMacro(macroId, args, options) {

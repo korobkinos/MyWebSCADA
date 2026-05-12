@@ -1,4 +1,4 @@
-import type { RuntimeWsClientMessage, RuntimeWsServerMessage, TagValue } from "@web-scada/shared";
+import { COMMAND_TIMEOUT_MS, type ManualCommandMeta, type RuntimeWsClientMessage, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
 
 type WsCallbacks = {
   onTagValues: (values: TagValue[]) => void;
@@ -6,7 +6,7 @@ type WsCallbacks = {
 
 type RuntimeSocketController = {
   close: () => void;
-  writeTag: (name: string, value: TagValue["value"]) => void;
+  writeTag: (name: string, value: TagValue["value"], commandMeta?: ManualCommandMeta) => void;
   subscribeTags: (tags: string[]) => void;
 };
 
@@ -54,8 +54,18 @@ export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketContro
     }, baseDelay + jitter);
   };
 
-  const sendWhenOpen = (payload: RuntimeWsClientMessage) => {
+  const sendWhenOpen = (payload: RuntimeWsClientMessage, options?: { queueWhenClosed?: boolean }) => {
     if (!isOpen || !socket || socket.readyState !== WebSocket.OPEN) {
+      if (options?.queueWhenClosed === false) {
+        // eslint-disable-next-line no-console
+        console.warn("[RuntimeWS] Manual command skipped: socket is not open", {
+          timestamp: new Date().toISOString(),
+          reason: "error",
+          timeoutMs: COMMAND_TIMEOUT_MS,
+          type: payload.type,
+        });
+        return;
+      }
       if (queuedMessages.length > 1000) {
         queuedMessages.shift();
       }
@@ -152,15 +162,16 @@ export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketContro
         socket.close();
       }
     },
-    writeTag: (name, value) => {
+    writeTag: (name, value, commandMeta) => {
       const payload: RuntimeWsClientMessage = {
         type: "write-tag",
         payload: {
           name,
           value,
+          commandMeta,
         },
       };
-      sendWhenOpen(payload);
+      sendWhenOpen(payload, { queueWhenClosed: false });
     },
     subscribeTags: (tags) => {
       const normalized = normalizeTags(tags);

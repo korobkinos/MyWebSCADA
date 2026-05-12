@@ -6,8 +6,11 @@ const execFileAsync = promisify(execFile);
 const ports = [3001, 5173];
 
 async function killOnWindows() {
-  const { stdout } = await execFileAsync("netstat", ["-ano", "-p", "tcp"], { windowsHide: true });
-  const lines = stdout.split(/\r?\n/);
+  const [tcp, tcpv6] = await Promise.all([
+    execFileAsync("netstat", ["-ano", "-p", "tcp"], { windowsHide: true }),
+    execFileAsync("netstat", ["-ano", "-p", "tcpv6"], { windowsHide: true }).catch(() => ({ stdout: "" })),
+  ]);
+  const lines = `${tcp.stdout}\n${tcpv6.stdout}`.split(/\r?\n/);
   const pids = new Set();
 
   for (const line of lines) {
