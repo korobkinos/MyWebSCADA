@@ -1,12 +1,6 @@
 import type { HmiObject, HmiScreen } from "@web-scada/shared";
 import { WorkbenchButton } from "../../../components/workbench";
-
-export type ScreenEditorLogEntry = {
-  id: string;
-  time: string;
-  level: "info" | "success" | "warning" | "error";
-  message: string;
-};
+import type { ScreenEditorLogEntry } from "../types";
 
 export type ScreenEditorBottomPanelProps = {
   screen: HmiScreen | null;

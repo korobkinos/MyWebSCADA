@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   Asset,
@@ -6,25 +6,10 @@ import type {
   HmiScreen,
   HmiObject,
   LibraryElement,
-  ProjectLibraryRef,
   RuntimeAction,
   ScadaProject,
-  ScreenKind,
 } from "@web-scada/shared";
-import { normalizeObjectsToGroup } from "@web-scada/shared";
-import {
-  Button,
-  Divider,
-  Form,
-  Input,
-  InputNumber,
-  List,
-  Modal,
-  Select,
-  Space,
-  Typography,
-  message,
-} from "antd";
+import { Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import {
   ApiOutlined,
   AppstoreOutlined,
@@ -39,43 +24,25 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import { api } from "../services/api";
-import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
-import { FloatingPanel } from "../components/floating-panel";
-import { ObjectPropertyPanel } from "../components/object-property-panel";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
-import { importSvgAssetToPrimitives } from "../hmi/editor/svg-primitive-import";
-import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { useScadaStore } from "../store/scada-store";
 import { isTextEditingTarget } from "../utils/keyboard";
-import { getAssetDisplayPath, normalizeAssetFolderPath } from "../utils/asset-path";
 import {
   ScadaWorkbenchLayout,
-  WorkbenchButton,
   WorkbenchWindowManager,
   useWorkbenchWindows,
-  type WorkbenchWindowDefinition,
 } from "../components/workbench";
-import {
-  ScreenEditorAssetsWindow,
-  ScreenEditorLayersWindow,
-  ScreenEditorLibrariesWindow,
-  ScreenEditorDriversWindow,
-  ScreenEditorRuntimeWindow,
-  ScreenEditorSaveSelectionWindow,
-  ScreenEditorScreensWindow,
-  ScreenEditorSearchWindow,
-  ScreenEditorProjectSettingsWindow,
-  ScreenEditorScreenSettingsWindow,
-  ScreenEditorTagsWindow,
-  ScreenEditorMacrosWindow,
-  ScreenEditorUserManagementWindow,
-} from "../features/screen-editor/windows";
 import {
   ScreenEditorCenter,
   ScreenEditorBottomPanel,
-  type ScreenEditorLogEntry,
 } from "../features/screen-editor/components";
-import { collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
+import { useEditorLog } from "../features/screen-editor/hooks/use-editor-log";
+import { useEditorClipboard } from "../features/screen-editor/hooks/use-editor-clipboard";
+import { useEditorObjectHistory } from "../features/screen-editor/hooks/use-editor-object-history";
+import { useEditorAssets } from "../features/screen-editor/hooks/use-editor-assets";
+import { useEditorScreens } from "../features/screen-editor/hooks/use-editor-screens";
+import { useEditorRuntimePreview } from "../features/screen-editor/hooks/use-editor-runtime-preview";
+import { useEditorWindowDefinitions } from "../features/screen-editor/hooks/use-editor-window-definitions";
 
 type CloneOptions = {
   count: number;
@@ -89,6 +56,7 @@ type CloneOptions = {
   startIndex: number;
   step: number;
 };
+
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
 
 function id(prefix: string): string {
@@ -155,6 +123,7 @@ export function EditorPage() {
       document.body.classList.remove("workbench-theme");
     };
   }, []);
+
   const navigate = useNavigate();
   const project = useScadaStore((s) => s.project);
   const tags = useScadaStore((s) => s.tags);
@@ -186,20 +155,18 @@ export function EditorPage() {
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
   const setTagValues = useScadaStore((s) => s.setTagValues);
   const hasPermission = useScadaStore((s) => s.hasPermission);
+
   const canUsersView = hasPermission("users.view");
   const canUsersWrite = hasPermission("users.write");
   const canUsersDelete = hasPermission("users.delete");
   const canUsersChangePassword = hasPermission("users.changePassword");
 
-  const [pendingDeleteScreenId, setPendingDeleteScreenId] = useState<string | null>(null);
-  const [newScreenKind, setNewScreenKind] = useState<ScreenKind>("screen");
   const [newLibraryId, setNewLibraryId] = useState("custom-equipment");
   const [newLibraryName, setNewLibraryName] = useState("Custom Library");
   const [saveTargetLibraryId, setSaveTargetLibraryId] = useState("");
   const [saveElementName, setSaveElementName] = useState("New Element");
   const [saveElementDescription, setSaveElementDescription] = useState("");
   const [saveElementCategory, setSaveElementCategory] = useState("General");
-  const [assetUploadName, setAssetUploadName] = useState("");
   const [spacingGap, setSpacingGap] = useState<number | undefined>(undefined);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneOptions, setCloneOptions] = useState<CloneOptions>({
@@ -216,23 +183,11 @@ export function EditorPage() {
     y: 0,
     visible: false,
   });
-  const [objectClipboard, setObjectClipboard] = useState<HmiObject[]>([]);
-  const [pasteIteration, setPasteIteration] = useState(0);
-  const [screenSearch, setScreenSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [screenKindFilter, setScreenKindFilter] = useState<"all" | ScreenKind>("all");
-  const [screenViewMode, setScreenViewMode] = useState<"grid" | "list">("grid");
-  const [previewMode, setPreviewMode] = useState(false);
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("Loaded");
   const [savedProjectSignature, setSavedProjectSignature] = useState<string | null>(null);
-  const [editorLog, setEditorLog] = useState<ScreenEditorLogEntry[]>([]);
-  const [viewAssetId, setViewAssetId] = useState<string | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
-  const [floatingLibraries, setFloatingLibraries] = useState<boolean>(false);
-  const [floatingAssets, setFloatingAssets] = useState<boolean>(false);
-  const [floatingLibRect, setFloatingLibRect] = useState({ x: 120, y: 120, width: 460, height: 520 });
-  const [floatingAssetRect, setFloatingAssetRect] = useState({ x: 180, y: 160, width: 480, height: 520 });
+
   const {
     openWindows,
     openWindow,
@@ -243,47 +198,36 @@ export function EditorPage() {
     isWindowOpen,
   } = useWorkbenchWindows();
 
-  const appendEditorLog = useCallback((level: ScreenEditorLogEntry["level"], messageText: string) => {
-    const now = new Date();
-    const entry: ScreenEditorLogEntry = {
-      id: `${now.getTime()}_${Math.random().toString(36).slice(2, 7)}`,
-      time: now.toLocaleTimeString(),
-      level,
-      message: messageText,
-    };
-    setEditorLog((prev) => [...prev.slice(-199), entry]);
-  }, []);
-
-  const clearEditorLog = useCallback(() => {
-    setEditorLog([]);
-  }, []);
+  const { editorLog, appendEditorLog, clearEditorLog } = useEditorLog();
 
   const screen = useMemo(
-    () => project?.screens.find((s) => s.id === currentScreenId) ?? project?.screens[0],
+    () => project?.screens.find((item) => item.id === currentScreenId) ?? project?.screens[0],
     [currentScreenId, project],
-  );
-
-  const viewAsset = useMemo(
-    () => assets.find((asset) => asset.id === viewAssetId) ?? null,
-    [assets, viewAssetId],
   );
 
   const selectedObjects = useMemo(
     () => screen?.objects.filter((obj) => selection.selectedObjectIds.includes(obj.id)) ?? [],
     [screen?.objects, selection.selectedObjectIds],
   );
-  const currentProjectSignature = useMemo(() => buildProjectSaveSignature(project), [project]);
-  const selectedUnlocked = selectedObjects.filter((obj) => !obj.locked);
-  const showObjectFrames = project?.editorSettings?.showObjectFrames ?? false;
-  const selectedGroups = selectedObjects.filter((obj) => obj.type === "group");
+
+  const selectedUnlocked = useMemo(
+    () => selectedObjects.filter((obj) => !obj.locked),
+    [selectedObjects],
+  );
+  const selectedGroups = useMemo(
+    () => selectedObjects.filter((obj) => obj.type === "group"),
+    [selectedObjects],
+  );
   const activeObject =
     (selection.activeObjectId ? selectedObjects.find((obj) => obj.id === selection.activeObjectId) : undefined) ??
     selectedObjects[0] ??
     null;
+
   const selectedBounds = useMemo(
     () => (selectedObjects.length ? computeBounds(selectedObjects) : null),
     [selectedObjects],
   );
+
   const startScreenName = useMemo(() => {
     const startId = project?.startScreenId;
     if (!startId) {
@@ -291,105 +235,142 @@ export function EditorPage() {
     }
     return project?.screens.find((item) => item.id === startId)?.name ?? startId;
   }, [project]);
-  const history = useSnapshotHistory<HmiObject[]>({ maxSteps: 50 });
 
-  useEffect(() => {
-    if (!previewMode || !project || !screen) {
-      return;
-    }
-    const socket = createRuntimeSocket({
-      onTagValues: (values) => setTagValues(values),
-    });
-    return () => socket.close();
-  }, [previewMode, project, screen, setTagValues]);
+  const currentProjectSignature = useMemo(() => buildProjectSaveSignature(project), [project]);
+  const isProjectDirty = currentProjectSignature !== savedProjectSignature && savedProjectSignature !== null;
+  const showObjectFrames = project?.editorSettings?.showObjectFrames ?? false;
 
-  useEffect(() => {
-    if (!previewMode || !project || !screen) {
-      updateRuntimeTagSubscriptions([]);
-      return;
-    }
-    const subscriptionTags = collectRuntimeTagSubscriptions({
-      project,
-      libraries,
-      screen,
-      tags,
-      popups: [],
-    });
-    updateRuntimeTagSubscriptions(subscriptionTags);
-    return () => {
-      updateRuntimeTagSubscriptions([]);
-    };
-  }, [libraries, previewMode, project, screen, tags]);
+  const {
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    runWithHistory,
+    updateObjectWithHistory,
+    removeObjectWithHistory,
+    addObjectWithHistory,
+    moveObjectWithHistory,
+    resizeObjectWithHistory,
+    deleteSelectionWithHistory,
+  } = useEditorObjectHistory({
+    screen,
+    selection,
+    selectedUnlocked,
+    updateObject,
+    removeObject,
+    addObject,
+    moveObject,
+    resizeObject,
+    setScreenObjects,
+    setSelectedObjects,
+  });
 
-  const captureObjects = useCallback((): HmiObject[] => structuredClone(screen?.objects ?? []), [screen?.objects]);
+  const {
+    canCopy,
+    canPaste,
+    copySelectionToClipboard,
+    pasteFromClipboard,
+  } = useEditorClipboard({
+    selectedObjects,
+    screen,
+    runWithHistory,
+    setScreenObjects,
+  });
 
-  const applyObjects = useCallback(
-    (objects: HmiObject[]) => {
+  const {
+    viewAsset,
+    setViewAssetId,
+    onUploadProjectAsset,
+    addAssetAsImage,
+    handleDeleteAsset,
+    moveAssetToFolder,
+    bulkMoveAssetsToFolder,
+    renameAsset,
+    refreshAssets,
+  } = useEditorAssets({
+    project,
+    screen,
+    assets,
+    addObjectWithHistory,
+    loadAssets,
+    loadProject,
+    appendEditorLog,
+    closeWindow,
+    apiClient: api,
+  });
+
+  const {
+    pendingDeleteScreenId,
+    setPendingDeleteScreenId,
+    newScreenKind,
+    setNewScreenKind,
+    screenSearch,
+    setScreenSearch,
+    screenKindFilter,
+    setScreenKindFilter,
+    screenViewMode,
+    setScreenViewMode,
+    filteredScreens,
+    requestDeleteScreen,
+    performDeleteScreen,
+    duplicateScreenLocal,
+    setStartScreen,
+  } = useEditorScreens({
+    project,
+    currentScreenId,
+    setCurrentScreen,
+    setScreenObjects,
+    updateProjectJson,
+  });
+
+  const { previewMode, setPreviewMode } = useEditorRuntimePreview({
+    project,
+    screen,
+    libraries,
+    tags,
+    setTagValues,
+  });
+
+  const runCommand = useCallback(
+    (command: EditorCommand) => {
       if (!screen) {
         return;
       }
-      setScreenObjects(screen.id, structuredClone(objects));
+      if ("type" in command) {
+        executeCommand(command);
+      }
     },
-    [screen, setScreenObjects],
+    [executeCommand, screen],
   );
 
-  const runWithHistory = useCallback(
-    (label: string, mutate: () => void) => {
+  const addPrimitiveShape = (kind: PrimitiveShapeKind) => {
+    addObjectWithHistory(createPrimitiveShape(kind));
+  };
+
+  const addLibraryElementInstance = useCallback(
+    (libraryId: string, elementOrId: LibraryElement | string) => {
       if (!screen) {
         return;
       }
-      const before = captureObjects();
-      mutate();
-      const latestProject = useScadaStore.getState().project;
-      const latestScreen = latestProject?.screens.find((item) => item.id === screen.id);
-      if (!latestScreen) {
+      const elementId = typeof elementOrId === "string" ? elementOrId : elementOrId.id;
+      const library = libraries.find((item) => item.id === libraryId);
+      if (!library) {
+        void message.warning(`Library not found: ${libraryId}`);
         return;
       }
-      history.pushEntry(label, before, latestScreen.objects);
+      const element = library.elements.find((item: LibraryElement) => item.id === elementId);
+      if (!element) {
+        void message.warning(`Element not found: ${elementId}`);
+        return;
+      }
+      const instance = createObjectByType("libraryElementInstance") as Extract<HmiObject, { type: "libraryElementInstance" }>;
+      instance.libraryId = libraryId;
+      instance.elementId = elementId;
+      instance.width = element.width ?? 100;
+      instance.height = element.height ?? 80;
+      addObjectWithHistory(instance);
     },
-    [captureObjects, history, screen],
-  );
-
-  const copySelectionToClipboard = useCallback(() => {
-    if (!selectedObjects.length) {
-      return;
-    }
-    setObjectClipboard(selectedObjects.map((item) => structuredClone(item)));
-    setPasteIteration(0);
-    void message.success(`Copied ${selectedObjects.length} object(s)`);
-  }, [selectedObjects]);
-
-  const pasteFromClipboard = useCallback(() => {
-    if (objectClipboard.length === 0 || !screen) {
-      return;
-    }
-    const offsetStep = 20;
-    const newIteration = pasteIteration + 1;
-    const offsetX = offsetStep * newIteration;
-    const offsetY = offsetStep * newIteration;
-    const cloned = objectClipboard.map((item) => cloneForPaste(item, offsetX, offsetY));
-    runWithHistory("Paste objects", () => {
-      const currentScreen = useScadaStore.getState().project?.screens.find((item) => item.id === screen.id);
-      if (!currentScreen) {
-        return;
-      }
-      setScreenObjects(screen.id, [...currentScreen.objects, ...cloned]);
-    });
-    setPasteIteration(newIteration);
-    void message.success(`Pasted ${cloned.length} object(s)`);
-  }, [objectClipboard, pasteIteration, runWithHistory, screen, setScreenObjects]);
-
-  const selectedCount = selectedObjects.length;
-  const statusObject = activeObject;
-
-  const updateObjectWithHistory = useCallback(
-    (objectId: string, patch: Partial<HmiObject>, label: string) => {
-      if (!screen) {
-        return;
-      }
-      runWithHistory(label, () => updateObject(screen.id, objectId, patch));
-    },
-    [runWithHistory, screen, updateObject],
+    [addObjectWithHistory, libraries, screen],
   );
 
   const patchActiveObject = useCallback(
@@ -412,125 +393,6 @@ export function EditorPage() {
     [screen, updateObjectWithHistory],
   );
 
-  const removeObjectWithHistory = useCallback(
-    (objectId: string) => {
-      if (!screen) {
-        return;
-      }
-      runWithHistory("Delete object", () => removeObject(screen.id, objectId));
-      const nextSelection = selection.selectedObjectIds.filter((id) => id !== objectId);
-      setSelectedObjects(nextSelection, nextSelection[0]);
-    },
-    [runWithHistory, screen, removeObject, selection.selectedObjectIds, setSelectedObjects],
-  );
-
-  const addObjectWithHistory = useCallback(
-    (object: HmiObject) => {
-      if (!screen) {
-        return;
-      }
-      runWithHistory("Add object", () => addObject(screen.id, object));
-      setSelectedObjects([object.id], object.id);
-    },
-    [addObject, runWithHistory, screen, setSelectedObjects],
-  );
-
-  const addPrimitiveShape = (kind: PrimitiveShapeKind) => {
-    addObjectWithHistory(createPrimitiveShape(kind));
-  };
-
-  const addLibraryElementInstance = useCallback(
-    (libraryId: string, elementOrId: LibraryElement | string) => {
-      if (!screen) {
-        return;
-      }
-      const elementId = typeof elementOrId === "string" ? elementOrId : elementOrId.id;
-      const library = libraries.find((l) => l.id === libraryId);
-      if (!library) {
-        void message.warning(`Library not found: ${libraryId}`);
-        return;
-      }
-      const element = library.elements.find((e: LibraryElement) => e.id === elementId);
-      if (!element) {
-        void message.warning(`Element not found: ${elementId}`);
-        return;
-      }
-      const instance = createObjectByType("libraryElementInstance") as Extract<HmiObject, { type: "libraryElementInstance" }>;
-      instance.libraryId = libraryId;
-      instance.elementId = elementId;
-      instance.width = element.width ?? 100;
-      instance.height = element.height ?? 80;
-      addObjectWithHistory(instance);
-    },
-    [addObjectWithHistory, libraries, screen],
-  );
-
-  const moveObjectWithHistory = useCallback(
-    (objectId: string, x: number, y: number) => {
-      runWithHistory("Move object", () => moveObject(screen?.id ?? "", objectId, x, y));
-    },
-    [moveObject, runWithHistory, screen?.id],
-  );
-
-  const resizeObjectWithHistory = useCallback(
-    (objectId: string, patch: Partial<HmiObject>) => {
-      runWithHistory("Resize object", () => resizeObject(screen?.id ?? "", objectId, patch));
-    },
-    [resizeObject, runWithHistory, screen?.id],
-  );
-
-  const isProjectDirty = currentProjectSignature !== savedProjectSignature && savedProjectSignature !== null;
-
-  const canUndo = history.canUndo;
-  const canRedo = history.canRedo;
-  const canDelete = selectedUnlocked.length > 0;
-  const canCopy = selectedObjects.length > 0;
-  const canPaste = objectClipboard.length > 0;
-  const canGroup = selectedObjects.length >= 2 || selectedGroups.length > 0;
-  const canUngroup = selectedGroups.length > 0;
-  const canLock = selectedObjects.some((obj) => !obj.locked);
-  const canUnlock = selectedObjects.some((obj) => obj.locked);
-  const canAlign = selectedUnlocked.length >= 2;
-  const canSameSize = selectedUnlocked.length >= 2;
-  const canDistribute = selectedUnlocked.length >= 2;
-
-  const undo = useCallback(() => {
-    if (!screen) {
-      return;
-    }
-    const previous = history.undo(screen.objects);
-    if (previous) {
-      applyObjects(previous);
-    }
-  }, [applyObjects, history, screen]);
-
-  const redo = useCallback(() => {
-    if (!screen) {
-      return;
-    }
-    const next = history.redo(screen.objects);
-    if (next) {
-      applyObjects(next);
-    }
-  }, [applyObjects, history, screen]);
-
-  const deleteSelectionWithHistory = useCallback(() => {
-    if (!screen) {
-      return;
-    }
-    if (!selectedUnlocked.length) {
-      void message.warning("No unlocked objects selected");
-      return;
-    }
-    runWithHistory("Delete selection", () => {
-      const unlockedIds = selectedUnlocked.map((obj) => obj.id);
-      for (const id of unlockedIds) {
-        removeObject(screen.id, id);
-      }
-    });
-    setSelectedObjects([], undefined);
-  }, [removeObject, runWithHistory, screen, selectedUnlocked, setSelectedObjects]);
-
   const handleSaveProject = useCallback(async () => {
     setIsSavingProject(true);
     try {
@@ -550,71 +412,6 @@ export function EditorPage() {
     }
   }, [appendEditorLog, saveProject]);
 
-  const runCommand = useCallback(
-    (command: EditorCommand) => {
-      if (!screen) {
-        return;
-      }
-      if ("type" in command) {
-        executeCommand(command);
-      }
-    },
-    [executeCommand, screen],
-  );
-
-  const addAssetAsImage = useCallback(
-    (asset: Asset, position?: { x: number; y: number }) => {
-      if (!screen) {
-        return;
-      }
-      const image = createObjectByType("image") as Extract<HmiObject, { type: "image" }>;
-      image.assetId = asset.id;
-      image.width = asset.width ?? 80;
-      image.height = asset.height ?? 80;
-      if (position) {
-        const nextX = position.x - image.width / 2;
-        const nextY = position.y - image.height / 2;
-        image.x = Math.min(Math.max(0, nextX), Math.max(0, screen.width - image.width));
-        image.y = Math.min(Math.max(0, nextY), Math.max(0, screen.height - image.height));
-      }
-      addObjectWithHistory(image);
-    },
-    [addObjectWithHistory, screen],
-  );
-
-  const addSvgAssetAsPrimitives = useCallback(
-    async (asset: Asset) => {
-      if (!screen) {
-        return;
-      }
-      try {
-        const imported = await importSvgAssetToPrimitives(asset);
-        const { groupBounds, normalizedObjects } = normalizeObjectsToGroup(imported.objects);
-        const group: Extract<HmiObject, { type: "group" }> = {
-          id: id("group"),
-          type: "group",
-          name: `svg:${asset.name}`,
-          x: 10,
-          y: 10,
-          width: Math.max(1, groupBounds.width),
-          height: Math.max(1, groupBounds.height),
-          minWidth: 10,
-          minHeight: 10,
-          objects: normalizedObjects,
-        };
-        addObjectWithHistory(group);
-        if (imported.warnings.length) {
-          void message.warning(imported.warnings.join(" | "));
-        } else {
-          void message.success(`SVG imported as primitives: ${asset.name}`);
-        }
-      } catch (error) {
-        void message.error(error instanceof Error ? error.message : "Failed to import SVG as primitives");
-      }
-    },
-    [addObjectWithHistory, screen],
-  );
-
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>, position?: { x: number; y: number }) => {
       event.preventDefault();
@@ -630,7 +427,7 @@ export function EditorPage() {
           | { assetId: string }
           | { kind: "library-element"; libraryId: string; elementId: string };
         if ("assetId" in payload && (!("kind" in payload) || payload.kind === "asset")) {
-          const asset = assets.find((a) => a.id === payload.assetId);
+          const asset = assets.find((item) => item.id === payload.assetId);
           if (asset) {
             addAssetAsImage(asset, position);
           }
@@ -642,107 +439,6 @@ export function EditorPage() {
       }
     },
     [addAssetAsImage, addLibraryElementInstance, assets],
-  );
-
-  const duplicateScreenLocal = useCallback(
-    (source: HmiScreen) => {
-      if (!project) {
-        return;
-      }
-      const copy: HmiScreen = {
-        ...structuredClone(source),
-        id: id("screen"),
-        name: `${source.name} Copy`,
-      };
-      const existingScreens = useScadaStore.getState().project?.screens ?? [];
-      const updatedProject = {
-        ...project,
-        screens: [...existingScreens, copy],
-      } as ScadaProject;
-      updateProjectJson(updatedProject);
-      setScreenObjects(copy.id, copy.objects);
-      setCurrentScreen(copy.id);
-      void message.success(`Screen duplicated: ${copy.name}`);
-    },
-    [project, setCurrentScreen, setScreenObjects, updateProjectJson],
-  );
-
-  const requestDeleteScreen = useCallback((screenId: string) => {
-    const currentProject = useScadaStore.getState().project;
-    if (!currentProject) {
-      return;
-    }
-    if (currentProject.screens.length <= 1) {
-      void message.warning("Cannot delete the last screen");
-      return;
-    }
-    const target = currentProject.screens.find((screen) => screen.id === screenId);
-    if (!target) {
-      void message.warning("Screen not found");
-      return;
-    }
-    setPendingDeleteScreenId(screenId);
-  }, []);
-
-  const performDeleteScreen = useCallback(() => {
-    if (!pendingDeleteScreenId) {
-      return;
-    }
-    const latestProject = useScadaStore.getState().project;
-    if (!latestProject) {
-      setPendingDeleteScreenId(null);
-      return;
-    }
-    const nextScreens = latestProject.screens.filter((screen) => screen.id !== pendingDeleteScreenId);
-    if (nextScreens.length === latestProject.screens.length) {
-      void message.warning("Screen not found");
-      setPendingDeleteScreenId(null);
-      return;
-    }
-    if (nextScreens.length === 0) {
-      void message.warning("Cannot delete the last screen");
-      setPendingDeleteScreenId(null);
-      return;
-    }
-    const nextStartScreenId =
-      latestProject.startScreenId === pendingDeleteScreenId
-        ? nextScreens[0]?.id ?? null
-        : latestProject.startScreenId;
-    const previousCurrentScreenId = useScadaStore.getState().currentScreenId;
-    const nextProject = {
-      ...latestProject,
-      screens: nextScreens,
-      startScreenId: nextStartScreenId,
-    } as ScadaProject;
-    updateProjectJson(nextProject);
-    if (previousCurrentScreenId === pendingDeleteScreenId) {
-      const fallbackId = nextScreens[0]?.id;
-      if (fallbackId) {
-        setCurrentScreen(fallbackId);
-      }
-    }
-    setPendingDeleteScreenId(null);
-    void message.success("Screen deleted");
-  }, [pendingDeleteScreenId, setCurrentScreen, updateProjectJson]);
-
-  const setStartScreen = useCallback(
-    (screenId: string) => {
-      if (!project) {
-        return;
-      }
-      updateProjectJson({ ...project, startScreenId: screenId } as ScadaProject);
-      void message.success("Start screen updated");
-    },
-    [project, updateProjectJson],
-  );
-
-  const selectObjectFromSearch = useCallback(
-    (screenId: string, objectId: string) => {
-      setCurrentScreen(screenId);
-      setSelectedObjects([objectId], objectId);
-      closeWindow("search");
-    },
-    [closeWindow, setCurrentScreen, setSelectedObjects],
   );
 
   const createLibrary = useCallback(async () => {
@@ -770,43 +466,6 @@ export function EditorPage() {
       }
     },
     [updateProjectJson],
-  );
-
-  const enabledLibraryRefs = useMemo(
-    () => (project?.libraries ?? []).filter((ref) => ref.enabled),
-    [project?.libraries],
-  );
-
-  const onUploadProjectAsset = useCallback(
-    async (file: File) => {
-      try {
-        if (!project) {
-          return;
-        }
-        const MAX_ASSET_SIZE_BYTES = 10 * 1024 * 1024;
-        if (file.size > MAX_ASSET_SIZE_BYTES) {
-          appendEditorLog("error", `action=asset-upload status=ERROR file=${file.name} error=file-too-large`);
-          void message.error("File is too large. Max size is 10 MB.");
-          return;
-        }
-        appendEditorLog("info", `action=asset-upload status=START file=${file.name}`);
-        const uploaded = await api.uploadAsset(file, assetUploadName.trim() || undefined);
-        await loadAssets();
-        await loadProject();
-        setAssetUploadName("");
-        appendEditorLog("success", `action=asset-upload status=OK asset=${uploaded.name} id=${uploaded.id}`);
-        void message.success(`Asset uploaded: ${uploaded.name}`);
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        appendEditorLog("error", `action=asset-upload status=ERROR file=${file.name} error=${text || "unknown error"}`);
-        if (text.toLowerCase().includes("too large") || text.toLowerCase().includes("file size")) {
-          void message.error("File is too large. Max size is 10 MB.");
-        } else {
-          void message.error(text || "Failed to upload asset");
-        }
-      }
-    },
-    [appendEditorLog, assetUploadName, loadAssets, loadProject, project],
   );
 
   const onSaveSelectionAsLibraryElement = useCallback(async () => {
@@ -853,17 +512,17 @@ export function EditorPage() {
       appendEditorLog("error", `action=save-library-element status=ERROR element=${element.name} id=${element.id} error=${errorText}`);
       void message.error(error instanceof Error ? error.message : "Failed to save element");
     }
-  }, [appendEditorLog, assets, closeWindow, loadLibraries, saveElementCategory, saveElementDescription, saveElementName, saveTargetLibraryId, selectedObjects]);
-
-  const filteredScreens = useMemo(() => {
-    const list = project?.screens ?? [];
-    const term = screenSearch.trim().toLowerCase();
-    const byKind = screenKindFilter === "all" ? list : list.filter((item) => item.kind === screenKindFilter);
-    if (!term) {
-      return byKind;
-    }
-    return byKind.filter((item) => item.name.toLowerCase().includes(term));
-  }, [project?.screens, screenKindFilter, screenSearch]);
+  }, [
+    appendEditorLog,
+    assets,
+    closeWindow,
+    loadLibraries,
+    saveElementCategory,
+    saveElementDescription,
+    saveElementName,
+    saveTargetLibraryId,
+    selectedObjects,
+  ]);
 
   const adjustPrimitiveStrokeWidth = useCallback(
     (delta: number) => {
@@ -872,7 +531,7 @@ export function EditorPage() {
       }
       for (const obj of selectedUnlocked) {
         if ("strokeWidth" in obj) {
-          const current = (obj as any).strokeWidth ?? 1;
+          const current = (obj as { strokeWidth?: number }).strokeWidth ?? 1;
           updateObjectWithHistory(obj.id, { strokeWidth: Math.max(0.5, current + delta) }, "Adjust stroke width");
         }
       }
@@ -905,6 +564,168 @@ export function EditorPage() {
     setCloneOpen(false);
     void message.success(`Cloned ${allCloned.length} object(s)`);
   }, [cloneOptions, runWithHistory, screen, selectedUnlocked, setScreenObjects]);
+
+  const saveObjectProperties = useCallback(async () => {
+    const state = useScadaStore.getState();
+    const objectId = state.selection.activeObjectId ?? state.selection.selectedObjectIds[0];
+    if (!screen || !objectId) {
+      appendEditorLog("warning", "action=save-object status=ERROR error=no-object-selected");
+      return;
+    }
+    const object = state.project?.screens
+      .find((item) => item.id === screen.id)
+      ?.objects.find((item) => item.id === objectId);
+    if (!object) {
+      appendEditorLog("warning", "action=save-object status=ERROR error=object-not-found");
+      return;
+    }
+    const objectName = object.name?.trim() || object.id;
+    try {
+      setIsSavingProject(true);
+      await saveProject();
+      const latestProject = useScadaStore.getState().project;
+      setSaveStatusText("Saved");
+      setSavedProjectSignature(buildProjectSaveSignature(latestProject));
+      appendEditorLog("success", `action=save-object status=OK object=${objectName} id=${object.id}`);
+      void message.success(`Object saved: ${objectName}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setSaveStatusText("Save failed");
+      appendEditorLog(
+        "error",
+        `action=save-object status=ERROR object=${objectName} id=${object.id} error=${errorMessage || "unknown error"}`,
+      );
+      void message.error(errorMessage || "Failed to save object");
+    } finally {
+      setIsSavingProject(false);
+    }
+  }, [appendEditorLog, saveProject, screen]);
+
+  const deleteActiveObject = useCallback(() => {
+    if (!screen) {
+      return;
+    }
+    const state = useScadaStore.getState();
+    const objectId = state.selection.activeObjectId ?? state.selection.selectedObjectIds[0];
+    if (!objectId) {
+      return;
+    }
+    const object = state.project?.screens
+      .find((item) => item.id === screen.id)
+      ?.objects.find((item) => item.id === objectId);
+    if (!object) {
+      return;
+    }
+    if (object.locked) {
+      void message.warning("Locked object cannot be deleted");
+      return;
+    }
+    removeObjectWithHistory(object.id);
+    closeWindow("objectProperties");
+  }, [closeWindow, removeObjectWithHistory, screen]);
+
+  const canDelete = selectedUnlocked.length > 0;
+  const canGroup = selectedObjects.length >= 2 || selectedGroups.length > 0;
+  const canUngroup = selectedGroups.length > 0;
+  const canLock = selectedObjects.some((obj) => !obj.locked);
+  const canUnlock = selectedObjects.some((obj) => obj.locked);
+  const canAlign = selectedUnlocked.length >= 2;
+  const canSameSize = selectedUnlocked.length >= 2;
+  const canDistribute = selectedUnlocked.length >= 2;
+
+  const { windowDefinitions, openDefinedWindow } = useEditorWindowDefinitions({
+    project,
+    screen,
+    assets,
+    libraries,
+    drivers,
+    runtime,
+    selectedObjects,
+    selectedBounds,
+    activeObject,
+    selection,
+    filteredScreens,
+    screenSearch,
+    setScreenSearch,
+    screenKindFilter,
+    setScreenKindFilter,
+    screenViewMode,
+    setScreenViewMode,
+    newScreenKind,
+    setNewScreenKind,
+    addScreen,
+    setCurrentScreen,
+    duplicateScreenLocal,
+    setStartScreen,
+    requestDeleteScreen,
+    searchQuery,
+    setSearchQuery,
+    updateProjectJson,
+    handleSaveProject,
+    isSavingProject,
+    canUsersView,
+    canUsersWrite,
+    canUsersDelete,
+    canUsersChangePassword,
+    updateScreen,
+    startScreenName,
+    startRuntime,
+    stopRuntime,
+    navigateToRuntime: () => navigate("/runtime"),
+    setSelectedObjects,
+    deleteSelectionWithHistory,
+    runCommand,
+    canDelete,
+    canLock,
+    canUnlock,
+    saveTargetLibraryId,
+    setSaveTargetLibraryId,
+    saveElementName,
+    setSaveElementName,
+    saveElementCategory,
+    setSaveElementCategory,
+    saveElementDescription,
+    setSaveElementDescription,
+    onSaveSelectionAsLibraryElement,
+    newLibraryId,
+    setNewLibraryId,
+    newLibraryName,
+    setNewLibraryName,
+    createLibrary,
+    attachLibrary,
+    addLibraryElementInstance,
+    loadLibraries,
+    onUploadProjectAsset,
+    addAssetAsImage,
+    moveAssetToFolder,
+    bulkMoveAssetsToFolder,
+    renameAsset,
+    refreshAssets,
+    handleDeleteAsset,
+    viewAsset,
+    setViewAssetId,
+    saveObjectProperties,
+    patchActiveObject,
+    deleteActiveObject,
+    openWindow,
+    closeWindow,
+  });
+
+  const activityItems = [
+    { id: "screens", title: "Screens", icon: <AppstoreOutlined />, active: isWindowOpen("screens"), onClick: () => openDefinedWindow("screens") },
+    { id: "search", title: "Search", icon: <SearchOutlined />, active: isWindowOpen("search"), onClick: () => openDefinedWindow("search") },
+    { id: "tags", title: "Tags", icon: <TagsOutlined />, active: isWindowOpen("tags"), onClick: () => openDefinedWindow("tags") },
+    { id: "macros", title: "Macros", icon: <CodeOutlined />, active: isWindowOpen("macros"), onClick: () => openDefinedWindow("macros") },
+    { id: "assets", title: "Assets", icon: <FileImageOutlined />, active: isWindowOpen("assets"), onClick: () => openDefinedWindow("assets") },
+    { id: "libraries", title: "Libraries", icon: <FolderOpenOutlined />, active: isWindowOpen("libraries"), onClick: () => openDefinedWindow("libraries") },
+    { id: "drivers", title: "Drivers", icon: <ApiOutlined />, active: isWindowOpen("drivers"), onClick: () => openDefinedWindow("drivers") },
+    { id: "runtime", title: "Runtime", icon: <PlayCircleOutlined />, active: isWindowOpen("runtime"), onClick: () => openDefinedWindow("runtime") },
+    { id: "layers", title: "Layers", icon: <UnorderedListOutlined />, active: isWindowOpen("layers"), onClick: () => openDefinedWindow("layers") },
+    { id: "projectSettings", title: "Project Settings", icon: <SettingOutlined />, active: isWindowOpen("projectSettings"), onClick: () => openDefinedWindow("projectSettings") },
+    canUsersView
+      ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: isWindowOpen("userManagement"), onClick: () => openDefinedWindow("userManagement") }
+      : null,
+  ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   useEffect(() => {
     if (!project) {
@@ -985,551 +806,15 @@ export function EditorPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [copySelectionToClipboard, deleteSelectionWithHistory, handleSaveProject, pasteFromClipboard, redo, screen, undo]);
 
-  if (!project) {
+  if (!project || !screen) {
     return (
-      <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
-        <Typography.Text>Project is not loaded</Typography.Text>
+      <div className="screen-editor-workbench-page" style={{ height: "100%", display: "grid", placeItems: "center" }}>
+        <Typography.Text>
+          {project ? "No screens available. Create a screen first." : "Project is not loaded"}
+        </Typography.Text>
       </div>
     );
   }
-
-  if (!screen) {
-    return (
-      <div style={{ height: "100%", display: "grid", placeItems: "center" }}>
-        <Typography.Text>No screens available. Create a screen first.</Typography.Text>
-      </div>
-    );
-  }
-
-  const handleDeleteAsset = useCallback(
-    async (assetId: string) => {
-      try {
-        const target = useScadaStore.getState().assets.find((a) => a.id === assetId);
-        appendEditorLog("info", `action=asset-delete status=START assetId=${assetId} name=${target?.name ?? ""}`);
-
-        const result = await api.deleteAsset(assetId);
-
-        await loadAssets();
-        await loadProject();
-
-        if (viewAssetId === assetId) {
-          setViewAssetId(null);
-          closeWindow("assetViewer");
-        }
-
-        if (result.used) {
-          appendEditorLog("warning", `action=asset-delete status=OK assetId=${assetId} used=true`);
-          void message.warning("Asset deleted. Some objects now reference missing asset.");
-        } else {
-          appendEditorLog("success", `action=asset-delete status=OK assetId=${assetId} used=false`);
-          void message.success(`Asset deleted${target?.name ? `: ${target.name}` : ""}`);
-        }
-      } catch (error) {
-        const err = error as Error & { status?: number; details?: unknown };
-        const text = err.message || String(error);
-        const normalized = text.toLowerCase();
-        appendEditorLog("error", `action=asset-delete status=ERROR assetId=${assetId} error=${text || "unknown error"}`);
-
-        console.error("Asset delete failed", error);
-
-        if (
-          err.status === 403 ||
-          normalized.includes("403") ||
-          normalized.includes("forbidden") ||
-          normalized.includes("assets.delete")
-        ) {
-          void message.error("No permission to delete assets. Required: assets.delete");
-          return;
-        }
-
-        if (
-          err.status === 401 ||
-          normalized.includes("401") ||
-          normalized.includes("unauthorized")
-        ) {
-          void message.error("Authorization required. Please login again.");
-          return;
-        }
-
-        void message.error(text || "Failed to delete asset");
-      }
-    },
-    [appendEditorLog, closeWindow, loadAssets, loadProject, viewAssetId],
-  );
-
-  const moveAssetToFolder = useCallback(
-    async (assetId: string, folderPath: string) => {
-      try {
-        const normalized = normalizeAssetFolderPath(folderPath);
-        const current = useScadaStore.getState().assets.find((item) => item.id === assetId);
-        if (!current) {
-          return;
-        }
-        if (normalizeAssetFolderPath(current.folderPath ?? "") === normalized) {
-          return;
-        }
-        const targetFolderLabel = normalized || "root";
-        appendEditorLog("info", `action=asset-move status=START asset=${current.name} id=${assetId} to=${targetFolderLabel}`);
-        await api.updateAsset(assetId, { folderPath: normalized });
-        await loadAssets();
-        await loadProject();
-        appendEditorLog("success", `action=asset-move status=OK asset=${current.name} id=${assetId} to=${targetFolderLabel}`);
-        void message.success("Asset moved");
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        appendEditorLog("error", `action=asset-move status=ERROR assetId=${assetId} error=${text || "unknown error"}`);
-        void message.error(text || "Failed to move asset");
-      }
-    },
-    [appendEditorLog, loadAssets, loadProject],
-  );
-
-  const bulkMoveAssetsToFolder = useCallback(
-    async (updates: Array<{ assetId: string; folderPath: string }>) => {
-      if (!updates.length) {
-        return;
-      }
-      try {
-        appendEditorLog("info", `action=asset-folder-bulk-move status=START updates=${updates.length}`);
-        for (const update of updates) {
-          await api.updateAsset(update.assetId, {
-            folderPath: normalizeAssetFolderPath(update.folderPath),
-          });
-        }
-        await loadAssets();
-        await loadProject();
-        appendEditorLog("success", `action=asset-folder-bulk-move status=OK updates=${updates.length}`);
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        appendEditorLog("error", `action=asset-folder-bulk-move status=ERROR error=${text || "unknown error"}`);
-        throw error;
-      }
-    },
-    [appendEditorLog, loadAssets, loadProject],
-  );
-
-  const renameAsset = useCallback(
-    async (assetId: string, name: string) => {
-      const nextName = name.trim();
-      if (!nextName) {
-        void message.warning("Asset name is required");
-        return;
-      }
-      try {
-        const current = useScadaStore.getState().assets.find((item) => item.id === assetId);
-        appendEditorLog("info", `action=asset-rename status=START assetId=${assetId} from=${current?.name ?? ""} to=${nextName}`);
-        await api.updateAsset(assetId, { name: nextName });
-        await loadAssets();
-        await loadProject();
-        appendEditorLog("success", `action=asset-rename status=OK assetId=${assetId} from=${current?.name ?? ""} to=${nextName}`);
-        void message.success("Asset renamed");
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
-        appendEditorLog("error", `action=asset-rename status=ERROR assetId=${assetId} to=${nextName} error=${text || "unknown error"}`);
-        void message.error(text || "Failed to rename asset");
-      }
-    },
-    [appendEditorLog, loadAssets, loadProject],
-  );
-
-  const refreshAssets = useCallback(async () => {
-    try {
-      appendEditorLog("info", "action=asset-refresh status=START");
-      await loadAssets();
-      appendEditorLog("success", "action=asset-refresh status=OK");
-    } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      appendEditorLog("error", `action=asset-refresh status=ERROR error=${text || "unknown error"}`);
-      void message.error(text || "Failed to refresh assets");
-    }
-  }, [appendEditorLog, loadAssets]);
-
-  const saveObjectProperties = useCallback(async () => {
-    const state = useScadaStore.getState();
-    const objectId = state.selection.activeObjectId ?? state.selection.selectedObjectIds[0];
-    if (!screen || !objectId) {
-      appendEditorLog("warning", "action=save-object status=ERROR error=no-object-selected");
-      return;
-    }
-    const object = state.project?.screens
-      .find((item) => item.id === screen.id)
-      ?.objects.find((item) => item.id === objectId);
-    if (!object) {
-      appendEditorLog("warning", "action=save-object status=ERROR error=object-not-found");
-      return;
-    }
-    const objectName = object.name?.trim() || object.id;
-    try {
-      setIsSavingProject(true);
-      await saveProject();
-      const latestProject = useScadaStore.getState().project;
-      setSaveStatusText("Saved");
-      setSavedProjectSignature(buildProjectSaveSignature(latestProject));
-      appendEditorLog("success", `action=save-object status=OK object=${objectName} id=${object.id}`);
-      void message.success(`Object saved: ${objectName}`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      setSaveStatusText("Save failed");
-      appendEditorLog(
-        "error",
-        `action=save-object status=ERROR object=${objectName} id=${object.id} error=${errorMessage || "unknown error"}`,
-      );
-      void message.error(errorMessage || "Failed to save object");
-    } finally {
-      setIsSavingProject(false);
-    }
-  }, [appendEditorLog, saveProject, screen]);
-
-  const deleteActiveObject = useCallback(() => {
-    const state = useScadaStore.getState();
-    const objectId = state.selection.activeObjectId ?? state.selection.selectedObjectIds[0];
-    if (!objectId) {
-      return;
-    }
-    const object = state.project?.screens
-      .find((item) => item.id === screen.id)
-      ?.objects.find((item) => item.id === objectId);
-    if (!object) {
-      return;
-    }
-    if (object.locked) {
-      void message.warning("Locked object cannot be deleted");
-      return;
-    }
-    removeObjectWithHistory(object.id);
-    closeWindow("objectProperties");
-  }, [closeWindow, removeObjectWithHistory, screen.id]);
-
-  const windowDefinitions: WorkbenchWindowDefinition[] = [
-    {
-      id: "screens",
-      title: "Screens",
-      defaultRect: { x: 90, y: 80, width: 440, height: 620 },
-      minWidth: 320,
-      minHeight: 360,
-      render: () => (
-        <ScreenEditorScreensWindow
-          screens={filteredScreens}
-          currentScreenId={screen.id}
-          startScreenId={project.startScreenId}
-          search={screenSearch}
-          onSearchChange={setScreenSearch}
-          kindFilter={screenKindFilter}
-          onKindFilterChange={setScreenKindFilter}
-          viewMode={screenViewMode}
-          onViewModeChange={setScreenViewMode}
-          newScreenKind={newScreenKind}
-          onNewScreenKindChange={setNewScreenKind}
-          onCreateScreen={addScreen}
-          onSelectScreen={setCurrentScreen}
-          onDuplicateScreen={duplicateScreenLocal}
-          onSetStartScreen={setStartScreen}
-          onDeleteScreen={requestDeleteScreen}
-          onOpenScreenSettings={() => openDefinedWindow("screenSettings")}
-        />
-      ),
-    },
-    {
-      id: "search",
-      title: "Search",
-      defaultRect: { x: 120, y: 100, width: 520, height: 620 },
-      minWidth: 360,
-      minHeight: 360,
-      render: () => (
-        <ScreenEditorSearchWindow
-          screens={project.screens}
-          query={searchQuery}
-          onQueryChange={setSearchQuery}
-          onSelectScreen={setCurrentScreen}
-          onSelectObject={selectObjectFromSearch}
-        />
-      ),
-    },
-    {
-      id: "projectSettings",
-      title: "Project Settings",
-      defaultRect: { x: 180, y: 100, width: 560, height: 520 },
-      minWidth: 420,
-      minHeight: 320,
-      render: () => (
-        <ScreenEditorProjectSettingsWindow
-          project={project}
-          onUpdateProject={updateProjectJson}
-          onSaveProject={handleSaveProject}
-          isSavingProject={isSavingProject}
-          canUsersView={canUsersView}
-          onOpenUserManagement={() => openDefinedWindow("userManagement")}
-        />
-      ),
-    },
-    {
-      id: "userManagement",
-      title: "User Management",
-      defaultRect: { x: 170, y: 90, width: 980, height: 660 },
-      minWidth: 700,
-      minHeight: 420,
-      render: () => (
-        <ScreenEditorUserManagementWindow
-          canWrite={canUsersWrite}
-          canDelete={canUsersDelete}
-          canChangePassword={canUsersChangePassword}
-        />
-      ),
-    },
-    {
-      id: "screenSettings",
-      title: "Screen Settings",
-      defaultRect: { x: 220, y: 120, width: 520, height: 520 },
-      minWidth: 420,
-      minHeight: 320,
-      render: () => (
-        <ScreenEditorScreenSettingsWindow
-          screen={screen}
-          onUpdateScreen={(patch) => updateScreen(screen.id, patch)}
-        />
-      ),
-    },
-    {
-      id: "runtime",
-      title: "Runtime",
-      defaultRect: { x: 160, y: 120, width: 420, height: 360 },
-      minWidth: 320,
-      minHeight: 260,
-      render: () => (
-        <ScreenEditorRuntimeWindow
-          runtime={runtime}
-          startScreenName={startScreenName}
-          currentScreenName={screen.name}
-          onOpenRuntime={() => navigate('/runtime')}
-          onStartRuntime={startRuntime}
-          onStopRuntime={stopRuntime}
-        />
-      ),
-    },
-    {
-      id: "layers",
-      title: "Layers / Object Tree",
-      defaultRect: { x: 220, y: 140, width: 420, height: 620 },
-      minWidth: 320,
-      minHeight: 360,
-      render: () => (
-        <ScreenEditorLayersWindow
-          screen={screen}
-          libraries={libraries}
-          selectedObjectIds={selection.selectedObjectIds}
-          activeObjectId={selection.activeObjectId}
-          onSelectObject={(objectId) => setSelectedObjects([objectId], objectId)}
-          onOpenObjectPropertiesForObject={(objectId) => {
-            setSelectedObjects([objectId], objectId);
-            openDefinedWindow("objectProperties");
-          }}
-          onDeleteSelected={deleteSelectionWithHistory}
-          onLockSelected={() => runCommand({ type: 'lockSelected' })}
-          onUnlockSelected={() => runCommand({ type: 'unlockSelected' })}
-          canDelete={canDelete}
-          canLock={canLock}
-          canUnlock={canUnlock}
-        />
-      ),
-    },
-    {
-      id: "saveSelectionAsElement",
-      title: "Save Selection As Library Element",
-      defaultRect: { x: 260, y: 120, width: 520, height: 460 },
-      minWidth: 420,
-      minHeight: 320,
-      render: () => (
-        <ScreenEditorSaveSelectionWindow
-          selectedObjects={selectedObjects}
-          libraries={libraries}
-          targetLibraryId={saveTargetLibraryId}
-          setTargetLibraryId={setSaveTargetLibraryId}
-          elementName={saveElementName}
-          setElementName={setSaveElementName}
-          category={saveElementCategory}
-          setCategory={setSaveElementCategory}
-          description={saveElementDescription}
-          setDescription={setSaveElementDescription}
-          width={selectedBounds?.width ?? screen.width}
-          height={selectedBounds?.height ?? screen.height}
-          onSave={onSaveSelectionAsLibraryElement}
-          onCancel={() => closeWindow('saveSelectionAsElement')}
-          onOpenLibraries={() => openDefinedWindow('libraries')}
-        />
-      ),
-    },
-    {
-      id: "tags",
-      title: "Tags",
-      defaultRect: { x: 120, y: 80, width: 1000, height: 520 },
-      minWidth: 360,
-      minHeight: 260,
-      render: () => (
-        <ScreenEditorTagsWindow />
-      ),
-    },
-    {
-      id: "macros",
-      title: "Macros",
-      defaultRect: { x: 140, y: 80, width: 1400, height: 800 },
-      minWidth: 720,
-      minHeight: 460,
-      render: () => (
-        <ScreenEditorMacrosWindow />
-      ),
-    },
-    {
-      id: "drivers",
-      title: "Drivers / OPC UA / Simulation",
-      defaultRect: { x: 160, y: 100, width: 800, height: 840 },
-      minWidth: 380,
-      minHeight: 260,
-      render: () => (
-        <ScreenEditorDriversWindow drivers={drivers} />
-      ),
-    },
-    {
-      id: "assets",
-      title: "Assets",
-      defaultRect: { x: 180, y: 120, width: 620, height: 540 },
-      minWidth: 420,
-      minHeight: 320,
-      render: () => (
-        <ScreenEditorAssetsWindow
-          assets={assets}
-          onUploadAsset={onUploadProjectAsset}
-          onAddAssetAsImage={addAssetAsImage}
-          onMoveAssetToFolder={moveAssetToFolder}
-          onBulkMoveAssetsToFolder={bulkMoveAssetsToFolder}
-          onRenameAsset={renameAsset}
-          onRefreshAssets={refreshAssets}
-          onDeleteAsset={handleDeleteAsset}
-          onViewAsset={(asset) => {
-            setViewAssetId(asset.id);
-            openDefinedWindow('assetViewer');
-          }}
-        />
-      ),
-    },
-    {
-      id: "libraries",
-      title: "Libraries",
-      defaultRect: { x: 200, y: 140, width: 660, height: 560 },
-      minWidth: 460,
-      minHeight: 340,
-      render: () => (
-        <ScreenEditorLibrariesWindow
-          libraries={libraries}
-          attachedLibraries={project.libraries ?? []}
-          libraryId={newLibraryId}
-          libraryName={newLibraryName}
-          onLibraryIdChange={setNewLibraryId}
-          onLibraryNameChange={setNewLibraryName}
-          onCreateLibrary={createLibrary}
-          onAttachLibrary={attachLibrary}
-          onAddLibraryElementToScreen={addLibraryElementInstance}
-          onRefreshLibraries={loadLibraries}
-        />
-      ),
-    },
-    {
-      id: "assetViewer",
-      title: viewAsset ? `Asset: ${getAssetDisplayPath(viewAsset)}` : "Asset Viewer",
-      defaultRect: { x: 240, y: 120, width: 640, height: 520 },
-      minWidth: 360,
-      minHeight: 260,
-      render: () =>
-        viewAsset ? (
-          <div className="screen-editor-window-content screen-editor-asset-viewer">
-            <div className="screen-editor-asset-viewer__preview">
-              {viewAsset.previewUrl ? (
-                <img src={viewAsset.previewUrl} alt={viewAsset.name} />
-              ) : (
-                <span>No preview</span>
-              )}
-            </div>
-            <div className="screen-editor-asset-viewer__info">
-              <div><strong>Name:</strong> {viewAsset.name}</div>
-              <div><strong>Path:</strong> {getAssetDisplayPath(viewAsset)}</div>
-              <div><strong>ID:</strong> {viewAsset.id}</div>
-              <div><strong>Type:</strong> {viewAsset.type?.toUpperCase() ?? '-'}</div>
-              <div>
-                <strong>Size:</strong>{' '}
-                {viewAsset.width && viewAsset.height
-                  ? `${viewAsset.width} x ${viewAsset.height} px`
-                  : '-'}
-              </div>
-              <div>
-                <strong>File size:</strong>{' '}
-                {viewAsset.size ? `${(viewAsset.size / 1024).toFixed(1)} KB` : '-'}
-              </div>
-              <div className="screen-editor-asset-viewer__actions">
-                <WorkbenchButton
-                  variant="primary"
-                  onClick={() => addAssetAsImage(viewAsset)}
-                >
-                  Add to Screen
-                </WorkbenchButton>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="screen-editor-empty-state">No asset selected</div>
-        ),
-    },
-    {
-      id: "objectProperties",
-      title: "Object Properties",
-      defaultRect: { x: 280, y: 100, width: 420, height: 620 },
-      minWidth: 320,
-      minHeight: 360,
-      render: () => (
-        <div className="screen-editor-window-content screen-editor-object-properties-window">
-          <div className="object-property-panel-toolbar">
-            <WorkbenchButton
-              variant="primary"
-              onClick={() => void saveObjectProperties()}
-              disabled={!activeObject || isSavingProject}
-            >
-              Save Object
-            </WorkbenchButton>
-          </div>
-          <ObjectPropertyPanel
-            project={project}
-            screen={screen}
-            assets={assets}
-            libraries={libraries}
-            object={activeObject}
-            onPatch={patchActiveObject}
-            onDelete={deleteActiveObject}
-          />
-        </div>
-      ),
-    },
-  ];
-
-  const openDefinedWindow = (id: string) => {
-    const definition = windowDefinitions.find((item) => item.id === id);
-    if (definition) {
-      openWindow(definition);
-    }
-  };
-
-  const activityItems = [
-    { id: "screens", title: "Screens", icon: <AppstoreOutlined />, active: isWindowOpen("screens"), onClick: () => openDefinedWindow("screens") },
-    { id: "search", title: "Search", icon: <SearchOutlined />, active: isWindowOpen("search"), onClick: () => openDefinedWindow("search") },
-    { id: "tags", title: "Tags", icon: <TagsOutlined />, active: isWindowOpen("tags"), onClick: () => openDefinedWindow("tags") },
-    { id: "macros", title: "Macros", icon: <CodeOutlined />, active: isWindowOpen("macros"), onClick: () => openDefinedWindow("macros") },
-    { id: "assets", title: "Assets", icon: <FileImageOutlined />, active: isWindowOpen("assets"), onClick: () => openDefinedWindow("assets") },
-    { id: "libraries", title: "Libraries", icon: <FolderOpenOutlined />, active: isWindowOpen("libraries"), onClick: () => openDefinedWindow("libraries") },
-    { id: "drivers", title: "Drivers", icon: <ApiOutlined />, active: isWindowOpen("drivers"), onClick: () => openDefinedWindow("drivers") },
-    { id: "runtime", title: "Runtime", icon: <PlayCircleOutlined />, active: isWindowOpen("runtime"), onClick: () => openDefinedWindow("runtime") },
-    { id: "layers", title: "Layers", icon: <UnorderedListOutlined />, active: isWindowOpen("layers"), onClick: () => openDefinedWindow("layers") },
-    { id: "projectSettings", title: "Project Settings", icon: <SettingOutlined />, active: isWindowOpen("projectSettings"), onClick: () => openDefinedWindow("projectSettings") },
-    canUsersView
-      ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: isWindowOpen("userManagement"), onClick: () => openDefinedWindow("userManagement") }
-      : null,
-  ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   return (
     <div className="screen-editor-workbench-page">
@@ -1556,10 +841,10 @@ export function EditorPage() {
             setSelectionRect={setSelectionRect}
             toggleSelectedObject={toggleSelectedObject}
             setSelectedObjects={setSelectedObjects}
-            onOpenObjectProperties={() => openDefinedWindow('objectProperties')}
-            onOpenLayers={() => openDefinedWindow('layers')}
-            onOpenSaveSelection={() => openDefinedWindow('saveSelectionAsElement')}
-            onOpenScreenSettings={() => openDefinedWindow('screenSettings')}
+            onOpenObjectProperties={() => openDefinedWindow("objectProperties")}
+            onOpenLayers={() => openDefinedWindow("layers")}
+            onOpenSaveSelection={() => openDefinedWindow("saveSelectionAsElement")}
+            onOpenScreenSettings={() => openDefinedWindow("screenSettings")}
             canSaveSelection={selectedObjects.length > 0}
             setContextMenu={setContextMenu}
             handleDrop={handleDrop}
@@ -1608,6 +893,7 @@ export function EditorPage() {
           />
         }
       />
+
       <WorkbenchWindowManager
         windows={openWindows}
         definitions={windowDefinitions}
@@ -1686,9 +972,9 @@ export function EditorPage() {
           </Form.Item>
           <Form.Item label="Prefix/Replace">
             <Space direction="vertical" style={{ width: "100%" }}>
-              <Input value={cloneOptions.tagPrefix} placeholder="tagPrefix" onChange={(e) => setCloneOptions((prev) => ({ ...prev, tagPrefix: e.target.value }))} />
-              <Input value={cloneOptions.tagReplaceFrom} placeholder="replace from" onChange={(e) => setCloneOptions((prev) => ({ ...prev, tagReplaceFrom: e.target.value }))} />
-              <Input value={cloneOptions.tagReplaceTo} placeholder="replace to" onChange={(e) => setCloneOptions((prev) => ({ ...prev, tagReplaceTo: e.target.value }))} />
+              <Input value={cloneOptions.tagPrefix} placeholder="tagPrefix" onChange={(event) => setCloneOptions((prev) => ({ ...prev, tagPrefix: event.target.value }))} />
+              <Input value={cloneOptions.tagReplaceFrom} placeholder="replace from" onChange={(event) => setCloneOptions((prev) => ({ ...prev, tagReplaceFrom: event.target.value }))} />
+              <Input value={cloneOptions.tagReplaceTo} placeholder="replace to" onChange={(event) => setCloneOptions((prev) => ({ ...prev, tagReplaceTo: event.target.value }))} />
             </Space>
           </Form.Item>
           <Form.Item label="Start / Step">
@@ -1699,109 +985,6 @@ export function EditorPage() {
           </Form.Item>
         </Form>
       </Modal>
-
-      {floatingLibraries || floatingAssets ? (
-        <div className="floating-layer">
-          {floatingLibraries ? (
-            <FloatingPanel
-              title="Library Directory"
-              rect={floatingLibRect}
-              onRectChange={setFloatingLibRect}
-              onClose={() => setFloatingLibraries(false)}
-            >
-              <Space direction="vertical" style={{ width: "100%" }}>
-                <Space>
-                  <Button size="small" onClick={() => void loadLibraries()}>Refresh</Button>
-                  <Button size="small" onClick={() => setFloatingLibraries(false)}>Dock</Button>
-                </Space>
-                <Input value={newLibraryId} onChange={(e) => setNewLibraryId(e.target.value)} placeholder="library id" />
-                <Input value={newLibraryName} onChange={(e) => setNewLibraryName(e.target.value)} placeholder="library name" />
-                <Button size="small" onClick={() => void createLibrary()}>Create Library</Button>
-                <List
-                  size="small"
-                  dataSource={libraries}
-                  renderItem={(library) => (
-                    <List.Item actions={[<Button size="small" onClick={() => void attachLibrary(library.id)}>Attach</Button>]}>
-                      {library.name}
-                    </List.Item>
-                  )}
-                />
-                <Divider style={{ margin: "8px 0" }} />
-                <Typography.Text strong>Elements</Typography.Text>
-                {enabledLibraryRefs.map((ref) => {
-                  const library = libraries.find((item) => item.id === ref.libraryId);
-                  if (!library) {
-                    return null;
-                  }
-                  return (
-                    <List
-                      key={library.id}
-                      size="small"
-                      dataSource={library.elements}
-                      renderItem={(element) => (
-                        <List.Item
-                          draggable
-                          onDragStart={(event) =>
-                            event.dataTransfer.setData(
-                              "application/web-scada-item",
-                              JSON.stringify({ kind: "library-element", libraryId: library.id, elementId: element.id }),
-                            )
-                          }
-                          actions={[<Button size="small" onClick={() => addLibraryElementInstance(library.id, element)}>Add</Button>]}
-                        >
-                          {element.name}
-                        </List.Item>
-                      )}
-                    />
-                  );
-                })}
-              </Space>
-            </FloatingPanel>
-          ) : null}
-
-          {floatingAssets ? (
-            <FloatingPanel
-              title="Asset Manager"
-              rect={floatingAssetRect}
-              onRectChange={setFloatingAssetRect}
-              onClose={() => setFloatingAssets(false)}
-            >
-              <Space direction="vertical" style={{ width: "100%" }}>
-                <Space>
-                  <Button size="small" onClick={() => uploadInputRef.current?.click()}>Upload</Button>
-                  <Button size="small" onClick={() => void loadAssets()}>Refresh</Button>
-                  <Button size="small" onClick={() => setFloatingAssets(false)}>Dock</Button>
-                </Space>
-                <Input value={assetUploadName} onChange={(e) => setAssetUploadName(e.target.value)} placeholder="Asset name" />
-                <List
-                  size="small"
-                  dataSource={assets}
-                  renderItem={(asset) => (
-                    <List.Item
-                      draggable
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData(
-                          "application/web-scada-item",
-                          JSON.stringify({ kind: "asset", assetId: asset.id }),
-                        );
-                      }}
-                      actions={[
-                        <Button size="small" onClick={() => addAssetAsImage(asset)}>Add</Button>,
-                        <Button size="small" danger onClick={() => void api.deleteAsset(asset.id).then(() => Promise.all([loadAssets(), loadProject()]))}>Delete</Button>,
-                      ]}
-                    >
-                      <Space>
-                        <img src={asset.previewUrl} alt={asset.name} style={{ width: 24, height: 24, objectFit: "cover" }} />
-                        <span title={getAssetDisplayPath(asset)}>{getAssetDisplayPath(asset)}</span>
-                      </Space>
-                    </List.Item>
-                  )}
-                />
-              </Space>
-            </FloatingPanel>
-          ) : null}
-        </div>
-      ) : null}
 
       {contextMenu.visible ? (
         <div
@@ -1829,23 +1012,10 @@ export function EditorPage() {
           </Space>
         </div>
       ) : null}
-
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept=".png,.jpg,.jpeg,.svg,image/png,image/jpeg,image/svg+xml"
-        style={{ display: "none" }}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.currentTarget.value = "";
-          if (file) {
-            void onUploadProjectAsset(file);
-          }
-        }}
-      />
     </div>
   );
 }
+
 
 function cloneObject(
   source: HmiObject,
@@ -1874,17 +1044,6 @@ function buildProjectSaveSignature(project: ScadaProject | null | undefined): st
     editorSettings: undefined,
   };
   return JSON.stringify(snapshot);
-}
-
-function cloneForPaste(source: HmiObject, offsetX: number, offsetY: number): HmiObject {
-  const cloned = structuredClone(source) as HmiObject;
-  const shifted: HmiObject = {
-    ...cloned,
-    id: id(cloned.type),
-    x: cloned.x + offsetX,
-    y: cloned.y + offsetY,
-  };
-  return regenerateIds(shifted);
 }
 
 function regenerateIds(object: HmiObject): HmiObject {
@@ -2120,4 +1279,6 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, "");
   return clean || `element-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+
 

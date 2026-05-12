@@ -1095,7 +1095,16 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
 function getRuntimeActionCommandKey(action: RuntimeAction, context: RenderContext): string {
   if (action.type === "runMacro") {
-    return `macro:${action.macroId}`;
+    const popupInstanceId = typeof context.popupInstanceId === "string" ? context.popupInstanceId.trim() : "";
+    const tagPrefix = typeof context.tagPrefix === "string" ? context.tagPrefix.trim() : "";
+    const objectId = typeof context.parameters?.__runtimeObjectId === "string"
+      ? context.parameters.__runtimeObjectId.trim()
+      : typeof context.parameters?.objectId === "string"
+        ? context.parameters.objectId.trim()
+        : "";
+    const screenId = typeof context.screenId === "string" ? context.screenId.trim() : "";
+    const scope = popupInstanceId || tagPrefix || objectId || screenId;
+    return scope ? `macro:${action.macroId}:${scope}` : `macro:${action.macroId}`;
   }
   if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
     return `tag:${action.tag}`;
