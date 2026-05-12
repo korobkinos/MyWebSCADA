@@ -56,6 +56,9 @@ export type SimulatedDriverSettingsInput = {
 };
 
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
+type RequestOptions = {
+  handleAuthInvalid?: boolean;
+};
 
 function getEngineerToken(): string | null {
   return window.localStorage.getItem(ENGINEER_TOKEN_KEY);
@@ -69,7 +72,7 @@ function setEngineerToken(token: string | null): void {
   window.localStorage.removeItem(ENGINEER_TOKEN_KEY);
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+async function request<T>(url: string, init?: RequestInit, options?: RequestOptions): Promise<T> {
   const token = getEngineerToken();
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const hasBody = init?.body !== undefined && init?.body !== null;
@@ -87,7 +90,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     if (response.status === 401) {
       setEngineerToken(null);
-      if (typeof window !== "undefined") {
+      if (options?.handleAuthInvalid !== false && typeof window !== "undefined") {
         window.dispatchEvent(new Event("scada-auth-invalid"));
       }
     }
@@ -144,7 +147,20 @@ export const api = {
   },
 
   authMe: () => request<AuthMeResponse>("/api/auth/me"),
-  logout: () => request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+  logout: (options?: { token?: string; suppressAuthInvalidEvent?: boolean }) =>
+    request<{ ok: boolean }>(
+      "/api/auth/logout",
+      {
+        method: "POST",
+        headers: options?.token
+          ? {
+              "x-engineer-token": options.token,
+              Authorization: `Bearer ${options.token}`,
+            }
+          : undefined,
+      },
+      { handleAuthInvalid: !options?.suppressAuthInvalidEvent },
+    ),
   changeOwnPassword: (payload: ChangeOwnPasswordRequest) =>
     request<{ ok: boolean }>("/api/auth/change-password", { method: "POST", body: JSON.stringify(payload) }),
 

@@ -4,7 +4,7 @@ import {
   clampAccessRoleLevel,
   getUserRoleLevel,
   hasRoleAccess,
-  type AppRole,
+  roleLevelFromRoles,
   type AccessRoleLevel,
   createInitialPopupState,
   popupReducer,
@@ -18,11 +18,26 @@ import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
 import { updateRuntimeTagSubscriptions } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
-import { WorkbenchAuthDialog, WorkbenchButton } from "../components/workbench";
+import {
+  WorkbenchButton,
+  WorkbenchLoginForm,
+  WorkbenchWindowManager,
+  useWorkbenchWindows,
+  type WorkbenchWindowDefinition,
+} from "../components/workbench";
 
 type RuntimePageProps = {
   fullscreen?: boolean;
 };
+
+type RuntimeAccessState = {
+  requiredRole: AccessRoleLevel;
+  currentRole: AccessRoleLevel;
+  details?: string;
+};
+
+const RUNTIME_ACCESS_WINDOW_ID = "runtimeAccessRequired";
+const RUNTIME_AUTH_WINDOW_ID = "runtimeAuthorization";
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const project = useScadaStore((s) => s.project);
@@ -56,15 +71,18 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     action?: Extract<RuntimeAction, { type: "writeNumberPrompt" }>;
     value?: number;
   }>({ open: false });
-  const [authDialogOpen, setAuthDialogOpen] = useState(false);
-  const [accessDialog, setAccessDialog] = useState<{
-    open: boolean;
-    requiredRole: AccessRoleLevel;
-    details?: string;
-  }>({
-    open: false,
+  const [accessState, setAccessState] = useState<RuntimeAccessState>({
     requiredRole: 1,
+    currentRole: 0,
   });
+  const {
+    openWindows,
+    openWindow,
+    closeWindow,
+    focusWindow,
+    moveWindow,
+    resizeWindow,
+  } = useWorkbenchWindows();
 
   const screen = useMemo(
     () =>
@@ -145,38 +163,102 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     };
   }, []);
 
+  const runtimeAccessWindowRect = useMemo(() => {
+    if (typeof window === "undefined") {
+      return { x: 72, y: 72, width: 420, height: 180 };
+    }
+    const width = 420;
+    const height = 180;
+    return {
+      x: Math.max(16, Math.round(window.innerWidth / 2 - width / 2)),
+      y: Math.max(16, Math.round(window.innerHeight / 2 - height / 2)),
+      width,
+      height,
+    };
+  }, []);
+
+  const runtimeAuthWindowRect = useMemo(() => {
+    if (typeof window === "undefined") {
+      return { x: 88, y: 88, width: 420, height: 260 };
+    }
+    const width = 420;
+    const height = 260;
+    return {
+      x: Math.max(16, Math.round(window.innerWidth / 2 - width / 2)),
+      y: Math.max(16, Math.round(window.innerHeight / 2 - height / 2)),
+      width,
+      height,
+    };
+  }, []);
+
+  const openAccessWindow = (nextState: RuntimeAccessState) => {
+    setAccessState(nextState);
+    openWindow({
+      id: RUNTIME_ACCESS_WINDOW_ID,
+      title: "Authorization Required",
+      defaultRect: runtimeAccessWindowRect,
+      minWidth: 360,
+      minHeight: 160,
+      render: () => null,
+    });
+  };
+
+  const closeAccessWindow = () => {
+    closeWindow(RUNTIME_ACCESS_WINDOW_ID);
+  };
+
+  const openAuthWindow = () => {
+    openWindow({
+      id: RUNTIME_AUTH_WINDOW_ID,
+      title: "Authorization",
+      defaultRect: runtimeAuthWindowRect,
+      minWidth: 360,
+      minHeight: 230,
+      render: () => null,
+    });
+  };
+
+  const closeAuthWindow = () => {
+    closeWindow(RUNTIME_AUTH_WINDOW_ID);
+  };
+
   if (!project || !screen) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
   }
 
-  const openAccessDialog = (requiredRole: AccessRoleLevel, details?: string) => {
-    setAccessDialog({
-      open: true,
-      requiredRole,
-      details,
-    });
+  const resolveRequiredRoleLevel = (action: RuntimeAction): AccessRoleLevel => {
+    const explicitRoleLevel = clampAccessRoleLevel(action.requiredRoleLevel, 0);
+    const requiredRoleLevels = (action.requiredRoles ?? [])
+      .map((role) => role.trim())
+      .filter(Boolean)
+      .map((role) => clampAccessRoleLevel(roleLevelFromRoles([role]), 0));
+    const derivedFromLegacyRoles = requiredRoleLevels.length > 0
+      ? requiredRoleLevels.reduce((min, value) => (value < min ? value : min), 4)
+      : 0;
+    return clampAccessRoleLevel(Math.max(explicitRoleLevel, derivedFromLegacyRoles), 0);
   };
 
   const executeAction = async (inputAction: RuntimeAction, context: RenderContext): Promise<void> => {
     const action = resolveRuntimeAction(inputAction, context);
-    const userRoles = ((authUser?.roles ?? []) as AppRole[]).map((role) => role.trim()).filter(Boolean);
-    const requiredRoles = (action.requiredRoles ?? []).map((role) => role.trim()).filter(Boolean);
-    const requiredRoleLevel = clampAccessRoleLevel(action.requiredRoleLevel, 0);
-    if (!hasRoleAccess(userRoleLevel, requiredRoleLevel)) {
-      openAccessDialog(requiredRoleLevel);
+    const actor = useScadaStore.getState().authUser;
+    const actorRoleLevel = getUserRoleLevel(actor);
+    const requiredRoleLevel = resolveRequiredRoleLevel(action);
+    const requiresAuth = action.requireAuth === true || requiredRoleLevel > 0;
+
+    if (requiresAuth && !actor) {
+      openAccessWindow({
+        requiredRole: Math.max(requiredRoleLevel, 1) as AccessRoleLevel,
+        currentRole: 0,
+      });
       return;
     }
-    const requiresAuth = action.requireAuth === true || requiredRoles.length > 0;
-    if (requiresAuth && !authUser) {
-      openAccessDialog(1);
+
+    if (!hasRoleAccess(actorRoleLevel, requiredRoleLevel)) {
+      openAccessWindow({
+        requiredRole: requiredRoleLevel,
+        currentRole: actorRoleLevel,
+      });
       return;
-    }
-    if (requiredRoles.length > 0) {
-      const allowed = requiredRoles.some((role) => userRoles.includes(role as AppRole));
-      if (!allowed) {
-        openAccessDialog(Math.max(requiredRoleLevel, 1) as AccessRoleLevel, `Legacy roles: ${requiredRoles.join(", ")}`);
-        return;
-      }
     }
 
     if ("confirm" in action && action.confirm) {
@@ -454,41 +536,103 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     </>
   );
 
-  const accessDialogElement = accessDialog.open ? (
-    <div className="workbench-auth-dialog-backdrop">
-      <div className="workbench-auth-dialog runtime-access-dialog">
-        <div className="workbench-auth-dialog__header">Access Required</div>
-        <div className="workbench-auth-dialog__body">
-          <div className="runtime-access-dialog__text">
-            This action requires role: <strong>{ACCESS_ROLE_LABELS_RU[accessDialog.requiredRole]}</strong>.
-          </div>
-          {accessDialog.details ? (
-            <div className="runtime-access-dialog__text" style={{ marginTop: 6 }}>
-              {accessDialog.details}
+  const runtimeWindowDefinitions: WorkbenchWindowDefinition[] = [
+    {
+      id: RUNTIME_ACCESS_WINDOW_ID,
+      title: "Authorization Required",
+      defaultRect: runtimeAccessWindowRect,
+      minWidth: 360,
+      minHeight: 160,
+      render: () => (
+        <div className="runtime-access-window">
+          <div className="runtime-access-window__roles">
+            <div className="runtime-access-dialog__text">
+              Required role: <strong>{accessState.requiredRole} - {ACCESS_ROLE_LABELS_RU[accessState.requiredRole]}</strong>
             </div>
-          ) : null}
-          <div className="workbench-auth-dialog__actions">
+            <div className="runtime-access-dialog__text">
+              Current role: <strong>{accessState.currentRole} - {ACCESS_ROLE_LABELS_RU[accessState.currentRole]}</strong>
+            </div>
+            {accessState.details ? (
+              <div className="runtime-access-dialog__text runtime-access-dialog__details">
+                {accessState.details}
+              </div>
+            ) : null}
+          </div>
+          <div className="runtime-access-dialog__actions">
             <WorkbenchButton
               variant="primary"
               onClick={() => {
-                setAccessDialog((prev) => ({ ...prev, open: false }));
-                setAuthDialogOpen(true);
+                closeAccessWindow();
+                openAuthWindow();
               }}
             >
-              Authorize
+              Authorization
             </WorkbenchButton>
-            <WorkbenchButton onClick={() => setAccessDialog((prev) => ({ ...prev, open: false }))}>
+            <WorkbenchButton
+              onClick={() => {
+                closeAccessWindow();
+              }}
+            >
               Cancel
             </WorkbenchButton>
           </div>
         </div>
-      </div>
-    </div>
-  ) : null;
+      ),
+    },
+    {
+      id: RUNTIME_AUTH_WINDOW_ID,
+      title: "Authorization",
+      defaultRect: runtimeAuthWindowRect,
+      minWidth: 360,
+      minHeight: 230,
+      render: () => (
+        <div className="workbench-login-window">
+          <WorkbenchLoginForm
+            submitLabel="Login"
+            showCancel
+            onCancel={() => {
+              closeAuthWindow();
+            }}
+            onSubmit={async (username, password) => {
+              try {
+                const ok = await login(username, password);
+                if (!ok) {
+                  return { ok: false, error: "Invalid credentials." };
+                }
+                closeAuthWindow();
+                closeAccessWindow();
+                void message.success("Authorized. Press the control again.");
+                return { ok: true };
+              } catch (error) {
+                return { ok: false, error: error instanceof Error ? error.message : String(error) };
+              }
+            }}
+          />
+        </div>
+      ),
+    },
+  ];
+
+  const runtimeAuthWindows = (
+    <WorkbenchWindowManager
+      windows={openWindows}
+      definitions={runtimeWindowDefinitions}
+      onClose={(id) => {
+        closeWindow(id);
+      }}
+      onFocus={focusWindow}
+      onMove={moveWindow}
+      onResize={resizeWindow}
+    />
+  );
 
   if (fullscreen) {
     return (
-      <div ref={runtimeRootRef} style={{ width: "100vw", height: "100vh", overflow: "hidden", position: "relative" }}>
+      <div
+        ref={runtimeRootRef}
+        className="screen-editor-workbench-page runtime-workbench-page"
+        style={{ width: "100vw", height: "100vh", overflow: "hidden", position: "relative" }}
+      >
         {stageElement}
         {popupOverlay}
         <RuntimeDialogs
@@ -528,96 +672,68 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           }}
           onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
         />
-        {accessDialogElement}
-        <WorkbenchAuthDialog
-          open={authDialogOpen}
-          onClose={() => setAuthDialogOpen(false)}
-          onSubmit={async (username, password) => {
-            try {
-              const ok = await login(username, password);
-              if (!ok) {
-                return { ok: false, error: "Invalid credentials." };
-              }
-              return { ok: true };
-            } catch (error) {
-              return { ok: false, error: error instanceof Error ? error.message : String(error) };
-            }
-          }}
-        />
+        {runtimeAuthWindows}
       </div>
     );
   }
 
   return (
-    <Space direction="vertical" size={12} style={{ width: "100%" }}>
-      <Card size="small">
-        <Space>
-          <Button onClick={() => void startRuntime()} type="primary">
-            Start Runtime
-          </Button>
-          <Button onClick={() => void stopRuntime()}>Stop Runtime</Button>
-          <Typography.Text strong>{screen.name}</Typography.Text>
-        </Space>
-      </Card>
+    <div className="screen-editor-workbench-page runtime-workbench-page" style={{ position: "relative" }}>
+      <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Card size="small">
+          <Space>
+            <Button onClick={() => void startRuntime()} type="primary">
+              Start Runtime
+            </Button>
+            <Button onClick={() => void stopRuntime()}>Stop Runtime</Button>
+            <Typography.Text strong>{screen.name}</Typography.Text>
+          </Space>
+        </Card>
 
-      <div style={{ position: "relative" }}>
-        {stageElement}
-        {popupOverlay}
-      </div>
-      <RuntimeDialogs
-        confirmState={confirmState}
-        numberPrompt={numberPrompt}
-        onConfirm={async () => {
-          const nextAction = confirmState.action;
-          const nextContext = confirmState.context;
-          setConfirmState({ open: false, text: "Confirm action?" });
-          if (nextAction && nextContext) {
-            await executeAction(nextAction, nextContext);
-          }
-        }}
-        onCancelConfirm={() => setConfirmState({ open: false, text: "Confirm action?" })}
-        onCloseNumberPrompt={() => setNumberPrompt({ open: false })}
-        onApplyNumberPrompt={async () => {
-          const action = numberPrompt.action;
-          const value = numberPrompt.value;
-          if (!action || typeof value !== "number" || Number.isNaN(value)) {
-            void message.warning("Numeric value is required");
-            return;
-          }
-          if (typeof action.min === "number" && value < action.min) {
-            void message.warning(`Value must be >= ${action.min}`);
-            return;
-          }
-          if (typeof action.max === "number" && value > action.max) {
-            void message.warning(`Value must be <= ${action.max}`);
-            return;
-          }
-          if (action.target === "variable") {
-            await writeVariable(action.name, value);
-          } else {
-            await writeTag(action.name, value);
-          }
-          setNumberPrompt({ open: false });
-        }}
-        onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
-      />
-      {accessDialogElement}
-      <WorkbenchAuthDialog
-        open={authDialogOpen}
-        onClose={() => setAuthDialogOpen(false)}
-        onSubmit={async (username, password) => {
-          try {
-            const ok = await login(username, password);
-            if (!ok) {
-              return { ok: false, error: "Invalid credentials." };
+        <div style={{ position: "relative" }}>
+          {stageElement}
+          {popupOverlay}
+        </div>
+        <RuntimeDialogs
+          confirmState={confirmState}
+          numberPrompt={numberPrompt}
+          onConfirm={async () => {
+            const nextAction = confirmState.action;
+            const nextContext = confirmState.context;
+            setConfirmState({ open: false, text: "Confirm action?" });
+            if (nextAction && nextContext) {
+              await executeAction(nextAction, nextContext);
             }
-            return { ok: true };
-          } catch (error) {
-            return { ok: false, error: error instanceof Error ? error.message : String(error) };
-          }
-        }}
-      />
-    </Space>
+          }}
+          onCancelConfirm={() => setConfirmState({ open: false, text: "Confirm action?" })}
+          onCloseNumberPrompt={() => setNumberPrompt({ open: false })}
+          onApplyNumberPrompt={async () => {
+            const action = numberPrompt.action;
+            const value = numberPrompt.value;
+            if (!action || typeof value !== "number" || Number.isNaN(value)) {
+              void message.warning("Numeric value is required");
+              return;
+            }
+            if (typeof action.min === "number" && value < action.min) {
+              void message.warning(`Value must be >= ${action.min}`);
+              return;
+            }
+            if (typeof action.max === "number" && value > action.max) {
+              void message.warning(`Value must be <= ${action.max}`);
+              return;
+            }
+            if (action.target === "variable") {
+              await writeVariable(action.name, value);
+            } else {
+              await writeTag(action.name, value);
+            }
+            setNumberPrompt({ open: false });
+          }}
+          onChangeNumberValue={(value) => setNumberPrompt((prev) => ({ ...prev, value: value === null ? undefined : Number(value) }))}
+        />
+      </Space>
+      {runtimeAuthWindows}
+    </div>
   );
 }
 

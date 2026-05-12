@@ -4118,63 +4118,51 @@ body {
   color: #cccccc !important;
 }
 
-.workbench-auth-dialog-backdrop {
+.workbench-auth-window-layer {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
   z-index: 1900;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
+  pointer-events: none;
 }
 
-.workbench-auth-dialog {
-  width: min(420px, calc(100vw - 24px));
-  border: 1px solid #3a3d40;
-  background: #1f1f1f;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+.workbench-auth-window-layer .workbench-window {
+  pointer-events: auto;
 }
 
-.workbench-auth-dialog__header {
-  height: 30px;
+.runtime-workbench-page .workbench-window-layer {
+  z-index: 1400;
+}
+
+.runtime-access-window {
   display: flex;
-  align-items: center;
-  padding: 0 10px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #b9b9b9;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  box-sizing: border-box;
   background: #252526;
-  border-bottom: 1px solid #333639;
 }
 
-.workbench-auth-dialog__body {
-  padding: 10px;
-}
-
-.workbench-auth-dialog__fields {
-  display: grid;
-  gap: 8px;
-}
-
-.workbench-auth-dialog__error {
-  margin-top: 8px;
-  color: #ff7875;
-  font-size: 12px;
-}
-
-.workbench-auth-dialog__actions {
-  margin-top: 10px;
+.runtime-access-window__roles {
   display: flex;
+  flex-direction: column;
   gap: 6px;
+}
+
+.runtime-access-dialog__actions {
+  display: flex;
   justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.runtime-access-dialog__details {
+  color: #a9b2bc;
 }
 
 .runtime-access-dialog__text {
   color: #bbbbbb;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 .screen-editor-user-management-window {

@@ -51,7 +51,6 @@ export function App() {
   const authResolved = useScadaStore((s) => s.authResolved);
   const logout = useScadaStore((s) => s.logoutEngineer);
   const hasPermission = useScadaStore((s) => s.hasPermission);
-  const setCurrentScreen = useScadaStore((s) => s.setCurrentScreen);
   const isRuntimeRoute = location.pathname === "/" || location.pathname === "/runtime";
   const isLoginRoute = location.pathname === "/login";
   const isWorkbenchDemoRoute = location.pathname === "/workbench-demo";
@@ -125,12 +124,12 @@ export function App() {
     const onInvalidAuth = () => {
       logout();
       if (isProtectedRoute) {
-        navigate("/login", { replace: true, state: { from: location.pathname } });
+        navigate("/runtime", { replace: true });
       }
     };
     window.addEventListener("scada-auth-invalid", onInvalidAuth);
     return () => window.removeEventListener("scada-auth-invalid", onInvalidAuth);
-  }, [isProtectedRoute, location.pathname, logout, navigate]);
+  }, [isProtectedRoute, logout, navigate]);
 
   useEffect(() => {
     const projectTheme = project?.uiSettings?.theme;
@@ -272,6 +271,12 @@ export function App() {
   if (isRuntimeRoute) {
     const runtimeMenuItems: MenuProps["items"] = [
       {
+        key: "current-user",
+        label: authUser ? `User: ${authUser.username}` : "User: not authorized",
+        icon: <UserOutlined />,
+        disabled: true,
+      },
+      {
         key: "editor",
         label: "Open Editor",
         icon: <EditOutlined />,
@@ -288,18 +293,6 @@ export function App() {
         },
       },
       {
-        key: "screen",
-        label: "Select Screen",
-        icon: <DashboardOutlined />,
-        children: project.screens
-          .filter((screen) => screen.kind === "screen")
-          .map((screen) => ({
-            key: `screen_${screen.id}`,
-            label: screen.name,
-            onClick: () => setCurrentScreen(screen.id),
-          })),
-      },
-      {
         key: "fullscreen",
         label: "Fullscreen",
         icon: <MenuOutlined />,
@@ -314,11 +307,10 @@ export function App() {
       authUser
         ? {
             key: "logout",
-            label: "Logout",
+            label: `Logout (${authUser.username})`,
             icon: <LogoutOutlined />,
             onClick: () => {
               logout();
-              navigate("/runtime", { replace: true });
             },
           }
         : {

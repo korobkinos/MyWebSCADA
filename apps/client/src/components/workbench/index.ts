@@ -6,5 +6,6 @@ export * from "./workbench-resize-handle";
 export * from "./workbench-activity-bar";
 export * from "./workbench-auth-dialog";
 export * from "./workbench-login-window";
+export * from "./workbench-login-form";
 export * from "./user-management-panel";
 export * from "./windows";

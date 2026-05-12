@@ -306,9 +306,12 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
   },
 
   logoutEngineer() {
-    void api.logout().catch(() => undefined);
+    const token = api.getEngineerToken();
     api.setEngineerToken(null);
     set({ engineerAuthorized: false, authUser: null, authResolved: true });
+    if (token) {
+      void api.logout({ token, suppressAuthInvalidEvent: true }).catch(() => undefined);
+    }
   },
 
   hasPermission(permission) {

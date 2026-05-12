@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { WorkbenchButton } from "./ui/workbench-button";
-import { WorkbenchInput } from "./ui/workbench-input";
+import { useMemo, useState } from "react";
+import { WorkbenchWindow } from "./windows/workbench-window";
+import type { WorkbenchWindowRect } from "./windows/workbench-window.types";
+import { WorkbenchLoginForm } from "./workbench-login-form";
 
 type WorkbenchAuthDialogProps = {
   open: boolean;
@@ -13,76 +14,54 @@ export function WorkbenchAuthDialog({
   onClose,
   onSubmit,
 }: WorkbenchAuthDialogProps) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [errorText, setErrorText] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setPassword("");
-      setErrorText(null);
+  const initialRect = useMemo<WorkbenchWindowRect>(() => {
+    if (typeof window === "undefined") {
+      return { x: 120, y: 80, width: 380, height: 250 };
     }
-  }, [open]);
+    const width = 380;
+    const height = 250;
+    return {
+      x: Math.round(window.innerWidth / 2 - width / 2),
+      y: Math.round(window.innerHeight / 2 - height / 2),
+      width,
+      height,
+    };
+  }, []);
+  const [rect, setRect] = useState<WorkbenchWindowRect>(initialRect);
 
   if (!open) {
     return null;
   }
 
   return (
-    <div className="workbench-auth-dialog-backdrop" onMouseDown={onClose}>
-      <div className="workbench-auth-dialog" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="workbench-auth-dialog__header">Authorization Required</div>
-        <div className="workbench-auth-dialog__body">
-          <div className="workbench-auth-dialog__fields">
-            <WorkbenchInput
-              label="Username"
-              value={username}
-              onChange={(event) => setUsername(event.currentTarget.value)}
-              autoFocus
-              autoComplete="username"
-            />
-            <WorkbenchInput
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.currentTarget.value)}
-              autoComplete="current-password"
-            />
-          </div>
-          {errorText ? <div className="workbench-auth-dialog__error">{errorText}</div> : null}
-          <div className="workbench-auth-dialog__actions">
-            <WorkbenchButton
-              variant="primary"
-              disabled={submitting}
-              onClick={async () => {
-                const normalizedUsername = username.trim();
-                if (!normalizedUsername || !password) {
-                  setErrorText("Enter username and password.");
-                  return;
-                }
-                setSubmitting(true);
-                setErrorText(null);
-                try {
-                  const result = await onSubmit(normalizedUsername, password);
-                  if (result.ok) {
-                    onClose();
-                    return;
-                  }
-                  setErrorText(result.error ?? "Invalid credentials.");
-                } finally {
-                  setSubmitting(false);
-                }
-              }}
-            >
-              {submitting ? "Signing in..." : "Login"}
-            </WorkbenchButton>
-            <WorkbenchButton onClick={onClose} disabled={submitting}>
-              Cancel
-            </WorkbenchButton>
-          </div>
+    <div className="workbench-auth-window-layer">
+      <WorkbenchWindow
+        id="runtime-auth-dialog"
+        title="Authorization Required"
+        rect={rect}
+        zIndex={2000}
+        minWidth={340}
+        minHeight={220}
+        onClose={onClose}
+        onFocus={() => undefined}
+        onMove={(x, y) => setRect((prev) => ({ ...prev, x, y }))}
+        onResize={(nextRect) => setRect(nextRect)}
+      >
+        <div className="workbench-login-window">
+          <WorkbenchLoginForm
+            submitLabel="Login"
+            showCancel
+            onCancel={onClose}
+            onSubmit={async (username, password) => {
+              const result = await onSubmit(username, password);
+              if (result.ok) {
+                onClose();
+              }
+              return result;
+            }}
+          />
         </div>
-      </div>
+      </WorkbenchWindow>
     </div>
   );
 }

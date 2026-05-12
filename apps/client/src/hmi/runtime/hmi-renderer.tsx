@@ -163,6 +163,11 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   if (prev.mode !== next.mode) return false;
   if (prev.renderContext.tagPrefix !== next.renderContext.tagPrefix) return false;
   if (prev.renderContext.parameters !== next.renderContext.parameters) return false;
+  if (prev.renderContext.isAuthenticated !== next.renderContext.isAuthenticated) return false;
+  if (prev.renderContext.userRoleLevel !== next.renderContext.userRoleLevel) return false;
+  const prevRoles = prev.renderContext.userRoles?.join("|") ?? "";
+  const nextRoles = next.renderContext.userRoles?.join("|") ?? "";
+  if (prevRoles !== nextRoles) return false;
   if (next.mode === "editor") {
     return true;
   }

@@ -13379,7 +13379,7 @@
       "kind": "screen",
       "width": 1800,
       "height": 1000,
-      "background": "#000000",
+      "background": "#3e3e3e",
       "backgroundFillMode": "screen",
       "objects": [
         {
