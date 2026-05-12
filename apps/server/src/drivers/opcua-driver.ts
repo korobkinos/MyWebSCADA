@@ -58,6 +58,7 @@ export class OpcUaDriver implements Driver {
   private client: OPCUAClient | undefined;
   private session: ClientSession | undefined;
   private reconnectTimer: NodeJS.Timeout | undefined;
+  private stopping = false;
   private status: DriverStatus;
 
   public constructor(private readonly config: OpcUaDriverConfig) {
@@ -76,22 +77,16 @@ export class OpcUaDriver implements Driver {
   }
 
   public async stop(): Promise<void> {
+    this.stopping = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
 
-    if (this.session) {
-      await this.session.close();
-      this.session = undefined;
-    }
-
-    if (this.client) {
-      await this.client.disconnect();
-      this.client = undefined;
-    }
+    await this.closeActiveConnection();
 
     this.setStatus("stopped");
+    this.stopping = false;
   }
 
   public async readTag(tag: TagDefinition): Promise<TagValue> {
@@ -232,8 +227,11 @@ export class OpcUaDriver implements Driver {
   }
 
   private async connect(): Promise<void> {
+    this.stopping = false;
+    this.setStatus("starting", "Connecting OPC UA");
     try {
-      this.client = OPCUAClient.create({
+      await this.closeActiveConnection();
+      const nextClient = OPCUAClient.create({
         securityMode:
           this.config.securityMode === "Sign"
             ? MessageSecurityMode.Sign
@@ -251,28 +249,33 @@ export class OpcUaDriver implements Driver {
           maxDelay: 1000,
         },
       });
+      this.attachClientHandlers(nextClient);
+      this.client = nextClient;
 
-      await this.client.connect(this.config.endpointUrl);
+      await nextClient.connect(this.config.endpointUrl);
       if (this.config.username) {
-        this.session = await this.client.createSession({
+        this.session = await nextClient.createSession({
           type: UserTokenType.UserName,
           userName: this.config.username,
           password: this.config.password ?? "",
         });
       } else {
-        this.session = await this.client.createSession();
+        this.session = await nextClient.createSession();
       }
       this.setStatus("running");
     } catch (error) {
-      this.session = undefined;
-      this.client = undefined;
-      this.scheduleReconnect(error instanceof Error ? error.message : "OPC UA connect error");
+      const message = error instanceof Error ? error.message : "OPC UA connect error";
+      await this.closeActiveConnection();
+      this.setStatus("error", message);
+      if (!this.stopping) {
+        this.scheduleReconnect(message);
+      }
       throw error;
     }
   }
 
   private scheduleReconnect(message: string): void {
-    if (this.reconnectTimer) {
+    if (this.stopping || this.reconnectTimer) {
       return;
     }
 
@@ -285,6 +288,51 @@ export class OpcUaDriver implements Driver {
         this.scheduleReconnect(message);
       }
     }, this.config.reconnectMs ?? 3000);
+  }
+
+  private attachClientHandlers(client: OPCUAClient): void {
+    const eventClient = client as unknown as { on: (event: string, callback: (...args: unknown[]) => void) => void };
+    eventClient.on("connection_lost", () => {
+      this.handleConnectionLoss("OPC UA connection lost");
+    });
+    eventClient.on("timed_out", () => {
+      this.handleConnectionLoss("OPC UA connection timed out");
+    });
+    client.on("close", (error?: Error | null) => {
+      const message = error instanceof Error && error.message ? error.message : "OPC UA connection closed";
+      this.handleConnectionLoss(message);
+    });
+  }
+
+  private handleConnectionLoss(message: string): void {
+    if (this.stopping) {
+      return;
+    }
+    this.session = undefined;
+    this.client = undefined;
+    this.setStatus("error", message);
+    this.scheduleReconnect(message);
+  }
+
+  private async closeActiveConnection(): Promise<void> {
+    const session = this.session;
+    const client = this.client;
+    this.session = undefined;
+    this.client = undefined;
+    if (session) {
+      try {
+        await session.close();
+      } catch {
+        // ignore
+      }
+    }
+    if (client) {
+      try {
+        await client.disconnect();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   private setStatus(health: DriverStatus["health"], message?: string): void {

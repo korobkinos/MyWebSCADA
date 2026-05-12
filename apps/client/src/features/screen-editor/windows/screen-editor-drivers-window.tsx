@@ -80,6 +80,31 @@ function normalizeOptionalText(value: string | undefined): string | undefined {
   return trimmed || undefined;
 }
 
+function isDriverStatusLike(value: unknown): value is DriverStatus {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<DriverStatus>;
+  return (
+    typeof candidate.id === "string"
+    && typeof candidate.type === "string"
+    && typeof candidate.health === "string"
+    && typeof candidate.updatedAt === "number"
+  );
+}
+
+function readDriverStatusFromError(error: unknown): DriverStatus | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const details = (error as { details?: unknown }).details;
+  if (!details || typeof details !== "object") {
+    return null;
+  }
+  const status = (details as { status?: unknown }).status;
+  return isDriverStatusLike(status) ? status : null;
+}
+
 function upsertProjectDriver(project: ScadaProject, driver: OpcUaDriverConfig | SimulatedDriverConfig): ScadaProject {
   const index = project.drivers.findIndex((item) => item.id === driver.id);
   if (index < 0) {
@@ -98,12 +123,18 @@ function upsertProjectDriver(project: ScadaProject, driver: OpcUaDriverConfig | 
 }
 
 function formatStatusBadge(status: DriverStatus | null): { label: string; className: string } {
-  const health = status?.health ?? "stopped";
+  if (!status) {
+    return { label: "Unknown", className: "screen-editor-driver-status-badge screen-editor-driver-status-badge--disconnected" };
+  }
+  const health = status.health;
   if (health === "running") {
     return { label: "Connected", className: "screen-editor-driver-status-badge screen-editor-driver-status-badge--connected" };
   }
-  if (health === "starting" || health === "reconnecting") {
+  if (health === "starting") {
     return { label: "Connecting", className: "screen-editor-driver-status-badge screen-editor-driver-status-badge--connecting" };
+  }
+  if (health === "reconnecting") {
+    return { label: "Reconnecting", className: "screen-editor-driver-status-badge screen-editor-driver-status-badge--reconnecting" };
   }
   if (health === "error") {
     return { label: "Error", className: "screen-editor-driver-status-badge screen-editor-driver-status-badge--error" };
@@ -192,8 +223,29 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
     setSimulationDraft({ ...selectedSimulationDriver });
   }, [selectedSimulationDriver, selectedSimulationDriverId]);
 
-  const refreshStatus = async (driverId?: string): Promise<void> => {
-    setBusyAction("refresh");
+  useEffect(() => {
+    if (activeTab !== "opcua" || !selectedOpcUaDriver?.id) {
+      return;
+    }
+    const timer = setInterval(() => {
+      if (busyAction === "connect" || busyAction === "disconnect") {
+        return;
+      }
+      void api.getOpcUaStatus(selectedOpcUaDriver.id)
+        .then((response) => {
+          if (response.status) {
+            setStatusOverride(response.status);
+          }
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [activeTab, selectedOpcUaDriver?.id, busyAction]);
+
+  const refreshStatus = async (driverId?: string, setBusy = true): Promise<void> => {
+    if (setBusy) {
+      setBusyAction("refresh");
+    }
     try {
       await loadDrivers();
       if (driverId) {
@@ -205,7 +257,9 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
     } catch (error) {
       void message.error(error instanceof Error ? error.message : "Failed to refresh driver status");
     } finally {
-      setBusyAction("");
+      if (setBusy) {
+        setBusyAction("");
+      }
     }
   };
 
@@ -230,7 +284,7 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
       }
       updateProjectJson(upsertProjectDriver(project, normalized));
       await saveProject();
-      await refreshStatus(normalized.id);
+      await refreshStatus(normalized.id, false);
       void message.success("OPC UA config saved");
     } catch (error) {
       void message.error(error instanceof Error ? error.message : "Failed to save OPC UA config");
@@ -244,15 +298,27 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
       return;
     }
     setBusyAction("connect");
+    setStatusOverride({
+      id: selectedOpcUaDriver.id,
+      type: "opcua",
+      health: "starting",
+      message: "Connecting OPC UA",
+      updatedAt: Date.now(),
+    });
     try {
       const payload = opcUaDraft && opcUaDraft.id === selectedOpcUaDriver.id ? { config: opcUaDraft } : { driverId: selectedOpcUaDriver.id };
       const response = await api.opcUaConnect(payload);
       if (response.status) {
         setStatusOverride(response.status);
       }
-      await refreshStatus(selectedOpcUaDriver.id);
+      await refreshStatus(selectedOpcUaDriver.id, false);
       void message.success("OPC UA connected");
     } catch (error) {
+      const statusFromError = readDriverStatusFromError(error);
+      if (statusFromError) {
+        setStatusOverride(statusFromError);
+      }
+      await refreshStatus(selectedOpcUaDriver.id, false);
       void message.error(error instanceof Error ? error.message : "OPC UA connect failed");
     } finally {
       setBusyAction("");
@@ -264,14 +330,22 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
       return;
     }
     setBusyAction("disconnect");
+    setStatusOverride({
+      id: selectedOpcUaDriver.id,
+      type: "opcua",
+      health: "stopped",
+      message: "Disconnected by user",
+      updatedAt: Date.now(),
+    });
     try {
       const response = await api.opcUaDisconnect(selectedOpcUaDriver.id);
       if (response.status) {
         setStatusOverride(response.status);
       }
-      await refreshStatus(selectedOpcUaDriver.id);
+      await refreshStatus(selectedOpcUaDriver.id, false);
       void message.success("OPC UA disconnected");
     } catch (error) {
+      await refreshStatus(selectedOpcUaDriver.id, false);
       void message.error(error instanceof Error ? error.message : "OPC UA disconnect failed");
     } finally {
       setBusyAction("");
@@ -527,7 +601,7 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
               </div>
               <div className="screen-editor-drivers-status-line">
                 <span>Last error</span>
-                <strong>{currentOpcStatus?.health === "error" ? (currentOpcStatus.message || "Unknown error") : "-"}</strong>
+                <strong>{currentOpcStatus?.health === "error" || currentOpcStatus?.health === "reconnecting" ? (currentOpcStatus.message || "Unknown error") : "-"}</strong>
               </div>
               {currentOpcStatus?.message ? (
                 <div className="screen-editor-drivers-note">{currentOpcStatus.message}</div>

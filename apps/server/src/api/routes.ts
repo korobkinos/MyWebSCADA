@@ -819,8 +819,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const payload = opcUaConnectSchema.parse(request.body ?? {});
     const project = deps.projectService.getProject();
+    let driverIdForStatus: string | undefined = payload.driverId?.trim();
     try {
       const config = resolveOpcUaConfigFromPayload(project, payload);
+      driverIdForStatus = config.id;
       const status = await deps.driverManager.connectDriver({
         ...config,
         type: "opcua",
@@ -828,9 +830,11 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       });
       return reply.send({ ok: true, status });
     } catch (error) {
+      const status = driverIdForStatus ? deps.driverManager.getStatus(driverIdForStatus) : undefined;
       return reply.code(400).send({
         ok: false,
         message: error instanceof Error ? error.message : String(error),
+        status,
       });
     }
   });
