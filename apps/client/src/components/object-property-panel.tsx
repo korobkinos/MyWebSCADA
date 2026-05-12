@@ -415,6 +415,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
   if (!object) {
     return <div>Select object</div>;
   }
+  const templateBindings = elementBindings ?? [];
 
   const applyTextStyle = (patch: Partial<TextStyle>) => {
     if (!hasTextStyle(object)) {
@@ -476,6 +477,41 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
       elementBindings={elementBindings}
       onPatch={onPatch}
     />
+  );
+
+  const hasRuntimeStateBinding = Boolean((object.visibleTag ?? "").trim() || (object.disabledTag ?? "").trim());
+  const runtimeStateContent = (
+    <>
+      <TagFieldWithBindingSource
+        project={project}
+        bindings={templateBindings}
+        value={object.visibleTag ?? ""}
+        bindingLabel="Visible Binding"
+        tagLabel="Visible Tag"
+        onChange={(nextValue) => onPatch({ visibleTag: nextValue } as Partial<HmiObject>)}
+      />
+      <Space style={{ marginBottom: 8 }}>
+        <span>Invert Visible</span>
+        <Switch checked={object.visibleInvert ?? false} onChange={(checked) => onPatch({ visibleInvert: checked } as Partial<HmiObject>)} />
+      </Space>
+      <TagFieldWithBindingSource
+        project={project}
+        bindings={templateBindings}
+        value={object.disabledTag ?? ""}
+        bindingLabel="Disabled Binding"
+        tagLabel="Disabled Tag"
+        onChange={(nextValue) => onPatch({ disabledTag: nextValue } as Partial<HmiObject>)}
+      />
+      <Space style={{ marginBottom: 8 }}>
+        <span>Invert Disabled</span>
+        <Switch checked={object.disabledInvert ?? false} onChange={(checked) => onPatch({ disabledInvert: checked } as Partial<HmiObject>)} />
+      </Space>
+      {hasRuntimeStateBinding ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Runtime visibility/disabled bindings are active for this object.
+        </Typography.Text>
+      ) : null}
+    </>
   );
 
   const textContent = hasTextStyle(object) ? (
@@ -608,6 +644,9 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
       <Form layout="vertical" size="small">
         <WorkbenchCollapsibleSection title="GENERAL" storageKey={`object-panel.general.${object.type}`}>
           {generalContent}
+        </WorkbenchCollapsibleSection>
+        <WorkbenchCollapsibleSection title="RUNTIME STATE" storageKey={`object-panel.runtime-state.${object.type}`}>
+          {runtimeStateContent}
         </WorkbenchCollapsibleSection>
         <WorkbenchCollapsibleSection title="OBJECT / SPECIFIC" storageKey={`object-panel.specific.${object.type}`}>
           {objectContent}
@@ -802,14 +841,6 @@ function SpecificPropertyFields({
           <span>Show text</span>
           <Switch checked={object.showText ?? true} onChange={(checked) => onPatch({ showText: checked } as Partial<HmiObject>)} />
         </Space>
-        <TagFieldWithBindingSource
-          project={project}
-          bindings={templateBindings}
-          value={object.disabledTag ?? ""}
-          bindingLabel="Disabled Binding"
-          tagLabel="Disabled Tag"
-          onChange={(nextValue) => onPatch({ disabledTag: nextValue } as Partial<HmiObject>)}
-        />
         <Form.Item label="Background Asset">
           <Select
             value={object.backgroundAssetId}

@@ -53,6 +53,7 @@ type HmiRendererProps = {
   frameStack?: string[];
   instanceStack?: string[];
   interactive?: boolean;
+  inheritedDisabled?: boolean;
   selectedObjectIds?: string[];
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
@@ -74,6 +75,7 @@ type BaseNodeProps = {
   frameStack: string[];
   instanceStack: string[];
   interactive: boolean;
+  inheritedDisabled: boolean;
   selected: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
@@ -95,6 +97,7 @@ export function HmiRenderer({
   frameStack = [],
   instanceStack = [],
   interactive = mode === "editor",
+  inheritedDisabled = false,
   selectedObjectIds = [],
   onSelectObject,
   onMoveObject,
@@ -138,6 +141,7 @@ export function HmiRenderer({
           frameStack={frameStack}
           instanceStack={instanceStack}
           interactive={interactive}
+          inheritedDisabled={inheritedDisabled}
           selected={selectedSet.has(object.id)}
           onSelectObject={onSelectObject}
           onMoveObject={onMoveObject}
@@ -159,6 +163,7 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   if (prev.object !== next.object) return false;
   if (prev.selected !== next.selected) return false;
   if (prev.interactive !== next.interactive) return false;
+  if (prev.inheritedDisabled !== next.inheritedDisabled) return false;
   if (prev.showObjectFrames !== next.showObjectFrames) return false;
   if (prev.mode !== next.mode) return false;
   if (prev.renderContext.tagPrefix !== next.renderContext.tagPrefix) return false;
@@ -199,6 +204,12 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
 
   if (object.type === "group") {
     const tags = new Set<string>();
+    for (const ownTag of [object.visibleTag, object.disabledTag]) {
+      const resolvedOwnTag = resolveTagName(ownTag, context);
+      if (resolvedOwnTag) {
+        tags.add(resolvedOwnTag);
+      }
+    }
     for (const child of object.objects) {
       const childTags = collectWatchedTags(child, context);
       if (!childTags) {
@@ -212,6 +223,7 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
   }
 
   const candidates: Array<string | undefined> = [];
+  candidates.push(object.visibleTag, object.disabledTag);
   switch (object.type) {
     case "value-display":
     case "value-input":
@@ -222,9 +234,6 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
       break;
     case "image":
       candidates.push(object.stateTag);
-      break;
-    case "button":
-      candidates.push(object.disabledTag);
       break;
     case "valueSelect":
       if (object.target.type === "tag") {
@@ -263,6 +272,7 @@ function ObjectNode({
   frameStack,
   instanceStack,
   interactive,
+  inheritedDisabled,
   selected,
   onSelectObject,
   onMoveObject,
@@ -307,6 +317,13 @@ function ObjectNode({
   if (!visibleByRole && mode === "runtime") {
     return null;
   }
+  const visibleByRuntimeState = mode !== "runtime" || resolveObjectVisible(resolvedObject, tags, renderContext);
+  if (!visibleByRuntimeState && mode === "runtime") {
+    return null;
+  }
+  const disabledByRuntimeState = mode === "runtime" && resolveObjectDisabled(resolvedObject, tags, renderContext);
+  const hasOwnDisabledBinding = hasRuntimeStateTag(resolvedObject.disabledTag);
+  const runtimeDisabled = mode === "runtime" && (inheritedDisabled ? (hasOwnDisabledBinding ? disabledByRuntimeState : true) : disabledByRuntimeState);
 
   const commonGroupProps = {
     id: `hmi-${resolvedObject.id}`,
@@ -406,6 +423,7 @@ function ObjectNode({
         frameStack={frameStack}
         instanceStack={instanceStack}
         interactive={interactive}
+        inheritedDisabled={runtimeDisabled}
         selected={selected}
         onSelectObject={onSelectObject}
         onMoveObject={onMoveObject}
@@ -509,6 +527,9 @@ function ObjectNode({
             });
             return;
           }
+          if (runtimeDisabled) {
+            return;
+          }
           onAction?.(
             withActionRoleLevel({
               type: "writeNumberPrompt",
@@ -524,7 +545,14 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={4} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={runtimeDisabled ? "#3d3d3d" : "#141414"}
+          stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
+          cornerRadius={4}
+          opacity={runtimeDisabled ? 0.7 : 1}
+        />
         {renderBoxText(`${value ?? "--"}${resolvedObject.suffix ?? ""}`, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
@@ -571,8 +599,8 @@ function ObjectNode({
         interactive={interactive}
         onSelectObject={onSelectObject}
         onAction={onAction}
-        tags={tags}
         renderContext={renderContext}
+        runtimeDisabled={runtimeDisabled}
         forceFrame={showObjectFrames}
       />
     );
@@ -592,6 +620,9 @@ function ObjectNode({
             });
             return;
           }
+          if (runtimeDisabled) {
+            return;
+          }
           onAction?.(
             withActionRoleLevel({
               type: "write",
@@ -606,10 +637,11 @@ function ObjectNode({
         <Rect
           width={resolvedObject.width}
           height={resolvedObject.height}
-          fill={fillColor}
+          fill={runtimeDisabled ? "#4a4a4a" : fillColor}
           stroke={resolvedObject.borderColor}
           strokeWidth={resolvedObject.borderWidth ?? 0}
           cornerRadius={8}
+          opacity={runtimeDisabled ? 0.65 : 1}
         />
         {renderBoxText(isOn ? resolvedObject.onText ?? "ON" : resolvedObject.offText ?? "OFF", resolvedObject.textStyle, {
           width: resolvedObject.width,
@@ -641,6 +673,9 @@ function ObjectNode({
             });
             return;
           }
+          if (runtimeDisabled) {
+            return;
+          }
           const nextOption = getNextValueSelectOption(resolvedObject.options, currentIndex);
           if (!nextOption) {
             return;
@@ -653,7 +688,14 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#1f2a38" stroke="#5b6b7c" cornerRadius={6} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={runtimeDisabled ? "#3d3d3d" : "#1f2a38"}
+          stroke={runtimeDisabled ? "#707070" : "#5b6b7c"}
+          cornerRadius={6}
+          opacity={runtimeDisabled ? 0.65 : 1}
+        />
         {renderBoxText(displayText, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
@@ -679,6 +721,7 @@ function ObjectNode({
         onSelectObject={onSelectObject}
         onAction={onAction}
         renderContext={renderContext}
+        runtimeDisabled={runtimeDisabled}
         forceFrame={showObjectFrames}
       />
     );
@@ -713,6 +756,7 @@ function ObjectNode({
         onSelectObject={onSelectObject}
         onAction={onAction}
         renderContext={renderContext}
+        runtimeDisabled={runtimeDisabled}
         forceFrame={showObjectFrames}
       />
     );
@@ -731,11 +775,13 @@ function ObjectNode({
         frameStack={frameStack}
         instanceStack={instanceStack}
         interactive={interactive}
+        inheritedDisabled={runtimeDisabled}
         onSelectObject={onSelectObject}
         onMoveObject={onMoveObject}
         onResizeObject={onResizeObject}
         onAction={onAction}
         commonGroupProps={commonGroupProps}
+        runtimeDisabled={runtimeDisabled}
       />
     );
   }
@@ -803,6 +849,7 @@ function ObjectNode({
         onAction={onAction}
         commonGroupProps={commonGroupProps}
         scopedAssets={scopedAssets}
+        inheritedDisabled={runtimeDisabled}
       />
     );
   }
@@ -851,6 +898,7 @@ function GroupNode({
   frameStack,
   instanceStack,
   interactive,
+  inheritedDisabled,
   selected,
   onSelectObject,
   onMoveObject,
@@ -871,6 +919,7 @@ function GroupNode({
   frameStack: string[];
   instanceStack: string[];
   interactive: boolean;
+  inheritedDisabled: boolean;
   selected: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
@@ -904,6 +953,7 @@ function GroupNode({
         frameStack={frameStack}
         instanceStack={instanceStack}
         interactive={false}
+        inheritedDisabled={inheritedDisabled}
         onSelectObject={onSelectObject}
         onMoveObject={onMoveObject}
         onResizeObject={onResizeObject}
@@ -934,6 +984,7 @@ function FrameNode({
   onAction,
   commonGroupProps,
   scopedAssets,
+  inheritedDisabled,
 }: {
   object: FrameObject;
   selected: boolean;
@@ -950,6 +1001,7 @@ function FrameNode({
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
   commonGroupProps: Record<string, unknown>;
   scopedAssets?: Record<string, Asset>;
+  inheritedDisabled: boolean;
 }) {
   const screen = project.screens.find((item) => item.id === object.screenId);
   const hasCycle = frameStack.includes(object.screenId);
@@ -994,6 +1046,7 @@ function FrameNode({
           frameStack={[...frameStack, screen.id]}
           instanceStack={instanceStack}
           interactive={false}
+          inheritedDisabled={inheritedDisabled}
           onSelectObject={onSelectObject}
           onMoveObject={onMoveObject}
           onResizeObject={onResizeObject}
@@ -1017,11 +1070,13 @@ function LibraryInstanceNode({
   frameStack,
   instanceStack,
   interactive,
+  inheritedDisabled,
   onSelectObject,
   onMoveObject,
   onResizeObject,
   onAction,
   commonGroupProps,
+  runtimeDisabled,
 }: {
   object: LibraryElementInstanceObject;
   selected: boolean;
@@ -1033,11 +1088,13 @@ function LibraryInstanceNode({
   frameStack: string[];
   instanceStack: string[];
   interactive: boolean;
+  inheritedDisabled: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
   commonGroupProps: Record<string, unknown>;
+  runtimeDisabled: boolean;
 }) {
   const library = libraries.find((item) => item.id === object.libraryId);
   if (!library) {
@@ -1141,14 +1198,14 @@ function LibraryInstanceNode({
       onClick={(event) => {
         const baseOnClick = commonGroupProps.onClick as ((evt: KonvaEventObject<MouseEvent>) => void) | undefined;
         baseOnClick?.(event);
-        if (!interactive && object.action) {
+        if (!interactive && !runtimeDisabled && object.action) {
           onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), context);
         }
       }}
       onTap={(event) => {
         const baseOnTap = commonGroupProps.onTap as ((evt: KonvaEventObject<Event>) => void) | undefined;
         baseOnTap?.(event);
-        if (!interactive && object.action) {
+        if (!interactive && !runtimeDisabled && object.action) {
           onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), context);
         }
       }}
@@ -1164,6 +1221,7 @@ function LibraryInstanceNode({
           frameStack={frameStack}
           instanceStack={[...instanceStack, stackKey]}
           interactive={false}
+          inheritedDisabled={inheritedDisabled}
           onSelectObject={onSelectObject}
           onMoveObject={onMoveObject}
           onResizeObject={onResizeObject}
@@ -1188,6 +1246,7 @@ function ImageNode({
   onSelectObject,
   onAction,
   renderContext,
+  runtimeDisabled,
   forceFrame = false,
 }: {
   object: Extract<HmiObject, { type: "image" }>;
@@ -1201,6 +1260,7 @@ function ImageNode({
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
   renderContext: RenderContext;
+  runtimeDisabled: boolean;
   forceFrame?: boolean;
 }) {
   const stateEntry = object.stateImages?.find((item) => String(item.state) === String(stateValue));
@@ -1233,10 +1293,11 @@ function ImageNode({
           });
           return;
         }
-        if (object.action) {
+        if (!runtimeDisabled && object.action) {
           onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), renderContext);
         }
       }}
+      opacity={runtimeDisabled ? 0.65 : 1}
     >
       {source && image ? (
         <KonvaImage
@@ -1308,8 +1369,8 @@ function ButtonNode({
   interactive,
   onSelectObject,
   onAction,
-  tags,
   renderContext,
+  runtimeDisabled,
   forceFrame = false,
 }: {
   object: Extract<HmiObject, { type: "button" }>;
@@ -1321,15 +1382,13 @@ function ButtonNode({
   interactive: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
-  tags: TagMap;
   renderContext: RenderContext;
+  runtimeDisabled: boolean;
   forceFrame?: boolean;
 }) {
   const [pressed, setPressed] = useState(false);
   const [executing, setExecuting] = useState(false);
-  const resolvedDisabledTag = resolveTagName(object.disabledTag, renderContext);
-  const disabledByTag = !interactive && isDisabledTagValueTrue(resolvedDisabledTag ? tags[resolvedDisabledTag]?.value : undefined);
-  const isDisabled = disabledByTag || (!interactive && !onAction) || executing;
+  const isDisabled = runtimeDisabled || (!interactive && !onAction) || executing;
   const normalSrc = resolveAssetUrl(object.backgroundAssetId, {
     projectAssets: project.assets ?? [],
     scopedAssets,
@@ -1552,6 +1611,11 @@ function collectMissingBindingReferencesFromObjects(
   output: Set<string>,
 ) {
   for (const object of objects) {
+    collectMissingBindingReference(object.visibleTag, resolvedBindings, output);
+    collectMissingBindingReference(object.disabledTag, resolvedBindings, output);
+    if ("action" in object && object.action) {
+      collectMissingBindingReferencesFromAction(object.action, resolvedBindings, output);
+    }
     if (object.type === "group") {
       collectMissingBindingReferencesFromObjects(object.objects, resolvedBindings, output);
       continue;
@@ -1567,14 +1631,9 @@ function collectMissingBindingReferencesFromObjects(
     }
     if (object.type === "image") {
       collectMissingBindingReference(object.stateTag, resolvedBindings, output);
-      collectMissingBindingReferencesFromAction(object.action, resolvedBindings, output);
     }
     if (object.type === "valueSelect" && object.target.type === "tag") {
       collectMissingBindingReference(object.target.tag, resolvedBindings, output);
-    }
-    if (object.type === "button") {
-      collectMissingBindingReference(object.disabledTag, resolvedBindings, output);
-      collectMissingBindingReferencesFromAction(object.action, resolvedBindings, output);
     }
     if (object.type === "valve") {
       collectMissingBindingReference(object.openTag, resolvedBindings, output);
@@ -1860,13 +1919,59 @@ function withRuntimeActionContext(context: RenderContext, objectId: string, clic
   };
 }
 
-function isDisabledTagValueTrue(value: unknown): boolean {
-  if (value === true || value === 1) {
+function hasRuntimeStateTag(tag: string | undefined): boolean {
+  return Boolean(tag?.trim());
+}
+
+function resolveObjectVisible(object: HmiObject, tags: TagMap, context: RenderContext): boolean {
+  if (!hasRuntimeStateTag(object.visibleTag)) {
     return true;
+  }
+  const resolvedTag = resolveTagName(object.visibleTag, context);
+  const value = resolvedTag ? tags[resolvedTag]?.value : undefined;
+  const visible = runtimeValueToBoolean(value);
+  return object.visibleInvert ? !visible : visible;
+}
+
+function resolveObjectDisabled(object: HmiObject, tags: TagMap, context: RenderContext): boolean {
+  if (!hasRuntimeStateTag(object.disabledTag)) {
+    return false;
+  }
+  const resolvedTag = resolveTagName(object.disabledTag, context);
+  const value = resolvedTag ? tags[resolvedTag]?.value : undefined;
+  const disabled = runtimeValueToBoolean(value);
+  return object.disabledInvert ? !disabled : disabled;
+}
+
+function runtimeValueToBoolean(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return false;
+    }
+    return value !== 0;
   }
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
-    return normalized === "true" || normalized === "1";
+    if (!normalized) {
+      return false;
+    }
+    if (normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0") {
+      return false;
+    }
+    const numeric = Number(normalized);
+    if (Number.isFinite(numeric)) {
+      return numeric !== 0;
+    }
+    return false;
   }
   return false;
 }

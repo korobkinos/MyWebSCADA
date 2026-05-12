@@ -70,6 +70,10 @@ export type HmiObjectBase = {
   minHeight?: number;
 
   bindings?: HmiBindings;
+  visibleTag?: string;
+  visibleInvert?: boolean;
+  disabledTag?: string;
+  disabledInvert?: boolean;
 };
 
 export type TextObject = HmiObjectBase & {
@@ -226,7 +230,6 @@ export type ButtonObject = HmiObjectBase & {
   type: "button";
   text?: string;
   showText?: boolean;
-  disabledTag?: string;
   backgroundAssetId?: string;
   pressedBackgroundAssetId?: string;
   disabledBackgroundAssetId?: string;

@@ -49,6 +49,10 @@ const hmiBaseSchema = z.object({
   minWidth: z.number().positive().optional(),
   minHeight: z.number().positive().optional(),
   bindings: hmiBindingsSchema,
+  visibleTag: z.string().optional(),
+  visibleInvert: z.boolean().optional(),
+  disabledTag: z.string().optional(),
+  disabledInvert: z.boolean().optional(),
 });
 
 const assetTypeSchema = z.enum(["png", "jpg", "jpeg", "svg"]);
@@ -239,7 +243,6 @@ const buttonObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   type: z.literal("button"),
   text: z.string().optional(),
   showText: z.boolean().optional(),
-  disabledTag: z.string().optional(),
   backgroundAssetId: z.string().optional(),
   pressedBackgroundAssetId: z.string().optional(),
   disabledBackgroundAssetId: z.string().optional(),

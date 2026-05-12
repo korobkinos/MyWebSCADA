@@ -13195,7 +13195,7 @@
       "description": "",
       "language": "javascript-lite",
       "code": "const current = Number(api.readVariable('Counter2') ?? 0); \napi.writeVariable('Counter2', current + 1);",
-      "enabled": true,
+      "enabled": false,
       "triggers": [
         {
           "type": "interval",
@@ -13536,7 +13536,7 @@
           "y": 319,
           "width": 220,
           "height": 36,
-          "tag": "LW.Counter2",
+          "tag": "Counter2",
           "suffix": " cnt",
           "textStyle": {
             "fontFamily": "Consolas",
@@ -13796,6 +13796,7 @@
           "opacity": 1,
           "minWidth": 20,
           "minHeight": 20,
+          "visibleTag": "Counter2",
           "fill": "#07ec03",
           "stroke": "#8c8c8c",
           "strokeWidth": 2,
@@ -13810,7 +13811,7 @@
           "height": 44,
           "minWidth": 70,
           "minHeight": 28,
-          "tag": "VALVES.PZK_2.OpenCmd",
+          "tag": "Counter2",
           "onText": "ON",
           "offText": "OFF",
           "textStyle": {
@@ -13834,6 +13835,7 @@
           "requiredActionRole": 1,
           "minWidth": 60,
           "minHeight": 24,
+          "disabledTag": "Counter2",
           "text": "На второй экран",
           "showText": true,
           "backgroundColor": "#0958d9",
@@ -14009,6 +14011,27 @@
           "assetId": "60a1cdd8-ccb3-4b8b-8544-5ba787ee1da2",
           "fit": "contain",
           "preserveAspectRatio": true
+        },
+        {
+          "id": "text_chke7j",
+          "type": "text",
+          "x": 1030.9860349739415,
+          "y": 21.888619854721572,
+          "width": 358.21079194215974,
+          "height": 40.00000000000007,
+          "rotation": 0,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "ТЕСТ ТЕСТ ТЕСТ",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 37,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
         }
       ]
     },

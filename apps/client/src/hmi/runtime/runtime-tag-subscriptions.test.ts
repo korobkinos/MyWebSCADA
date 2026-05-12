@@ -143,6 +143,7 @@ describe("collectRuntimeTagSubscriptions", () => {
           text: "Open",
           showText: true,
           disabledTag: ".DisableOpen",
+          visibleTag: ".ShowOpen",
           textStyle: {
             fontFamily: "Arial",
             fontSize: 14,
@@ -186,6 +187,7 @@ describe("collectRuntimeTagSubscriptions", () => {
     });
 
     expect(subscriptions).toContain("VALVES.PZK_1.DisableOpen");
+    expect(subscriptions).toContain("VALVES.PZK_1.ShowOpen");
     expect(subscriptions).toContain("VALVES.PZK_1.OpenCmd");
   });
 });

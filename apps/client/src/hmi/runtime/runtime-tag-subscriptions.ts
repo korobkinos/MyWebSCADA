@@ -95,6 +95,9 @@ function collectObjectTags(
 ): void {
   const resolvedObject = resolveObjectParameters(object, context.parameters ?? {});
 
+  addTag(out, resolvedObject.visibleTag, context);
+  addTag(out, resolvedObject.disabledTag, context);
+
   if ("action" in resolvedObject && resolvedObject.action) {
     collectActionTags(resolvedObject.action, context, out);
   }
@@ -114,9 +117,6 @@ function collectObjectTags(
       return;
     case "image":
       addTag(out, resolvedObject.stateTag, context);
-      return;
-    case "button":
-      addTag(out, resolvedObject.disabledTag, context);
       return;
     case "valueSelect":
       if (resolvedObject.target.type === "tag") {
