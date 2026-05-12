@@ -1,5 +1,5 @@
 import { Typography } from "antd";
-import { UserManagementPanel } from "../components/workbench";
+import { UserManagementPanel } from "../components/workbench/user-management-panel";
 import { useScadaStore } from "../store/scada-store";
 
 export function UsersPage() {

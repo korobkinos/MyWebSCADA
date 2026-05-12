@@ -1258,7 +1258,7 @@ export function EditorPage() {
           onSaveProject={handleSaveProject}
           isSavingProject={isSavingProject}
           canUsersView={canUsersView}
-          onOpenUserManagement={() => openDefinedWindow("userManagement")}
+          onOpenUserManagement={() => navigate("/users")}
         />
       ),
     },
@@ -1527,7 +1527,7 @@ export function EditorPage() {
     { id: "layers", title: "Layers", icon: <UnorderedListOutlined />, active: isWindowOpen("layers"), onClick: () => openDefinedWindow("layers") },
     { id: "projectSettings", title: "Project Settings", icon: <SettingOutlined />, active: isWindowOpen("projectSettings"), onClick: () => openDefinedWindow("projectSettings") },
     canUsersView
-      ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: isWindowOpen("userManagement"), onClick: () => openDefinedWindow("userManagement") }
+      ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: false, onClick: () => navigate("/users") }
       : null,
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 

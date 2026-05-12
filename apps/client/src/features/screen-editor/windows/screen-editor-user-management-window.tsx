@@ -1,4 +1,4 @@
-import { UserManagementPanel } from "../../../components/workbench";
+import { UserManagementPanel } from "../../../components/workbench/user-management-panel";
 
 type ScreenEditorUserManagementWindowProps = {
   canWrite: boolean;

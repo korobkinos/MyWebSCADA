@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { Component, lazy, Suspense, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   DashboardOutlined,
@@ -206,26 +206,6 @@ export function App() {
     );
   }
 
-  if (isEditorRoute) {
-    return (
-      <ConfigProvider theme={themeConfig}>
-        <Suspense fallback={<CenteredSpinner />}>
-          <Routes>
-            <Route
-              path="/editor"
-              element={
-                <RequirePermission permission="editor.view">
-                  <EditorPage />
-                </RequirePermission>
-              }
-            />
-            <Route path="*" element={<Navigate to="/editor" replace />} />
-          </Routes>
-        </Suspense>
-      </ConfigProvider>
-    );
-  }
-
   if (!project) {
     if (bootError) {
       return (
@@ -244,6 +224,26 @@ export function App() {
       );
     }
     return <CenteredSpinner />;
+  }
+
+  if (isEditorRoute) {
+    return (
+      <ConfigProvider theme={themeConfig}>
+        <Suspense fallback={<CenteredSpinner />}>
+          <Routes>
+            <Route
+              path="/editor"
+              element={
+                <RequirePermission permission="editor.view">
+                  <EditorPage />
+                </RequirePermission>
+              }
+            />
+            <Route path="*" element={<Navigate to="/editor" replace />} />
+          </Routes>
+        </Suspense>
+      </ConfigProvider>
+    );
   }
 
   if (isRuntimeRoute) {
@@ -419,7 +419,18 @@ export function App() {
           <Suspense fallback={<CenteredSpinner />}>
             <div className="app-content-inner">
               <Routes>
-                <Route path="/editor" element={<RequirePermission permission="editor.view"><FillPage><EditorPage /></FillPage></RequirePermission>} />
+                <Route
+                  path="/editor"
+                  element={
+                    <RequirePermission permission="editor.view">
+                      <FillPage>
+                        <ViewErrorBoundary viewName="Editor">
+                          <EditorPage />
+                        </ViewErrorBoundary>
+                      </FillPage>
+                    </RequirePermission>
+                  }
+                />
                 <Route path="/screens" element={<RequirePermission permission="screens.view"><ScrollPage><ScreensPage /></ScrollPage></RequirePermission>} />
                 <Route path="/tags" element={<RequirePermission permission="tags.view"><FillPage><TagsPage /></FillPage></RequirePermission>} />
                 <Route path="/drivers" element={<RequirePermission permission="drivers.view"><FillPage><DriversPage /></FillPage></RequirePermission>} />
@@ -429,7 +440,18 @@ export function App() {
                 <Route path="/element-editor" element={<RequirePermission permission="elements.view"><FillPage><ElementEditorPage /></FillPage></RequirePermission>} />
                 <Route path="/project" element={<RequirePermission permission="settings.view"><ScrollPage><ProjectPage /></ScrollPage></RequirePermission>} />
                 <Route path="/settings" element={<RequirePermission permission="settings.view"><ScrollPage><SettingsPage /></ScrollPage></RequirePermission>} />
-                <Route path="/users" element={<RequirePermission permission="users.view"><ScrollPage><UsersPage /></ScrollPage></RequirePermission>} />
+                <Route
+                  path="/users"
+                  element={
+                    <RequirePermission permission="users.view">
+                      <ScrollPage>
+                        <ViewErrorBoundary viewName="Users">
+                          <UsersPage />
+                        </ViewErrorBoundary>
+                      </ScrollPage>
+                    </RequirePermission>
+                  }
+                />
                 <Route path="*" element={<Navigate to="/runtime" replace />} />
               </Routes>
             </div>
@@ -477,4 +499,45 @@ function CenteredSpinner() {
       <Spin size="large" />
     </div>
   );
+}
+
+type ViewErrorBoundaryProps = {
+  viewName: string;
+  children: ReactNode;
+};
+
+type ViewErrorBoundaryState = {
+  hasError: boolean;
+  message?: string;
+};
+
+class ViewErrorBoundary extends Component<ViewErrorBoundaryProps, ViewErrorBoundaryState> {
+  public constructor(props: ViewErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  public static getDerivedStateFromError(error: unknown): ViewErrorBoundaryState {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  public override componentDidCatch(error: unknown, errorInfo: ErrorInfo): void {
+    // eslint-disable-next-line no-console
+    console.error(`[${this.props.viewName}] render error`, error, errorInfo);
+  }
+
+  public override render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 24 }}>
+          <Typography.Title level={4}>{this.props.viewName} crashed</Typography.Title>
+          <Typography.Text type="secondary">{this.state.message ?? "Unknown render error"}</Typography.Text>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }

@@ -182,29 +182,39 @@ export function UserManagementPanel({ canWrite, canDelete, canChangePassword }: 
           <WorkbenchInput
             label="Username"
             value={createDraft.username}
-            onChange={(event) => setCreateDraft((prev) => ({ ...prev, username: event.currentTarget.value }))}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setCreateDraft((prev) => ({ ...prev, username: value }));
+            }}
           />
           <WorkbenchInput
             label="Display name"
             value={createDraft.displayName}
-            onChange={(event) => setCreateDraft((prev) => ({ ...prev, displayName: event.currentTarget.value }))}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setCreateDraft((prev) => ({ ...prev, displayName: value }));
+            }}
           />
           <WorkbenchInput
             label="Password"
             type="password"
             value={createPassword}
-            onChange={(event) => setCreatePassword(event.currentTarget.value)}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setCreatePassword(value);
+            }}
           />
           <WorkbenchSelect
             label="Role level"
             value={String(createDraft.roleLevel)}
             options={roleLevelOptions.map((item) => ({ ...item }))}
-            onChange={(event) =>
+            onChange={(event) => {
+              const roleLevel = clampAccessRoleLevel(Number(event.currentTarget.value), 1);
               setCreateDraft((prev) => ({
                 ...prev,
-                roleLevel: clampAccessRoleLevel(Number(event.currentTarget.value), 1),
-              }))
-            }
+                roleLevel,
+              }));
+            }}
           />
           <label className="screen-editor-settings-check">
             <input
@@ -263,23 +273,30 @@ export function UserManagementPanel({ canWrite, canDelete, canChangePassword }: 
             <WorkbenchInput
               label="Username"
               value={editDraft.username}
-              onChange={(event) => setEditDraft((prev) => ({ ...prev, username: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setEditDraft((prev) => ({ ...prev, username: value }));
+              }}
             />
             <WorkbenchInput
               label="Display name"
               value={editDraft.displayName}
-              onChange={(event) => setEditDraft((prev) => ({ ...prev, displayName: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setEditDraft((prev) => ({ ...prev, displayName: value }));
+              }}
             />
             <WorkbenchSelect
               label="Role level"
               value={String(editDraft.roleLevel)}
               options={roleLevelOptions.map((item) => ({ ...item }))}
-              onChange={(event) =>
+              onChange={(event) => {
+                const roleLevel = clampAccessRoleLevel(Number(event.currentTarget.value), 1);
                 setEditDraft((prev) => ({
                   ...prev,
-                  roleLevel: clampAccessRoleLevel(Number(event.currentTarget.value), 1),
-                }))
-              }
+                  roleLevel,
+                }));
+              }}
             />
             <label className="screen-editor-settings-check">
               <input
@@ -337,13 +354,19 @@ export function UserManagementPanel({ canWrite, canDelete, canChangePassword }: 
               label="New password"
               type="password"
               value={passwordDraft.newPassword}
-              onChange={(event) => setPasswordDraft((prev) => ({ ...prev, newPassword: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setPasswordDraft((prev) => ({ ...prev, newPassword: value }));
+              }}
             />
             <WorkbenchInput
               label="Confirm password"
               type="password"
               value={passwordDraft.confirmPassword}
-              onChange={(event) => setPasswordDraft((prev) => ({ ...prev, confirmPassword: event.currentTarget.value }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setPasswordDraft((prev) => ({ ...prev, confirmPassword: value }));
+              }}
             />
             <div className="runtime-access-dialog__text">
               Current level: <strong>{selectedUserRoleLevel} — {ACCESS_ROLE_LABELS_RU[selectedUserRoleLevel]}</strong>
