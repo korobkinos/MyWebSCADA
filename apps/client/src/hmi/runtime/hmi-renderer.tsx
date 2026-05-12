@@ -540,7 +540,7 @@ function ObjectNode({
               confirm: resolvedObject.confirm,
               confirmText: resolvedObject.confirmText,
             }, resolvedObject.requiredActionRole),
-            renderContext,
+            withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
           );
         }}
       >
@@ -629,7 +629,7 @@ function ObjectNode({
               tag: resolvedObject.tag,
               value: !isOn,
             }, resolvedObject.requiredActionRole),
-            renderContext,
+            withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
           );
         }}
       >
@@ -684,7 +684,10 @@ function ObjectNode({
           if (!action) {
             return;
           }
-          onAction?.(withActionRoleLevel(action, resolvedObject.requiredActionRole), renderContext);
+          onAction?.(
+            withActionRoleLevel(action, resolvedObject.requiredActionRole),
+            withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+          );
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -931,6 +934,13 @@ function GroupNode({
   scopedAssets?: Record<string, Asset>;
   groupProps: Record<string, unknown>;
 }) {
+  const scopedContext = useMemo(
+    () => ({
+      ...renderContext,
+      parameters: withRuntimeScopeParameter(renderContext.parameters, object.id),
+    }),
+    [object.id, renderContext],
+  );
   const virtualScreen: HmiScreen = {
     id: object.id,
     name: object.name ?? object.id,
@@ -949,7 +959,7 @@ function GroupNode({
         mode={mode}
         tags={tags}
         libraries={libraries}
-        renderContext={renderContext}
+        renderContext={scopedContext}
         frameStack={frameStack}
         instanceStack={instanceStack}
         interactive={false}
@@ -1008,7 +1018,7 @@ function FrameNode({
 
   const context: RenderContext = {
     tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
-    parameters: renderContext.parameters,
+    parameters: withRuntimeScopeParameter(renderContext.parameters, object.id),
     bindings: renderContext.bindings,
   };
 
@@ -1113,8 +1123,11 @@ function LibraryInstanceNode({
 
   const instanceParams = toResolvedParameterMap(element, object.parameterValues);
   const mergedParameters = useMemo(
-    () => ({ ...(renderContext.parameters ?? {}), ...instanceParams }),
-    [instanceParams, renderContext.parameters],
+    () => ({
+      ...withRuntimeScopeParameter(renderContext.parameters, object.id),
+      ...instanceParams,
+    }),
+    [instanceParams, object.id, renderContext.parameters],
   );
   const runtimeResolveContext: RuntimeResolveContext = useMemo(
     () => ({
@@ -1199,14 +1212,20 @@ function LibraryInstanceNode({
         const baseOnClick = commonGroupProps.onClick as ((evt: KonvaEventObject<MouseEvent>) => void) | undefined;
         baseOnClick?.(event);
         if (!interactive && !runtimeDisabled && object.action) {
-          onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), context);
+          onAction?.(
+            withActionRoleLevel(object.action, object.requiredActionRole),
+            withRuntimeActionContext(context, object.id, performance.now(), object.name),
+          );
         }
       }}
       onTap={(event) => {
         const baseOnTap = commonGroupProps.onTap as ((evt: KonvaEventObject<Event>) => void) | undefined;
         baseOnTap?.(event);
         if (!interactive && !runtimeDisabled && object.action) {
-          onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), context);
+          onAction?.(
+            withActionRoleLevel(object.action, object.requiredActionRole),
+            withRuntimeActionContext(context, object.id, performance.now(), object.name),
+          );
         }
       }}
     >
@@ -1294,7 +1313,10 @@ function ImageNode({
           return;
         }
         if (!runtimeDisabled && object.action) {
-          onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), renderContext);
+          onAction?.(
+            withActionRoleLevel(object.action, object.requiredActionRole),
+            withRuntimeActionContext(renderContext, object.id, performance.now(), object.name),
+          );
         }
       }}
       opacity={runtimeDisabled ? 0.65 : 1}
@@ -1450,7 +1472,7 @@ function ButtonNode({
           return;
         }
         if (!isDisabled) {
-          const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now());
+          const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name);
           setExecuting(true);
           const result = onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), nextContext);
           if (result && typeof (result as Promise<void>).finally === "function") {
@@ -1908,15 +1930,50 @@ function resolveObjectParameters(object: HmiObject, params: Record<string, unkno
   return resolveParameters(object, params) as HmiObject;
 }
 
-function withRuntimeActionContext(context: RenderContext, objectId: string, clickTs: number): RenderContext {
+function withRuntimeActionContext(
+  context: RenderContext,
+  objectId: string,
+  clickTs: number,
+  objectName?: string,
+): RenderContext {
+  const runtimeObjectId = objectId.trim();
+  const runtimeObjectScope = resolveRuntimeActionScope(context.parameters, runtimeObjectId);
+  const resolvedObjectName = typeof objectName === "string" && objectName.trim() ? objectName.trim() : undefined;
   return {
     ...context,
     parameters: {
       ...(context.parameters ?? {}),
-      __runtimeObjectId: objectId,
+      __runtimeObjectId: runtimeObjectId,
+      __runtimeObjectScope: runtimeObjectScope,
+      __runtimeObjectName: resolvedObjectName,
       __actionClickTs: clickTs,
     },
   };
+}
+
+function withRuntimeScopeParameter(
+  parameters: Record<string, unknown> | undefined,
+  objectId: string,
+): Record<string, unknown> {
+  const runtimeObjectId = objectId.trim();
+  const runtimeObjectScope = resolveRuntimeActionScope(parameters, runtimeObjectId);
+  return {
+    ...(parameters ?? {}),
+    __runtimeObjectScope: runtimeObjectScope,
+  };
+}
+
+function resolveRuntimeActionScope(
+  parameters: Record<string, unknown> | undefined,
+  objectId: string,
+): string {
+  const parentScope = typeof parameters?.__runtimeObjectScope === "string"
+    ? parameters.__runtimeObjectScope.trim()
+    : "";
+  if (!parentScope) {
+    return objectId;
+  }
+  return `${parentScope}>${objectId}`;
 }
 
 function hasRuntimeStateTag(tag: string | undefined): boolean {

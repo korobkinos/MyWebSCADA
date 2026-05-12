@@ -84,6 +84,17 @@ function resolveRequestUrl(url: string): string {
   return `${API_BASE_URL}${url}`;
 }
 
+function sanitizeMacroId(id: unknown): string {
+  if (id === undefined || id === null) {
+    throw new Error("Invalid macro id");
+  }
+  const macroId = String(id).trim();
+  if (!macroId || macroId === "undefined" || macroId === "null") {
+    throw new Error("Invalid macro id");
+  }
+  return macroId;
+}
+
 async function request<T>(url: string, init?: RequestInit, options?: RequestOptions): Promise<T> {
   const token = getEngineerToken();
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -280,8 +291,9 @@ export const api = {
     id: string,
     args?: Record<string, unknown>,
     options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown>; signal?: AbortSignal; commandMeta?: ManualCommandMeta },
-  ) =>
-    request<MacroRunResult>(`/api/macros/${encodeURIComponent(id)}/run`, {
+  ) => {
+    const macroId = sanitizeMacroId(id);
+    return request<MacroRunResult>(`/api/macros/${encodeURIComponent(macroId)}/run`, {
       method: "POST",
       signal: options?.signal,
       body: JSON.stringify({
@@ -290,7 +302,8 @@ export const api = {
         context: options?.context,
         commandMeta: options?.commandMeta,
       }),
-    }),
+    });
+  },
   writeTag: (name: string, value: boolean | number | string | null, options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta }) =>
     request<{ ok: boolean }>(`/api/tags/${encodeURIComponent(name)}/write`, {
       method: "POST",
