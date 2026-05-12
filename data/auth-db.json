@@ -1,0 +1,48 @@
+{
+  "users": [
+    {
+      "id": "8727a5f2-a79e-4aee-a9c7-441d81b890cb",
+      "username": "admin",
+      "displayName": "Administrator",
+      "enabled": true,
+      "roles": [
+        "admin"
+      ],
+      "roleLevel": 4,
+      "permissions": [],
+      "createdAt": "2026-05-08T07:59:46.962Z",
+      "updatedAt": "2026-05-12T08:50:24.785Z",
+      "lastLoginAt": "2026-05-12T08:50:24.785Z",
+      "passwordHash": "$2b$12$Zg1FuvMDni8Mq5SVOls8dOrw0UOwJmeuhSHIFKqaxZ0nkLa.F9BMu",
+      "passwordAlgorithm": "bcrypt"
+    },
+    {
+      "id": "54e740be-1d2c-411f-8542-a4ffe52cf3c0",
+      "username": "user",
+      "displayName": "Чувак",
+      "enabled": true,
+      "roles": [
+        "operator"
+      ],
+      "roleLevel": 1,
+      "permissions": [],
+      "createdAt": "2026-05-12T08:45:45.105Z",
+      "updatedAt": "2026-05-12T08:46:53.100Z",
+      "lastLoginAt": "2026-05-12T08:46:53.100Z",
+      "passwordHash": "$2b$12$m/OsLBBk600bXGDuF6141.t5P9h9CdpzQrfT6RGJO401MtmrVnOX.",
+      "passwordAlgorithm": "bcrypt"
+    }
+  ],
+  "passwordPolicies": [
+    {
+      "id": "default",
+      "minLength": 3,
+      "requireUppercase": false,
+      "requireLowercase": false,
+      "requireDigit": false,
+      "requireSpecialChar": false,
+      "updatedAt": "2026-05-12T08:44:59.520Z",
+      "updatedBy": "system"
+    }
+  ]
+}

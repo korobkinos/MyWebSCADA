@@ -11,13 +11,16 @@ import {
   type MacroDefinition,
   type MacroTrigger,
   type OpcUaDriverConfig,
+  type PasswordPolicy,
   type ScadaProject,
   type UpdateUserRequest,
+  getUserRoleLevel,
   libraryElementSchema,
+  normalizePasswordPolicy,
   projectSchema,
 } from "@web-scada/shared";
 import { z } from "zod";
-import { AuthService } from "../auth/auth-service.js";
+import { AuthService, AuthValidationError } from "../auth/auth-service.js";
 import { AssetService } from "../assets/asset-service.js";
 import { DriverManager } from "../drivers/driver-manager.js";
 import {
@@ -98,20 +101,29 @@ const loginSchema: z.ZodType<AuthLoginRequest> = z.object({
 });
 const changeOwnPasswordSchema: z.ZodType<ChangeOwnPasswordRequest> = z.object({
   oldPassword: z.string().min(1),
-  newPassword: z.string().min(4),
+  newPassword: z.string().min(1),
 });
 const adminChangePasswordSchema: z.ZodType<AdminChangePasswordRequest> = z.object({
-  newPassword: z.string().min(4),
+  newPassword: z.string().min(1),
+  repeatPassword: z.string().min(1).optional(),
 });
 const accessRoleLevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 const createUserSchema: z.ZodType<CreateUserRequest> = z.object({
   username: z.string().min(1),
   displayName: z.string().optional(),
-  password: z.string().min(4),
+  password: z.string().min(1),
+  repeatPassword: z.string().min(1).optional(),
   roles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),
   roleLevel: accessRoleLevelSchema.optional(),
   permissions: z.array(permissionSchema).optional(),
   enabled: z.boolean().optional(),
+});
+const passwordPolicySchema: z.ZodType<PasswordPolicy> = z.object({
+  minLength: z.number().int().min(3),
+  requireUppercase: z.boolean(),
+  requireLowercase: z.boolean(),
+  requireDigit: z.boolean(),
+  requireSpecialChar: z.boolean(),
 });
 const updateUserSchema: z.ZodType<UpdateUserRequest> = z.object({
   username: z.string().min(1).optional(),
@@ -212,6 +224,7 @@ const opcUaDisconnectSchema = z.object({
 type AuthContext = {
   userId: string;
   permissions: Set<AppPermission>;
+  roleLevel: number;
 };
 
 function tokenFromRequest(request: { headers: Record<string, unknown> }): string | undefined {
@@ -235,6 +248,7 @@ async function requireAuth(request: FastifyRequest, reply: FastifyReply, deps: A
   return {
     userId: user.id,
     permissions: new Set(user.permissions),
+    roleLevel: getUserRoleLevel(user),
   };
 }
 
@@ -257,6 +271,48 @@ async function requirePermission(
     return null;
   }
   return auth;
+}
+
+async function requireSuperadmin(request: FastifyRequest, reply: FastifyReply, deps: ApiDeps): Promise<AuthContext | null> {
+  const auth = await requireAuth(request, reply, deps);
+  if (!auth) {
+    return null;
+  }
+  if (auth.roleLevel < 4) {
+    await reply.code(403).send({
+      error: "Forbidden",
+      message: "Superadmin role is required",
+    });
+    return null;
+  }
+  return auth;
+}
+
+function sendAuthError(reply: FastifyReply, error: unknown): FastifyReply {
+  if (error instanceof AuthValidationError) {
+    return reply.code(400).send({
+      error: "Validation Error",
+      message: error.message,
+      errors: error.details,
+    });
+  }
+  if (error instanceof z.ZodError) {
+    return reply.code(400).send({
+      error: "Validation Error",
+      message: "Invalid request payload",
+      errors: error.issues.map((issue) => issue.message),
+    });
+  }
+  if (error instanceof Error) {
+    return reply.code(400).send({
+      error: "Bad Request",
+      message: error.message,
+    });
+  }
+  return reply.code(400).send({
+    error: "Bad Request",
+    message: String(error),
+  });
 }
 
 function resolveOpcUaConfigFromPayload(
@@ -430,9 +486,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     if (!auth) {
       return;
     }
-    const payload = changeOwnPasswordSchema.parse(request.body);
-    await deps.authService.changeOwnPassword(auth.userId, payload.oldPassword, payload.newPassword);
-    return reply.send({ ok: true });
+    try {
+      const payload = changeOwnPasswordSchema.parse(request.body);
+      await deps.authService.changeOwnPassword(auth.userId, payload.oldPassword, payload.newPassword);
+      return reply.send({ ok: true });
+    } catch (error) {
+      return sendAuthError(reply, error);
+    }
   });
 
   app.get("/api/users", async (request, reply) => {
@@ -448,9 +508,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     if (!auth) {
       return;
     }
-    const payload = createUserSchema.parse(request.body);
-    const created = await deps.authService.createUser(payload);
-    return reply.send(created);
+    try {
+      const payload = createUserSchema.parse(request.body);
+      const created = await deps.authService.createUser(payload);
+      return reply.send(created);
+    } catch (error) {
+      return sendAuthError(reply, error);
+    }
   });
 
   app.put("/api/users/:id", async (request, reply) => {
@@ -458,10 +522,14 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     if (!auth) {
       return;
     }
-    const { id } = request.params as { id: string };
-    const payload = updateUserSchema.parse(request.body);
-    const updated = await deps.authService.updateUser(id, payload);
-    return reply.send(updated);
+    try {
+      const { id } = request.params as { id: string };
+      const payload = updateUserSchema.parse(request.body);
+      const updated = await deps.authService.updateUser(id, payload);
+      return reply.send(updated);
+    } catch (error) {
+      return sendAuthError(reply, error);
+    }
   });
 
   app.delete("/api/users/:id", async (request, reply) => {
@@ -469,9 +537,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     if (!auth) {
       return;
     }
-    const { id } = request.params as { id: string };
-    await deps.authService.deleteUser(id);
-    return reply.send({ ok: true });
+    try {
+      const { id } = request.params as { id: string };
+      await deps.authService.deleteUser(id);
+      return reply.send({ ok: true });
+    } catch (error) {
+      return sendAuthError(reply, error);
+    }
   });
 
   app.post("/api/users/:id/change-password", async (request, reply) => {
@@ -479,10 +551,36 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     if (!auth) {
       return;
     }
-    const { id } = request.params as { id: string };
-    const payload = adminChangePasswordSchema.parse(request.body);
-    await deps.authService.changePasswordByAdmin(id, payload);
-    return reply.send({ ok: true });
+    try {
+      const { id } = request.params as { id: string };
+      const payload = adminChangePasswordSchema.parse(request.body);
+      await deps.authService.changePasswordByAdmin(id, payload);
+      return reply.send({ ok: true });
+    } catch (error) {
+      return sendAuthError(reply, error);
+    }
+  });
+
+  app.get("/api/security/password-policy", async (request, reply) => {
+    const auth = await requireAuth(request, reply, deps);
+    if (!auth) {
+      return;
+    }
+    return reply.send(await deps.authService.getPasswordPolicy());
+  });
+
+  app.put("/api/security/password-policy", async (request, reply) => {
+    const auth = await requireSuperadmin(request, reply, deps);
+    if (!auth) {
+      return;
+    }
+    try {
+      const payload = passwordPolicySchema.parse(request.body);
+      const normalized = normalizePasswordPolicy(payload);
+      return reply.send(await deps.authService.updatePasswordPolicy(normalized, auth.userId));
+    } catch (error) {
+      return sendAuthError(reply, error);
+    }
   });
 
   app.get("/api/project", async () => deps.projectService.getProject());

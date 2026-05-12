@@ -20,7 +20,8 @@ import { WebSocketGateway } from "./websocket/websocket-gateway.js";
 const port = Number(process.env.PORT ?? 3001);
 const projectFile = path.resolve(process.cwd(), process.env.PROJECT_FILE ?? "../../projects/demo-project.json");
 const librariesRoot = path.resolve(process.cwd(), process.env.LIBRARIES_DIR ?? "../../libraries");
-const usersFile = path.resolve(process.cwd(), process.env.USERS_FILE ?? "../../data/users.json");
+const authDbFile = path.resolve(process.cwd(), process.env.AUTH_DB_FILE ?? "../../data/auth-db.json");
+const legacyUsersFile = path.resolve(process.cwd(), process.env.USERS_FILE ?? "../../data/users.json");
 const defaultAdminUsername = process.env.DEFAULT_ADMIN_USERNAME ?? "admin";
 const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD ?? process.env.ENGINEER_PASSWORD ?? "1234";
 
@@ -44,10 +45,14 @@ async function bootstrap(): Promise<void> {
   const commandService = new CommandService(tagStore, driverManager, internalVariableService);
   const macroService = new MacroService(tagStore, commandService, internalVariableService);
   const runtimeService = new RuntimeService(tagStore, driverManager, internalVariableService, macroService);
-  const authService = new AuthService(usersFile, {
-    username: defaultAdminUsername,
-    password: defaultAdminPassword,
-  });
+  const authService = new AuthService(
+    authDbFile,
+    {
+      username: defaultAdminUsername,
+      password: defaultAdminPassword,
+    },
+    legacyUsersFile,
+  );
   const wsGateway = new WebSocketGateway(tagStore, commandService, runtimeService);
 
   const project = await projectService.loadProject();

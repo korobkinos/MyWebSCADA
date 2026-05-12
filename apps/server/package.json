@@ -16,6 +16,7 @@
     "@fastify/multipart": "^9.2.1",
     "@fastify/websocket": "^11.0.1",
     "@web-scada/shared": "workspace:*",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
     "modbus-serial": "^8.0.22",

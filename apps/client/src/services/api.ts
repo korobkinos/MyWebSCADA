@@ -10,6 +10,7 @@ import type {
   LibraryElement,
   MacroDefinition,
   MacroRunResult,
+  PasswordPolicy,
   RuntimeState,
   ScadaProject,
   TagSnapshot,
@@ -154,6 +155,9 @@ export const api = {
   deleteUser: (id: string) => request<{ ok: boolean }>(`/api/users/${encodeURIComponent(id)}`, { method: "DELETE" }),
   changeUserPassword: (id: string, payload: AdminChangePasswordRequest) =>
     request<{ ok: boolean }>(`/api/users/${encodeURIComponent(id)}/change-password`, { method: "POST", body: JSON.stringify(payload) }),
+  getPasswordPolicy: () => request<PasswordPolicy>("/api/security/password-policy"),
+  updatePasswordPolicy: (payload: PasswordPolicy) =>
+    request<PasswordPolicy>("/api/security/password-policy", { method: "PUT", body: JSON.stringify(payload) }),
 
   getProject: () => request<ScadaProject>("/api/project"),
   saveProject: (project: ScadaProject) =>

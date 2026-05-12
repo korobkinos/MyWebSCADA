@@ -2,11 +2,13 @@ import { forwardRef, type InputHTMLAttributes } from "react";
 
 type WorkbenchInputProps = InputHTMLAttributes<HTMLInputElement> & {
   label?: string;
+  errorText?: string;
 };
 
 export const WorkbenchInput = forwardRef<HTMLInputElement, WorkbenchInputProps>(function WorkbenchInput(
   {
     label,
+    errorText,
     className,
     id,
     ...props
@@ -17,7 +19,7 @@ export const WorkbenchInput = forwardRef<HTMLInputElement, WorkbenchInputProps>(
     <input
       ref={ref}
       id={id}
-      className={["workbench-input", className ?? ""].filter(Boolean).join(" ")}
+      className={["workbench-input", errorText ? "workbench-input--error" : "", className ?? ""].filter(Boolean).join(" ")}
       {...props}
     />
   );
@@ -27,9 +29,10 @@ export const WorkbenchInput = forwardRef<HTMLInputElement, WorkbenchInputProps>(
   }
 
   return (
-    <label className="workbench-field">
+    <label className={["workbench-field", errorText ? "workbench-field--error" : ""].filter(Boolean).join(" ")}>
       <span className="workbench-field__label">{label}</span>
       {input}
+      {errorText ? <span className="workbench-field__error">{errorText}</span> : null}
     </label>
   );
 });

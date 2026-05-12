@@ -91,6 +91,7 @@ export type CreateUserRequest = {
   username: string;
   displayName?: string;
   password: string;
+  repeatPassword?: string;
   roles?: AppRole[];
   roleLevel?: AccessRoleLevel;
   permissions?: AppPermission[];
@@ -108,6 +109,7 @@ export type UpdateUserRequest = {
 
 export type AdminChangePasswordRequest = {
   newPassword: string;
+  repeatPassword?: string;
 };
 
 const ACCESS_ROLE_LEVEL_MIN = 0;

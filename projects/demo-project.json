@@ -13829,6 +13829,7 @@
           "width": 305.09363741814803,
           "height": 103.26246189537316,
           "rotation": 0,
+          "requiredActionRole": 1,
           "minWidth": 60,
           "minHeight": 24,
           "text": "На второй экран",
