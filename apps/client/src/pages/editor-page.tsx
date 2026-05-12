@@ -1258,16 +1258,16 @@ export function EditorPage() {
           onSaveProject={handleSaveProject}
           isSavingProject={isSavingProject}
           canUsersView={canUsersView}
-          onOpenUserManagement={() => navigate("/users")}
+          onOpenUserManagement={() => openDefinedWindow("userManagement")}
         />
       ),
     },
     {
       id: "userManagement",
       title: "User Management",
-      defaultRect: { x: 210, y: 110, width: 780, height: 640 },
-      minWidth: 520,
-      minHeight: 360,
+      defaultRect: { x: 170, y: 90, width: 980, height: 660 },
+      minWidth: 700,
+      minHeight: 420,
       render: () => (
         <ScreenEditorUserManagementWindow
           canWrite={canUsersWrite}
@@ -1527,7 +1527,7 @@ export function EditorPage() {
     { id: "layers", title: "Layers", icon: <UnorderedListOutlined />, active: isWindowOpen("layers"), onClick: () => openDefinedWindow("layers") },
     { id: "projectSettings", title: "Project Settings", icon: <SettingOutlined />, active: isWindowOpen("projectSettings"), onClick: () => openDefinedWindow("projectSettings") },
     canUsersView
-      ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: false, onClick: () => navigate("/users") }
+      ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: isWindowOpen("userManagement"), onClick: () => openDefinedWindow("userManagement") }
       : null,
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
 

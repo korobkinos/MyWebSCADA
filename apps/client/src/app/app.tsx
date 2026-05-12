@@ -56,6 +56,7 @@ export function App() {
   const isLoginRoute = location.pathname === "/login";
   const isWorkbenchDemoRoute = location.pathname === "/workbench-demo";
   const isEditorRoute = location.pathname === "/editor";
+  const isUsersRoute = location.pathname === "/users";
   const isProtectedRoute = !isRuntimeRoute && !isLoginRoute && !isWorkbenchDemoRoute;
   const [bootError, setBootError] = useState<string | null>(null);
   const [mainMenuHidden, setMainMenuHidden] = useState<boolean>(() => {
@@ -124,12 +125,12 @@ export function App() {
     const onInvalidAuth = () => {
       logout();
       if (isProtectedRoute) {
-        navigate("/login", { replace: true });
+        navigate("/login", { replace: true, state: { from: location.pathname } });
       }
     };
     window.addEventListener("scada-auth-invalid", onInvalidAuth);
     return () => window.removeEventListener("scada-auth-invalid", onInvalidAuth);
-  }, [isProtectedRoute, logout, navigate]);
+  }, [isProtectedRoute, location.pathname, logout, navigate]);
 
   useEffect(() => {
     const projectTheme = project?.uiSettings?.theme;
@@ -240,6 +241,28 @@ export function App() {
               }
             />
             <Route path="*" element={<Navigate to="/editor" replace />} />
+          </Routes>
+        </Suspense>
+      </ConfigProvider>
+    );
+  }
+
+  if (isUsersRoute) {
+    return (
+      <ConfigProvider theme={themeConfig}>
+        <Suspense fallback={<CenteredSpinner />}>
+          <Routes>
+            <Route
+              path="/users"
+              element={
+                <RequirePermission permission="users.view">
+                  <ViewErrorBoundary viewName="Users">
+                    <UsersPage />
+                  </ViewErrorBoundary>
+                </RequirePermission>
+              }
+            />
+            <Route path="*" element={<Navigate to="/users" replace />} />
           </Routes>
         </Suspense>
       </ConfigProvider>
@@ -440,18 +463,6 @@ export function App() {
                 <Route path="/element-editor" element={<RequirePermission permission="elements.view"><FillPage><ElementEditorPage /></FillPage></RequirePermission>} />
                 <Route path="/project" element={<RequirePermission permission="settings.view"><ScrollPage><ProjectPage /></ScrollPage></RequirePermission>} />
                 <Route path="/settings" element={<RequirePermission permission="settings.view"><ScrollPage><SettingsPage /></ScrollPage></RequirePermission>} />
-                <Route
-                  path="/users"
-                  element={
-                    <RequirePermission permission="users.view">
-                      <ScrollPage>
-                        <ViewErrorBoundary viewName="Users">
-                          <UsersPage />
-                        </ViewErrorBoundary>
-                      </ScrollPage>
-                    </RequirePermission>
-                  }
-                />
                 <Route path="*" element={<Navigate to="/runtime" replace />} />
               </Routes>
             </div>
@@ -467,12 +478,13 @@ function RequirePermission({ permission, children }: { permission: AppPermission
   const authResolved = useScadaStore((s) => s.authResolved);
   const authUser = useScadaStore((s) => s.authUser);
   const hasPermission = useScadaStore((s) => s.hasPermission);
+  const location = useLocation();
 
   if (!authResolved) {
     return <CenteredSpinner />;
   }
   if (!authUser) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
   if (!hasPermission(permission)) {
     return (

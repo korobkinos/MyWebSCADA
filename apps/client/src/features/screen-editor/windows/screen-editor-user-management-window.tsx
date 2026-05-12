@@ -12,7 +12,7 @@ export function ScreenEditorUserManagementWindow({
   canChangePassword,
 }: ScreenEditorUserManagementWindowProps) {
   return (
-    <div className="screen-editor-window-content">
+    <div className="screen-editor-window-content screen-editor-user-management-window">
       <UserManagementPanel
         canWrite={canWrite}
         canDelete={canDelete}

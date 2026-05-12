@@ -5,9 +5,9 @@ import { message } from "antd";
 import { api } from "../../services/api";
 import { useScadaStore } from "../../store/scada-store";
 import { WorkbenchButton } from "./ui/workbench-button";
-import { WorkbenchCollapsibleSection } from "./ui/workbench-collapsible-section";
 import { WorkbenchInput } from "./ui/workbench-input";
 import { WorkbenchSelect } from "./ui/workbench-select";
+import { WorkbenchTabs, type WorkbenchTabItem } from "./ui/workbench-tabs";
 
 type UserManagementPanelProps = {
   canWrite: boolean;
@@ -21,6 +21,8 @@ type UserDraft = {
   enabled: boolean;
   roleLevel: AccessRoleLevel;
 };
+
+type UserEditorTab = "details" | "password" | "create";
 
 function defaultRolesForRoleLevel(roleLevel: AccessRoleLevel): AppRole[] {
   if (roleLevel >= 3) {
@@ -36,10 +38,10 @@ function defaultRolesForRoleLevel(roleLevel: AccessRoleLevel): AppRole[] {
 }
 
 const roleLevelOptions = ([
-  { value: "1", label: `1 — ${ACCESS_ROLE_LABELS_RU[1]}` },
-  { value: "2", label: `2 — ${ACCESS_ROLE_LABELS_RU[2]}` },
-  { value: "3", label: `3 — ${ACCESS_ROLE_LABELS_RU[3]}` },
-  { value: "4", label: `4 — ${ACCESS_ROLE_LABELS_RU[4]}` },
+  { value: "1", label: `1 - ${ACCESS_ROLE_LABELS_RU[1]}` },
+  { value: "2", label: `2 - ${ACCESS_ROLE_LABELS_RU[2]}` },
+  { value: "3", label: `3 - ${ACCESS_ROLE_LABELS_RU[3]}` },
+  { value: "4", label: `4 - ${ACCESS_ROLE_LABELS_RU[4]}` },
 ] as const);
 
 function getDraftFromUser(user: AppUser): UserDraft {
@@ -55,6 +57,7 @@ export function UserManagementPanel({ canWrite, canDelete, canChangePassword }: 
   const authUser = useScadaStore((s) => s.authUser);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<UserEditorTab>("details");
   const [loading, setLoading] = useState(false);
   const [createDraft, setCreateDraft] = useState<UserDraft>({
     username: "",
@@ -78,6 +81,10 @@ export function UserManagementPanel({ canWrite, canDelete, canChangePassword }: 
     () => users.find((user) => user.id === selectedUserId) ?? null,
     [selectedUserId, users],
   );
+
+  const selectedUserRoleLevel = selectedUser
+    ? clampAccessRoleLevel(selectedUser.roleLevel, getUserRoleLevel(selectedUser))
+    : 1;
 
   const loadUsers = async () => {
     setLoading(true);
@@ -108,16 +115,30 @@ export function UserManagementPanel({ canWrite, canDelete, canChangePassword }: 
     }
     setEditDraft(getDraftFromUser(selectedUser));
     setPasswordDraft({ newPassword: "", confirmPassword: "" });
-  }, [selectedUser?.id]);
+  }, [selectedUser]);
 
-  const selectedUserRoleLevel = selectedUser ? clampAccessRoleLevel(selectedUser.roleLevel, getUserRoleLevel(selectedUser)) : 1;
+  const resetCreateForm = () => {
+    setCreateDraft({
+      username: "",
+      displayName: "",
+      enabled: true,
+      roleLevel: 1,
+    });
+    setCreatePassword("");
+  };
+
+  const tabItems: WorkbenchTabItem[] = [
+    { id: "details", title: "Selected User", active: activeTab === "details", onClick: () => setActiveTab("details") },
+    { id: "password", title: "Password / Access", active: activeTab === "password", onClick: () => setActiveTab("password") },
+    { id: "create", title: "Create User", active: activeTab === "create", onClick: () => setActiveTab("create") },
+  ];
 
   return (
-    <div className="user-management-panel">
-      <WorkbenchCollapsibleSection title="USERS LIST" storageKey="users-management.list">
-        <div className="user-management-toolbar">
+    <div className="user-management-window">
+      <div className="user-management-window__toolbar">
+        <div className="user-management-window__toolbar-left">
           <WorkbenchButton onClick={() => void loadUsers()} disabled={loading}>
-            Refresh
+            {loading ? "Refreshing..." : "Refresh"}
           </WorkbenchButton>
           <WorkbenchButton
             variant="danger"
@@ -141,266 +162,283 @@ export function UserManagementPanel({ canWrite, canDelete, canChangePassword }: 
             Delete Selected
           </WorkbenchButton>
         </div>
-        <div className="user-management-table-wrap">
-          <table className="user-management-table">
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => {
-                const roleLevel = clampAccessRoleLevel(user.roleLevel, getUserRoleLevel(user));
-                return (
-                  <tr
-                    key={user.id}
-                    className={user.id === selectedUserId ? "is-selected" : ""}
-                    onClick={() => setSelectedUserId(user.id)}
-                  >
-                    <td>{user.username}</td>
-                    <td>{user.displayName ?? "-"}</td>
-                    <td>{roleLevel} — {ACCESS_ROLE_LABELS_RU[roleLevel]}</td>
-                    <td>{user.enabled ? "Enabled" : "Disabled"}</td>
-                  </tr>
-                );
-              })}
-              {users.length === 0 ? (
+        <div className="user-management-window__toolbar-right">
+          {selectedUser ? (
+            <span>
+              Selected: <strong>{selectedUser.username}</strong>
+            </span>
+          ) : (
+            <span>No user selected</span>
+          )}
+        </div>
+      </div>
+
+      <div className="user-management-window__body">
+        <div className="user-management-window__list-panel">
+          <div className="user-management-table-wrap">
+            <table className="user-management-table">
+              <thead>
                 <tr>
-                  <td colSpan={4}>No users found</td>
+                  <th>Username</th>
+                  <th>Name</th>
+                  <th>Role</th>
+                  <th>Status</th>
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </WorkbenchCollapsibleSection>
-
-      <WorkbenchCollapsibleSection title="CREATE USER" storageKey="users-management.create" defaultCollapsed>
-        <div className="user-management-form-grid">
-          <WorkbenchInput
-            label="Username"
-            value={createDraft.username}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setCreateDraft((prev) => ({ ...prev, username: value }));
-            }}
-          />
-          <WorkbenchInput
-            label="Display name"
-            value={createDraft.displayName}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setCreateDraft((prev) => ({ ...prev, displayName: value }));
-            }}
-          />
-          <WorkbenchInput
-            label="Password"
-            type="password"
-            value={createPassword}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setCreatePassword(value);
-            }}
-          />
-          <WorkbenchSelect
-            label="Role level"
-            value={String(createDraft.roleLevel)}
-            options={roleLevelOptions.map((item) => ({ ...item }))}
-            onChange={(event) => {
-              const roleLevel = clampAccessRoleLevel(Number(event.currentTarget.value), 1);
-              setCreateDraft((prev) => ({
-                ...prev,
-                roleLevel,
-              }));
-            }}
-          />
-          <label className="screen-editor-settings-check">
-            <input
-              type="checkbox"
-              checked={createDraft.enabled}
-              onChange={(event) => setCreateDraft((prev) => ({ ...prev, enabled: event.currentTarget.checked }))}
-            />
-            <span>Enabled</span>
-          </label>
-          <div>
-            <WorkbenchButton
-              variant="primary"
-              disabled={!canWrite}
-              onClick={async () => {
-                const username = createDraft.username.trim();
-                if (!username) {
-                  void message.warning("Username is required");
-                  return;
-                }
-                if (createPassword.length < 4) {
-                  void message.warning("Password must be at least 4 characters");
-                  return;
-                }
-                try {
-                  await api.createUser({
-                    username,
-                    displayName: createDraft.displayName.trim() || undefined,
-                    password: createPassword,
-                    enabled: createDraft.enabled,
-                    roleLevel: createDraft.roleLevel,
-                    roles: defaultRolesForRoleLevel(createDraft.roleLevel),
-                  });
-                  void message.success("User created");
-                  setCreateDraft({
-                    username: "",
-                    displayName: "",
-                    enabled: true,
-                    roleLevel: 1,
-                  });
-                  setCreatePassword("");
-                  await loadUsers();
-                } catch (error) {
-                  void message.error(error instanceof Error ? error.message : String(error));
-                }
-              }}
-            >
-              Create User
-            </WorkbenchButton>
+              </thead>
+              <tbody>
+                {users.map((user) => {
+                  const roleLevel = clampAccessRoleLevel(user.roleLevel, getUserRoleLevel(user));
+                  return (
+                    <tr
+                      key={user.id}
+                      className={user.id === selectedUserId ? "is-selected" : ""}
+                      onClick={() => setSelectedUserId(user.id)}
+                    >
+                      <td>{user.username}</td>
+                      <td>{user.displayName ?? "-"}</td>
+                      <td>{roleLevel} - {ACCESS_ROLE_LABELS_RU[roleLevel]}</td>
+                      <td>{user.enabled ? "Enabled" : "Disabled"}</td>
+                    </tr>
+                  );
+                })}
+                {users.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>No users found</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </div>
-      </WorkbenchCollapsibleSection>
 
-      <WorkbenchCollapsibleSection title="EDIT SELECTED USER" storageKey="users-management.edit">
-        {selectedUser ? (
-          <div className="user-management-form-grid">
-            <WorkbenchInput
-              label="Username"
-              value={editDraft.username}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setEditDraft((prev) => ({ ...prev, username: value }));
-              }}
-            />
-            <WorkbenchInput
-              label="Display name"
-              value={editDraft.displayName}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setEditDraft((prev) => ({ ...prev, displayName: value }));
-              }}
-            />
-            <WorkbenchSelect
-              label="Role level"
-              value={String(editDraft.roleLevel)}
-              options={roleLevelOptions.map((item) => ({ ...item }))}
-              onChange={(event) => {
-                const roleLevel = clampAccessRoleLevel(Number(event.currentTarget.value), 1);
-                setEditDraft((prev) => ({
-                  ...prev,
-                  roleLevel,
-                }));
-              }}
-            />
-            <label className="screen-editor-settings-check">
-              <input
-                type="checkbox"
-                checked={editDraft.enabled}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, enabled: event.currentTarget.checked }))}
-              />
-              <span>Enabled</span>
-            </label>
-            <div>
-              <WorkbenchButton
-                variant="primary"
-                disabled={!canWrite}
-                onClick={async () => {
-                  const username = editDraft.username.trim();
-                  if (!username) {
-                    void message.warning("Username is required");
-                    return;
-                  }
-                  if (
-                    selectedUser.id === authUser?.id &&
-                    editDraft.roleLevel < 3 &&
-                    !window.confirm("You are lowering your own role below administrator. Continue?")
-                  ) {
-                    return;
-                  }
-                  try {
-                    await api.updateUser(selectedUser.id, {
-                      username,
-                      displayName: editDraft.displayName.trim() || undefined,
-                      enabled: editDraft.enabled,
-                      roleLevel: editDraft.roleLevel,
-                      roles: defaultRolesForRoleLevel(editDraft.roleLevel),
-                    });
-                    void message.success("User updated");
-                    await loadUsers();
-                  } catch (error) {
-                    void message.error(error instanceof Error ? error.message : String(error));
-                  }
-                }}
-              >
-                Save Changes
-              </WorkbenchButton>
-            </div>
-          </div>
-        ) : (
-          <div className="screen-editor-empty-state">Select a user first</div>
-        )}
-      </WorkbenchCollapsibleSection>
+        <div className="user-management-window__editor-panel">
+          <WorkbenchTabs items={tabItems} />
+          <div className="user-management-window__editor-content">
+            {activeTab === "details" ? (
+              selectedUser ? (
+                <div className="user-management-form-grid">
+                  <WorkbenchInput
+                    label="Username"
+                    value={editDraft.username}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setEditDraft((prev) => ({ ...prev, username: value }));
+                    }}
+                  />
+                  <WorkbenchInput
+                    label="Display Name"
+                    value={editDraft.displayName}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setEditDraft((prev) => ({ ...prev, displayName: value }));
+                    }}
+                  />
+                  <WorkbenchSelect
+                    label="Role Level"
+                    value={String(editDraft.roleLevel)}
+                    options={roleLevelOptions.map((item) => ({ ...item }))}
+                    onChange={(event) => {
+                      const roleLevel = clampAccessRoleLevel(Number(event.currentTarget.value), 1);
+                      setEditDraft((prev) => ({
+                        ...prev,
+                        roleLevel,
+                      }));
+                    }}
+                  />
+                  <label className="screen-editor-settings-check user-management-enabled-check">
+                    <input
+                      type="checkbox"
+                      checked={editDraft.enabled}
+                      onChange={(event) => setEditDraft((prev) => ({ ...prev, enabled: event.currentTarget.checked }))}
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <div className="user-management-actions">
+                    <WorkbenchButton
+                      variant="primary"
+                      disabled={!canWrite}
+                      onClick={async () => {
+                        const username = editDraft.username.trim();
+                        if (!username) {
+                          void message.warning("Username is required");
+                          return;
+                        }
+                        if (
+                          selectedUser.id === authUser?.id
+                          && editDraft.roleLevel < 3
+                          && !window.confirm("You are lowering your own role below administrator. Continue?")
+                        ) {
+                          return;
+                        }
+                        try {
+                          await api.updateUser(selectedUser.id, {
+                            username,
+                            displayName: editDraft.displayName.trim() || undefined,
+                            enabled: editDraft.enabled,
+                            roleLevel: editDraft.roleLevel,
+                            roles: defaultRolesForRoleLevel(editDraft.roleLevel),
+                          });
+                          void message.success("User updated");
+                          await loadUsers();
+                        } catch (error) {
+                          void message.error(error instanceof Error ? error.message : String(error));
+                        }
+                      }}
+                    >
+                      Save Changes
+                    </WorkbenchButton>
+                  </div>
+                </div>
+              ) : (
+                <div className="screen-editor-empty-state">Select a user first</div>
+              )
+            ) : null}
 
-      <WorkbenchCollapsibleSection title="PASSWORD / ACCESS" storageKey="users-management.password" defaultCollapsed>
-        {selectedUser ? (
-          <div className="user-management-form-grid">
-            <WorkbenchInput
-              label="New password"
-              type="password"
-              value={passwordDraft.newPassword}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setPasswordDraft((prev) => ({ ...prev, newPassword: value }));
-              }}
-            />
-            <WorkbenchInput
-              label="Confirm password"
-              type="password"
-              value={passwordDraft.confirmPassword}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setPasswordDraft((prev) => ({ ...prev, confirmPassword: value }));
-              }}
-            />
-            <div className="runtime-access-dialog__text">
-              Current level: <strong>{selectedUserRoleLevel} — {ACCESS_ROLE_LABELS_RU[selectedUserRoleLevel]}</strong>
-            </div>
-            <div>
-              <WorkbenchButton
-                variant="primary"
-                disabled={!canChangePassword}
-                onClick={async () => {
-                  if (passwordDraft.newPassword.length < 4) {
-                    void message.warning("Password must be at least 4 characters");
-                    return;
-                  }
-                  if (passwordDraft.newPassword !== passwordDraft.confirmPassword) {
-                    void message.warning("Passwords do not match");
-                    return;
-                  }
-                  try {
-                    await api.changeUserPassword(selectedUser.id, { newPassword: passwordDraft.newPassword });
-                    void message.success("Password changed");
-                    setPasswordDraft({ newPassword: "", confirmPassword: "" });
-                  } catch (error) {
-                    void message.error(error instanceof Error ? error.message : String(error));
-                  }
-                }}
-              >
-                Change Password
-              </WorkbenchButton>
-            </div>
+            {activeTab === "password" ? (
+              selectedUser ? (
+                <div className="user-management-form-grid">
+                  <div className="runtime-access-dialog__text">
+                    Current level: <strong>{selectedUserRoleLevel} - {ACCESS_ROLE_LABELS_RU[selectedUserRoleLevel]}</strong>
+                  </div>
+                  <div className="runtime-access-dialog__text">
+                    Status: <strong>{selectedUser.enabled ? "Enabled" : "Disabled"}</strong>
+                  </div>
+                  <WorkbenchInput
+                    label="New Password"
+                    type="password"
+                    value={passwordDraft.newPassword}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setPasswordDraft((prev) => ({ ...prev, newPassword: value }));
+                    }}
+                  />
+                  <WorkbenchInput
+                    label="Confirm Password"
+                    type="password"
+                    value={passwordDraft.confirmPassword}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setPasswordDraft((prev) => ({ ...prev, confirmPassword: value }));
+                    }}
+                  />
+                  <div className="user-management-actions">
+                    <WorkbenchButton
+                      variant="primary"
+                      disabled={!canChangePassword}
+                      onClick={async () => {
+                        if (passwordDraft.newPassword.length < 4) {
+                          void message.warning("Password must be at least 4 characters");
+                          return;
+                        }
+                        if (passwordDraft.newPassword !== passwordDraft.confirmPassword) {
+                          void message.warning("Passwords do not match");
+                          return;
+                        }
+                        try {
+                          await api.changeUserPassword(selectedUser.id, { newPassword: passwordDraft.newPassword });
+                          void message.success("Password changed");
+                          setPasswordDraft({ newPassword: "", confirmPassword: "" });
+                        } catch (error) {
+                          void message.error(error instanceof Error ? error.message : String(error));
+                        }
+                      }}
+                    >
+                      Change Password
+                    </WorkbenchButton>
+                  </div>
+                </div>
+              ) : (
+                <div className="screen-editor-empty-state">Select a user first</div>
+              )
+            ) : null}
+
+            {activeTab === "create" ? (
+              <div className="user-management-form-grid">
+                <WorkbenchInput
+                  label="Username"
+                  value={createDraft.username}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setCreateDraft((prev) => ({ ...prev, username: value }));
+                  }}
+                />
+                <WorkbenchInput
+                  label="Display Name"
+                  value={createDraft.displayName}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setCreateDraft((prev) => ({ ...prev, displayName: value }));
+                  }}
+                />
+                <WorkbenchInput
+                  label="Password"
+                  type="password"
+                  value={createPassword}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setCreatePassword(value);
+                  }}
+                />
+                <WorkbenchSelect
+                  label="Role Level"
+                  value={String(createDraft.roleLevel)}
+                  options={roleLevelOptions.map((item) => ({ ...item }))}
+                  onChange={(event) => {
+                    const roleLevel = clampAccessRoleLevel(Number(event.currentTarget.value), 1);
+                    setCreateDraft((prev) => ({
+                      ...prev,
+                      roleLevel,
+                    }));
+                  }}
+                />
+                <label className="screen-editor-settings-check user-management-enabled-check">
+                  <input
+                    type="checkbox"
+                    checked={createDraft.enabled}
+                    onChange={(event) => setCreateDraft((prev) => ({ ...prev, enabled: event.currentTarget.checked }))}
+                  />
+                  <span>Enabled</span>
+                </label>
+                <div className="user-management-actions">
+                  <WorkbenchButton
+                    variant="primary"
+                    disabled={!canWrite}
+                    onClick={async () => {
+                      const username = createDraft.username.trim();
+                      if (!username) {
+                        void message.warning("Username is required");
+                        return;
+                      }
+                      if (createPassword.length < 4) {
+                        void message.warning("Password must be at least 4 characters");
+                        return;
+                      }
+                      try {
+                        await api.createUser({
+                          username,
+                          displayName: createDraft.displayName.trim() || undefined,
+                          password: createPassword,
+                          enabled: createDraft.enabled,
+                          roleLevel: createDraft.roleLevel,
+                          roles: defaultRolesForRoleLevel(createDraft.roleLevel),
+                        });
+                        void message.success("User created");
+                        resetCreateForm();
+                        setActiveTab("details");
+                        await loadUsers();
+                      } catch (error) {
+                        void message.error(error instanceof Error ? error.message : String(error));
+                      }
+                    }}
+                  >
+                    Create User
+                  </WorkbenchButton>
+                </div>
+              </div>
+            ) : null}
           </div>
-        ) : (
-          <div className="screen-editor-empty-state">Select a user first</div>
-        )}
-      </WorkbenchCollapsibleSection>
+        </div>
+      </div>
     </div>
   );
 }

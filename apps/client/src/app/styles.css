@@ -4038,121 +4038,51 @@ body {
 
 /* ── Login Page – Workbench style ── */
 
-.login-workbench-page {
+.workbench-login-page {
   width: 100vw;
   height: 100vh;
-  background: #1e1e1e;
-  color: #cccccc;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(26, 58, 108, 0.25), transparent 38%),
+    radial-gradient(circle at 82% 80%, rgba(13, 39, 67, 0.3), transparent 34%),
+    #1b1d1f;
 }
 
-.login-workbench-window {
-  width: 380px;
+.workbench-login-window {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
   background: #252526;
-  border: 1px solid #3c3c3c;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
 }
 
-.login-workbench-window__header {
-  height: 30px;
-  padding: 0 10px;
-  display: flex;
-  align-items: center;
-  border-bottom: 1px solid #3c3c3c;
-  background: #2d2d2d;
+.workbench-login-form {
+  display: grid;
+  gap: 0;
+  padding: 8px 0 10px;
+}
+
+.workbench-login-form .workbench-field {
+  padding: 6px 10px;
+}
+
+.workbench-login-error {
+  margin: 4px 10px 0;
+  padding: 6px 8px;
+  border: 1px solid #6b2e2e;
+  background: #2e1f1f;
+  color: #f1b6b6;
   font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: #ffffff;
+  line-height: 1.35;
 }
 
-.login-workbench-window__body {
-  padding: 12px;
+.workbench-login-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 10px 2px;
 }
 
-.login-workbench-window .ant-form-item {
-  margin-bottom: 10px !important;
-}
-
-.login-workbench-window .ant-form-item-label {
-  padding-bottom: 2px !important;
-}
-
-.login-workbench-window .ant-form-item-label > label {
-  color: #cccccc !important;
-  font-size: 11px !important;
-}
-
-.login-workbench-input,
-.login-workbench-window .ant-input,
-.login-workbench-window .ant-input-affix-wrapper,
-.login-workbench-window .ant-input-password {
-  height: 26px !important;
-  min-height: 26px !important;
-  background: #1e1e1e !important;
-  border-color: #3c3c3c !important;
-  color: #cccccc !important;
-  font-size: 12px !important;
-  box-shadow: inset 0 0 0 9999px #1e1e1e !important;
-  caret-color: #cccccc;
-}
-
-.login-workbench-window .ant-input-affix-wrapper input.ant-input {
-  height: 22px !important;
-  background: transparent !important;
-  border: 0 !important;
-  color: #cccccc !important;
-}
-
-.login-workbench-window .ant-input-suffix,
-.login-workbench-window .anticon {
-  color: #969696 !important;
-}
-
-.login-workbench-window .ant-input-affix-wrapper-focused,
-.login-workbench-window .ant-input:focus,
-.login-workbench-input:focus {
-  border-color: #007acc !important;
-  outline: none !important;
-  box-shadow:
-    inset 0 0 0 9999px #1e1e1e,
-    0 0 0 1px #007acc !important;
-}
-
-.login-workbench-input:-webkit-autofill,
-.login-workbench-input:-webkit-autofill:hover,
-.login-workbench-input:-webkit-autofill:focus,
-.login-workbench-input:-webkit-autofill:active {
-  -webkit-text-fill-color: #cccccc !important;
-  caret-color: #cccccc !important;
-  box-shadow: inset 0 0 0 9999px #1e1e1e !important;
-  transition: background-color 999999s ease-in-out 0s;
-}
-
-.login-workbench-window input,
-.login-workbench-window input[type="text"],
-.login-workbench-window input[type="password"] {
-  background-color: #1e1e1e !important;
-  color: #cccccc !important;
-}
-
-.login-workbench-page,
-.login-workbench-page * {
-  color-scheme: dark;
-}
-
-.login-workbench-window .ant-btn-primary {
-  height: 28px !important;
-  background: #0e639c !important;
-  border-color: #007acc !important;
-  color: #ffffff !important;
-  font-size: 12px !important;
-}
-
-.login-workbench-window .ant-btn-primary:hover {
-  background: #1177bb !important;
+.workbench-login-actions .workbench-button {
+  min-width: 96px;
 }
 
 /* ── App boot / loading screen ── */
@@ -4235,21 +4165,80 @@ body {
   line-height: 1.45;
 }
 
-.user-management-panel {
-  display: grid;
-  gap: 0;
+.screen-editor-user-management-window {
+  padding: 0;
+  overflow: hidden;
 }
 
-.user-management-toolbar {
+.user-management-window {
   display: flex;
-  gap: 6px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #252526;
+}
+
+.user-management-window__toolbar {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #2f3338;
+  background: #1f2022;
+}
+
+.user-management-window__toolbar-left,
+.user-management-window__toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.user-management-window__toolbar-left .workbench-button {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.user-management-window__toolbar-right {
+  margin-left: auto;
+  color: #a8adb3;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.user-management-window__toolbar-right strong {
+  color: #e0e0e0;
+}
+
+.user-management-window__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.05fr);
+  gap: 8px;
+  padding: 8px 10px 10px;
+  overflow: hidden;
+}
+
+.user-management-window__list-panel,
+.user-management-window__editor-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #2d2d2d;
+  background: #1f1f1f;
 }
 
 .user-management-table-wrap {
-  border: 1px solid #2d2d2d;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
-  max-height: 240px;
 }
 
 .user-management-table {
@@ -4290,7 +4279,52 @@ body {
   background: #1f2f45;
 }
 
+.user-management-window__editor-panel .workbench-tabs {
+  height: 30px;
+  flex: 0 0 30px;
+}
+
+.user-management-window__editor-panel .workbench-tab {
+  height: 30px;
+  min-width: 130px;
+  max-width: none;
+  font-size: 11px;
+}
+
+.user-management-window__editor-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
 .user-management-form-grid {
   display: grid;
+  padding: 8px 0;
   gap: 8px;
+}
+
+.user-management-enabled-check {
+  padding: 0 10px;
+}
+
+.user-management-actions {
+  padding: 0 10px 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.users-workbench-page {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(24, 59, 95, 0.2), transparent 38%),
+    radial-gradient(circle at 78% 75%, rgba(26, 44, 66, 0.28), transparent 36%),
+    #1b1d1f;
+}
+
+@media (max-width: 980px) {
+  .user-management-window__body {
+    grid-template-columns: 1fr;
+  }
 }

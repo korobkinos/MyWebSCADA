@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 
 export type WorkbenchWindowId =
+  | "login"
   | "tags"
   | "drivers"
   | "assets"
   | "libraries"
   | "macros"
+  | "userManagement"
   | "projectSettings"
   | "screenSettings"
   | "objectProperties"

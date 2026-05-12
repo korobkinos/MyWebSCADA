@@ -73,6 +73,19 @@
       "updatedAt": "2026-05-11T16:52:12.111Z",
       "storagePath": "assets/d70458aa-3e17-4cde-bf28-4eb41f33735e.jpg",
       "previewUrl": "/api/assets/d70458aa-3e17-4cde-bf28-4eb41f33735e/file"
+    },
+    {
+      "id": "60a1cdd8-ccb3-4b8b-8544-5ba787ee1da2",
+      "name": "photo_2025-04-25_09-56-10",
+      "folderPath": "Valves",
+      "type": "jpg",
+      "mimeType": "image/jpeg",
+      "fileName": "60a1cdd8-ccb3-4b8b-8544-5ba787ee1da2.jpg",
+      "size": 37898,
+      "createdAt": "2026-05-12T07:06:34.019Z",
+      "updatedAt": "2026-05-12T07:06:42.930Z",
+      "storagePath": "assets/60a1cdd8-ccb3-4b8b-8544-5ba787ee1da2.jpg",
+      "previewUrl": "/api/assets/60a1cdd8-ccb3-4b8b-8544-5ba787ee1da2/file"
     }
   ],
   "libraries": [
@@ -13917,8 +13930,8 @@
         {
           "id": "img_6ow8jk",
           "type": "image",
-          "x": 855.6075216151665,
-          "y": 60.9391161311288,
+          "x": 1039.6075216151667,
+          "y": 68.9391161311288,
           "width": 270.5700309548778,
           "height": 270.5700309548777,
           "rotation": 0,
@@ -13949,6 +13962,50 @@
             "verticalAlign": "middle",
             "padding": 2
           }
+        },
+        {
+          "id": "img_kh3vyt",
+          "type": "image",
+          "x": 1394.4934019327113,
+          "y": 417.12673323153865,
+          "width": 100.27731704616173,
+          "height": 100.27731704616158,
+          "rotation": 0,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "img_oqiwgy",
+          "type": "image",
+          "x": 1351.6408250918457,
+          "y": 313.41199273943954,
+          "width": 218.29730031425754,
+          "height": 218.29730031425743,
+          "rotation": -69.25025532260561,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "d70458aa-3e17-4cde-bf28-4eb41f33735e",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "img_ec7r8h",
+          "type": "image",
+          "x": 897.6060624556108,
+          "y": 267.27272727272725,
+          "width": 80,
+          "height": 80,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "60a1cdd8-ccb3-4b8b-8544-5ba787ee1da2",
+          "fit": "contain",
+          "preserveAspectRatio": true
         }
       ]
     },

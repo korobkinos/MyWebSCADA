@@ -1,17 +1,21 @@
-import type { InputHTMLAttributes } from "react";
+import { forwardRef, type InputHTMLAttributes } from "react";
 
 type WorkbenchInputProps = InputHTMLAttributes<HTMLInputElement> & {
   label?: string;
 };
 
-export function WorkbenchInput({
-  label,
-  className,
-  id,
-  ...props
-}: WorkbenchInputProps) {
+export const WorkbenchInput = forwardRef<HTMLInputElement, WorkbenchInputProps>(function WorkbenchInput(
+  {
+    label,
+    className,
+    id,
+    ...props
+  },
+  ref,
+) {
   const input = (
     <input
+      ref={ref}
       id={id}
       className={["workbench-input", className ?? ""].filter(Boolean).join(" ")}
       {...props}
@@ -28,4 +32,4 @@ export function WorkbenchInput({
       {input}
     </label>
   );
-}
+});
