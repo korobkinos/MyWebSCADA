@@ -12,14 +12,26 @@ type RuntimeSocketController = {
 
 let activeSocketController: RuntimeSocketController | null = null;
 let pendingGlobalSubscriptions: string[] | null = null;
+const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.trim();
 
 function normalizeTags(tags: string[]): string[] {
   return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
 }
 
-export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketController {
+function resolveSocketUrl(): string {
+  if (WS_BASE_URL) {
+    const normalizedBase = WS_BASE_URL.replace(/\/+$/, "");
+    if (normalizedBase.endsWith("/ws")) {
+      return normalizedBase;
+    }
+    return `${normalizedBase}/ws`;
+  }
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${protocol}://${window.location.host}/ws`;
+  return `${protocol}://${window.location.host}/ws`;
+}
+
+export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketController {
+  const url = resolveSocketUrl();
   let socket: WebSocket | null = null;
   let closedByUser = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;

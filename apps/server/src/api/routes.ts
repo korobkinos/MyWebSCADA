@@ -59,6 +59,9 @@ type LibraryElementUsage = {
   path: string;
 };
 
+const GUEST_RUNTIME_PERMISSIONS = new Set<AppPermission>(["tags.write", "macros.run"]);
+type AuthUser = NonNullable<Awaited<ReturnType<AuthService["getUserByToken"]>>>;
+
 function removeLibraryElementInstances(project: ScadaProject, libraryId: string, elementId: string): { project: ScadaProject; removed: number } {
   let removed = 0;
 
@@ -239,17 +242,12 @@ function tokenFromRequest(request: { headers: Record<string, unknown> }): string
 }
 
 async function requireAuth(request: FastifyRequest, reply: FastifyReply, deps: ApiDeps): Promise<AuthContext | null> {
-  const token = tokenFromRequest(request as { headers: Record<string, unknown> });
-  const user = await deps.authService.getUserByToken(token);
+  const user = await resolveAuthUser(request, deps);
   if (!user) {
     await reply.code(401).send({ error: "Unauthorized", message: "Authentication required" });
     return null;
   }
-  return {
-    userId: user.id,
-    permissions: new Set(user.permissions),
-    roleLevel: getUserRoleLevel(user),
-  };
+  return toAuthContext(user);
 }
 
 async function requirePermission(
@@ -258,10 +256,19 @@ async function requirePermission(
   deps: ApiDeps,
   permission: AppPermission,
 ): Promise<AuthContext | null> {
-  const auth = await requireAuth(request, reply, deps);
-  if (!auth) {
+  const user = await resolveAuthUser(request, deps);
+  if (!user) {
+    if (isGuestRuntimePermissionAllowed(deps, permission)) {
+      return {
+        userId: "guest-runtime",
+        permissions: new Set<AppPermission>(),
+        roleLevel: 0,
+      };
+    }
+    await reply.code(401).send({ error: "Unauthorized", message: "Authentication required" });
     return null;
   }
+  const auth = toAuthContext(user);
   if (!auth.permissions.has(permission)) {
     await reply.code(403).send({
       error: "Forbidden",
@@ -271,6 +278,27 @@ async function requirePermission(
     return null;
   }
   return auth;
+}
+
+async function resolveAuthUser(request: FastifyRequest, deps: ApiDeps): Promise<AuthUser | undefined> {
+  const token = tokenFromRequest(request as { headers: Record<string, unknown> });
+  const user = await deps.authService.getUserByToken(token);
+  return user ?? undefined;
+}
+
+function toAuthContext(user: AuthUser): AuthContext {
+  return {
+    userId: user.id,
+    permissions: new Set(user.permissions),
+    roleLevel: getUserRoleLevel(user),
+  };
+}
+
+function isGuestRuntimePermissionAllowed(deps: ApiDeps, permission: AppPermission): boolean {
+  if (!GUEST_RUNTIME_PERMISSIONS.has(permission)) {
+    return false;
+  }
+  return deps.projectService.getProject().runtimeSettings?.allowGuestRuntimeActions === true;
 }
 
 async function requireSuperadmin(request: FastifyRequest, reply: FastifyReply, deps: ApiDeps): Promise<AuthContext | null> {

@@ -250,6 +250,8 @@ export type ProjectUiSettings = {
 export type ProjectRuntimeSettings = {
   // Tags that must stay active even when they are not visible on the current runtime screen.
   alwaysActiveTags?: string[];
+  // Allow unauthenticated runtime actions (tag writes, macro runs) when object/action role requirements allow it.
+  allowGuestRuntimeActions?: boolean;
 };
 
 export type ScadaProject = {

@@ -758,6 +758,7 @@ const projectUiSettingsSchema = z.object({
 
 const projectRuntimeSettingsSchema = z.object({
   alwaysActiveTags: z.array(z.string().min(1)).max(10000).optional(),
+  allowGuestRuntimeActions: z.boolean().optional(),
 });
 
 export const projectSchema = z.object({

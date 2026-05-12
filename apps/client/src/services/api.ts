@@ -56,6 +56,7 @@ export type SimulatedDriverSettingsInput = {
 };
 
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, "");
 type RequestOptions = {
   handleAuthInvalid?: boolean;
 };
@@ -72,6 +73,16 @@ function setEngineerToken(token: string | null): void {
   window.localStorage.removeItem(ENGINEER_TOKEN_KEY);
 }
 
+function resolveRequestUrl(url: string): string {
+  if (!API_BASE_URL) {
+    return url;
+  }
+  if (!url.startsWith("/api")) {
+    return url;
+  }
+  return `${API_BASE_URL}${url}`;
+}
+
 async function request<T>(url: string, init?: RequestInit, options?: RequestOptions): Promise<T> {
   const token = getEngineerToken();
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -82,7 +93,7 @@ async function request<T>(url: string, init?: RequestInit, options?: RequestOpti
   if (hasBody && !isFormData) {
     defaultHeaders["Content-Type"] = "application/json";
   }
-  const response = await fetch(url, {
+  const response = await fetch(resolveRequestUrl(url), {
     headers: { ...defaultHeaders, ...(init?.headers ?? {}) },
     ...init,
   });
