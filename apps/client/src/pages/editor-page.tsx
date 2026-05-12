@@ -1361,7 +1361,7 @@ export function EditorPage() {
     {
       id: "tags",
       title: "Tags",
-      defaultRect: { x: 120, y: 80, width: 520, height: 520 },
+      defaultRect: { x: 120, y: 80, width: 1000, height: 520 },
       minWidth: 360,
       minHeight: 260,
       render: () => (
@@ -1371,7 +1371,7 @@ export function EditorPage() {
     {
       id: "macros",
       title: "Macros",
-      defaultRect: { x: 140, y: 80, width: 980, height: 680 },
+      defaultRect: { x: 140, y: 80, width: 1400, height: 800 },
       minWidth: 720,
       minHeight: 460,
       render: () => (
@@ -1381,7 +1381,7 @@ export function EditorPage() {
     {
       id: "drivers",
       title: "Drivers / OPC UA / Simulation",
-      defaultRect: { x: 160, y: 100, width: 560, height: 460 },
+      defaultRect: { x: 160, y: 100, width: 800, height: 840 },
       minWidth: 380,
       minHeight: 260,
       render: () => (

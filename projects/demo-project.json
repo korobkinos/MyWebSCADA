@@ -13389,6 +13389,7 @@
           "y": 24,
           "width": 360,
           "height": 52,
+          "locked": true,
           "wrap": "none",
           "ellipsis": false,
           "text": "Котел К-11",
