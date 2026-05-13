@@ -1,18 +1,27 @@
 import {
   AttributeIds,
+  ClientMonitoredItemGroup,
+  ClientSubscription,
   DataType,
   MessageSecurityMode,
   OPCUAClient,
   SecurityPolicy,
+  TimestampsToReturn,
   UserTokenType,
   type ClientSession,
   type DataValue,
+  type MonitoringParametersOptions,
+  type ReadValueIdOptions,
 } from "node-opcua";
 import type { OpcUaDriverConfig, TagDefinition, TagScalarValue, TagValue } from "@web-scada/shared";
 import type { Driver, DriverStatus } from "./driver.js";
 import { logPerf } from "../runtime/perf-logger.js";
 
 type OpcUaAddress = { nodeId: string };
+type SubscriptionGroupBinding = {
+  group: ClientMonitoredItemGroup;
+  nodeIds: string[];
+};
 
 function extractAddress(tag: TagDefinition): OpcUaAddress {
   const inlineNodeId = typeof tag.nodeId === "string" ? tag.nodeId.trim() : "";
@@ -61,6 +70,11 @@ export class OpcUaDriver implements Driver {
   private static readonly DEFAULT_CONNECT_TIMEOUT_MS = 2000;
   private static readonly DEFAULT_OPERATION_TIMEOUT_MS = 2000;
   private static readonly DEFAULT_READ_BATCH_SIZE = 100;
+  private static readonly DEFAULT_PUBLISHING_INTERVAL_MS = 250;
+  private static readonly DEFAULT_SAMPLING_INTERVAL_MS = 250;
+  private static readonly DEFAULT_QUEUE_SIZE = 1;
+  private static readonly DEFAULT_DISCARD_OLDEST = true;
+  private static readonly DEFAULT_SUBSCRIPTION_BATCH_SIZE = 100;
   private static readonly MAX_RECONNECT_BACKOFF_MS = 30000;
   private static readonly OFFLINE_SKIP_STATUS = "OPC UA offline; waiting for reconnect window";
 
@@ -83,6 +97,19 @@ export class OpcUaDriver implements Driver {
   private reconnectRequestedMessage: string | undefined;
   private readonly diagnosticLogAt = new Map<string, number>();
   private readonly readMode: "polling" | "subscription";
+  private subscription: ClientSubscription | undefined;
+  private readonly monitoredGroups: SubscriptionGroupBinding[] = [];
+  private readonly subscribedTagNames = new Set<string>();
+  private readonly subscriptionTagsByNodeId = new Map<string, TagDefinition[]>();
+  private desiredSubscriptionTags: TagDefinition[] = [];
+  private subscriptionOnValues: ((values: TagValue[]) => void) | undefined;
+  private subscriptionSetupTask: Promise<void> | undefined;
+  private subscriptionEpoch = 0;
+  private subscriptionActive = false;
+  private lastSubscriptionUpdateAt: number | undefined;
+  private subscriptionError: string | undefined;
+  private subscriptionState: "inactive" | "creating" | "active" | "error" = "inactive";
+  private subscriptionStatusSyncAt = 0;
   private status: DriverStatus;
   private readonly processWarningListener = (warning: Error & { code?: string }) => {
     const text = `${warning.code ?? ""} ${warning.message ?? ""}`;
@@ -94,7 +121,7 @@ export class OpcUaDriver implements Driver {
 
   public constructor(private readonly config: OpcUaDriverConfig) {
     this.id = config.id;
-    this.readMode = config.readMode ?? "polling";
+    this.readMode = config.readMode ?? "subscription";
     this.status = {
       id: config.id,
       type: this.type,
@@ -102,14 +129,11 @@ export class OpcUaDriver implements Driver {
       updatedAt: Date.now(),
       endpointUrl: config.endpointUrl,
       reconnectAttempt: 0,
+      readMode: this.readMode,
+      subscriptionState: this.subscriptionState,
+      subscriptionActive: false,
+      subscribedTagCount: 0,
     };
-    if (this.readMode === "subscription") {
-      this.logDiagnostic(
-        "read-mode-subscription-todo",
-        `[OpcUaDriver:${this.id}] readMode=subscription configured; using polling fallback (subscription TODO)`,
-        60_000,
-      );
-    }
   }
 
   public async start(): Promise<void> {
@@ -133,6 +157,11 @@ export class OpcUaDriver implements Driver {
     this.reconnectAttempt = 0;
     this.reconnectRequestedMessage = undefined;
     this.clockWarning = undefined;
+    this.desiredSubscriptionTags = [];
+    this.subscriptionOnValues = undefined;
+    this.subscriptionSetupTask = undefined;
+    this.subscriptionEpoch += 1;
+    await this.cleanupSubscription({ terminate: true, clearDesiredTags: true });
     process.off("warning", this.processWarningListener);
 
     if (inFlightConnect) {
@@ -143,6 +172,30 @@ export class OpcUaDriver implements Driver {
 
     this.setStatus("stopped", "Disconnected by user");
     this.stopping = false;
+  }
+
+  public async subscribeTags(tags: TagDefinition[], onValues: (values: TagValue[]) => void): Promise<void> {
+    if (this.readMode !== "subscription") {
+      return;
+    }
+    this.subscriptionOnValues = onValues;
+    this.subscriptionEpoch += 1;
+    this.desiredSubscriptionTags = [...tags];
+    this.subscribedTagNames.clear();
+    for (const tag of tags) {
+      this.subscribedTagNames.add(tag.name);
+    }
+    this.updateSubscriptionState("creating");
+    void this.ensureSubscriptionBackground();
+  }
+
+  public async unsubscribe(): Promise<void> {
+    this.subscriptionOnValues = undefined;
+    this.subscriptionEpoch += 1;
+    this.desiredSubscriptionTags = [];
+    this.subscribedTagNames.clear();
+    await this.cleanupSubscription({ terminate: true, clearDesiredTags: true });
+    this.updateSubscriptionState("inactive");
   }
 
   public async readTag(tag: TagDefinition): Promise<TagValue> {
@@ -530,6 +583,9 @@ export class OpcUaDriver implements Driver {
       this.nextReconnectAttemptAt = 0;
       this.reconnectAttempt = 0;
       this.setStatus("running", "Connected");
+      if (this.readMode === "subscription" && this.desiredSubscriptionTags.length > 0) {
+        void this.ensureSubscriptionBackground();
+      }
       if (this.runtimeDebug) {
         console.log(`[OpcUaDriver:${this.id}] connect durationMs=${Date.now() - startedAt}`);
       }
@@ -686,6 +742,7 @@ export class OpcUaDriver implements Driver {
     this.captureClockWarningFromText(message);
     this.connectEpoch += 1;
     this.consecutiveFailures += 1;
+    await this.cleanupSubscription({ terminate: false });
     this.setStatus("error", message);
     await this.closeActiveConnection();
     if (this.stopping) {
@@ -700,6 +757,7 @@ export class OpcUaDriver implements Driver {
     }
     const session = this.session;
     const client = this.client;
+    await this.cleanupSubscription({ terminate: false });
     this.session = undefined;
     this.client = undefined;
     const startedAt = Date.now();
@@ -765,6 +823,12 @@ export class OpcUaDriver implements Driver {
       lastDisconnectedAt: isDisconnected ? now : this.status.lastDisconnectedAt,
       lastError: nextLastError,
       clockWarning: this.clockWarning,
+      readMode: this.readMode,
+      subscriptionActive: this.subscriptionActive,
+      subscribedTagCount: this.subscribedTagNames.size,
+      lastSubscriptionUpdateAt: this.lastSubscriptionUpdateAt,
+      subscriptionError: this.subscriptionError,
+      subscriptionState: this.subscriptionState,
     };
   }
 
@@ -823,6 +887,313 @@ export class OpcUaDriver implements Driver {
 
   private getOperationTimeoutMs(): number {
     return Math.max(500, this.config.timeoutMs ?? OpcUaDriver.DEFAULT_OPERATION_TIMEOUT_MS);
+  }
+
+  private getPublishingIntervalMs(): number {
+    return Math.max(50, this.config.publishingIntervalMs ?? OpcUaDriver.DEFAULT_PUBLISHING_INTERVAL_MS);
+  }
+
+  private getSamplingIntervalMs(): number {
+    return Math.max(50, this.config.samplingIntervalMs ?? OpcUaDriver.DEFAULT_SAMPLING_INTERVAL_MS);
+  }
+
+  private getQueueSize(): number {
+    return Math.max(1, this.config.queueSize ?? OpcUaDriver.DEFAULT_QUEUE_SIZE);
+  }
+
+  private getDiscardOldest(): boolean {
+    return this.config.discardOldest ?? OpcUaDriver.DEFAULT_DISCARD_OLDEST;
+  }
+
+  private getSubscriptionBatchSize(): number {
+    return Math.max(1, this.config.subscriptionBatchSize ?? OpcUaDriver.DEFAULT_SUBSCRIPTION_BATCH_SIZE);
+  }
+
+  private updateSubscriptionState(state: "inactive" | "creating" | "active" | "error", errorText?: string): void {
+    this.subscriptionState = state;
+    this.subscriptionActive = state === "active";
+    if (errorText !== undefined) {
+      this.subscriptionError = errorText || undefined;
+    } else if (state === "active") {
+      this.subscriptionError = undefined;
+    }
+    this.setStatus(this.status.health, this.status.message);
+  }
+
+  private ensureSubscriptionBackground(): void {
+    if (this.readMode !== "subscription") {
+      return;
+    }
+    if (this.subscriptionSetupTask) {
+      return;
+    }
+    this.subscriptionSetupTask = this.ensureSubscriptionInternal()
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === OpcUaDriver.OFFLINE_SKIP_STATUS) {
+          this.updateSubscriptionState("inactive");
+          return;
+        }
+        this.updateSubscriptionState("error", message || "Subscription setup failed");
+      })
+      .finally(() => {
+        this.subscriptionSetupTask = undefined;
+      });
+  }
+
+  private async ensureSubscriptionInternal(): Promise<void> {
+    const epoch = this.subscriptionEpoch;
+    if (this.readMode !== "subscription") {
+      return;
+    }
+    if (this.desiredSubscriptionTags.length === 0 || !this.subscriptionOnValues) {
+      await this.cleanupSubscription({ terminate: true });
+      this.updateSubscriptionState("inactive");
+      return;
+    }
+
+    await this.ensureConnected({ waitForConnect: false });
+    if (epoch !== this.subscriptionEpoch) {
+      return;
+    }
+    if (!this.session) {
+      throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
+    }
+
+    const validTargets: Array<{ tag: TagDefinition; nodeId: string }> = [];
+    const invalidTags: TagDefinition[] = [];
+    for (const tag of this.desiredSubscriptionTags) {
+      try {
+        const address = extractAddress(tag);
+        validTargets.push({ tag, nodeId: address.nodeId });
+      } catch {
+        invalidTags.push(tag);
+      }
+    }
+
+    if (invalidTags.length > 0) {
+      this.publishBadValues(invalidTags);
+    }
+
+    if (validTargets.length === 0) {
+      await this.cleanupSubscription({ terminate: true });
+      this.updateSubscriptionState("inactive");
+      return;
+    }
+
+    await this.cleanupSubscription({ terminate: true });
+    if (epoch !== this.subscriptionEpoch) {
+      return;
+    }
+    if (!this.session) {
+      throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
+    }
+
+    const subscription = ClientSubscription.create(this.session, {
+      requestedPublishingInterval: this.getPublishingIntervalMs(),
+      requestedLifetimeCount: 240,
+      requestedMaxKeepAliveCount: 20,
+      maxNotificationsPerPublish: 0,
+      publishingEnabled: true,
+      priority: 1,
+    });
+    this.subscription = subscription;
+    this.attachSubscriptionHandlers(subscription);
+    this.updateSubscriptionState("creating");
+
+    const tagsByNodeId = new Map<string, TagDefinition[]>();
+    for (const target of validTargets) {
+      const group = tagsByNodeId.get(target.nodeId);
+      if (group) {
+        group.push(target.tag);
+      } else {
+        tagsByNodeId.set(target.nodeId, [target.tag]);
+      }
+    }
+    this.subscriptionTagsByNodeId.clear();
+    for (const [nodeId, tags] of tagsByNodeId.entries()) {
+      this.subscriptionTagsByNodeId.set(nodeId, tags);
+    }
+
+    const nodeIds = [...tagsByNodeId.keys()];
+    const batchSize = this.getSubscriptionBatchSize();
+    const monitoringParameters: MonitoringParametersOptions = {
+      samplingInterval: this.getSamplingIntervalMs(),
+      queueSize: this.getQueueSize(),
+      discardOldest: this.getDiscardOldest(),
+    };
+
+    let monitoredNodes = 0;
+    for (let index = 0; index < nodeIds.length; index += batchSize) {
+      if (epoch !== this.subscriptionEpoch) {
+        return;
+      }
+      await this.ensureConnected({ waitForConnect: false });
+      if (this.subscription !== subscription) {
+        return;
+      }
+      const batchNodeIds = nodeIds.slice(index, index + batchSize);
+      const itemsToMonitor: ReadValueIdOptions[] = batchNodeIds.map((nodeId) => ({
+        nodeId,
+        attributeId: AttributeIds.Value,
+      }));
+
+      try {
+        const group = await this.withTimeout(
+          subscription.monitorItems(itemsToMonitor, monitoringParameters, TimestampsToReturn.Both),
+          this.getOperationTimeoutMs(),
+          `OPC UA subscription batch timeout for ${batchNodeIds.length} items`,
+        );
+        const binding: SubscriptionGroupBinding = {
+          group,
+          nodeIds: batchNodeIds,
+        };
+        group.on("changed", (_monitoredItem, dataValue, itemIndex) => {
+          const nodeId = binding.nodeIds[itemIndex];
+          if (!nodeId) {
+            return;
+          }
+          this.handleSubscriptionValue(nodeId, dataValue);
+        });
+        group.on("err", (message) => {
+          this.updateSubscriptionState("error", String(message || "Subscription group error"));
+        });
+        this.monitoredGroups.push(binding);
+        monitoredNodes += batchNodeIds.length;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logDiagnostic(
+          "subscription-batch-error",
+          `[OpcUaDriver:${this.id}] subscription batch failed items=${batchNodeIds.length} error=${message}`,
+          2_000,
+        );
+        const failedTags: TagDefinition[] = [];
+        for (const nodeId of batchNodeIds) {
+          failedTags.push(...(this.subscriptionTagsByNodeId.get(nodeId) ?? []));
+        }
+        this.publishBadValues(failedTags);
+        this.subscriptionError = message;
+      }
+
+      await this.yieldToEventLoop();
+    }
+
+    if (monitoredNodes > 0) {
+      this.updateSubscriptionState("active");
+      this.logDiagnostic(
+        "subscription-active",
+        `[OpcUaDriver:${this.id}] subscription active tags=${this.subscribedTagNames.size} nodes=${monitoredNodes}`,
+        5_000,
+      );
+      return;
+    }
+
+    this.updateSubscriptionState("error", this.subscriptionError ?? "Failed to monitor OPC UA tags");
+  }
+
+  private attachSubscriptionHandlers(subscription: ClientSubscription): void {
+    subscription.on("internal_error", (error) => {
+      if (this.subscription !== subscription) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.updateSubscriptionState("error", message || "Subscription internal error");
+    });
+    subscription.on("error", (error) => {
+      if (this.subscription !== subscription) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.updateSubscriptionState("error", message || "Subscription error");
+    });
+    subscription.on("terminated", () => {
+      if (this.subscription !== subscription) {
+        return;
+      }
+      this.subscription = undefined;
+      this.monitoredGroups.length = 0;
+      this.updateSubscriptionState("inactive");
+      if (!this.stopping && this.desiredSubscriptionTags.length > 0) {
+        void this.ensureSubscriptionBackground();
+      }
+    });
+  }
+
+  private handleSubscriptionValue(nodeId: string, dataValue: DataValue): void {
+    const tags = this.subscriptionTagsByNodeId.get(nodeId);
+    const callback = this.subscriptionOnValues;
+    if (!tags || tags.length === 0 || !callback) {
+      return;
+    }
+    const quality = dataValue.statusCode.isGood() ? "Good" : "Bad";
+    const timestamp = Date.now();
+    const value = toScalar(dataValue);
+    const updates: TagValue[] = tags.map((tag) => ({
+      name: tag.name,
+      value,
+      quality,
+      timestamp,
+      source: this.id,
+    }));
+    this.lastSubscriptionUpdateAt = timestamp;
+    if (this.subscriptionState !== "active") {
+      this.subscriptionState = "active";
+      this.subscriptionActive = true;
+      this.subscriptionError = undefined;
+      this.setStatus(this.status.health, this.status.message);
+    } else if (this.subscriptionError) {
+      this.subscriptionError = undefined;
+      this.setStatus(this.status.health, this.status.message);
+    } else if (timestamp - this.subscriptionStatusSyncAt >= 1_000) {
+      this.subscriptionStatusSyncAt = timestamp;
+      this.setStatus(this.status.health, this.status.message);
+    }
+    callback(updates);
+  }
+
+  private publishBadValues(tags: TagDefinition[]): void {
+    const callback = this.subscriptionOnValues;
+    if (!callback || tags.length === 0) {
+      return;
+    }
+    const timestamp = Date.now();
+    callback(tags.map((tag) => ({
+      name: tag.name,
+      value: null,
+      quality: "Bad" as const,
+      timestamp,
+      source: this.id,
+    })));
+  }
+
+  private async cleanupSubscription(options?: { terminate?: boolean; clearDesiredTags?: boolean }): Promise<void> {
+    const terminate = options?.terminate ?? true;
+    const activeSubscription = this.subscription;
+    this.subscription = undefined;
+    this.monitoredGroups.length = 0;
+    this.subscriptionTagsByNodeId.clear();
+    this.subscriptionActive = false;
+    this.subscriptionState = "inactive";
+    this.subscriptionError = undefined;
+    this.setStatus(this.status.health, this.status.message);
+    if (options?.clearDesiredTags) {
+      this.desiredSubscriptionTags = [];
+      this.subscribedTagNames.clear();
+    }
+    if (!activeSubscription || !terminate) {
+      return;
+    }
+    try {
+      await activeSubscription.terminate();
+    } catch {
+      // ignore
+    }
+  }
+
+  private async yieldToEventLoop(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
   }
 
   private logOfflineSkipReadTags(tagCount: number): void {

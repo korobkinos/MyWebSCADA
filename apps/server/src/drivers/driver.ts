@@ -20,6 +20,12 @@ export type DriverStatus = {
   lastPollBatchCount?: number;
   pollingSkipped?: boolean;
   pollingSkipReason?: string;
+  readMode?: "polling" | "subscription";
+  subscriptionActive?: boolean;
+  subscribedTagCount?: number;
+  lastSubscriptionUpdateAt?: number;
+  subscriptionError?: string;
+  subscriptionState?: "inactive" | "creating" | "active" | "error";
 };
 
 export interface Driver {
@@ -29,6 +35,8 @@ export interface Driver {
   stop(): Promise<void>;
   readTag(tag: TagDefinition): Promise<TagValue>;
   readTags?(tags: TagDefinition[]): Promise<TagValue[]>;
+  subscribeTags?(tags: TagDefinition[], onValues: (values: TagValue[]) => void): Promise<void>;
+  unsubscribe?(): Promise<void>;
   writeTag(tag: TagDefinition, value: TagScalarValue): Promise<void>;
   getStatus(): DriverStatus;
   isAvailable?(): boolean;

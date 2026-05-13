@@ -51,6 +51,9 @@ export class DriverManager {
           message: "Driver disabled",
           endpointUrl: config.type === "opcua" ? config.endpointUrl : undefined,
           reconnectAttempt: 0,
+          readMode: config.type === "opcua" ? (config.readMode ?? "subscription") : undefined,
+          subscriptionState: config.type === "opcua" ? "inactive" : undefined,
+          subscriptionActive: config.type === "opcua" ? false : undefined,
         });
         continue;
       }
@@ -378,6 +381,31 @@ export class DriverManager {
     if (durationMs > 250) {
       console.warn(`[DriverManager] Slow writeTag driverId=${driverId} tag=${tag.name} durationMs=${durationMs}`);
     }
+  }
+
+  public async subscribeTags(
+    driverId: string,
+    tags: TagDefinition[],
+    onValues: (values: TagValue[]) => void,
+  ): Promise<void> {
+    const driver = this.drivers.get(driverId);
+    if (!driver) {
+      throw new Error(`Driver ${driverId} is unavailable`);
+    }
+    if (!driver.subscribeTags) {
+      throw new Error(`Driver ${driverId} does not support subscription mode`);
+    }
+    await driver.subscribeTags(tags, onValues);
+    this.mergeStatus(driverId, driver.getStatus());
+  }
+
+  public async unsubscribeDriver(driverId: string): Promise<void> {
+    const driver = this.drivers.get(driverId);
+    if (!driver || !driver.unsubscribe) {
+      return;
+    }
+    await driver.unsubscribe();
+    this.mergeStatus(driverId, driver.getStatus());
   }
 
   private async readDriverTags(driverId: string, indexedTags: IndexedTag[]): Promise<DriverReadResult> {

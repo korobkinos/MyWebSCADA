@@ -36,7 +36,12 @@ function defaultOpcUaDriver(): OpcUaDriverConfig {
     endpointUrl: "opc.tcp://127.0.0.1:4840",
     securityPolicy: "None",
     securityMode: "None",
-    readMode: "polling",
+    readMode: "subscription",
+    publishingIntervalMs: 250,
+    samplingIntervalMs: 250,
+    queueSize: 1,
+    discardOldest: true,
+    subscriptionBatchSize: 100,
     timeoutMs: 5000,
     reconnectMs: 2000,
     username: "",
@@ -802,20 +807,6 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                       </select>
                     </label>
                     <label className="screen-editor-settings-field">
-                      <span>OPC UA Read Mode</span>
-                      <select
-                        className="workbench-select"
-                        value={opcUaDraft.readMode ?? "polling"}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev
-                          ? { ...prev, readMode: event.target.value as OpcUaDriverConfig["readMode"] }
-                          : prev))}
-                      >
-                        {OPC_READ_MODES.map((item) => (
-                          <option key={item} value={item}>{item}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="screen-editor-settings-field">
                       <span>Username</span>
                       <input
                         className="workbench-input"
@@ -832,6 +823,86 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                         onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, password: event.target.value } : prev))}
                       />
                     </label>
+                  </div>
+                </WorkbenchCollapsibleSection>
+
+                <WorkbenchCollapsibleSection title="Read Mode / Subscription" storageKey="drivers.opcua.read-mode">
+                  <div className="screen-editor-drivers-form screen-editor-drivers-form--two-columns">
+                    <label className="screen-editor-settings-field">
+                      <span>Read Mode</span>
+                      <select
+                        className="workbench-select"
+                        value={opcUaDraft.readMode ?? "subscription"}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, readMode: event.target.value as OpcUaDriverConfig["readMode"] }
+                          : prev))}
+                      >
+                        {OPC_READ_MODES.map((item) => (
+                          <option key={item} value={item}>{item === "subscription" ? "Subscription" : "Polling"}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="screen-editor-settings-field">
+                      <span>Publishing Interval (ms)</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={1}
+                        value={opcUaDraft.publishingIntervalMs ?? ""}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, publishingIntervalMs: toOptionalNumber(event.target.value) }
+                          : prev))}
+                      />
+                    </label>
+                    <label className="screen-editor-settings-field">
+                      <span>Sampling Interval (ms)</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={1}
+                        value={opcUaDraft.samplingIntervalMs ?? ""}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, samplingIntervalMs: toOptionalNumber(event.target.value) }
+                          : prev))}
+                      />
+                    </label>
+                    <label className="screen-editor-settings-field">
+                      <span>Queue Size</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={1}
+                        value={opcUaDraft.queueSize ?? ""}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, queueSize: toOptionalNumber(event.target.value) }
+                          : prev))}
+                      />
+                    </label>
+                    <label className="screen-editor-settings-field">
+                      <span>Subscription Batch Size</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={1}
+                        value={opcUaDraft.subscriptionBatchSize ?? ""}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, subscriptionBatchSize: toOptionalNumber(event.target.value) }
+                          : prev))}
+                      />
+                    </label>
+                    <label className="screen-editor-settings-check">
+                      <input
+                        type="checkbox"
+                        checked={opcUaDraft.discardOldest ?? true}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, discardOldest: event.target.checked }
+                          : prev))}
+                      />
+                      <span>Discard Oldest</span>
+                    </label>
+                  </div>
+                  <div className="screen-editor-drivers-note">
+                    Subscription mode is recommended for many OPC UA tags. Polling is fallback.
                   </div>
                 </WorkbenchCollapsibleSection>
 
@@ -904,6 +975,30 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                     <div className="screen-editor-drivers-status-line">
                       <span>Endpoint</span>
                       <strong>{currentOpcStatus?.endpointUrl ?? selectedOpcUaDriver?.endpointUrl ?? "-"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Read mode</span>
+                      <strong>{currentOpcStatus?.readMode ?? selectedOpcUaDriver?.readMode ?? "subscription"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Subscription state</span>
+                      <strong>{currentOpcStatus?.subscriptionState ?? "-"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Subscription active</span>
+                      <strong>{currentOpcStatus?.subscriptionActive ? "Yes" : "No"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Subscribed tags</span>
+                      <strong>{currentOpcStatus?.subscribedTagCount ?? "-"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Last notification</span>
+                      <strong>{formatTimestamp(currentOpcStatus?.lastSubscriptionUpdateAt)}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Subscription error</span>
+                      <strong>{currentOpcStatus?.subscriptionError ?? "-"}</strong>
                     </div>
                     <div className="screen-editor-drivers-status-line">
                       <span>Last updated</span>

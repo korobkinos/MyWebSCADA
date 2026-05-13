@@ -124,8 +124,8 @@
       "securityMode": "None",
       "username": "user",
       "password": "1",
-      "timeoutMs": 5000,
-      "reconnectMs": 2000
+      "timeoutMs": 60000,
+      "reconnectMs": 500
     }
   ],
   "tags": [

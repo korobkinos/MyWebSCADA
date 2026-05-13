@@ -23,6 +23,12 @@ export type DriverStatus = {
   lastPollBatchCount?: number;
   pollingSkipped?: boolean;
   pollingSkipReason?: string;
+  readMode?: "polling" | "subscription";
+  subscriptionActive?: boolean;
+  subscribedTagCount?: number;
+  lastSubscriptionUpdateAt?: number;
+  subscriptionError?: string;
+  subscriptionState?: "inactive" | "creating" | "active" | "error";
 };
 
 export type DriverBaseConfig = {
@@ -47,6 +53,11 @@ export type OpcUaDriverConfig = DriverBaseConfig & {
   securityPolicy?: "None" | "Basic256Sha256";
   securityMode?: "None" | "Sign" | "SignAndEncrypt";
   readMode?: "polling" | "subscription";
+  publishingIntervalMs?: number;
+  samplingIntervalMs?: number;
+  queueSize?: number;
+  discardOldest?: boolean;
+  subscriptionBatchSize?: number;
   username?: string;
   password?: string;
   timeoutMs?: number;

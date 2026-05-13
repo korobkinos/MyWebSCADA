@@ -1,5 +1,4 @@
-import type { RuntimeState, ScadaProject, TagScalarValue } from "@web-scada/shared";
-import type { TagDefinition } from "@web-scada/shared";
+import type { DriverConfig, OpcUaDriverConfig, RuntimeState, ScadaProject, TagDefinition, TagScalarValue, TagValue } from "@web-scada/shared";
 import { DriverManager } from "../drivers/driver-manager.js";
 import { TagStore } from "../tags/tag-store.js";
 import { buildInternalAndLwTagDefinitions, InternalVariableService } from "./internal-variable-service.js";
@@ -11,6 +10,7 @@ import { logPerf } from "./perf-logger.js";
 export class RuntimeService {
   private readonly rateTimers = new Map<number, NodeJS.Timeout>();
   private readonly pollGroups = new Map<number, TagDefinition[]>();
+  private readonly subscriptionGroups = new Map<string, TagDefinition[]>();
   private readonly activeTagNames = new Set<string>();
   private readonly persistentActiveTagNames = new Set<string>();
   private readonly inFlightRates = new Set<number>();
@@ -76,7 +76,7 @@ export class RuntimeService {
 
         this.macroRegistry.registerAll(project.macros ?? []);
         this.configurePersistentActiveTags(project);
-        this.configurePollGroups(project.tags);
+        this.configurePollGroups(project.tags, project.drivers);
         this.startPollTimers();
         for (const rate of this.pollGroups.keys()) {
           void this.pollRate(rate);
@@ -90,6 +90,7 @@ export class RuntimeService {
           stoppedAt: undefined,
           lastError: undefined,
         };
+        void this.startDriverSubscriptions();
         console.log("[RuntimeService] Runtime started");
       } catch (error) {
         await this.driverManager.stopAll().catch(() => undefined);
@@ -131,9 +132,10 @@ export class RuntimeService {
       };
 
       const timersCleared = this.clearPollTimers();
-      this.clearPollRuntimeState();
       const macroIntervalsCleared = this.macroRegistry.stopAll();
 
+      await this.stopDriverSubscriptions();
+      this.clearPollRuntimeState();
       await this.driverManager.stopAll();
       this.state = {
         ...this.state,
@@ -194,11 +196,30 @@ export class RuntimeService {
     }
   }
 
-  private configurePollGroups(tags: TagDefinition[]): void {
+  private configurePollGroups(tags: TagDefinition[], drivers: DriverConfig[]): void {
     this.pollGroups.clear();
+    this.subscriptionGroups.clear();
+    const opcById = new Map(
+      drivers
+        .filter((driver): driver is OpcUaDriverConfig => driver.type === "opcua")
+        .map((driver) => [driver.id, driver] as const),
+    );
     for (const tag of tags) {
       if (!tag.driverId && tag.sourceType !== "simulated") {
         continue;
+      }
+      if (tag.sourceType === "opcua" && tag.driverId) {
+        const driver = opcById.get(tag.driverId);
+        const readMode = driver?.readMode ?? "subscription";
+        if (readMode === "subscription") {
+          const group = this.subscriptionGroups.get(tag.driverId);
+          if (group) {
+            group.push(tag);
+          } else {
+            this.subscriptionGroups.set(tag.driverId, [tag]);
+          }
+          continue;
+        }
       }
       const scanRateMs = Math.max(100, tag.scanRateMs ?? 1000);
       const group = this.pollGroups.get(scanRateMs);
@@ -331,6 +352,7 @@ export class RuntimeService {
 
   private clearPollRuntimeState(): void {
     this.pollGroups.clear();
+    this.subscriptionGroups.clear();
     this.inFlightRates.clear();
     this.activeTagNames.clear();
     this.persistentActiveTagNames.clear();
@@ -352,5 +374,53 @@ export class RuntimeService {
     const scaleValue = scale ?? 1;
     const offsetValue = offset ?? 0;
     return value * scaleValue + offsetValue;
+  }
+
+  private async startDriverSubscriptions(): Promise<void> {
+    if (!this.state.running || this.subscriptionGroups.size === 0) {
+      return;
+    }
+    const tasks = [...this.subscriptionGroups.entries()].map(async ([driverId, tags]) => {
+      try {
+        await this.driverManager.subscribeTags(driverId, tags, (values) => {
+          this.handleSubscriptionValues(values);
+        });
+      } catch (error) {
+        if (this.runtimeDebug) {
+          const text = error instanceof Error ? error.message : String(error);
+          console.warn(`[RuntimeService] subscribeTags failed driverId=${driverId} error=${text}`);
+        }
+      }
+    });
+    await Promise.all(tasks);
+  }
+
+  private async stopDriverSubscriptions(): Promise<void> {
+    if (this.subscriptionGroups.size === 0) {
+      return;
+    }
+    await Promise.all(
+      [...this.subscriptionGroups.keys()].map((driverId) => this.driverManager.unsubscribeDriver(driverId).catch(() => undefined)),
+    );
+  }
+
+  private handleSubscriptionValues(values: TagValue[]): void {
+    if (!this.state.running || values.length === 0) {
+      return;
+    }
+    for (const value of values) {
+      if (!this.state.running) {
+        return;
+      }
+      const definition = this.tagStore.getDefinition(value.name);
+      if (!definition) {
+        continue;
+      }
+      const scaledValue = this.applyScale(definition.scale, definition.offset, value.value);
+      this.tagStore.upsertValue({
+        ...value,
+        value: scaledValue,
+      });
+    }
   }
 }
