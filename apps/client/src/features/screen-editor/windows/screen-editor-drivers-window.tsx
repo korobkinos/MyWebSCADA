@@ -900,6 +900,30 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                       <strong>{currentOpcStatus?.reconnectAttempt ?? 0}</strong>
                     </div>
                     <div className="screen-editor-drivers-status-line">
+                      <span>Polling</span>
+                      <strong>{currentOpcStatus?.pollingSkipped ? "Skipped" : "Active"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Last poll</span>
+                      <strong>{formatTimestamp(currentOpcStatus?.lastPollAt)}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Last poll duration</span>
+                      <strong>{typeof currentOpcStatus?.lastPollDurationMs === "number" ? `${currentOpcStatus.lastPollDurationMs} ms` : "-"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Last poll tags</span>
+                      <strong>{currentOpcStatus?.lastPollTagCount ?? "-"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Last poll batches</span>
+                      <strong>{currentOpcStatus?.lastPollBatchCount ?? "-"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Polling skip reason</span>
+                      <strong>{currentOpcStatus?.pollingSkipReason ?? "-"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
                       <span>Last error</span>
                       <strong>{currentOpcStatus?.lastError ?? (currentOpcStatus?.health === "error" ? (currentOpcStatus.message ?? "Unknown error") : "-")}</strong>
                     </div>

@@ -85,6 +85,10 @@ export class SimulatedDriver implements Driver {
     return this.status;
   }
 
+  public isAvailable(): boolean {
+    return this.status.health === "running";
+  }
+
   private generate(tag: TagDefinition, now: number): TagScalarValue {
     const settings = this.resolveSettings(tag);
     const state = this.getOrCreateState(tag, settings, now);

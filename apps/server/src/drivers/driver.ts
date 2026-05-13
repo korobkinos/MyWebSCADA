@@ -14,6 +14,12 @@ export type DriverStatus = {
   reconnectAttempt?: number;
   endpointUrl?: string;
   clockWarning?: string;
+  lastPollAt?: number;
+  lastPollDurationMs?: number;
+  lastPollTagCount?: number;
+  lastPollBatchCount?: number;
+  pollingSkipped?: boolean;
+  pollingSkipReason?: string;
 };
 
 export interface Driver {
@@ -25,4 +31,5 @@ export interface Driver {
   readTags?(tags: TagDefinition[]): Promise<TagValue[]>;
   writeTag(tag: TagDefinition, value: TagScalarValue): Promise<void>;
   getStatus(): DriverStatus;
+  isAvailable?(): boolean;
 }

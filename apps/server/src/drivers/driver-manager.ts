@@ -20,6 +20,9 @@ type DriverReadResult = {
   driverId: string;
   indexedTags: IndexedTag[];
   values: TagValue[];
+  durationMs: number;
+  batchCount: number;
+  skipped: boolean;
 };
 
 export class DriverManager {
@@ -28,8 +31,11 @@ export class DriverManager {
   private defaultSimulatedDriverId: string | null = null;
   private readonly driverReadTimeoutMs = 2000;
   private readonly driverWriteTimeoutMs = 2000;
-  private readonly unavailableLogThrottleMs = 5000;
+  private readonly opcUaReadBatchSize = 100;
+  private readonly slowBatchWarnMs = 500;
+  private readonly unavailableLogThrottleMs = 10000;
   private readonly unavailableLogAt = new Map<string, number>();
+  private readonly runtimeDebug = process.env.DEBUG_RUNTIME_COMMANDS === "1";
 
   public configure(configs: DriverConfig[]): void {
     this.statuses.clear();
@@ -50,7 +56,7 @@ export class DriverManager {
       }
       const driver = createDriver(config);
       this.drivers.set(config.id, driver);
-      this.statuses.set(config.id, driver.getStatus());
+      this.mergeStatus(config.id, driver.getStatus());
       if (config.type === "simulated" && !this.defaultSimulatedDriverId) {
         this.defaultSimulatedDriverId = config.id;
       }
@@ -68,19 +74,13 @@ export class DriverManager {
 
   public getStatuses(): DriverStatus[] {
     for (const driver of this.drivers.values()) {
-      this.statuses.set(driver.id, driver.getStatus());
+      this.refreshDriverStatus(driver.id);
     }
     return [...this.statuses.values()];
   }
 
   public getStatus(driverId: string): DriverStatus | undefined {
-    const driver = this.drivers.get(driverId);
-    if (driver) {
-      const status = driver.getStatus();
-      this.statuses.set(driverId, status);
-      return status;
-    }
-    return this.statuses.get(driverId);
+    return this.refreshDriverStatus(driverId) ?? this.statuses.get(driverId);
   }
 
   public getTagDriverStatus(tag: TagDefinition): DriverStatus | undefined {
@@ -95,15 +95,26 @@ export class DriverManager {
     const driverId = this.resolveDriverId(tag);
     if (!driverId) {
       if (tag.sourceType === "simulated" && this.defaultSimulatedDriverId) {
-        return this.isDriverStatusAvailable(this.getStatus(this.defaultSimulatedDriverId));
+        return this.isDriverAvailable(this.defaultSimulatedDriverId);
       }
       return false;
     }
+    return this.isDriverAvailable(driverId);
+  }
+
+  public isDriverAvailable(driverId: string): boolean {
     const driver = this.drivers.get(driverId);
     if (!driver) {
       return false;
     }
-    return this.isDriverStatusAvailable(this.getStatus(driverId));
+    const status = this.getStatus(driverId);
+    if (!this.isDriverStatusAvailable(status)) {
+      return false;
+    }
+    if (typeof driver.isAvailable === "function" && !driver.isAvailable()) {
+      return false;
+    }
+    return true;
   }
 
   public async connectDriver(config: DriverConfig): Promise<DriverStatus> {
@@ -116,11 +127,11 @@ export class DriverManager {
     const normalized: DriverConfig = config.enabled ? config : { ...config, enabled: true };
     const driver = createDriver(normalized);
     this.drivers.set(normalized.id, driver);
-    this.statuses.set(normalized.id, driver.getStatus());
+    this.mergeStatus(normalized.id, driver.getStatus());
     try {
       await driver.start();
     } finally {
-      this.statuses.set(normalized.id, driver.getStatus());
+      this.mergeStatus(normalized.id, driver.getStatus());
     }
     return this.statuses.get(normalized.id)!;
   }
@@ -141,6 +152,8 @@ export class DriverManager {
         updatedAt: Date.now(),
         reconnectAttempt: 0,
         lastDisconnectedAt: Date.now(),
+        pollingSkipped: true,
+        pollingSkipReason: `driver ${driverId} is stopped`,
       };
       this.statuses.set(driverId, next);
       return next;
@@ -155,6 +168,8 @@ export class DriverManager {
       updatedAt: Date.now(),
       reconnectAttempt: 0,
       lastDisconnectedAt: Date.now(),
+      pollingSkipped: true,
+      pollingSkipReason: `driver ${driverId} is stopped`,
     };
     this.statuses.set(driverId, next);
     return next;
@@ -184,7 +199,7 @@ export class DriverManager {
       };
     }
 
-    if (!this.isTagDriverAvailable(tag)) {
+    if (!this.isDriverAvailable(driverId)) {
       this.logUnavailableOnce("readTag", driverId, tag.name);
       return {
         name: tag.name,
@@ -265,6 +280,11 @@ export class DriverManager {
       }
     }
 
+    if (this.runtimeDebug) {
+      const perDriver = [...byDriver.entries()].map(([driverId, indexedTags]) => `${driverId}:${indexedTags.length}`).join(", ");
+      console.log(`[DriverManager] readTags start total=${tags.length} drivers=${byDriver.size}${perDriver ? ` perDriver=[${perDriver}]` : ""}`);
+    }
+
     const tasks = [...byDriver.entries()].map(([driverId, indexedTags]) => this.readDriverTags(driverId, indexedTags));
     const settled = await Promise.allSettled(tasks);
 
@@ -273,6 +293,11 @@ export class DriverManager {
         continue;
       }
       const readResult = settledItem.value;
+      if (this.runtimeDebug) {
+        console.log(
+          `[DriverManager] readTags driver=${readResult.driverId} tags=${readResult.indexedTags.length} durationMs=${readResult.durationMs} batches=${readResult.batchCount} skipped=${readResult.skipped ? "1" : "0"}`,
+        );
+      }
       const valuesByName = new Map(readResult.values.map((value) => [value.name, value]));
       for (let localIndex = 0; localIndex < readResult.indexedTags.length; localIndex += 1) {
         const target = readResult.indexedTags[localIndex]!;
@@ -295,6 +320,10 @@ export class DriverManager {
       driverCount: byDriver.size,
       durationMs: Date.now() - startedAt,
     });
+
+    if (this.runtimeDebug) {
+      console.log(`[DriverManager] readTags end total=${tags.length} durationMs=${Date.now() - startedAt}`);
+    }
 
     return result.map((value, index) => {
       if (value) {
@@ -324,7 +353,7 @@ export class DriverManager {
       throw new Error(`Driver ${driverId} is unavailable`);
     }
 
-    if (!this.isTagDriverAvailable(tag)) {
+    if (!this.isDriverAvailable(driverId)) {
       this.logUnavailableOnce("writeTag", driverId, tag.name);
       throw new Error(`Driver ${driverId} is unavailable for tag ${tag.name}`);
     }
@@ -353,72 +382,271 @@ export class DriverManager {
 
   private async readDriverTags(driverId: string, indexedTags: IndexedTag[]): Promise<DriverReadResult> {
     const driver = this.drivers.get(driverId);
+    const startedAt = Date.now();
 
-    if (!driver || !this.isDriverStatusAvailable(this.getStatus(driverId))) {
+    if (!driver || !this.isDriverAvailable(driverId)) {
       this.logUnavailableOnce("readTags", driverId);
       const driverTimestamp = Date.now();
+      const skippedReason = this.getUnavailableReason(driverId);
+      this.updatePollingStatus(driverId, {
+        lastPollAt: driverTimestamp,
+        lastPollDurationMs: driverTimestamp - startedAt,
+        lastPollTagCount: indexedTags.length,
+        lastPollBatchCount: 0,
+        pollingSkipped: true,
+        pollingSkipReason: skippedReason,
+      });
+      if (this.runtimeDebug) {
+        console.log(`[DriverManager] readTags skipped driver=${driverId} reason="${skippedReason}"`);
+      }
       return {
         driverId,
         indexedTags,
-        values: indexedTags.map((item) => ({
-          name: item.tag.name,
-          value: null,
-          quality: "Bad" as const,
-          timestamp: driverTimestamp,
-          source: driverId,
-        })),
+        values: this.createBadValues(indexedTags, driverId, driverTimestamp),
+        durationMs: driverTimestamp - startedAt,
+        batchCount: 0,
+        skipped: true,
       };
     }
 
     const driverTags = indexedTags.map((item) => item.tag);
-    const startedAt = Date.now();
+    const isOpcUaBatched = driver.type === "opcua" && Boolean(driver.readTags);
+
     try {
-      const values = driver.readTags
-        ? await this.withTimeout(
-            driver.readTags(driverTags),
-            this.driverReadTimeoutMs,
-            `Read timeout for driver ${driverId} after ${this.driverReadTimeoutMs} ms`,
-          )
-        : await this.withTimeout(
-            Promise.all(driverTags.map((tag) => driver.readTag(tag))),
-            this.driverReadTimeoutMs,
-            `Read timeout for driver ${driverId} after ${this.driverReadTimeoutMs} ms`,
-          );
+      let values: TagValue[];
+      let batchCount = 1;
+      let skipped = false;
+      if (isOpcUaBatched) {
+        const batchResult = await this.readOpcUaBatches(driverId, driver, indexedTags);
+        values = batchResult.values;
+        batchCount = batchResult.batchCount;
+        skipped = batchResult.skipped;
+      } else {
+        values = driver.readTags
+          ? await this.withTimeout(
+              driver.readTags(driverTags),
+              this.driverReadTimeoutMs,
+              `Read timeout for driver ${driverId} after ${this.driverReadTimeoutMs} ms`,
+            )
+          : await this.withTimeout(
+              Promise.all(driverTags.map((tag) => driver.readTag(tag))),
+              this.driverReadTimeoutMs,
+              `Read timeout for driver ${driverId} after ${this.driverReadTimeoutMs} ms`,
+            );
+      }
+
+      const durationMs = Date.now() - startedAt;
+      this.updatePollingStatus(driverId, {
+        lastPollAt: Date.now(),
+        lastPollDurationMs: durationMs,
+        lastPollTagCount: driverTags.length,
+        lastPollBatchCount: batchCount,
+        pollingSkipped: skipped,
+        pollingSkipReason: skipped ? this.getUnavailableReason(driverId) : undefined,
+      });
 
       logPerf({
         component: "driver-manager",
         action: "driver-read",
         driverId,
         tagCount: driverTags.length,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         status: "ok",
       });
 
-      return { driverId, indexedTags, values };
+      return { driverId, indexedTags, values, durationMs, batchCount, skipped };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const durationMs = Date.now() - startedAt;
       logPerf({
         component: "driver-manager",
         action: "driver-read",
         driverId,
         tagCount: driverTags.length,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         status: "error",
         message,
       });
       const failTimestamp = Date.now();
+      this.updatePollingStatus(driverId, {
+        lastPollAt: failTimestamp,
+        lastPollDurationMs: durationMs,
+        lastPollTagCount: driverTags.length,
+        lastPollBatchCount: isOpcUaBatched ? Math.max(1, Math.ceil(driverTags.length / this.opcUaReadBatchSize)) : 1,
+        pollingSkipped: false,
+        pollingSkipReason: undefined,
+      });
       return {
         driverId,
         indexedTags,
-        values: indexedTags.map((item) => ({
-          name: item.tag.name,
-          value: null,
-          quality: "Bad" as const,
-          timestamp: failTimestamp,
-          source: driverId,
-        })),
+        values: this.createBadValues(indexedTags, driverId, failTimestamp),
+        durationMs,
+        batchCount: isOpcUaBatched ? Math.max(1, Math.ceil(driverTags.length / this.opcUaReadBatchSize)) : 1,
+        skipped: false,
       };
     }
+  }
+
+  private async readOpcUaBatches(
+    driverId: string,
+    driver: Driver,
+    indexedTags: IndexedTag[],
+  ): Promise<{ values: TagValue[]; batchCount: number; skipped: boolean }> {
+    const readTags = driver.readTags;
+    if (!readTags) {
+      return {
+        values: this.createBadValues(indexedTags, driverId),
+        batchCount: 0,
+        skipped: true,
+      };
+    }
+
+    const values: TagValue[] = [];
+    const batches = this.chunkIndexedTags(indexedTags, this.opcUaReadBatchSize);
+    let skipped = false;
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+      const batch = batches[batchIndex]!;
+      if (!this.isDriverAvailable(driverId)) {
+        const remaining = indexedTags.slice(values.length);
+        values.push(...this.createBadValues(remaining, driverId));
+        skipped = true;
+        this.logUnavailableOnce("readTags", driverId);
+        if (this.runtimeDebug) {
+          console.log(`[DriverManager] OPC UA batch stop driver=${driverId} batch=${batchIndex + 1}/${batches.length} reason=unavailable`);
+        }
+        break;
+      }
+
+      const batchStartedAt = Date.now();
+      try {
+        const batchTags = batch.map((item) => item.tag);
+        const batchValues = await this.withTimeout(
+          readTags.call(driver, batchTags),
+          this.driverReadTimeoutMs,
+          `Read timeout for driver ${driverId} batch ${batchIndex + 1}/${batches.length} after ${this.driverReadTimeoutMs} ms`,
+        );
+        const aligned = this.alignValues(batch, batchValues, driverId);
+        values.push(...aligned);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/timeout/i.test(message)) {
+          console.warn(
+            `[DriverManager] OPC UA read batch timeout driverId=${driverId} batch=${batchIndex + 1}/${batches.length} tagCount=${batch.length} timeoutMs=${this.driverReadTimeoutMs}`,
+          );
+        } else if (this.runtimeDebug) {
+          console.warn(
+            `[DriverManager] OPC UA read batch failed driverId=${driverId} batch=${batchIndex + 1}/${batches.length} tagCount=${batch.length} error=${message}`,
+          );
+        }
+        values.push(...this.createBadValues(batch, driverId));
+        if (!this.isDriverAvailable(driverId)) {
+          const remaining = indexedTags.slice(values.length);
+          values.push(...this.createBadValues(remaining, driverId));
+          skipped = true;
+          this.logUnavailableOnce("readTags", driverId);
+          break;
+        }
+      }
+
+      const batchDurationMs = Date.now() - batchStartedAt;
+      if (this.runtimeDebug && batchDurationMs > this.slowBatchWarnMs) {
+        console.warn(
+          `[DriverManager] Slow OPC UA read batch driverId=${driverId} batch=${batchIndex + 1}/${batches.length} tagCount=${batch.length} durationMs=${batchDurationMs}`,
+        );
+      }
+      if (this.runtimeDebug) {
+        console.log(
+          `[DriverManager] OPC UA batch driver=${driverId} batch=${batchIndex + 1}/${batches.length} tagCount=${batch.length} durationMs=${batchDurationMs}`,
+        );
+      }
+      await this.yieldToEventLoop();
+    }
+
+    return {
+      values,
+      batchCount: batches.length,
+      skipped,
+    };
+  }
+
+  private refreshDriverStatus(driverId: string): DriverStatus | undefined {
+    const driver = this.drivers.get(driverId);
+    if (!driver) {
+      return this.statuses.get(driverId);
+    }
+    const merged = this.mergeStatus(driverId, driver.getStatus());
+    return merged;
+  }
+
+  private mergeStatus(driverId: string, next: DriverStatus): DriverStatus {
+    const previous = this.statuses.get(driverId);
+    const merged: DriverStatus = {
+      ...next,
+      lastPollAt: next.lastPollAt ?? previous?.lastPollAt,
+      lastPollDurationMs: next.lastPollDurationMs ?? previous?.lastPollDurationMs,
+      lastPollTagCount: next.lastPollTagCount ?? previous?.lastPollTagCount,
+      lastPollBatchCount: next.lastPollBatchCount ?? previous?.lastPollBatchCount,
+      pollingSkipped: next.pollingSkipped ?? previous?.pollingSkipped,
+      pollingSkipReason: next.pollingSkipReason ?? previous?.pollingSkipReason,
+    };
+    this.statuses.set(driverId, merged);
+    return merged;
+  }
+
+  private updatePollingStatus(driverId: string, patch: Partial<DriverStatus>): void {
+    const current = this.getStatus(driverId) ?? {
+      id: driverId,
+      type: this.drivers.get(driverId)?.type ?? "opcua",
+      health: "stopped",
+      updatedAt: Date.now(),
+    };
+    const next: DriverStatus = {
+      ...current,
+      ...patch,
+      updatedAt: Date.now(),
+    };
+    this.statuses.set(driverId, next);
+  }
+
+  private alignValues(indexedTags: IndexedTag[], values: TagValue[], driverId: string): TagValue[] {
+    const valuesByName = new Map(values.map((value) => [value.name, value]));
+    return indexedTags.map((item, localIndex) => (
+      valuesByName.get(item.tag.name) ?? values[localIndex] ?? {
+        name: item.tag.name,
+        value: null,
+        quality: "Bad",
+        timestamp: Date.now(),
+        source: driverId,
+      }
+    ));
+  }
+
+  private createBadValues(indexedTags: IndexedTag[], driverId: string, timestamp = Date.now()): TagValue[] {
+    return indexedTags.map((item) => ({
+      name: item.tag.name,
+      value: null,
+      quality: "Bad" as const,
+      timestamp,
+      source: driverId,
+    }));
+  }
+
+  private chunkIndexedTags(indexedTags: IndexedTag[], chunkSize: number): IndexedTag[][] {
+    if (indexedTags.length <= chunkSize) {
+      return [indexedTags];
+    }
+    const chunks: IndexedTag[][] = [];
+    for (let index = 0; index < indexedTags.length; index += chunkSize) {
+      chunks.push(indexedTags.slice(index, index + chunkSize));
+    }
+    return chunks;
+  }
+
+  private async yieldToEventLoop(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
   }
 
   private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
@@ -467,8 +695,20 @@ export class DriverManager {
       return;
     }
     this.unavailableLogAt.set(key, now);
+    const status = this.getStatus(driverId);
+    const health = status?.health ?? "disconnected";
+    if (action === "readTags" && (status?.type === "opcua" || this.drivers.get(driverId)?.type === "opcua")) {
+      console.warn(`[DriverManager] Skipping OPC UA polling: driver ${driverId} is ${health}`);
+      return;
+    }
     const tagPart = tagName ? ` tag=${tagName}` : "";
-    console.warn(`[DriverManager] skip ${action}: driver unavailable driverId=${driverId}${tagPart}`);
+    console.warn(`[DriverManager] skip ${action}: driver unavailable driverId=${driverId} health=${health}${tagPart}`);
+  }
+
+  private getUnavailableReason(driverId: string): string {
+    const status = this.getStatus(driverId);
+    const health = status?.health ?? "disconnected";
+    return `driver ${driverId} is ${health}`;
   }
 
   private resolveDriverId(tag: TagDefinition): string | undefined {

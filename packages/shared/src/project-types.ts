@@ -17,6 +17,12 @@ export type DriverStatus = {
   reconnectAttempt?: number;
   endpointUrl?: string;
   clockWarning?: string;
+  lastPollAt?: number;
+  lastPollDurationMs?: number;
+  lastPollTagCount?: number;
+  lastPollBatchCount?: number;
+  pollingSkipped?: boolean;
+  pollingSkipReason?: string;
 };
 
 export type DriverBaseConfig = {

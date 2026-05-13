@@ -322,6 +322,19 @@ export class OpcUaDriver implements Driver {
     return this.status;
   }
 
+  public isAvailable(): boolean {
+    if (!this.client || !this.session) {
+      return false;
+    }
+    if (this.stopping || this.reconnectTimer || this.connectTask) {
+      return false;
+    }
+    if (this.status.health !== "running") {
+      return false;
+    }
+    return this.session.isReconnecting === false;
+  }
+
   private async ensureConnected(): Promise<void> {
     if (this.client && this.session && this.status.health === "running") {
       return;

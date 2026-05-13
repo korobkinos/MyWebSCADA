@@ -14,6 +14,7 @@ export class RuntimeService {
   private readonly activeTagNames = new Set<string>();
   private readonly persistentActiveTagNames = new Set<string>();
   private readonly inFlightRates = new Set<number>();
+  private readonly runtimeDebug = process.env.DEBUG_RUNTIME_COMMANDS === "1";
   private hasExternalSubscriptions = false;
   private state: RuntimeState = {
     running: false,
@@ -238,6 +239,9 @@ export class RuntimeService {
       return;
     }
     if (this.inFlightRates.has(rate)) {
+      if (this.runtimeDebug) {
+        console.log(`[RuntimeService] poll group skipped: previous cycle still running rateMs=${rate}`);
+      }
       return;
     }
 
@@ -251,8 +255,18 @@ export class RuntimeService {
       return;
     }
 
+    const perDriver = new Map<string, number>();
+    for (const tag of targets) {
+      const key = tag.driverId ?? tag.sourceType ?? "unknown";
+      perDriver.set(key, (perDriver.get(key) ?? 0) + 1);
+    }
+
     this.inFlightRates.add(rate);
     const startedAt = Date.now();
+    if (this.runtimeDebug) {
+      const details = [...perDriver.entries()].map(([driverId, count]) => `${driverId}:${count}`).join(", ");
+      console.log(`[RuntimeService] poll group start rateMs=${rate} totalTags=${targets.length}${details ? ` perDriver=[${details}]` : ""}`);
+    }
     try {
       const values = await this.driverManager.readTags(targets);
       if (!this.state.running) {
@@ -284,6 +298,9 @@ export class RuntimeService {
         durationMs: Date.now() - startedAt,
         status: "ok",
       });
+      if (this.runtimeDebug) {
+        console.log(`[RuntimeService] poll group end rateMs=${rate} totalTags=${targets.length} durationMs=${Date.now() - startedAt}`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logPerf({
@@ -295,6 +312,9 @@ export class RuntimeService {
         status: "error",
         message,
       });
+      if (this.runtimeDebug) {
+        console.warn(`[RuntimeService] poll group error rateMs=${rate} totalTags=${targets.length} durationMs=${Date.now() - startedAt} error=${message}`);
+      }
     } finally {
       this.inFlightRates.delete(rate);
     }
