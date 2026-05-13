@@ -580,11 +580,10 @@ body {
   overflow: auto;
 }
 .tag-picker-window__table-grid {
-  min-width: 1160px;
+  min-width: max-content;
 }
 .tag-picker-row {
   display: grid;
-  grid-template-columns: 300px 90px 80px 140px 360px 70px 120px;
   min-height: 28px;
   border-bottom: 1px solid #2d2d2d;
   cursor: pointer;
@@ -604,6 +603,44 @@ body {
   font-size: 10px;
   text-transform: uppercase;
   cursor: default;
+}
+.tag-picker-cell--header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-right: 12px;
+}
+.tag-picker-column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+.tag-picker-column-resize-handle:hover {
+  background: #007acc;
+}
+.tag-picker-columns-panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #3c3c3c;
+  background: #202020;
+}
+.tag-picker-column-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #cccccc;
+}
+.tag-picker-column-toggle input {
+  accent-color: #007acc;
 }
 .tag-picker-cell {
   min-width: 0;

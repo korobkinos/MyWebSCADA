@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TagSourceType } from "@web-scada/shared";
 import { WorkbenchWindow, type WorkbenchWindowRect } from "./workbench";
@@ -13,6 +13,16 @@ export type TagPickerWindowTag = {
   group?: string;
   writable?: boolean;
   nodeOrAddress: string;
+};
+
+export type TagPickerColumnId = "name" | "source" | "dataType" | "driver" | "address" | "writable" | "group";
+
+export type TagPickerColumnConfig = {
+  id: TagPickerColumnId;
+  title: string;
+  defaultWidth: number;
+  minWidth: number;
+  hideable?: boolean;
 };
 
 type SourceFilter = "all" | TagSourceType;
@@ -56,6 +66,38 @@ const SOURCE_LABELS: Record<TagSourceType, string> = {
 const DATA_TYPES = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
 const PAGE_SIZE = 100;
 
+const TAG_PICKER_COLUMNS: TagPickerColumnConfig[] = [
+  { id: "name", title: "Name", defaultWidth: 300, minWidth: 120, hideable: false },
+  { id: "source", title: "Source", defaultWidth: 90, minWidth: 60 },
+  { id: "dataType", title: "Type", defaultWidth: 80, minWidth: 60 },
+  { id: "driver", title: "Driver", defaultWidth: 140, minWidth: 80 },
+  { id: "address", title: "Node / Address", defaultWidth: 360, minWidth: 120 },
+  { id: "writable", title: "Writable", defaultWidth: 70, minWidth: 50 },
+  { id: "group", title: "Group", defaultWidth: 120, minWidth: 80 },
+];
+
+const COLUMN_WIDTHS_KEY = "tagPicker.columnWidths";
+const COLUMN_VISIBILITY_KEY = "tagPicker.columnVisibility";
+
+function getTagColumnValue(columnId: TagPickerColumnId, tag: TagPickerWindowTag): string {
+  switch (columnId) {
+    case "name":
+      return tag.name;
+    case "source":
+      return SOURCE_LABELS[tag.sourceType];
+    case "dataType":
+      return tag.dataType;
+    case "driver":
+      return tag.driverId ?? "-";
+    case "address":
+      return tag.nodeOrAddress;
+    case "writable":
+      return tag.writable === false ? "N" : "Y";
+    case "group":
+      return tag.group ?? "-";
+  }
+}
+
 export function WorkbenchTagPickerWindow({
   open,
   rect,
@@ -82,6 +124,47 @@ export function WorkbenchTagPickerWindow({
   const [newTagName, setNewTagName] = useState("");
   const [newTagType, setNewTagType] = useState("BOOL");
   const [createError, setCreateError] = useState<string | undefined>(undefined);
+
+  const [columnWidths, setColumnWidths] = useState<Record<TagPickerColumnId, number>>(() => {
+    try {
+      const stored = localStorage.getItem(COLUMN_WIDTHS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<Record<TagPickerColumnId, number>>;
+        const result: Record<string, number> = {};
+        for (const col of TAG_PICKER_COLUMNS) {
+          const val = parsed[col.id];
+          result[col.id] = typeof val === "number" && val >= col.minWidth ? val : col.defaultWidth;
+        }
+        return result as Record<TagPickerColumnId, number>;
+      }
+    } catch { /* ignore */ }
+    const defaults: Record<string, number> = {};
+    for (const col of TAG_PICKER_COLUMNS) {
+      defaults[col.id] = col.defaultWidth;
+    }
+    return defaults as Record<TagPickerColumnId, number>;
+  });
+
+  const [columnVisibility, setColumnVisibility] = useState<Record<TagPickerColumnId, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem(COLUMN_VISIBILITY_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<Record<TagPickerColumnId, boolean>>;
+        const result: Record<string, boolean> = {};
+        for (const col of TAG_PICKER_COLUMNS) {
+          result[col.id] = col.id === "name" ? true : parsed[col.id] !== false;
+        }
+        return result as Record<TagPickerColumnId, boolean>;
+      }
+    } catch { /* ignore */ }
+    const allVisible: Record<string, boolean> = {};
+    for (const col of TAG_PICKER_COLUMNS) {
+      allVisible[col.id] = true;
+    }
+    return allVisible as Record<TagPickerColumnId, boolean>;
+  });
+
+  const [columnsPanelOpen, setColumnsPanelOpen] = useState(false);
 
   const sourceAllowSet = useMemo(
     () => new Set(allowedSourceTypes && allowedSourceTypes.length > 0 ? allowedSourceTypes : SOURCE_OPTIONS.slice(1).map((item) => item.value as TagSourceType)),
@@ -177,6 +260,66 @@ export function WorkbenchTagPickerWindow({
     setCreateError(undefined);
   }, [newTagName, newTagType]);
 
+  const resizeRef = useRef<{ columnId: TagPickerColumnId; startX: number; startWidth: number; minWidth: number } | null>(null);
+
+  const startColumnResize = useCallback(
+    (columnId: TagPickerColumnId, event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const config = TAG_PICKER_COLUMNS.find((c) => c.id === columnId);
+      if (!config) return;
+
+      const startX = event.clientX;
+      const startWidth = columnWidths[columnId] ?? config.defaultWidth;
+
+      resizeRef.current = { columnId, startX, startWidth, minWidth: config.minWidth };
+
+      const handleMouseMove = (e: MouseEvent) => {
+        if (!resizeRef.current) return;
+        const { columnId: id, startX: sX, startWidth: sW, minWidth } = resizeRef.current;
+        const delta = e.clientX - sX;
+        const newWidth = Math.max(minWidth, sW + delta);
+        setColumnWidths((prev) => ({ ...prev, [id]: newWidth }));
+      };
+
+      const handleMouseUp = () => {
+        resizeRef.current = null;
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+      };
+
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    },
+    [columnWidths],
+  );
+
+  useEffect(() => {
+    try { localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths)); }
+    catch { /* ignore */ }
+  }, [columnWidths]);
+
+  useEffect(() => {
+    try { localStorage.setItem(COLUMN_VISIBILITY_KEY, JSON.stringify(columnVisibility)); }
+    catch { /* ignore */ }
+  }, [columnVisibility]);
+
+  const visibleColumns = useMemo(
+    () => TAG_PICKER_COLUMNS.filter((col) => columnVisibility[col.id] !== false),
+    [columnVisibility],
+  );
+
+  const gridTemplateColumns = useMemo(
+    () => visibleColumns.map((col) => `${columnWidths[col.id] ?? col.defaultWidth}px`).join(" "),
+    [columnWidths, visibleColumns],
+  );
+
   if (!open || typeof document === "undefined") {
     return null;
   }
@@ -255,7 +398,52 @@ export function WorkbenchTagPickerWindow({
             >
               <span className="workbench-button__label">Clear</span>
             </button>
+            <button
+              type="button"
+              className="workbench-button"
+              onClick={() => setColumnsPanelOpen((current) => !current)}
+            >
+              <span className="workbench-button__label">Columns</span>
+            </button>
           </div>
+
+          {columnsPanelOpen ? (
+            <div className="tag-picker-columns-panel">
+              {TAG_PICKER_COLUMNS.map((col) => (
+                <label key={col.id} className="tag-picker-column-toggle">
+                  <input
+                    type="checkbox"
+                    checked={columnVisibility[col.id] !== false}
+                    disabled={col.hideable === false}
+                    onChange={() => {
+                      if (col.hideable === false) return;
+                      setColumnVisibility((prev) => ({
+                        ...prev,
+                        [col.id]: prev[col.id] === false,
+                      }));
+                    }}
+                  />
+                  {col.title}
+                </label>
+              ))}
+              <button
+                type="button"
+                className="workbench-button"
+                onClick={() => {
+                  const defaults: Record<string, number> = {};
+                  const allVisible: Record<string, boolean> = {};
+                  for (const c of TAG_PICKER_COLUMNS) {
+                    defaults[c.id] = c.defaultWidth;
+                    allVisible[c.id] = true;
+                  }
+                  setColumnWidths(defaults as Record<TagPickerColumnId, number>);
+                  setColumnVisibility(allVisible as Record<TagPickerColumnId, boolean>);
+                }}
+              >
+                <span className="workbench-button__label">Reset</span>
+              </button>
+            </div>
+          ) : null}
 
           {createOpen ? (
             <div className="tag-picker-window__create-row">
@@ -316,14 +504,16 @@ export function WorkbenchTagPickerWindow({
 
           <div className="tag-picker-window__table">
             <div className="tag-picker-window__table-grid">
-              <div className="tag-picker-row tag-picker-row--header">
-                <div className="tag-picker-cell">Name</div>
-                <div className="tag-picker-cell">Source</div>
-                <div className="tag-picker-cell">Type</div>
-                <div className="tag-picker-cell">Driver</div>
-                <div className="tag-picker-cell">Node / Address</div>
-                <div className="tag-picker-cell">Writable</div>
-                <div className="tag-picker-cell">Group</div>
+              <div className="tag-picker-row tag-picker-row--header" style={{ gridTemplateColumns }}>
+                {visibleColumns.map((col) => (
+                  <div key={col.id} className="tag-picker-cell tag-picker-cell--header">
+                    {col.title}
+                    <span
+                      className="tag-picker-column-resize-handle"
+                      onMouseDown={(e) => startColumnResize(col.id, e)}
+                    />
+                  </div>
+                ))}
               </div>
               {pageRows.map((tag) => {
                 const isSelected = tag.key === selectedKey;
@@ -331,19 +521,21 @@ export function WorkbenchTagPickerWindow({
                   <div
                     key={tag.key}
                     className={["tag-picker-row", isSelected ? "tag-picker-row--selected" : ""].filter(Boolean).join(" ")}
+                    style={{ gridTemplateColumns }}
                     onClick={() => setSelectedKey(tag.key)}
                     onDoubleClick={() => {
                       onSelect(tag.name);
                       onClose();
                     }}
                   >
-                    <div className="tag-picker-cell" title={tag.name}>{tag.name}</div>
-                    <div className="tag-picker-cell" title={SOURCE_LABELS[tag.sourceType]}>{SOURCE_LABELS[tag.sourceType]}</div>
-                    <div className="tag-picker-cell" title={tag.dataType}>{tag.dataType}</div>
-                    <div className="tag-picker-cell" title={tag.driverId ?? "-"}>{tag.driverId ?? "-"}</div>
-                    <div className="tag-picker-cell" title={tag.nodeOrAddress}>{tag.nodeOrAddress}</div>
-                    <div className="tag-picker-cell" title={tag.writable === false ? "No" : "Yes"}>{tag.writable === false ? "N" : "Y"}</div>
-                    <div className="tag-picker-cell" title={tag.group ?? "-"}>{tag.group ?? "-"}</div>
+                    {visibleColumns.map((col) => {
+                      const value = getTagColumnValue(col.id, tag);
+                      return (
+                        <div key={col.id} className="tag-picker-cell" title={value}>
+                          {value}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
