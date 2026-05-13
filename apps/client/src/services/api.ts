@@ -356,6 +356,7 @@ export const api = {
     }),
   startRuntime: () => request<RuntimeState>("/api/runtime/start", { method: "POST" }),
   stopRuntime: () => request<RuntimeState>("/api/runtime/stop", { method: "POST" }),
+  getRuntimeStatus: () => request<RuntimeState>("/api/runtime/status"),
 
   listAssets: () => request<Asset[]>("/api/assets"),
   uploadAsset: (file: File, name?: string) => {

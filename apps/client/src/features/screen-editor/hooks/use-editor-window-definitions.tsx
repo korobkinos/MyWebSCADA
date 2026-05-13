@@ -68,6 +68,7 @@ type UseEditorWindowDefinitionsParams = {
   startScreenName: string;
   startRuntime: () => Promise<void>;
   stopRuntime: () => Promise<void>;
+  refreshRuntimeStatus: () => Promise<void>;
   navigateToRuntime: () => void;
   setSelectedObjects: (ids: string[], activeId?: string) => void;
   deleteSelectionWithHistory: () => void;
@@ -235,6 +236,7 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
             onOpenRuntime={params.navigateToRuntime}
             onStartRuntime={params.startRuntime}
             onStopRuntime={params.stopRuntime}
+            onRefreshStatus={params.refreshRuntimeStatus}
           />
         ),
       },

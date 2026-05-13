@@ -15,7 +15,12 @@ export class RuntimeService {
   private readonly persistentActiveTagNames = new Set<string>();
   private readonly inFlightRates = new Set<number>();
   private hasExternalSubscriptions = false;
-  private state: RuntimeState = { running: false };
+  private state: RuntimeState = {
+    running: false,
+    state: "stopped",
+    stoppedAt: Date.now(),
+  };
+  private lifecycle = Promise.resolve();
   public readonly macroRegistry: MacroRuntimeRegistry;
 
   public constructor(
@@ -24,65 +29,127 @@ export class RuntimeService {
     private readonly internalVariableService: InternalVariableService,
     private readonly macroService: MacroService,
   ) {
-    this.macroRegistry = new MacroRuntimeRegistry(macroService);
+    this.macroRegistry = new MacroRuntimeRegistry(macroService, () => this.state.running);
   }
 
   public getState(): RuntimeState {
-    return this.state;
+    return {
+      ...this.state,
+      pollGroups: [...this.pollGroups.entries()].map(([rateMs, tags]) => ({
+        rateMs,
+        tagCount: tags.length,
+      })),
+      macroIntervals: this.macroRegistry.getRegisteredIntervals(),
+    };
+  }
+
+  public getStatus(): RuntimeState {
+    return this.getState();
   }
 
   public async start(project: ScadaProject): Promise<void> {
-    if (this.state.running) {
-      return;
-    }
+    await this.runLifecycle(async () => {
+      if (this.state.running || this.state.state === "starting") {
+        return;
+      }
 
-    this.driverManager.configure(project.drivers);
-    await this.driverManager.startAll();
+      this.state = {
+        ...this.state,
+        running: false,
+        state: "starting",
+        lastError: undefined,
+      };
 
-    const variableDefinitions = buildInternalAndLwTagDefinitions(project.variables ?? [], project.lwStore);
-    this.tagStore.setDefinitions([...project.tags, ...variableDefinitions]);
-    this.internalVariableService.setup(project.variables ?? [], project.lwStore);
-    this.macroService.configure(project);
+      try {
+        this.clearPollTimers();
+        this.clearPollRuntimeState();
+        this.macroRegistry.stopAll();
 
-    // Register macro interval triggers
-    this.macroRegistry.registerAll(project.macros ?? []);
+        this.driverManager.configure(project.drivers);
+        await this.driverManager.startAll();
 
-    this.state = {
-      running: true,
-      startedAt: Date.now(),
-    };
+        const variableDefinitions = buildInternalAndLwTagDefinitions(project.variables ?? [], project.lwStore);
+        this.tagStore.setDefinitions([...project.tags, ...variableDefinitions]);
+        this.internalVariableService.setup(project.variables ?? [], project.lwStore);
+        this.macroService.configure(project);
 
-    this.configurePersistentActiveTags(project);
-    this.configurePollGroups(project.tags);
-    this.startPollTimers();
-    for (const rate of this.pollGroups.keys()) {
-      void this.pollRate(rate);
-    }
+        this.macroRegistry.registerAll(project.macros ?? []);
+        this.configurePersistentActiveTags(project);
+        this.configurePollGroups(project.tags);
+        this.startPollTimers();
+        for (const rate of this.pollGroups.keys()) {
+          void this.pollRate(rate);
+        }
+
+        const startedAt = Date.now();
+        this.state = {
+          running: true,
+          state: "running",
+          startedAt,
+          stoppedAt: undefined,
+          lastError: undefined,
+        };
+        console.log("[RuntimeService] Runtime started");
+      } catch (error) {
+        await this.driverManager.stopAll().catch(() => undefined);
+        this.clearPollTimers();
+        this.clearPollRuntimeState();
+        this.macroRegistry.stopAll();
+        const text = error instanceof Error ? error.message : String(error);
+        this.state = {
+          ...this.state,
+          running: false,
+          state: "error",
+          stoppedAt: Date.now(),
+          lastError: text,
+        };
+        console.error(`[RuntimeService] Runtime start failed: ${text}`);
+        throw error;
+      }
+    });
   }
 
   public async stop(): Promise<void> {
-    if (!this.state.running) {
-      return;
-    }
+    await this.runLifecycle(async () => {
+      if (!this.state.running && this.state.state !== "starting") {
+        if (this.state.state !== "stopped") {
+          this.state = {
+            ...this.state,
+            running: false,
+            state: "stopped",
+            stoppedAt: this.state.stoppedAt ?? Date.now(),
+          };
+        }
+        return;
+      }
 
-    for (const timer of this.rateTimers.values()) {
-      clearInterval(timer);
-    }
-    this.rateTimers.clear();
-    this.pollGroups.clear();
-    this.inFlightRates.clear();
-    this.activeTagNames.clear();
-    this.persistentActiveTagNames.clear();
-    this.hasExternalSubscriptions = false;
+      this.state = {
+        ...this.state,
+        running: false,
+        state: "stopping",
+      };
 
-    // Stop all macro interval triggers
-    this.macroRegistry.stopAll();
+      const timersCleared = this.clearPollTimers();
+      this.clearPollRuntimeState();
+      const macroIntervalsCleared = this.macroRegistry.stopAll();
 
-    await this.driverManager.stopAll();
-    this.state = { running: false };
+      await this.driverManager.stopAll();
+      this.state = {
+        ...this.state,
+        running: false,
+        state: "stopped",
+        stoppedAt: Date.now(),
+      };
+      console.log(`[RuntimeService] Runtime poll timers cleared: ${timersCleared}`);
+      console.log(`[RuntimeService] Macro intervals cleared: ${macroIntervalsCleared}`);
+      console.log("[RuntimeService] Runtime stopped");
+    });
   }
 
   public async pollTag(name: string): Promise<void> {
+    if (!this.state.running) {
+      return;
+    }
     const definition = this.tagStore.getDefinition(name);
     if (!definition || (!definition.driverId && definition.sourceType !== "simulated")) {
       return;
@@ -143,6 +210,7 @@ export class RuntimeService {
   }
 
   private startPollTimers(): void {
+    this.clearPollTimers();
     for (const [rate] of this.pollGroups.entries()) {
       const timer = setInterval(() => {
         void this.pollRate(rate);
@@ -187,9 +255,15 @@ export class RuntimeService {
     const startedAt = Date.now();
     try {
       const values = await this.driverManager.readTags(targets);
+      if (!this.state.running) {
+        return;
+      }
       const definitionsByName = new Map(targets.map((tag) => [tag.name, tag]));
 
       for (const value of values) {
+        if (!this.state.running) {
+          break;
+        }
         const definition = definitionsByName.get(value.name);
         if (!definition) {
           continue;
@@ -224,6 +298,29 @@ export class RuntimeService {
     } finally {
       this.inFlightRates.delete(rate);
     }
+  }
+
+  private clearPollTimers(): number {
+    const count = this.rateTimers.size;
+    for (const timer of this.rateTimers.values()) {
+      clearInterval(timer);
+    }
+    this.rateTimers.clear();
+    return count;
+  }
+
+  private clearPollRuntimeState(): void {
+    this.pollGroups.clear();
+    this.inFlightRates.clear();
+    this.activeTagNames.clear();
+    this.persistentActiveTagNames.clear();
+    this.hasExternalSubscriptions = false;
+  }
+
+  private async runLifecycle(task: () => Promise<void>): Promise<void> {
+    const run = this.lifecycle.then(task);
+    this.lifecycle = run.catch(() => undefined);
+    return run;
   }
 
 

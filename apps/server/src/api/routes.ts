@@ -1450,7 +1450,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     return deps.runtimeService.getState();
   });
 
-  app.get("/api/runtime/state", async () => deps.runtimeService.getState());
+  app.get("/api/runtime/status", async () => deps.runtimeService.getStatus());
+  app.get("/api/runtime/state", async () => deps.runtimeService.getStatus());
 
   app.post("/api/assets/upload", async (request, reply) => {
     const auth = await requirePermission(request, reply, deps, "assets.write");

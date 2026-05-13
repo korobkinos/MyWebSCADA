@@ -47,6 +47,7 @@ type ScadaState = {
   loadMacros: () => Promise<void>;
   loadAssets: () => Promise<void>;
   loadLibraries: () => Promise<void>;
+  loadRuntimeStatus: () => Promise<void>;
   startRuntime: () => Promise<void>;
   stopRuntime: () => Promise<void>;
   writeTag: (
@@ -172,7 +173,7 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
   tagSnapshots: [],
   drivers: [],
   macros: [],
-  runtime: { running: false },
+  runtime: { running: false, state: "stopped" },
   currentScreenId: null,
   selection: {
     selectedObjectIds: [],
@@ -275,6 +276,11 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
   async loadLibraries() {
     const libraries = await api.listLibraries();
     set({ libraries });
+  },
+
+  async loadRuntimeStatus() {
+    const runtime = await api.getRuntimeStatus();
+    set({ runtime });
   },
 
   async startRuntime() {

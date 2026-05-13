@@ -52,10 +52,12 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const libraries = useScadaStore((s) => s.libraries);
   const currentScreenId = useScadaStore((s) => s.currentScreenId);
   const setCurrentScreen = useScadaStore((s) => s.setCurrentScreen);
+  const runtime = useScadaStore((s) => s.runtime);
   const writeTag = useScadaStore((s) => s.writeTag);
   const writeVariable = useScadaStore((s) => s.writeVariable);
   const runMacro = useScadaStore((s) => s.runMacro);
   const macros = useScadaStore((s) => s.macros);
+  const loadRuntimeStatus = useScadaStore((s) => s.loadRuntimeStatus);
   const startRuntime = useScadaStore((s) => s.startRuntime);
   const stopRuntime = useScadaStore((s) => s.stopRuntime);
   const authUser = useScadaStore((s) => s.authUser);
@@ -88,6 +90,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     context?: RenderContext;
     value?: number;
   }>({ open: false });
+  const [runtimeActionPending, setRuntimeActionPending] = useState<"start" | "stop" | "refresh" | null>(null);
   const [accessState, setAccessState] = useState<RuntimeAccessState>({
     requiredRole: 1,
     currentRole: 0,
@@ -120,6 +123,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }),
     [authUser, runtimeUserRoles, screen?.id, userRoleLevel],
   );
+
+  useEffect(() => {
+    void loadRuntimeStatus();
+  }, [loadRuntimeStatus]);
 
   useEffect(() => {
     if (!screen) {
@@ -1233,6 +1240,50 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     />
   );
 
+  const runtimeState = runtime.state ?? (runtime.running ? "running" : "stopped");
+  const runtimeStartedAtText = runtime.startedAt ? new Date(runtime.startedAt).toLocaleString() : "-";
+  const runtimeStoppedAtText = runtime.stoppedAt ? new Date(runtime.stoppedAt).toLocaleString() : "-";
+
+  const refreshRuntime = async () => {
+    setRuntimeActionPending("refresh");
+    try {
+      await loadRuntimeStatus();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      void message.error(text || "Failed to refresh runtime status");
+    } finally {
+      setRuntimeActionPending(null);
+    }
+  };
+
+  const startRuntimeWithStatus = async () => {
+    setRuntimeActionPending("start");
+    try {
+      await startRuntime();
+      await loadRuntimeStatus();
+      void message.success("Runtime started");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      void message.error(text || "Failed to start runtime");
+    } finally {
+      setRuntimeActionPending(null);
+    }
+  };
+
+  const stopRuntimeWithStatus = async () => {
+    setRuntimeActionPending("stop");
+    try {
+      await stopRuntime();
+      await loadRuntimeStatus();
+      void message.success("Runtime stopped");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      void message.error(text || "Failed to stop runtime");
+    } finally {
+      setRuntimeActionPending(null);
+    }
+  };
+
   if (fullscreen) {
     return (
       <div
@@ -1294,10 +1345,26 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       <Space direction="vertical" size={12} style={{ width: "100%" }}>
         <Card size="small">
           <Space>
-            <Button onClick={() => void startRuntime()} type="primary">
-              Start Runtime
+            <Button
+              onClick={() => void startRuntimeWithStatus()}
+              type="primary"
+              disabled={runtimeState === "running" || runtimeState === "starting" || runtimeActionPending !== null}
+            >
+              {runtimeActionPending === "start" ? "Starting..." : "Start Runtime"}
             </Button>
-            <Button onClick={() => void stopRuntime()}>Stop Runtime</Button>
+            <Button
+              onClick={() => void stopRuntimeWithStatus()}
+              disabled={runtimeState === "stopped" || runtimeState === "stopping" || runtimeActionPending !== null}
+            >
+              {runtimeActionPending === "stop" ? "Stopping..." : "Stop Runtime"}
+            </Button>
+            <Button onClick={() => void refreshRuntime()} disabled={runtimeActionPending !== null}>
+              {runtimeActionPending === "refresh" ? "Refreshing..." : "Refresh"}
+            </Button>
+            <Typography.Text>Runtime: {runtimeState}</Typography.Text>
+            <Typography.Text type="secondary">Started: {runtimeStartedAtText}</Typography.Text>
+            <Typography.Text type="secondary">Stopped: {runtimeStoppedAtText}</Typography.Text>
+            {runtime.lastError ? <Typography.Text type="danger">Error: {runtime.lastError}</Typography.Text> : null}
             <Typography.Text strong>{screen.name}</Typography.Text>
           </Space>
         </Card>

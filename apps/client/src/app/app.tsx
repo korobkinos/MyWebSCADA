@@ -44,6 +44,7 @@ export function App() {
   const loadMacros = useScadaStore((s) => s.loadMacros);
   const loadAssets = useScadaStore((s) => s.loadAssets);
   const loadLibraries = useScadaStore((s) => s.loadLibraries);
+  const loadRuntimeStatus = useScadaStore((s) => s.loadRuntimeStatus);
   const initializeAuth = useScadaStore((s) => s.initializeAuth);
   const setTagValues = useScadaStore((s) => s.setTagValues);
   const project = useScadaStore((s) => s.project);
@@ -94,7 +95,7 @@ export function App() {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await loadProject();
-        await Promise.all([loadTags(), loadDrivers(), loadMacros(), loadAssets(), loadLibraries()]);
+        await Promise.all([loadTags(), loadDrivers(), loadMacros(), loadAssets(), loadLibraries(), loadRuntimeStatus()]);
         return;
       } catch (error) {
         lastError = error;
@@ -104,7 +105,7 @@ export function App() {
 
     const text = lastError instanceof Error ? lastError.message : String(lastError);
     setBootError(text || "Failed to connect to backend");
-  }, [initializeAuth, loadAssets, loadDrivers, loadLibraries, loadMacros, loadProject, loadTags]);
+  }, [initializeAuth, loadAssets, loadDrivers, loadLibraries, loadMacros, loadProject, loadRuntimeStatus, loadTags]);
 
   useEffect(() => {
     void bootstrapApp();

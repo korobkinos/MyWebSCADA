@@ -289,7 +289,15 @@ export type ScadaProject = {
 
 export type RuntimeState = {
   running: boolean;
+  state?: "stopped" | "starting" | "running" | "stopping" | "error";
   startedAt?: number;
+  stoppedAt?: number;
+  lastError?: string;
+  pollGroups?: Array<{
+    rateMs: number;
+    tagCount: number;
+  }>;
+  macroIntervals?: string[];
 };
 
 export type EngineerAuthResponse = {

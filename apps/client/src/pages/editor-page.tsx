@@ -150,6 +150,7 @@ export function EditorPage() {
   const loadProject = useScadaStore((s) => s.loadProject);
   const loadAssets = useScadaStore((s) => s.loadAssets);
   const loadLibraries = useScadaStore((s) => s.loadLibraries);
+  const loadRuntimeStatus = useScadaStore((s) => s.loadRuntimeStatus);
   const startRuntime = useScadaStore((s) => s.startRuntime);
   const stopRuntime = useScadaStore((s) => s.stopRuntime);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
@@ -601,6 +602,42 @@ export function EditorPage() {
     }
   }, [appendEditorLog, saveProject, screen]);
 
+  const handleRefreshRuntimeStatus = useCallback(async () => {
+    try {
+      await loadRuntimeStatus();
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      appendEditorLog("error", `Runtime status refresh failed: ${errorText || "unknown error"}`);
+      void message.error(errorText || "Failed to refresh runtime status");
+    }
+  }, [appendEditorLog, loadRuntimeStatus]);
+
+  const handleStartRuntime = useCallback(async () => {
+    try {
+      await startRuntime();
+      await loadRuntimeStatus();
+      appendEditorLog("success", "Runtime started");
+      void message.success("Runtime started");
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      appendEditorLog("error", `Runtime start failed: ${errorText || "unknown error"}`);
+      void message.error(errorText || "Failed to start runtime");
+    }
+  }, [appendEditorLog, loadRuntimeStatus, startRuntime]);
+
+  const handleStopRuntime = useCallback(async () => {
+    try {
+      await stopRuntime();
+      await loadRuntimeStatus();
+      appendEditorLog("success", "Runtime stopped");
+      void message.success("Runtime stopped");
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      appendEditorLog("error", `Runtime stop failed: ${errorText || "unknown error"}`);
+      void message.error(errorText || "Failed to stop runtime");
+    }
+  }, [appendEditorLog, loadRuntimeStatus, stopRuntime]);
+
   const deleteActiveObject = useCallback(() => {
     if (!screen) {
       return;
@@ -669,8 +706,9 @@ export function EditorPage() {
     canUsersChangePassword,
     updateScreen,
     startScreenName,
-    startRuntime,
-    stopRuntime,
+    startRuntime: handleStartRuntime,
+    stopRuntime: handleStopRuntime,
+    refreshRuntimeStatus: handleRefreshRuntimeStatus,
     navigateToRuntime: () => navigate("/runtime"),
     setSelectedObjects,
     deleteSelectionWithHistory,
@@ -726,6 +764,10 @@ export function EditorPage() {
       ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: isWindowOpen("userManagement"), onClick: () => openDefinedWindow("userManagement") }
       : null,
   ].filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  useEffect(() => {
+    void loadRuntimeStatus();
+  }, [loadRuntimeStatus]);
 
   useEffect(() => {
     if (!project) {

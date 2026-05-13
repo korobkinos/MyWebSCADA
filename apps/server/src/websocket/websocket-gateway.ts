@@ -78,6 +78,10 @@ export class WebSocketGateway {
   }
 
   private flush(): void {
+    if (!this.runtimeService.getState().running) {
+      this.queue.clear();
+      return;
+    }
     if (this.queue.size === 0) {
       return;
     }

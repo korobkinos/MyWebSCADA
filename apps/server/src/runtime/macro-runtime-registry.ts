@@ -13,7 +13,10 @@ export class MacroRuntimeRegistry {
   private readonly intervalHandles = new Map<string, ReturnType<typeof setInterval>>();
   private readonly executionStates = new Map<string, MacroExecutionState>();
 
-  public constructor(private readonly macroService: MacroService) {}
+  public constructor(
+    private readonly macroService: MacroService,
+    private readonly isRuntimeActive: () => boolean = () => true,
+  ) {}
 
   /**
    * Register all interval triggers for all enabled macros.
@@ -77,13 +80,15 @@ export class MacroRuntimeRegistry {
   /**
    * Stop all interval triggers.
    */
-  public stopAll(): void {
+  public stopAll(): number {
+    const count = this.intervalHandles.size;
     for (const [key, handle] of this.intervalHandles.entries()) {
       clearInterval(handle);
       console.log(`[MacroRuntimeRegistry] Stopped interval: ${key}`);
     }
     this.intervalHandles.clear();
     this.executionStates.clear();
+    return count;
   }
 
   /**
@@ -136,6 +141,9 @@ export class MacroRuntimeRegistry {
   }
 
   private async executeMacroSafely(macroId: string, triggerType: string, intervalMs: number): Promise<void> {
+    if (!this.isRuntimeActive()) {
+      return;
+    }
     const state = this.executionStates.get(macroId) ?? { running: false, runCount: 0 };
 
     if (state.running) {
@@ -149,6 +157,12 @@ export class MacroRuntimeRegistry {
 
     try {
       const result = await this.macroService.run(macroId);
+      if (!this.isRuntimeActive()) {
+        state.lastFinishedAt = Date.now();
+        state.running = false;
+        this.executionStates.set(macroId, state);
+        return;
+      }
       state.runCount += 1;
       state.lastFinishedAt = Date.now();
       state.lastError = undefined;
