@@ -12263,7 +12263,7 @@
             },
             "tag": {
               "enabled": true,
-              "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.send_count",
+              "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.packet_count",
               "bindings": [
                 {
                   "key": "INDEX_1",
@@ -12279,7 +12279,7 @@
           },
           "tagIndexing": {
             "enabled": true,
-            "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.send_count",
+            "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.packet_count",
             "bindings": [
               {
                 "key": "INDEX_1",

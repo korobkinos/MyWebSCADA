@@ -107,7 +107,7 @@ export function IndexedAddressEditorWindow({
     >
       <WorkbenchWindow
         id="indexedAddressEditor"
-        title={`Indexed Address: ${fieldLabel}`}
+        title={`Indexed Address: ${formatFieldLabel(fieldName, fieldLabel)}`}
         rect={rect}
         zIndex={zIndex}
         minWidth={MIN_WIDTH}
@@ -546,4 +546,29 @@ function loadRect(): WorkbenchWindowRect {
   } catch {
     return clampRect(DEFAULT_RECT);
   }
+}
+
+function formatFieldLabel(fieldName: string, fieldLabel: string): string {
+  if (fieldLabel?.trim()) {
+    return fieldLabel.trim();
+  }
+  if (fieldName?.trim()) {
+    const readable = fieldName
+      .replace(/^tag$/i, "Tag")
+      .replace(/^visibleTag$/i, "Visible Tag")
+      .replace(/^disabledTag$/i, "Disabled Tag")
+      .replace(/^stateTag$/i, "State Tag")
+      .replace(/^openTag$/i, "Open Tag")
+      .replace(/^closedTag$/i, "Closed Tag")
+      .replace(/^errorTag$/i, "Error Tag")
+      .replace(/^runTag$/i, "Run Tag")
+      .replace(/^faultTag$/i, "Fault Tag")
+      .replace(/^commandOpenTag$/i, "Command Open Tag")
+      .replace(/^commandCloseTag$/i, "Command Close Tag")
+      .replace(/^commandStartTag$/i, "Command Start Tag")
+      .replace(/^commandStopTag$/i, "Command Stop Tag")
+      .replace(/^target\.tag$/i, "Target Tag");
+    return readable;
+  }
+  return "Tag";
 }

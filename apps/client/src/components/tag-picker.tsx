@@ -234,9 +234,9 @@ export function TagPicker({
     if (disabled) {
       return;
     }
-    focusWindow();
+    setPickerZIndex(nextGlobalZIndex());
     setPickerOpen(true);
-  }, [disabled, focusWindow]);
+  }, [disabled]);
 
   const handleCreateTag = useCallback(
     (tagName: string) => {

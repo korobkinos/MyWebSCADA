@@ -1091,6 +1091,7 @@ function SpecificPropertyFields({
               value={writeAction.tag}
               bindingLabel="Action Binding"
               tagLabel="Action Tag"
+              indexControl={buildIndexControl("action.tag", "Action Tag", writeAction.tag)}
               onChange={(nextValue) =>
                 onPatch({
                   action: {
@@ -1123,6 +1124,7 @@ function SpecificPropertyFields({
               value={pulseAction.tag}
               bindingLabel="Action Binding"
               tagLabel="Action Tag"
+              indexControl={buildIndexControl("action.tag", "Action Tag", pulseAction.tag)}
               onChange={(nextValue) =>
                 onPatch({
                   action: {
@@ -1169,6 +1171,7 @@ function SpecificPropertyFields({
             value={toggleAction.tag}
             bindingLabel="Action Binding"
             tagLabel="Action Tag"
+            indexControl={buildIndexControl("action.tag", "Action Tag", toggleAction.tag)}
             onChange={(nextValue) =>
               onPatch({
                 action: {
@@ -1558,6 +1561,7 @@ function SpecificPropertyFields({
               value={imageWriteAction.tag}
               bindingLabel="Action Binding"
               tagLabel="Action Tag"
+              indexControl={buildIndexControl("action.tag", "Action Tag", imageWriteAction.tag)}
               onChange={(nextValue) =>
                 onPatch({
                   action: {
@@ -1590,6 +1594,7 @@ function SpecificPropertyFields({
               value={imagePulseAction.tag}
               bindingLabel="Action Binding"
               tagLabel="Action Tag"
+              indexControl={buildIndexControl("action.tag", "Action Tag", imagePulseAction.tag)}
               onChange={(nextValue) =>
                 onPatch({
                   action: {
@@ -1636,6 +1641,7 @@ function SpecificPropertyFields({
             value={imageToggleAction.tag}
             bindingLabel="Action Binding"
             tagLabel="Action Tag"
+            indexControl={buildIndexControl("action.tag", "Action Tag", imageToggleAction.tag)}
             onChange={(nextValue) =>
               onPatch({
                 action: {
