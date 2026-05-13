@@ -1,11 +1,15 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { message } from "antd";
 import type { ScadaProject, TagDefinition, TagSourceType } from "@web-scada/shared";
+import type { WorkbenchWindowRect } from "./workbench";
+import { WorkbenchTagPickerWindow, type TagPickerWindowTag } from "./tag-picker-window";
 
-type Props = {
+type TagPickerProps = {
   project: ScadaProject;
-  value: string;
-  onChange: (tagName: string | undefined) => void;
+  value?: string;
+  onChange: (tag: string | undefined) => void;
+  disabled?: boolean;
+  placeholder?: string;
   writableOnly?: boolean;
   allowedDataTypes?: string[];
   allowedSourceTypes?: TagSourceType[];
@@ -15,59 +19,23 @@ type PickerTag = TagDefinition & {
   sourceType: TagSourceType;
 };
 
-type TagSelectOption = {
-  value: string;
-  label: string;
-  tag: PickerTag;
-};
-
-type TagSelectGroup = {
-  label: string;
-  options: TagSelectOption[];
-};
-
-const DATA_TYPE_COLORS: Record<string, string> = {
-  BOOL: "green",
-  INT: "blue",
-  UINT: "cyan",
-  DINT: "purple",
-  UDINT: "geekblue",
-  REAL: "orange",
-  STRING: "magenta",
-};
-
-const SOURCE_COLORS: Record<TagSourceType, string> = {
-  opcua: "geekblue",
-  modbus: "purple",
-  simulated: "volcano",
-  internal: "cyan",
-  lw: "gold",
-  computed: "lime",
-};
+const DEFAULT_ALLOWED_SOURCES: TagSourceType[] = ["opcua", "modbus", "simulated", "internal", "lw", "computed"];
+const DEFAULT_RECT: WorkbenchWindowRect = { x: 140, y: 100, width: 900, height: 620 };
+const MIN_WIDTH = 620;
+const MIN_HEIGHT = 420;
+const RECT_STORAGE_KEY = "workbench.tagPicker.rect";
 
 const SOURCE_LABELS: Record<TagSourceType, string> = {
   opcua: "OPC UA",
   modbus: "Modbus",
-  simulated: "Sim",
+  simulated: "Simulated",
   internal: "Internal",
   lw: "LW",
   computed: "Computed",
 };
 
-const DEFAULT_ALLOWED_SOURCES: TagSourceType[] = ["opcua", "simulated", "internal", "lw", "computed"];
-const GROUP_ORDER = ["OPC UA", "LW", "Internal", "Simulated", "Computed"];
-
 function normalizeSourceType(tag: TagDefinition): TagSourceType {
   return (tag.sourceType ?? "simulated") as TagSourceType;
-}
-
-function getTagGroupLabel(sourceType: TagSourceType): string {
-  if (sourceType === "opcua") return "OPC UA";
-  if (sourceType === "modbus") return "Modbus";
-  if (sourceType === "lw") return "LW";
-  if (sourceType === "internal") return "Internal";
-  if (sourceType === "simulated") return "Simulated";
-  return "Computed";
 }
 
 function toLwTagName(address: number): string {
@@ -135,270 +103,215 @@ function buildPickerTags(project: ScadaProject): PickerTag[] {
   return [...byName.values()];
 }
 
-function getSecondaryText(tag: PickerTag): string {
-  const bits: string[] = [];
-  if (tag.description) {
-    bits.push(tag.description);
+function toAddressLabel(tag: PickerTag): string {
+  if (tag.nodeId) {
+    return tag.nodeId;
   }
-  if (tag.sourceType === "lw" && typeof tag.lwAddress === "number") {
-    bits.push(`address ${tag.lwAddress}`);
-  }
-  if (tag.driverId) {
-    bits.push(`driver ${tag.driverId}`);
+  if (typeof tag.lwAddress === "number") {
+    return `LW ${tag.lwAddress}`;
   }
   if (tag.internalVariableName) {
-    bits.push(`var ${tag.internalVariableName}`);
+    return tag.internalVariableName;
   }
-  return bits.join(" · ");
+  if (typeof tag.address === "string") {
+    return tag.address;
+  }
+  if (typeof tag.address === "number") {
+    return String(tag.address);
+  }
+  if (tag.address && typeof tag.address === "object") {
+    if ("nodeId" in tag.address && typeof tag.address.nodeId === "string") {
+      return tag.address.nodeId;
+    }
+    if ("address" in tag.address && typeof tag.address.address === "number") {
+      return `Address ${tag.address.address}`;
+    }
+    if ("registerType" in tag.address && "address" in tag.address) {
+      return `${String(tag.address.registerType)}:${String(tag.address.address)}`;
+    }
+    return JSON.stringify(tag.address);
+  }
+  return "-";
 }
 
-function TagOptionRow({ tag }: { tag: PickerTag }) {
-  const meta = getSecondaryText(tag);
-  return (
-    <div className="tag-option-row">
-      <div className="tag-option-row__title" title={tag.name}>
-        {tag.name}
-      </div>
-      <div className="tag-option-row__badges">
-        <Tag className="tag-badge" color={DATA_TYPE_COLORS[tag.dataType] ?? "default"}>
-          {tag.dataType}
-        </Tag>
-        <Tag className="tag-badge" color={SOURCE_COLORS[tag.sourceType]}>
-          {SOURCE_LABELS[tag.sourceType]}
-        </Tag>
-      </div>
-      {meta ? (
-        <div className="tag-option-row__meta" title={meta}>
-          {meta}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function TagSelectedValue({ tag, fallbackName }: { tag?: PickerTag; fallbackName: string }) {
-  if (!tag) {
-    return (
-      <div className="tag-picker-selected">
-        <span className="tag-picker-selected__name">{fallbackName}</span>
-        <span className="tag-picker-selected__badges">
-          <Tag className="tag-badge" color="red">
-            not found
-          </Tag>
-        </span>
-      </div>
-    );
+function clampRect(rect: WorkbenchWindowRect): WorkbenchWindowRect {
+  if (typeof window === "undefined") {
+    return {
+      x: rect.x,
+      y: rect.y,
+      width: Math.max(MIN_WIDTH, rect.width),
+      height: Math.max(MIN_HEIGHT, rect.height),
+    };
   }
 
-  return (
-    <div className="tag-picker-selected">
-      <span className="tag-picker-selected__name" title={tag.name}>
-        {tag.name}
-      </span>
-      <span className="tag-picker-selected__badges">
-        <Tag className="tag-badge" color={DATA_TYPE_COLORS[tag.dataType] ?? "default"}>
-          {tag.dataType}
-        </Tag>
-        <Tag className="tag-badge" color={SOURCE_COLORS[tag.sourceType]}>
-          {SOURCE_LABELS[tag.sourceType]}
-        </Tag>
-      </span>
-    </div>
-  );
+  const width = Math.max(MIN_WIDTH, Math.min(window.innerWidth, rect.width));
+  const height = Math.max(MIN_HEIGHT, Math.min(window.innerHeight, rect.height));
+  const maxX = Math.max(0, window.innerWidth - width);
+  const maxY = Math.max(0, window.innerHeight - height);
+
+  return {
+    x: Math.min(Math.max(0, rect.x), maxX),
+    y: Math.min(Math.max(0, rect.y), maxY),
+    width,
+    height,
+  };
+}
+
+function loadRect(): WorkbenchWindowRect {
+  if (typeof window === "undefined") {
+    return DEFAULT_RECT;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(RECT_STORAGE_KEY);
+    if (!raw) {
+      return clampRect(DEFAULT_RECT);
+    }
+    const parsed = JSON.parse(raw) as Partial<WorkbenchWindowRect>;
+    if (
+      typeof parsed.x !== "number" ||
+      typeof parsed.y !== "number" ||
+      typeof parsed.width !== "number" ||
+      typeof parsed.height !== "number"
+    ) {
+      return clampRect(DEFAULT_RECT);
+    }
+    return clampRect({ x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height });
+  } catch {
+    return clampRect(DEFAULT_RECT);
+  }
 }
 
 export function TagPicker({
   project,
   value,
   onChange,
+  disabled,
+  placeholder,
   writableOnly,
   allowedDataTypes,
   allowedSourceTypes,
-}: Props) {
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [newTagName, setNewTagName] = useState("");
-  const [newTagType, setNewTagType] = useState<string>("BOOL");
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  useEffect(() => {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(search);
-    }, 250);
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
-    };
-  }, [search]);
+}: TagPickerProps) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerRect, setPickerRect] = useState<WorkbenchWindowRect>(() => loadRect());
+  const [pickerZIndex, setPickerZIndex] = useState(4200);
+  const zRef = useRef(4200);
 
   const tags = useMemo(() => buildPickerTags(project), [project]);
   const tagByName = useMemo(() => new Map(tags.map((tag) => [tag.name, tag])), [tags]);
+  const tagRows = useMemo<TagPickerWindowTag[]>(
+    () =>
+      tags.map((tag) => ({
+        key: tag.id ?? tag.name,
+        name: tag.name,
+        description: tag.description,
+        sourceType: tag.sourceType,
+        dataType: tag.dataType,
+        driverId: tag.driverId,
+        group: tag.group,
+        writable: tag.writable,
+        nodeOrAddress: toAddressLabel(tag),
+      })),
+    [tags],
+  );
 
-  const filteredTags = useMemo(() => {
-    const sourceAllowSet = new Set(
-      allowedSourceTypes && allowedSourceTypes.length > 0 ? allowedSourceTypes : DEFAULT_ALLOWED_SOURCES,
-    );
-    let list = tags.filter((tag) => sourceAllowSet.has(tag.sourceType));
+  const selectedValue = value ?? "";
+  const selectedTag = selectedValue ? tagByName.get(selectedValue) : undefined;
+  const isMissing = Boolean(selectedValue) && !selectedTag;
 
-    if (writableOnly) {
-      list = list.filter((tag) => tag.writable !== false);
-    }
-
-    if (allowedDataTypes && allowedDataTypes.length > 0) {
-      list = list.filter((tag) => allowedDataTypes.includes(tag.dataType));
-    }
-
-    if (debouncedSearch.trim()) {
-      const q = debouncedSearch.trim().toLowerCase();
-      list = list.filter((tag) => {
-        const sourceLabel = SOURCE_LABELS[tag.sourceType].toLowerCase();
-        return (
-          tag.name.toLowerCase().includes(q) ||
-          (tag.description ?? "").toLowerCase().includes(q) ||
-          tag.dataType.toLowerCase().includes(q) ||
-          sourceLabel.includes(q) ||
-          String(tag.lwAddress ?? "").includes(q)
-        );
-      });
-    }
-
-    return list;
-  }, [allowedDataTypes, allowedSourceTypes, debouncedSearch, tags, writableOnly]);
-
-  const groupedOptions = useMemo(() => {
-    const groups = new Map<string, TagSelectOption[]>();
-    for (const tag of filteredTags) {
-      const groupName = getTagGroupLabel(tag.sourceType);
-      const arr = groups.get(groupName) ?? [];
-      arr.push({ value: tag.name, label: tag.name, tag });
-      groups.set(groupName, arr);
-    }
-
-    const out: TagSelectGroup[] = [];
-    for (const groupName of GROUP_ORDER) {
-      const groupItems = groups.get(groupName);
-      if (!groupItems || groupItems.length === 0) {
-        continue;
-      }
-      groupItems.sort((a, b) => a.value.localeCompare(b.value));
-      out.push({ label: groupName, options: groupItems });
-    }
-    return out;
-  }, [filteredTags]);
-
-  const tagExists = useMemo(() => {
-    if (!value) return true;
-    return tagByName.has(value);
-  }, [tagByName, value]);
-
-  const handleCreateTag = () => {
-    const name = newTagName.trim();
-    if (!name) {
-      void message.warning("Tag name is required");
+  useEffect(() => {
+    if (typeof window === "undefined") {
       return;
     }
-    if (tags.some((tag) => tag.name === name)) {
-      void message.warning("Tag with this name already exists");
+    window.localStorage.setItem(RECT_STORAGE_KEY, JSON.stringify(pickerRect));
+  }, [pickerRect]);
+
+  const focusWindow = useCallback(() => {
+    zRef.current += 1;
+    setPickerZIndex(zRef.current);
+  }, []);
+
+  const openPicker = useCallback(() => {
+    if (disabled) {
       return;
     }
-    onChange(name);
-    setCreateModalOpen(false);
-    setNewTagName("");
-    setNewTagType("BOOL");
-    void message.success(`Tag \"${name}\" selected (not yet saved to project)`);
-  };
+    focusWindow();
+    setPickerOpen(true);
+  }, [disabled, focusWindow]);
+
+  const handleCreateTag = useCallback(
+    (tagName: string) => {
+      onChange(tagName);
+      setPickerOpen(false);
+      void message.success(`Tag "${tagName}" selected (not yet saved to project)`);
+    },
+    [onChange],
+  );
+
+  const sourceLabel = selectedTag ? SOURCE_LABELS[selectedTag.sourceType] : undefined;
 
   return (
-    <Space direction="vertical" style={{ width: "100%", minWidth: 0 }} size={4}>
-      <Select
-        className="tag-picker-control"
-        labelInValue
-        showSearch
-        allowClear
-        style={{ width: "100%", minWidth: 0 }}
-        placeholder="Select tag..."
-        value={value ? { value, label: value } : undefined}
-        onChange={(val) => {
-          const next = (val as { value?: string } | undefined)?.value;
-          onChange(next ?? undefined);
-        }}
-        onSearch={setSearch}
-        filterOption={false}
-        options={groupedOptions as never}
-        listHeight={320}
-        popupMatchSelectWidth
-        placement="bottomLeft"
-        getPopupContainer={() => document.body}
-        dropdownStyle={{ zIndex: 4000, maxWidth: "min(520px, calc(100vw - 24px))" }}
-        labelRender={(label) => {
-          const selectedName = String(label.value ?? "");
-          return <TagSelectedValue tag={tagByName.get(selectedName)} fallbackName={selectedName} />;
-        }}
-        optionRender={(option) => {
-          const opt = option.data as TagSelectOption;
-          return <TagOptionRow tag={opt.tag} />;
-        }}
-        notFoundContent={
-          <Space direction="vertical" style={{ width: "100%", padding: 8 }}>
-            <Typography.Text type="secondary">No tags found</Typography.Text>
-            <Button size="small" type="link" onClick={() => setCreateModalOpen(true)}>
-              + Create new tag
-            </Button>
-          </Space>
-        }
-        popupRender={(menu) => (
-          <div>
-            {menu}
-            <div style={{ borderTop: "1px solid #f0f0f0", padding: 8 }}>
-              <Button size="small" type="link" onClick={() => setCreateModalOpen(true)} block>
-                + Create new tag
-              </Button>
-            </div>
-          </div>
-        )}
+    <>
+      <div className="tag-picker-field">
+        <div
+          className={[
+            "tag-picker-field__value",
+            disabled ? "tag-picker-field__value--disabled" : "",
+          ].filter(Boolean).join(" ")}
+          role="button"
+          tabIndex={disabled ? -1 : 0}
+          onClick={openPicker}
+          onKeyDown={(event) => {
+            if (disabled) {
+              return;
+            }
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              openPicker();
+            }
+          }}
+          title={selectedValue || placeholder || "Select tag..."}
+        >
+          <span className="tag-picker-field__name">{selectedValue || placeholder || "Select tag..."}</span>
+          {selectedTag ? (
+            <span className="tag-picker-field__badges">
+              <span className="tag-picker-badge">{selectedTag.dataType}</span>
+              <span className="tag-picker-badge">{sourceLabel}</span>
+              {selectedTag.driverId ? <span className="tag-picker-badge">{selectedTag.driverId}</span> : null}
+            </span>
+          ) : isMissing ? (
+            <span className="tag-picker-field__badges">
+              <span className="tag-picker-badge tag-picker-badge--missing">missing</span>
+            </span>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          className="workbench-button"
+          disabled={disabled}
+          onClick={openPicker}
+        >
+          <span className="workbench-button__label">Browse...</span>
+        </button>
+      </div>
+
+      <WorkbenchTagPickerWindow
+        open={pickerOpen}
+        rect={pickerRect}
+        zIndex={pickerZIndex}
+        tags={tagRows}
+        selectedValue={selectedValue || undefined}
+        writableOnly={writableOnly}
+        allowedDataTypes={allowedDataTypes}
+        allowedSourceTypes={allowedSourceTypes && allowedSourceTypes.length > 0 ? allowedSourceTypes : DEFAULT_ALLOWED_SOURCES}
+        onClose={() => setPickerOpen(false)}
+        onFocus={focusWindow}
+        onMove={(x, y) => setPickerRect((prev) => clampRect({ ...prev, x, y }))}
+        onResize={(rect) => setPickerRect(clampRect(rect))}
+        onSelect={(tagName) => onChange(tagName)}
+        onCreateTag={handleCreateTag}
       />
-
-      {value && !tagExists ? (
-        <Typography.Text type="warning" style={{ fontSize: 12 }}>
-          Warning: Tag "{value}" not found in project tags
-        </Typography.Text>
-      ) : null}
-
-      <Modal
-        title="Create New Tag"
-        open={createModalOpen}
-        onOk={handleCreateTag}
-        onCancel={() => {
-          setCreateModalOpen(false);
-          setNewTagName("");
-          setNewTagType("BOOL");
-        }}
-        okText="Create & Select"
-      >
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <div>
-            <Typography.Text>Tag Name</Typography.Text>
-            <Input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} placeholder="Enter tag name" />
-          </div>
-          <div>
-            <Typography.Text>Data Type</Typography.Text>
-            <Select
-              style={{ width: "100%" }}
-              value={newTagType}
-              onChange={setNewTagType}
-              options={["BOOL", "INT", "DINT", "REAL", "STRING"].map((dt) => ({
-                label: dt,
-                value: dt,
-              }))}
-            />
-          </div>
-        </Space>
-      </Modal>
-    </Space>
+    </>
   );
 }
