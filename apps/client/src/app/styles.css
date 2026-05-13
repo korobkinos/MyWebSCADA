@@ -539,7 +539,7 @@ body {
 .tag-picker-window-layer {
   position: fixed;
   inset: 0;
-  z-index: 4100;
+  z-index: 4000;
   pointer-events: none;
 }
 .tag-picker-window-layer .workbench-window {
@@ -4322,7 +4322,7 @@ body {
 .indexed-address-editor-window-layer {
   position: fixed;
   inset: 0;
-  z-index: 4340;
+  z-index: 4000;
   pointer-events: none;
 }
 

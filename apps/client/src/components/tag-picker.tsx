@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { message } from "antd";
 import type { ScadaProject, TagDefinition, TagSourceType } from "@web-scada/shared";
 import type { WorkbenchWindowRect } from "./workbench";
+import { nextGlobalZIndex } from "./workbench";
 import { WorkbenchTagPickerWindow, type TagPickerWindowTag } from "./tag-picker-window";
 
 type TagPickerProps = {
@@ -194,8 +195,7 @@ export function TagPicker({
 }: TagPickerProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerRect, setPickerRect] = useState<WorkbenchWindowRect>(() => loadRect());
-  const [pickerZIndex, setPickerZIndex] = useState(4200);
-  const zRef = useRef(4200);
+  const [pickerZIndex, setPickerZIndex] = useState(() => nextGlobalZIndex());
 
   const tags = useMemo(() => buildPickerTags(project), [project]);
   const tagByName = useMemo(() => new Map(tags.map((tag) => [tag.name, tag])), [tags]);
@@ -227,8 +227,7 @@ export function TagPicker({
   }, [pickerRect]);
 
   const focusWindow = useCallback(() => {
-    zRef.current += 1;
-    setPickerZIndex(zRef.current);
+    setPickerZIndex(nextGlobalZIndex());
   }, []);
 
   const openPicker = useCallback(() => {

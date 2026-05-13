@@ -42,10 +42,11 @@ export function WorkbenchWindow({
     startRect: { x: 0, y: 0, width: 0, height: 0 },
   });
 
-  const handleMouseDown = useCallback(
-    (event: React.MouseEvent) => {
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent) => {
       event.stopPropagation();
       onFocus();
+
       const target = event.target as HTMLElement;
       const isHeader = target.closest(".workbench-window__header");
       const isResizeHandle = target.closest(".workbench-window__resize-handle");
@@ -53,7 +54,6 @@ export function WorkbenchWindow({
       if (!isHeader && !isResizeHandle) {
         return;
       }
-      event.preventDefault();
 
       dragRef.current = {
         isDragging: !!isHeader,
@@ -116,8 +116,7 @@ export function WorkbenchWindow({
         height: rect.height,
         zIndex,
       }}
-      onMouseDown={handleMouseDown}
-      onPointerDown={(event) => event.stopPropagation()}
+      onPointerDown={handlePointerDown}
       onClick={(event) => event.stopPropagation()}
       data-window-id={id}
     >

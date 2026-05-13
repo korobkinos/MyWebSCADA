@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   extractIndexedAddressSlots,
@@ -9,7 +9,7 @@ import {
   type TagDefinition,
 } from "@web-scada/shared";
 import { TagPicker } from "./tag-picker";
-import { WorkbenchWindow, type WorkbenchWindowRect } from "./workbench";
+import { WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
 import { findTagByAddressInTags, getTagAddressTemplate } from "../hmi/tags/indexed-address";
 
 type IndexedAddressEditorWindowProps = {
@@ -41,8 +41,7 @@ export function IndexedAddressEditorWindow({
   onClose,
 }: IndexedAddressEditorWindowProps) {
   const [rect, setRect] = useState<WorkbenchWindowRect>(() => loadRect());
-  const [zIndex, setZIndex] = useState(4350);
-  const zRef = useRef(4350);
+  const [zIndex, setZIndex] = useState(() => nextGlobalZIndex());
   const [draft, setDraft] = useState<IndexedTagAddress>(() => createDraft(value, selectedTag));
 
   useEffect(() => {
@@ -60,8 +59,7 @@ export function IndexedAddressEditorWindow({
   }, [rect]);
 
   const focusWindow = () => {
-    zRef.current += 1;
-    setZIndex(zRef.current);
+    setZIndex(nextGlobalZIndex());
   };
 
   const detectedSlots = useMemo(() => extractIndexedAddressSlots(draft.template), [draft.template]);

@@ -11372,14 +11372,9 @@
       "id": "inc_counter",
       "name": "Increment Counter",
       "language": "javascript-lite",
-      "code": "const current = Number(api.readVariable('Counter') ?? 0); \napi.writeVariable('Counter', current + 1);",
+      "code": "const current = Number(api.readVariable('Counter') ?? 0); \nif (current > 5) {\n  api.writeVariable(\"Counter\", 0);\n}else{\napi.writeVariable('Counter', current + 1);\n}",
       "enabled": true,
-      "triggers": [
-        {
-          "type": "interval",
-          "intervalMs": 1000
-        }
-      ]
+      "triggers": []
     },
     {
       "id": "macro_458y8c",
@@ -11665,7 +11660,7 @@
           "y": 204,
           "width": 220,
           "height": 36,
-          "tag": "LW.Counter",
+          "tag": "Counter",
           "suffix": " cnt",
           "textStyle": {
             "fontFamily": "Consolas",
@@ -12260,15 +12255,38 @@
           "minWidth": 80,
           "minHeight": 28,
           "visibleTag": "",
+          "tagIndexingByField": {
+            "disabledTag": {
+              "enabled": false,
+              "template": "",
+              "bindings": []
+            },
+            "tag": {
+              "enabled": true,
+              "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.send_count",
+              "bindings": [
+                {
+                  "key": "INDEX_1",
+                  "slotIndex": 0,
+                  "baseValue": 0,
+                  "source": "tag",
+                  "sourceName": "Counter",
+                  "constantValue": 0,
+                  "offset": 0
+                }
+              ]
+            }
+          },
           "tagIndexing": {
-            "enabled": false,
+            "enabled": true,
             "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.send_count",
             "bindings": [
               {
                 "key": "INDEX_1",
                 "slotIndex": 0,
                 "baseValue": 0,
-                "source": "constant",
+                "source": "tag",
+                "sourceName": "Counter",
                 "constantValue": 0,
                 "offset": 0
               }

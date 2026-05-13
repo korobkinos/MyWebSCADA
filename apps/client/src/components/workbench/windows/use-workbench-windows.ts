@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type {
   WorkbenchWindowDefinition,
   WorkbenchWindowId,
@@ -8,52 +8,50 @@ import type {
 
 export function useWorkbenchWindows() {
   const [windows, setWindows] = useState<WorkbenchWindowState[]>([]);
-  const [zCounter, setZCounter] = useState(10);
+  const zCounterRef = useRef(10);
+
+  const nextZ = useCallback(() => {
+    zCounterRef.current += 1;
+    return zCounterRef.current;
+  }, []);
 
   const focusWindow = useCallback((id: WorkbenchWindowId) => {
-    setZCounter((current) => {
-      const next = current + 1;
-      setWindows((prev) =>
-        prev.map((window) =>
-          window.id === id ? { ...window, zIndex: next } : window,
-        ),
-      );
-      return next;
-    });
-  }, []);
+    const next = nextZ();
+    setWindows((prev) =>
+      prev.map((window) =>
+        window.id === id ? { ...window, zIndex: next } : window,
+      ),
+    );
+  }, [nextZ]);
 
   const openWindow = useCallback((definition: WorkbenchWindowDefinition) => {
-    setZCounter((current) => {
-      const next = current + 1;
+    const next = nextZ();
 
-      setWindows((prev) => {
-        const existing = prev.find((window) => window.id === definition.id);
+    setWindows((prev) => {
+      const existing = prev.find((window) => window.id === definition.id);
 
-        if (existing) {
-          return prev.map((window) =>
-            window.id === definition.id
-              ? { ...window, isOpen: true, zIndex: next }
-              : window,
-          );
-        }
+      if (existing) {
+        return prev.map((window) =>
+          window.id === definition.id
+            ? { ...window, isOpen: true, zIndex: next }
+            : window,
+        );
+      }
 
-        return [
-          ...prev,
-          {
-            id: definition.id,
-            title: definition.title,
-            rect: definition.defaultRect,
-            minWidth: definition.minWidth,
-            minHeight: definition.minHeight,
-            zIndex: next,
-            isOpen: true,
-          },
-        ];
-      });
-
-      return next;
+      return [
+        ...prev,
+        {
+          id: definition.id,
+          title: definition.title,
+          rect: definition.defaultRect,
+          minWidth: definition.minWidth,
+          minHeight: definition.minHeight,
+          zIndex: next,
+          isOpen: true,
+        },
+      ];
     });
-  }, []);
+  }, [nextZ]);
 
   const closeWindow = useCallback((id: WorkbenchWindowId) => {
     setWindows((prev) =>
