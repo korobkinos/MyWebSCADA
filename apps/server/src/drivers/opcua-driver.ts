@@ -67,14 +67,18 @@ export class OpcUaDriver implements Driver {
   public static readonly CLOCK_WARNING_HELP =
     "Clock mismatch detected. Check OPC UA server/client time.";
 
-  private static readonly DEFAULT_CONNECT_TIMEOUT_MS = 2000;
-  private static readonly DEFAULT_OPERATION_TIMEOUT_MS = 2000;
+  private static readonly DEFAULT_CONNECT_TIMEOUT_MS = 5000;
+  private static readonly DEFAULT_OPERATION_TIMEOUT_MS = 5000;
+  private static readonly DEFAULT_SESSION_TIMEOUT_MS = 60000;
+  private static readonly DEFAULT_KEEP_ALIVE_INTERVAL_MS = 5000;
   private static readonly DEFAULT_READ_BATCH_SIZE = 100;
   private static readonly DEFAULT_PUBLISHING_INTERVAL_MS = 250;
   private static readonly DEFAULT_SAMPLING_INTERVAL_MS = 250;
   private static readonly DEFAULT_QUEUE_SIZE = 1;
   private static readonly DEFAULT_DISCARD_OLDEST = true;
   private static readonly DEFAULT_SUBSCRIPTION_BATCH_SIZE = 100;
+  private static readonly DEFAULT_RECONNECT_MS = 5000;
+  private static readonly STABLE_CONNECTION_RESET_MS = 30000;
   private static readonly MAX_RECONNECT_BACKOFF_MS = 30000;
   private static readonly OFFLINE_SKIP_STATUS = "OPC UA offline; waiting for reconnect window";
 
@@ -87,6 +91,7 @@ export class OpcUaDriver implements Driver {
   private nextReconnectAttemptAt = 0;
   private consecutiveFailures = 0;
   private reconnectAttempt = 0;
+  private connectedSinceAt = 0;
   private stopping = false;
   private connectEpoch = 0;
   private clockWarning: string | undefined;
@@ -155,6 +160,7 @@ export class OpcUaDriver implements Driver {
     this.reconnectBackoffMs = 0;
     this.consecutiveFailures = 0;
     this.reconnectAttempt = 0;
+    this.connectedSinceAt = 0;
     this.reconnectRequestedMessage = undefined;
     this.clockWarning = undefined;
     this.desiredSubscriptionTags = [];
@@ -512,6 +518,8 @@ export class OpcUaDriver implements Driver {
     const epoch = ++this.connectEpoch;
     try {
       await this.closeActiveConnection();
+      const connectTimeoutMs = this.getConnectTimeoutMs();
+      const sessionTimeoutMs = this.getSessionTimeoutMs();
       const nextClient = OPCUAClient.create({
         securityMode:
           this.config.securityMode === "Sign"
@@ -522,13 +530,15 @@ export class OpcUaDriver implements Driver {
         securityPolicy:
           this.config.securityPolicy === "Basic256Sha256" ? SecurityPolicy.Basic256Sha256 : SecurityPolicy.None,
         endpointMustExist: false,
-        transportTimeout: this.getConnectTimeoutMs(),
-        requestedSessionTimeout: Math.max(this.getConnectTimeoutMs(), 1500),
+        transportTimeout: connectTimeoutMs,
+        requestedSessionTimeout: sessionTimeoutMs,
+        keepSessionAlive: true,
+        keepAliveInterval: this.getKeepAliveIntervalMs(),
         connectionStrategy: {
           // Fail fast on initial startup; reconnection is handled separately below.
           maxRetry: 0,
-          initialDelay: 200,
-          maxDelay: 800,
+          initialDelay: 500,
+          maxDelay: 2000,
         },
       });
       this.attachClientHandlers(nextClient, epoch);
@@ -543,8 +553,8 @@ export class OpcUaDriver implements Driver {
 
       await this.withTimeout(
         nextClient.connect(this.config.endpointUrl),
-        this.getConnectTimeoutMs(),
-        `OPC UA connect timeout after ${this.getConnectTimeoutMs()} ms`,
+        connectTimeoutMs,
+        `OPC UA connect timeout after ${connectTimeoutMs} ms`,
       );
       const nextSession = this.config.username
         ? await this.withTimeout(
@@ -553,13 +563,13 @@ export class OpcUaDriver implements Driver {
               userName: this.config.username,
               password: this.config.password ?? "",
             }),
-            this.getConnectTimeoutMs(),
-            `OPC UA session timeout after ${this.getConnectTimeoutMs()} ms`,
+            connectTimeoutMs,
+            `OPC UA session timeout after ${connectTimeoutMs} ms`,
           )
         : await this.withTimeout(
             nextClient.createSession(),
-            this.getConnectTimeoutMs(),
-            `OPC UA session timeout after ${this.getConnectTimeoutMs()} ms`,
+            connectTimeoutMs,
+            `OPC UA session timeout after ${connectTimeoutMs} ms`,
           );
 
       if (this.stopping || epoch !== this.connectEpoch) {
@@ -579,9 +589,9 @@ export class OpcUaDriver implements Driver {
       this.attachSessionHandlers(nextSession, epoch);
       this.session = nextSession;
       this.consecutiveFailures = 0;
-      this.reconnectBackoffMs = 0;
       this.nextReconnectAttemptAt = 0;
       this.reconnectAttempt = 0;
+      this.connectedSinceAt = Date.now();
       this.setStatus("running", "Connected");
       if (this.readMode === "subscription" && this.desiredSubscriptionTags.length > 0) {
         void this.ensureSubscriptionBackground();
@@ -618,6 +628,7 @@ export class OpcUaDriver implements Driver {
       this.captureClockWarningFromText(message);
       this.setStatus("error", message);
       await this.closeActiveConnection();
+      this.markDisconnectedAndAdjustBackoff();
       this.consecutiveFailures += 1;
       if (!this.stopping) {
         this.scheduleReconnect(message);
@@ -649,7 +660,7 @@ export class OpcUaDriver implements Driver {
       return;
     }
 
-    const baseDelay = Math.max(500, this.config.reconnectMs ?? 3000);
+    const baseDelay = this.getReconnectBaseDelayMs();
     const nextDelay =
       this.reconnectBackoffMs <= 0
         ? baseDelay
@@ -741,6 +752,7 @@ export class OpcUaDriver implements Driver {
     }
     this.captureClockWarningFromText(message);
     this.connectEpoch += 1;
+    this.markDisconnectedAndAdjustBackoff();
     this.consecutiveFailures += 1;
     await this.cleanupSubscription({ terminate: false });
     this.setStatus("error", message);
@@ -760,6 +772,7 @@ export class OpcUaDriver implements Driver {
     await this.cleanupSubscription({ terminate: false });
     this.session = undefined;
     this.client = undefined;
+    this.connectedSinceAt = 0;
     const startedAt = Date.now();
     this.closeTask = (async () => {
       if (this.runtimeDebug) {
@@ -805,12 +818,18 @@ export class OpcUaDriver implements Driver {
     const isConnected = health === "running";
     const isDisconnected = health === "error" || health === "reconnecting" || health === "stopped" || health === "disabled";
     let nextLastError = this.status.lastError;
+    let nextLastErrorAt = this.status.lastErrorAt;
     if (health === "error") {
       nextLastError = message ?? this.status.lastError;
+      nextLastErrorAt = message ? now : this.status.lastErrorAt;
     } else if (health === "reconnecting") {
-      nextLastError = message && !this.isTransientReconnectMessage(message) ? message : this.status.lastError;
+      if (message && !this.isTransientReconnectMessage(message)) {
+        nextLastError = message;
+        nextLastErrorAt = now;
+      }
     } else if (health === "running" && this.isTransientReconnectMessage(this.status.lastError)) {
       nextLastError = undefined;
+      nextLastErrorAt = undefined;
     }
     this.status = {
       ...this.status,
@@ -822,6 +841,7 @@ export class OpcUaDriver implements Driver {
       lastConnectedAt: isConnected ? now : this.status.lastConnectedAt,
       lastDisconnectedAt: isDisconnected ? now : this.status.lastDisconnectedAt,
       lastError: nextLastError,
+      lastErrorAt: nextLastErrorAt,
       clockWarning: this.clockWarning,
       readMode: this.readMode,
       subscriptionActive: this.subscriptionActive,
@@ -882,11 +902,23 @@ export class OpcUaDriver implements Driver {
   }
 
   private getConnectTimeoutMs(): number {
-    return Math.max(500, this.config.timeoutMs ?? OpcUaDriver.DEFAULT_CONNECT_TIMEOUT_MS);
+    return Math.max(500, this.config.connectTimeoutMs ?? this.config.timeoutMs ?? OpcUaDriver.DEFAULT_CONNECT_TIMEOUT_MS);
   }
 
   private getOperationTimeoutMs(): number {
-    return Math.max(500, this.config.timeoutMs ?? OpcUaDriver.DEFAULT_OPERATION_TIMEOUT_MS);
+    return Math.max(500, this.config.operationTimeoutMs ?? this.config.timeoutMs ?? OpcUaDriver.DEFAULT_OPERATION_TIMEOUT_MS);
+  }
+
+  private getSessionTimeoutMs(): number {
+    return Math.max(1000, this.config.sessionTimeoutMs ?? OpcUaDriver.DEFAULT_SESSION_TIMEOUT_MS);
+  }
+
+  private getKeepAliveIntervalMs(): number {
+    return Math.max(500, this.config.keepAliveIntervalMs ?? OpcUaDriver.DEFAULT_KEEP_ALIVE_INTERVAL_MS);
+  }
+
+  private getReconnectBaseDelayMs(): number {
+    return Math.max(5000, this.config.reconnectMs ?? OpcUaDriver.DEFAULT_RECONNECT_MS);
   }
 
   private getPublishingIntervalMs(): number {
@@ -1232,6 +1264,16 @@ export class OpcUaDriver implements Driver {
     });
   }
 
+  private markDisconnectedAndAdjustBackoff(): void {
+    const now = Date.now();
+    const stableForMs = this.connectedSinceAt > 0 ? now - this.connectedSinceAt : 0;
+    this.connectedSinceAt = 0;
+    if (stableForMs >= OpcUaDriver.STABLE_CONNECTION_RESET_MS) {
+      this.reconnectBackoffMs = 0;
+      this.consecutiveFailures = 0;
+    }
+  }
+
   private getOfflineSkipReason(): string | undefined {
     if (this.connectTask) {
       return "connectTask_active";
@@ -1322,6 +1364,7 @@ export class OpcUaDriver implements Driver {
     }
     this.captureClockWarningFromText(message);
     this.connectEpoch += 1;
+    this.markDisconnectedAndAdjustBackoff();
     this.consecutiveFailures += 1;
     this.setStatus("error", message);
     await this.closeActiveConnection();

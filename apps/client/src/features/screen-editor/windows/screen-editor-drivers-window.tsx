@@ -42,10 +42,32 @@ function defaultOpcUaDriver(): OpcUaDriverConfig {
     queueSize: 1,
     discardOldest: true,
     subscriptionBatchSize: 100,
+    connectTimeoutMs: 5000,
+    operationTimeoutMs: 5000,
+    sessionTimeoutMs: 60000,
+    keepAliveIntervalMs: 5000,
     timeoutMs: 5000,
-    reconnectMs: 2000,
+    reconnectMs: 5000,
     username: "",
     password: "",
+  };
+}
+
+function withOpcUaTimingDefaults(config: OpcUaDriverConfig): OpcUaDriverConfig {
+  const legacyTimeout = config.timeoutMs ?? 5000;
+  return {
+    ...config,
+    readMode: config.readMode ?? "subscription",
+    publishingIntervalMs: config.publishingIntervalMs ?? 250,
+    samplingIntervalMs: config.samplingIntervalMs ?? 250,
+    queueSize: config.queueSize ?? 1,
+    discardOldest: config.discardOldest ?? true,
+    subscriptionBatchSize: config.subscriptionBatchSize ?? 100,
+    connectTimeoutMs: config.connectTimeoutMs ?? legacyTimeout,
+    operationTimeoutMs: config.operationTimeoutMs ?? legacyTimeout,
+    sessionTimeoutMs: config.sessionTimeoutMs ?? 60000,
+    keepAliveIntervalMs: config.keepAliveIntervalMs ?? 5000,
+    reconnectMs: config.reconnectMs ?? 5000,
   };
 }
 
@@ -269,7 +291,7 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
     if (selectedOpcUaDriverId !== selectedOpcUaDriver.id) {
       setSelectedOpcUaDriverId(selectedOpcUaDriver.id);
     }
-    setOpcUaDraft({ ...selectedOpcUaDriver });
+    setOpcUaDraft(withOpcUaTimingDefaults({ ...selectedOpcUaDriver }));
     setDriverIdError("");
   }, [selectedOpcUaDriver, selectedOpcUaDriverId]);
 
@@ -384,7 +406,7 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
         return;
       }
       const normalized: OpcUaDriverConfig = {
-        ...opcUaDraft,
+        ...withOpcUaTimingDefaults(opcUaDraft),
         id: normalizedId,
         type: "opcua",
         enabled: Boolean(opcUaDraft.enabled),
@@ -909,13 +931,43 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                 <WorkbenchCollapsibleSection title="Timing" storageKey="drivers.opcua.timing">
                   <div className="screen-editor-drivers-form screen-editor-drivers-form--two-columns">
                     <label className="screen-editor-settings-field">
-                      <span>Timeout (ms)</span>
+                      <span>Connect Timeout (ms)</span>
                       <input
                         className="workbench-input"
                         type="number"
                         min={100}
-                        value={opcUaDraft.timeoutMs ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, timeoutMs: toOptionalNumber(event.target.value) } : prev))}
+                        value={opcUaDraft.connectTimeoutMs ?? ""}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, connectTimeoutMs: toOptionalNumber(event.target.value) } : prev))}
+                      />
+                    </label>
+                    <label className="screen-editor-settings-field">
+                      <span>Operation Timeout (ms)</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={100}
+                        value={opcUaDraft.operationTimeoutMs ?? ""}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, operationTimeoutMs: toOptionalNumber(event.target.value) } : prev))}
+                      />
+                    </label>
+                    <label className="screen-editor-settings-field">
+                      <span>Session Timeout (ms)</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={1000}
+                        value={opcUaDraft.sessionTimeoutMs ?? ""}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, sessionTimeoutMs: toOptionalNumber(event.target.value) } : prev))}
+                      />
+                    </label>
+                    <label className="screen-editor-settings-field">
+                      <span>Keep Alive (ms)</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={500}
+                        value={opcUaDraft.keepAliveIntervalMs ?? ""}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, keepAliveIntervalMs: toOptionalNumber(event.target.value) } : prev))}
                       />
                     </label>
                     <label className="screen-editor-settings-field">
@@ -928,6 +980,12 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                         onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, reconnectMs: toOptionalNumber(event.target.value) } : prev))}
                       />
                     </label>
+                  </div>
+                  <div className="screen-editor-drivers-note">
+                    Session timeout should be significantly higher than operation timeout. Recommended: 60000 ms.
+                  </div>
+                  <div className="screen-editor-drivers-note">
+                    Recommended OPC UA timing: Connect 5000 ms, Operation 5000 ms, Session 60000 ms, Keep Alive 5000 ms, Reconnect 5000-10000 ms.
                   </div>
                 </WorkbenchCollapsibleSection>
 
@@ -967,6 +1025,10 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                           <span className="screen-editor-driver-status-badge screen-editor-driver-status-badge--reconnecting">Warning</span>
                         ) : null}
                       </span>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Current message</span>
+                      <strong>{currentOpcStatus?.message ?? "-"}</strong>
                     </div>
                     <div className="screen-editor-drivers-status-line">
                       <span>Linked tags</span>
@@ -1042,13 +1104,17 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                     </div>
                     <div className="screen-editor-drivers-status-line">
                       <span>Last error</span>
-                      <strong>{currentOpcStatus?.lastError ?? (currentOpcStatus?.health === "error" ? (currentOpcStatus.message ?? "Unknown error") : "-")}</strong>
+                      <strong>{currentOpcStatus?.lastError ?? "-"}</strong>
+                    </div>
+                    <div className="screen-editor-drivers-status-line">
+                      <span>Last error at</span>
+                      <strong>{formatTimestamp(currentOpcStatus?.lastErrorAt)}</strong>
                     </div>
                     {statusStale ? <div className="screen-editor-drivers-warning">Status may be stale: {statusRefreshError || "polling request failed"}</div> : null}
                     {currentOpcStatus?.message ? <div className="screen-editor-drivers-note">{currentOpcStatus.message}</div> : null}
                     {clockWarningText ? (
                       <div className="screen-editor-drivers-warning">
-                        <div><strong>OPC UA clock mismatch detected. Synchronize PLC/OPC UA server clock and SCADA server clock. Connection will continue.</strong></div>
+                        <div><strong>Clock mismatch detected. Synchronize OPC UA server and SCADA server time. This warning should not force reconnect, but it can affect secure channel stability.</strong></div>
                         <div>Details: {clockWarningText}</div>
                       </div>
                     ) : null}

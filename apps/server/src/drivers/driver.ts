@@ -11,6 +11,7 @@ export type DriverStatus = {
   lastConnectedAt?: number;
   lastDisconnectedAt?: number;
   lastError?: string;
+  lastErrorAt?: number;
   reconnectAttempt?: number;
   endpointUrl?: string;
   clockWarning?: string;

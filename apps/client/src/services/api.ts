@@ -44,6 +44,10 @@ export type OpcUaDriverConfigInput = {
   queueSize?: number;
   discardOldest?: boolean;
   subscriptionBatchSize?: number;
+  connectTimeoutMs?: number;
+  operationTimeoutMs?: number;
+  sessionTimeoutMs?: number;
+  keepAliveIntervalMs?: number;
   username?: string;
   password?: string;
   timeoutMs?: number;

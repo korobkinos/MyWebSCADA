@@ -14,6 +14,7 @@ export type DriverStatus = {
   lastConnectedAt?: number;
   lastDisconnectedAt?: number;
   lastError?: string;
+  lastErrorAt?: number;
   reconnectAttempt?: number;
   endpointUrl?: string;
   clockWarning?: string;
@@ -58,6 +59,10 @@ export type OpcUaDriverConfig = DriverBaseConfig & {
   queueSize?: number;
   discardOldest?: boolean;
   subscriptionBatchSize?: number;
+  connectTimeoutMs?: number;
+  operationTimeoutMs?: number;
+  sessionTimeoutMs?: number;
+  keepAliveIntervalMs?: number;
   username?: string;
   password?: string;
   timeoutMs?: number;
