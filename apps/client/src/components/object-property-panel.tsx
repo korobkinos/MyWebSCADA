@@ -537,7 +537,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
       return "Not configured";
     }
     if (resolved.errors.some((item) => item.includes("missing or non-numeric") || item.includes("sourceName is missing"))) {
-      return "Not configured";
+      return "Preview incomplete";
     }
     return resolved.resolvedTagName ? "OK" : "Not found";
   };

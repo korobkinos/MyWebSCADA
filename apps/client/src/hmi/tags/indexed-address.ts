@@ -112,7 +112,7 @@ export function buildIndexedAddressRuntimeValues(input: RuntimeValueInput): Reco
   }
 
   for (const [tagName, payload] of Object.entries(input.tagValues ?? {})) {
-    const value = payload?.value;
+    const value = extractRuntimeTagValue(payload);
     values[tagName] = value;
     if (tagName.startsWith("LW.") && tagName.length > 3) {
       values[tagName.slice(3)] = value;
@@ -120,6 +120,18 @@ export function buildIndexedAddressRuntimeValues(input: RuntimeValueInput): Reco
   }
 
   return values;
+}
+
+function extractRuntimeTagValue(payload: unknown): unknown {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "value" in payload
+  ) {
+    return (payload as { value?: unknown }).value;
+  }
+
+  return payload;
 }
 
 export function resolveIndexedObjectMainTag(params: {
@@ -205,6 +217,23 @@ export function resolveObjectTagField(params: {
     config: normalizedConfig,
     values,
   });
+  if (isIndexedAddressDebugEnabled()) {
+    for (const binding of normalizedConfig.bindings) {
+      if (binding.source !== "tag" || !binding.sourceName) {
+        continue;
+      }
+      const part = resolved.parts.find((item) => item.key === binding.key || item.key === `INDEX_${binding.slotIndex + 1}`);
+      // eslint-disable-next-line no-console
+      console.debug("[Indexed Address]", {
+        fieldName: params.fieldName,
+        bindingKey: binding.key,
+        sourceName: binding.sourceName,
+        rawValue: values[binding.sourceName],
+        numericValue: part?.runtimeValue ?? 0,
+        resolvedAddress: resolved.address,
+      });
+    }
+  }
   const matchingTag = findTagByAddress(params.project, resolved.address);
   if (!matchingTag) {
     return {
@@ -293,4 +322,12 @@ function normalizeAddress(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function isIndexedAddressDebugEnabled(): boolean {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return false;
+  }
+  const value = window.localStorage.getItem("debugPerformance");
+  return value === "1";
 }

@@ -74,4 +74,57 @@ describe("indexed-address", () => {
     expect(result.address).toBe("a[3].b[3].c[6].d[5].e[9].f[7].g[12].h[9].i[15]");
     expect(result.errors.length).toBeGreaterThan(0);
   });
+
+  it("converts tag source values to numbers (number/string/boolean)", () => {
+    const config: IndexedTagAddress = {
+      enabled: true,
+      template: "x[0].y[0].z[0].w[0]",
+      bindings: [
+        { key: "INDEX_1", slotIndex: 0, baseValue: 0, source: "tag", sourceName: "n" },
+        { key: "INDEX_2", slotIndex: 1, baseValue: 0, source: "tag", sourceName: "s" },
+        { key: "INDEX_3", slotIndex: 2, baseValue: 0, source: "tag", sourceName: "t" },
+        { key: "INDEX_4", slotIndex: 3, baseValue: 0, source: "tag", sourceName: "f" },
+      ],
+    };
+
+    const result = resolveIndexedAddress({
+      config,
+      values: {
+        n: 4,
+        s: "5",
+        t: true,
+        f: false,
+      },
+    });
+
+    expect(result.address).toBe("x[4].y[5].z[1].w[0]");
+    expect(result.errors).toEqual([]);
+  });
+
+  it("resolves Counter=4 to template index [4]", () => {
+    const config: IndexedTagAddress = {
+      enabled: true,
+      template: "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.packet_count",
+      bindings: [
+        {
+          key: "INDEX_1",
+          slotIndex: 0,
+          baseValue: 0,
+          source: "tag",
+          sourceName: "Counter",
+          offset: 0,
+        },
+      ],
+    };
+
+    const result = resolveIndexedAddress({
+      config,
+      values: {
+        Counter: 4,
+      },
+    });
+
+    expect(result.address).toBe("ns=2;s=Application.GVL_UDP.udp_channel_modbus[4].state.packet_count");
+    expect(result.errors).toEqual([]);
+  });
 });

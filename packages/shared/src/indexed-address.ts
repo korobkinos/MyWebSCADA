@@ -175,6 +175,9 @@ function toMaybeNumeric(value: unknown): number | undefined {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : undefined;
   }
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
   if (typeof value === "string") {
     const parsed = Number(value.trim());
     return Number.isFinite(parsed) ? parsed : undefined;

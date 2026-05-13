@@ -270,6 +270,8 @@ export function TagPicker({
             }
           }}
           title={selectedValue || placeholder || "Select tag..."}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
         >
           <span className="tag-picker-field__name">{selectedValue || placeholder || "Select tag..."}</span>
           {selectedTag ? (
@@ -290,6 +292,8 @@ export function TagPicker({
           className="workbench-button"
           disabled={disabled}
           onClick={openPicker}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
         >
           <span className="workbench-button__label">Browse...</span>
         </button>

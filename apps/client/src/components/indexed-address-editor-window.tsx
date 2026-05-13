@@ -14,7 +14,7 @@ import { findTagByAddressInTags, getTagAddressTemplate } from "../hmi/tags/index
 
 type IndexedAddressEditorWindowProps = {
   fieldName: string;
-  fieldLabel: string;
+  fieldLabel?: string;
   open: boolean;
   project: ScadaProject;
   value?: IndexedTagAddress;
@@ -548,12 +548,14 @@ function loadRect(): WorkbenchWindowRect {
   }
 }
 
-function formatFieldLabel(fieldName: string, fieldLabel: string): string {
-  if (fieldLabel?.trim()) {
-    return fieldLabel.trim();
+function formatFieldLabel(fieldName: string | undefined, fieldLabel: string | undefined): string {
+  const normalizedLabel = typeof fieldLabel === "string" ? fieldLabel.trim() : "";
+  if (normalizedLabel && normalizedLabel.toLowerCase() !== "undefined") {
+    return normalizedLabel;
   }
-  if (fieldName?.trim()) {
-    const readable = fieldName
+  const normalizedFieldName = typeof fieldName === "string" ? fieldName.trim() : "";
+  if (normalizedFieldName && normalizedFieldName.toLowerCase() !== "undefined") {
+    const readable = normalizedFieldName
       .replace(/^tag$/i, "Tag")
       .replace(/^visibleTag$/i, "Visible Tag")
       .replace(/^disabledTag$/i, "Disabled Tag")
