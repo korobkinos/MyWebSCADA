@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   type AdminChangePasswordRequest,
@@ -939,14 +940,88 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return;
     }
     const params = request.params as { id: string };
-    const payload = macroRunSchema.parse(request.body ?? {});
+    const debugHeader = request.headers["x-debug-runtime-command"];
+    const runtimeCommandDebug = (Array.isArray(debugHeader) ? debugHeader[0] : debugHeader) === "1";
+    const routeStartedAtHr = performance.now();
     const startedAt = Date.now();
+    if (runtimeCommandDebug) {
+      request.log.info(
+        {
+          macroId: params.id,
+          event: "request-received",
+          timestamp: new Date(startedAt).toISOString(),
+          commandKey:
+            typeof request.body === "object" && request.body && "commandMeta" in request.body
+              ? ((request.body as { commandMeta?: { commandKey?: string } }).commandMeta?.commandKey ?? `macro:${params.id}`)
+              : `macro:${params.id}`,
+        },
+        "runtime macro debug",
+      );
+    }
+    setImmediate(() => {
+      const eventLoopDelayMs = performance.now() - routeStartedAtHr;
+      if (runtimeCommandDebug && eventLoopDelayMs > 50) {
+        request.log.warn(
+          {
+            macroId: params.id,
+            event: "event-loop-delay",
+            eventLoopDelayMs: Math.round(eventLoopDelayMs * 1000) / 1000,
+          },
+          "runtime macro debug",
+        );
+      }
+    });
+    if (runtimeCommandDebug) {
+      request.log.info(
+        {
+          macroId: params.id,
+          event: "before-schema-parse",
+          elapsedMs: Math.round((performance.now() - routeStartedAtHr) * 1000) / 1000,
+        },
+        "runtime macro debug",
+      );
+    }
+    const payload = macroRunSchema.parse(request.body ?? {});
+    if (runtimeCommandDebug) {
+      request.log.info(
+        {
+          macroId: params.id,
+          event: "after-schema-parse",
+          elapsedMs: Math.round((performance.now() - routeStartedAtHr) * 1000) / 1000,
+          commandKey: payload.commandMeta?.commandKey ?? `macro:${params.id}`,
+          argsKeys: Object.keys(payload.args ?? {}),
+          hasContext: Boolean(payload.context),
+        },
+        "runtime macro debug",
+      );
+      request.log.info(
+        {
+          macroId: params.id,
+          event: "before-macro-run-manual",
+          elapsedMs: Math.round((performance.now() - routeStartedAtHr) * 1000) / 1000,
+        },
+        "runtime macro debug",
+      );
+    }
     try {
       const result = await deps.macroService.runManual(params.id, payload.args, {
         allowDisabledForTest: payload.allowDisabledForTest,
         context: payload.context,
         commandMeta: payload.commandMeta,
       });
+      if (runtimeCommandDebug) {
+        request.log.info(
+          {
+            macroId: params.id,
+            event: "after-macro-run-manual",
+            elapsedMs: Math.round((performance.now() - routeStartedAtHr) * 1000) / 1000,
+            diagnostics: result.diagnostics,
+            status: result.status,
+            reason: result.reason,
+          },
+          "runtime macro debug",
+        );
+      }
       const durationMs = Date.now() - startedAt;
       request.log.info(
         {
@@ -958,12 +1033,25 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         },
         "manual macro run completed",
       );
-      return reply.send({
+      const responsePayload = {
         ok: true,
         status: result.status,
         reason: result.reason,
         effects: result.effects,
-      });
+        diagnostics: runtimeCommandDebug ? result.diagnostics : undefined,
+      };
+      if (runtimeCommandDebug) {
+        request.log.info(
+          {
+            macroId: params.id,
+            event: "response-send",
+            elapsedMs: Math.round((performance.now() - routeStartedAtHr) * 1000) / 1000,
+            durationMs,
+          },
+          "runtime macro debug",
+        );
+      }
+      return reply.send(responsePayload);
     } catch (error) {
       if (error instanceof ManualCommandError) {
         const durationMs = Date.now() - startedAt;
@@ -977,6 +1065,19 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
           },
           "manual macro run rejected",
         );
+        if (runtimeCommandDebug) {
+          request.log.info(
+            {
+              macroId: params.id,
+              event: "response-send",
+              elapsedMs: Math.round((performance.now() - routeStartedAtHr) * 1000) / 1000,
+              durationMs,
+              statusCode: toManualCommandStatusCode(error.reason),
+              reason: error.reason,
+            },
+            "runtime macro debug",
+          );
+        }
         return reply.code(toManualCommandStatusCode(error.reason)).send({
           ok: false,
           reason: error.reason,
@@ -994,6 +1095,18 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         },
         "manual macro run failed",
       );
+      if (runtimeCommandDebug) {
+        request.log.info(
+          {
+            macroId: params.id,
+            event: "response-send",
+            elapsedMs: Math.round((performance.now() - routeStartedAtHr) * 1000) / 1000,
+            durationMs,
+            statusCode: 500,
+          },
+          "runtime macro debug",
+        );
+      }
       return reply.code(500).send({
         ok: false,
         status: "error",

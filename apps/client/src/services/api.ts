@@ -84,6 +84,7 @@ export type OpcUaDriverImpactResponse = {
 };
 
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
+const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, "");
 type RequestOptions = {
   handleAuthInvalid?: boolean;
@@ -111,6 +112,13 @@ function resolveRequestUrl(url: string): string {
   return `${API_BASE_URL}${url}`;
 }
 
+function isRuntimeCommandDebugEnabled(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY) === "1";
+}
+
 function sanitizeMacroId(id: unknown): string {
   if (id === undefined || id === null) {
     throw new Error("Invalid macro id");
@@ -126,6 +134,7 @@ async function request<T>(url: string, init?: RequestInit, options?: RequestOpti
   const token = getEngineerToken();
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const hasBody = init?.body !== undefined && init?.body !== null;
+  const { headers: initHeaders, ...restInit } = init ?? {};
   const defaultHeaders: Record<string, string> = token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : {};
   // Avoid sending JSON content-type on empty-body requests (notably DELETE),
   // otherwise Fastify may reject with FST_ERR_CTP_EMPTY_JSON_BODY.
@@ -133,8 +142,8 @@ async function request<T>(url: string, init?: RequestInit, options?: RequestOpti
     defaultHeaders["Content-Type"] = "application/json";
   }
   const response = await fetch(resolveRequestUrl(url), {
-    headers: { ...defaultHeaders, ...(init?.headers ?? {}) },
-    ...init,
+    ...restInit,
+    headers: { ...defaultHeaders, ...(initHeaders ?? {}) },
   });
 
   if (!response.ok) {
@@ -337,15 +346,71 @@ export const api = {
     options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown>; signal?: AbortSignal; commandMeta?: ManualCommandMeta },
   ) => {
     const macroId = sanitizeMacroId(id);
-    return request<MacroRunResult>(`/api/macros/${encodeURIComponent(macroId)}/run`, {
+    const url = `/api/macros/${encodeURIComponent(macroId)}/run`;
+    const resolvedUrl = resolveRequestUrl(url);
+    const debugEnabled = isRuntimeCommandDebugEnabled();
+    const payload = {
+      args: args ?? {},
+      allowDisabledForTest: options?.allowDisabledForTest,
+      context: options?.context,
+      commandMeta: options?.commandMeta,
+    };
+    const body = JSON.stringify(payload);
+    const bodySize = typeof TextEncoder !== "undefined" ? new TextEncoder().encode(body).length : body.length;
+    const requestStartTs = performance.now();
+
+    if (debugEnabled) {
+      // eslint-disable-next-line no-console
+      console.debug("[api.runMacro]", {
+        event: "request-start",
+        macroId,
+        requestStartTs,
+        url: resolvedUrl,
+        bodySize,
+        signalAborted: options?.signal?.aborted === true,
+      });
+    }
+
+    return request<MacroRunResult>(url, {
       method: "POST",
       signal: options?.signal,
-      body: JSON.stringify({
-        args: args ?? {},
-        allowDisabledForTest: options?.allowDisabledForTest,
-        context: options?.context,
-        commandMeta: options?.commandMeta,
-      }),
+      headers: debugEnabled ? { "x-debug-runtime-command": "1" } : undefined,
+      body,
+    }).then((result) => {
+      if (debugEnabled) {
+        const requestEndTs = performance.now();
+        // eslint-disable-next-line no-console
+        console.debug("[api.runMacro]", {
+          event: "request-end",
+          macroId,
+          requestStartTs,
+          requestEndTs,
+          durationMs: Math.round((requestEndTs - requestStartTs) * 1000) / 1000,
+          url: resolvedUrl,
+          bodySize,
+          signalAborted: options?.signal?.aborted === true,
+        });
+      }
+      return result;
+    }).catch((error) => {
+      if (debugEnabled) {
+        const requestEndTs = performance.now();
+        // eslint-disable-next-line no-console
+        console.debug("[api.runMacro]", {
+          event: "request-end",
+          macroId,
+          requestStartTs,
+          requestEndTs,
+          durationMs: Math.round((requestEndTs - requestStartTs) * 1000) / 1000,
+          url: resolvedUrl,
+          bodySize,
+          signalAborted:
+            options?.signal?.aborted === true
+            || (error instanceof DOMException && error.name === "AbortError"),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      throw error;
     });
   },
   writeTag: (name: string, value: boolean | number | string | null, options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta }) =>

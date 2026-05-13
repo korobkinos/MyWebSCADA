@@ -136,11 +136,20 @@ export type MacroRuntimeContext = {
 
 export type MacroUiEffect = Extract<RuntimeAction, { type: "openPopup" | "closePopup" | "openScreen" }>;
 
+export type MacroRunDiagnostics = {
+  lookupMs: number;
+  compileMs: number;
+  executionMs: number;
+  totalMs: number;
+  cacheStatus: "hit" | "miss";
+};
+
 export type MacroRunResult = {
   ok: boolean;
   status?: "ok" | "skipped";
   reason?: MacroRunReason;
   effects?: MacroUiEffect[];
+  diagnostics?: MacroRunDiagnostics;
 };
 
 export type MacroTrigger =

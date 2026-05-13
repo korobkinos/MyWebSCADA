@@ -135,7 +135,7 @@
       "username": "user",
       "password": "1",
       "timeoutMs": 60000,
-      "reconnectMs": 500
+      "reconnectMs": 10000
     }
   ],
   "tags": [
@@ -11393,12 +11393,7 @@
       "language": "javascript-lite",
       "code": "const current = Number(api.readVariable('Counter2') ?? 0); \napi.writeVariable('Counter2', current + 1);",
       "enabled": false,
-      "triggers": [
-        {
-          "type": "interval",
-          "intervalMs": 1000
-        }
-      ]
+      "triggers": []
     },
     {
       "id": "openValvePopup",

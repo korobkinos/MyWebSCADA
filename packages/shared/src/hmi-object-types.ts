@@ -212,6 +212,7 @@ export type RuntimeAction = {
       type: "runMacro";
       macroId: string;
       args?: Record<string, unknown>;
+      allowRepeat?: boolean;
       confirm?: boolean;
       confirmText?: string;
     }

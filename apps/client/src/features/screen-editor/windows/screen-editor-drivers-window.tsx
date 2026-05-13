@@ -319,13 +319,17 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
     }
     let disposed = false;
     let inFlightController: AbortController | null = null;
+    let pollingInFlight = false;
     const runPoll = (): void => {
       if (busyAction === "connect" || busyAction === "disconnect") {
         return;
       }
-      inFlightController?.abort();
+      if (pollingInFlight) {
+        return;
+      }
       const controller = new AbortController();
       inFlightController = controller;
+      pollingInFlight = true;
       void api.getOpcUaStatus(selectedOpcUaDriver.id, { signal: controller.signal })
         .then((response) => {
           if (disposed || controller.signal.aborted) {
@@ -349,6 +353,12 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
             pollErrorShownRef.current = true;
             void message.warning(`Status refresh failed: ${text}`);
           }
+        })
+        .finally(() => {
+          if (inFlightController === controller) {
+            inFlightController = null;
+          }
+          pollingInFlight = false;
         });
     };
 

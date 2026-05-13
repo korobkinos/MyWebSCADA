@@ -46,6 +46,7 @@ const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
 const INDEXED_ADDRESS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugIndexedAddress";
 const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
 const COMMAND_WARNING_RETENTION_MS = 30_000;
+const FAST_INTERNAL_MACRO_TIMEOUT_MS = 1000;
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const project = useScadaStore((s) => s.project);
@@ -402,6 +403,24 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   };
 
   const roundMs = (value: number): number => Math.round(value * 1000) / 1000;
+  const getCommandDebugTimestamp = (): string => new Date().toISOString();
+  const isCommandKeyInFlight = (commandKey: string): boolean => {
+    for (const meta of activeRuntimeCommandsRef.current.values()) {
+      if (meta.commandKey === commandKey) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const isInternalOnlyMacroCode = (code: string | undefined): boolean => {
+    if (!code) {
+      return false;
+    }
+    if (/\b(?:writeTag|pulseTag|toggleTag|readTag|getTagQuality|tagExists|openPopup|closePopup|openScreen)\s*\(/.test(code)) {
+      return false;
+    }
+    return /\b(?:readVariable|writeVariable|getVar|setVar|getLW|setLW)\s*\(/.test(code);
+  };
 
   const logActionTiming = (params: {
     actionType: RuntimeAction["type"];
@@ -596,10 +615,12 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     actionId: string;
     macroId?: string;
     timeoutMs?: number;
+    duplicatePolicy?: "strict" | "in_flight_only";
     run: (signal: AbortSignal | undefined, commandMeta: ManualCommandMeta) => Promise<T>;
     statusFromResult?: (result: T) => string;
   }): Promise<T | undefined> => {
     const timeoutMs = Math.max(1, Math.floor(params.timeoutMs ?? COMMAND_TIMEOUT_MS));
+    const duplicatePolicy = params.duplicatePolicy ?? "strict";
     debugRuntimeCommand(
       "pending-check",
       createRuntimeCommandDebugPayload({
@@ -611,11 +632,40 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       }),
     );
     const existing = pendingCommandKeysRef.current.get(params.commandKey);
+    const inFlightForKey = isCommandKeyInFlight(params.commandKey);
+    debugRuntimeCommand("pending-check-result", {
+      timestamp: getCommandDebugTimestamp(),
+      actionType: params.action.type,
+      commandKey: params.commandKey,
+      macroId: params.macroId,
+      objectId: getRuntimeActionObjectId(params.context),
+      objectScope: getRuntimeActionObjectScope(params.context),
+      screenId: params.context.screenId,
+      popupInstanceId: params.context.popupInstanceId,
+      pendingFound: Boolean(existing),
+      pendingForMs: existing ? Date.now() - existing.startedAt : 0,
+      inFlightForKey,
+      duplicatePolicy,
+      clickTs: params.clickTs,
+    });
     if (existing) {
-      if (Date.now() - existing.startedAt <= existing.timeoutMs + 750) {
+      const shouldBlock = duplicatePolicy === "in_flight_only"
+        ? inFlightForKey
+        : Date.now() - existing.startedAt <= existing.timeoutMs + 750;
+      if (shouldBlock) {
         const warnText = params.macroId
           ? "Macro ignored: already pending"
           : "Command ignored: already pending";
+        debugRuntimeCommand("pending-hit", {
+          timestamp: getCommandDebugTimestamp(),
+          actionType: params.action.type,
+          commandKey: params.commandKey,
+          macroId: params.macroId,
+          durationMs: Date.now() - existing.startedAt,
+          reason: "already_pending",
+          duplicatePolicy,
+          inFlightForKey,
+        });
         debugRuntimeCommand(
           "skipped",
           createRuntimeCommandDebugPayload({
@@ -655,12 +705,29 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         return undefined;
       }
       pendingCommandKeysRef.current.delete(params.commandKey);
+      debugRuntimeCommand("pending-delete", {
+        timestamp: getCommandDebugTimestamp(),
+        actionType: params.action.type,
+        commandKey: params.commandKey,
+        macroId: params.macroId,
+        durationMs: Date.now() - existing.startedAt,
+        reason: "stale_pending",
+      });
     }
 
+    const pendingStartedAt = Date.now();
     pendingCommandKeysRef.current.set(params.commandKey, {
-      startedAt: Date.now(),
+      startedAt: pendingStartedAt,
       timeoutMs,
       popupInstanceId: params.context.popupInstanceId,
+    });
+    debugRuntimeCommand("pending-add", {
+      timestamp: getCommandDebugTimestamp(),
+      actionType: params.action.type,
+      commandKey: params.commandKey,
+      macroId: params.macroId,
+      timeoutMs,
+      duplicatePolicy,
     });
     const startedAt = Date.now();
     debugRuntimeCommand(
@@ -681,6 +748,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       abortController,
     });
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let pendingDeleteReason = "completed";
 
     try {
       const timedResult = await runTimedRequest({
@@ -720,6 +788,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       return timedResult;
     } catch (error) {
       const parsed = parseManualCommandError(error);
+      pendingDeleteReason = parsed.reason;
       const durationMs = Date.now() - startedAt;
       debugRuntimeCommand(
         "error",
@@ -762,6 +831,14 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       }
       activeRuntimeCommandsRef.current.delete(commandMeta.commandId);
       pendingCommandKeysRef.current.delete(params.commandKey);
+      debugRuntimeCommand("pending-delete", {
+        timestamp: getCommandDebugTimestamp(),
+        actionType: params.action.type,
+        commandKey: params.commandKey,
+        macroId: params.macroId,
+        durationMs: Date.now() - pendingStartedAt,
+        reason: pendingDeleteReason,
+      });
     }
   };
 
@@ -882,8 +959,22 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "runMacro") {
+      const macroRunStartedAt = performance.now();
       const macroId = normalizeMacroId(action.macroId);
       const commandKey = getRuntimeActionCommandKey(action, context);
+      debugRuntimeCommand("macro-before-guard", {
+        timestamp: getCommandDebugTimestamp(),
+        clickTs,
+        commandKey,
+        macroId: typeof macroId === "string" ? macroId : undefined,
+        objectId: getRuntimeActionObjectId(context),
+        objectScope: getRuntimeActionObjectScope(context),
+        objectName: getRuntimeActionObjectName(context),
+        screenId: context.screenId,
+        popupInstanceId: context.popupInstanceId,
+        args: action.args,
+        pendingFound: pendingCommandKeysRef.current.has(commandKey),
+      });
       if (!macroId) {
         debugRuntimeCommand(
           "error",
@@ -916,6 +1007,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         void message.error(`Macro ${macroId} not found`);
         return;
       }
+      const internalOnlyMacro = isInternalOnlyMacroCode(selectedMacro?.code);
+      const allowRepeatedMacroRun = action.allowRepeat === true || macroId === "inc_counter" || internalOnlyMacro;
+      const macroTimeoutMs = internalOnlyMacro ? FAST_INTERNAL_MACRO_TIMEOUT_MS : COMMAND_TIMEOUT_MS;
       const result = await runGuardedManualCommand({
         action,
         actionId: macroId,
@@ -923,17 +1017,54 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         clickTs,
         commandKey,
         macroId,
-        timeoutMs: 8000,
-        run: (signal, commandMeta) => runMacro(macroId, action.args, {
-          signal,
-          commandMeta,
-          context: {
-            popupInstanceId: context.popupInstanceId,
+        timeoutMs: macroTimeoutMs,
+        duplicatePolicy: allowRepeatedMacroRun ? "in_flight_only" : "strict",
+        run: async (signal, commandMeta) => {
+          const fetchStartedAt = performance.now();
+          debugRuntimeCommand("macro-before-fetch", {
+            timestamp: getCommandDebugTimestamp(),
+            clickTs,
+            commandKey,
+            macroId,
+            objectId: getRuntimeActionObjectId(context),
+            objectScope: getRuntimeActionObjectScope(context),
+            objectName: getRuntimeActionObjectName(context),
             screenId: context.screenId,
-            tagPrefix: context.tagPrefix,
-            parameters: stripRuntimeActionMeta(context.parameters),
-          },
-        }),
+            popupInstanceId: context.popupInstanceId,
+            args: action.args,
+            durationMs: roundMs(fetchStartedAt - macroRunStartedAt),
+            commandId: commandMeta.commandId,
+          });
+          const macroResult = await runMacro(macroId, action.args, {
+            signal,
+            commandMeta,
+            context: {
+              popupInstanceId: context.popupInstanceId,
+              screenId: context.screenId,
+              tagPrefix: context.tagPrefix,
+              parameters: stripRuntimeActionMeta(context.parameters),
+            },
+          });
+          const fetchCompletedAt = performance.now();
+          debugRuntimeCommand("macro-after-fetch", {
+            timestamp: getCommandDebugTimestamp(),
+            clickTs,
+            commandKey,
+            macroId,
+            objectId: getRuntimeActionObjectId(context),
+            objectScope: getRuntimeActionObjectScope(context),
+            objectName: getRuntimeActionObjectName(context),
+            screenId: context.screenId,
+            popupInstanceId: context.popupInstanceId,
+            args: action.args,
+            status: macroResult.status,
+            reason: macroResult.reason,
+            diagnostics: macroResult.diagnostics,
+            durationMs: roundMs(fetchCompletedAt - fetchStartedAt),
+            totalMs: roundMs(fetchCompletedAt - macroRunStartedAt),
+          });
+          return macroResult;
+        },
         statusFromResult: (value) => value.status === "skipped" ? `skipped:${value.reason ?? "unknown"}` : (value.status ?? "ok"),
       });
       if (!result) {
@@ -963,6 +1094,16 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         if (shouldShowCommandWarning(commandKey)) {
           void message.warning(`Macro "${selectedMacro?.name ?? macroId}" is disabled and was not executed`);
         }
+        debugRuntimeCommand("macro-total", {
+          timestamp: getCommandDebugTimestamp(),
+          clickTs,
+          commandKey,
+          macroId,
+          status: "skipped",
+          reason: "disabled",
+          durationMs: roundMs(performance.now() - macroRunStartedAt),
+          args: action.args,
+        });
         return;
       }
       if (result.status === "skipped" && result.reason === "already_running") {
@@ -989,11 +1130,38 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         if (shouldShowCommandWarning(commandKey)) {
           void message.warning(`Macro "${selectedMacro?.name ?? macroId}" is already running`);
         }
+        debugRuntimeCommand("macro-total", {
+          timestamp: getCommandDebugTimestamp(),
+          clickTs,
+          commandKey,
+          macroId,
+          status: "skipped",
+          reason: "already_running",
+          durationMs: roundMs(performance.now() - macroRunStartedAt),
+          args: action.args,
+        });
         return;
       }
+      const effectsStartedAt = performance.now();
       for (const effect of result.effects ?? []) {
         await executeAction(effect as RuntimeAction, context);
       }
+      const effectsCompletedAt = performance.now();
+      debugRuntimeCommand("macro-after-effects", {
+        timestamp: getCommandDebugTimestamp(),
+        clickTs,
+        commandKey,
+        macroId,
+        objectId: getRuntimeActionObjectId(context),
+        objectScope: getRuntimeActionObjectScope(context),
+        objectName: getRuntimeActionObjectName(context),
+        screenId: context.screenId,
+        popupInstanceId: context.popupInstanceId,
+        args: action.args,
+        effectsCount: result.effects?.length ?? 0,
+        effectsDurationMs: roundMs(effectsCompletedAt - effectsStartedAt),
+        durationMs: roundMs(effectsCompletedAt - macroRunStartedAt),
+      });
       return;
     }
 
