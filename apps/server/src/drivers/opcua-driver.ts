@@ -60,6 +60,7 @@ export class OpcUaDriver implements Driver {
 
   private static readonly DEFAULT_CONNECT_TIMEOUT_MS = 2000;
   private static readonly DEFAULT_OPERATION_TIMEOUT_MS = 2000;
+  private static readonly DEFAULT_READ_BATCH_SIZE = 100;
   private static readonly MAX_RECONNECT_BACKOFF_MS = 30000;
   private static readonly OFFLINE_SKIP_STATUS = "OPC UA offline; waiting for reconnect window";
 
@@ -79,6 +80,9 @@ export class OpcUaDriver implements Driver {
   private offlineSkipReadTagsCount = 0;
   private offlineSkipReadTagsLogAt = 0;
   private connectTaskSkipLogAt = 0;
+  private reconnectRequestedMessage: string | undefined;
+  private readonly diagnosticLogAt = new Map<string, number>();
+  private readonly readMode: "polling" | "subscription";
   private status: DriverStatus;
   private readonly processWarningListener = (warning: Error & { code?: string }) => {
     const text = `${warning.code ?? ""} ${warning.message ?? ""}`;
@@ -86,11 +90,11 @@ export class OpcUaDriver implements Driver {
       return;
     }
     this.captureClockWarningFromText(text);
-    this.setStatus(this.status.health, this.status.message);
   };
 
   public constructor(private readonly config: OpcUaDriverConfig) {
     this.id = config.id;
+    this.readMode = config.readMode ?? "polling";
     this.status = {
       id: config.id,
       type: this.type,
@@ -99,6 +103,13 @@ export class OpcUaDriver implements Driver {
       endpointUrl: config.endpointUrl,
       reconnectAttempt: 0,
     };
+    if (this.readMode === "subscription") {
+      this.logDiagnostic(
+        "read-mode-subscription-todo",
+        `[OpcUaDriver:${this.id}] readMode=subscription configured; using polling fallback (subscription TODO)`,
+        60_000,
+      );
+    }
   }
 
   public async start(): Promise<void> {
@@ -120,6 +131,7 @@ export class OpcUaDriver implements Driver {
     this.reconnectBackoffMs = 0;
     this.consecutiveFailures = 0;
     this.reconnectAttempt = 0;
+    this.reconnectRequestedMessage = undefined;
     this.clockWarning = undefined;
     process.off("warning", this.processWarningListener);
 
@@ -209,38 +221,45 @@ export class OpcUaDriver implements Driver {
 
       const values: TagValue[] = [];
       if (valid.length > 0) {
-        const dataValues = await this.withTimeout(
-          this.session!.read(
-            valid.map((item) => ({
-              nodeId: item.nodeId,
-              attributeId: AttributeIds.Value,
-            })),
-          ),
-          this.getOperationTimeoutMs(),
-          `OPC UA batch read timeout for ${valid.length} tags`,
-        );
+        const batchSize = this.getReadBatchSize();
+        for (let offset = 0; offset < valid.length; offset += batchSize) {
+          await this.ensureConnected({ waitForConnect: false });
+          const batch = valid.slice(offset, offset + batchSize);
+          const batchStartedAt = Date.now();
+          const dataValues = await this.withTimeout(
+            this.session!.read(
+              batch.map((item) => ({
+                nodeId: item.nodeId,
+                attributeId: AttributeIds.Value,
+              })),
+            ),
+            this.getOperationTimeoutMs(),
+            `OPC UA batch read timeout for ${batch.length} tags`,
+          );
+          this.logReadBatchDuration(batch.length, offset / batchSize + 1, Math.ceil(valid.length / batchSize), Date.now() - batchStartedAt);
 
-        for (let index = 0; index < valid.length; index += 1) {
-          const item = valid[index]!;
-          const dataValue = dataValues[index];
-          if (!dataValue) {
+          for (let index = 0; index < batch.length; index += 1) {
+            const item = batch[index]!;
+            const dataValue = dataValues[index];
+            if (!dataValue) {
+              values.push({
+                name: item.tag.name,
+                value: null,
+                quality: "Bad",
+                timestamp: Date.now(),
+                source: this.id,
+              });
+              continue;
+            }
+
             values.push({
               name: item.tag.name,
-              value: null,
-              quality: "Bad",
+              value: toScalar(dataValue),
+              quality: dataValue.statusCode.isGood() ? "Good" : "Bad",
               timestamp: Date.now(),
               source: this.id,
             });
-            continue;
           }
-
-          values.push({
-            name: item.tag.name,
-            value: toScalar(dataValue),
-            quality: dataValue.statusCode.isGood() ? "Good" : "Bad",
-            timestamp: Date.now(),
-            source: this.id,
-          });
         }
       }
 
@@ -352,43 +371,36 @@ export class OpcUaDriver implements Driver {
       return;
     }
 
-    if (this.connectTask) {
-      if (waitForConnect) {
-        await this.connectTask;
-        return;
-      }
-      const now = Date.now();
-      if (this.runtimeDebug && now - this.connectTaskSkipLogAt >= 1000) {
-        this.connectTaskSkipLogAt = now;
-        console.log(`[OpcUaDriver:${this.id}] ensureConnected skip: connectTask is active`);
+    const offlineReason = this.getOfflineSkipReason();
+
+    if (!waitForConnect) {
+      if (offlineReason) {
+        this.logOfflineSkipReason(offlineReason);
       }
       throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
     }
 
+    if (this.connectTask) {
+      await this.connectTask;
+      return;
+    }
+
     if (this.closeTask) {
-      if (waitForConnect) {
-        const waitStartedAt = Date.now();
-        await this.closeTask.catch(() => undefined);
-        if (this.runtimeDebug) {
-          console.log(`[OpcUaDriver:${this.id}] waited closeTask durationMs=${Date.now() - waitStartedAt}`);
-        }
-        if (this.client && this.session && this.status.health === "running") {
-          return;
-        }
+      const waitStartedAt = Date.now();
+      await this.closeTask.catch(() => undefined);
+      if (this.runtimeDebug) {
+        console.log(`[OpcUaDriver:${this.id}] waited closeTask durationMs=${Date.now() - waitStartedAt}`);
       }
-      throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
+      if (this.client && this.session && this.status.health === "running") {
+        return;
+      }
     }
 
     if (this.shouldSkipImmediateConnect()) {
       throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
     }
 
-    if (waitForConnect) {
-      await this.connect();
-      return;
-    }
-
-    throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
+    await this.connect();
   }
 
   private shouldSkipImmediateConnect(): boolean {
@@ -426,6 +438,18 @@ export class OpcUaDriver implements Driver {
 
     const task = this.connectInternal(startedAt).finally(() => {
       this.connectTask = undefined;
+      const deferredMessage = this.reconnectRequestedMessage;
+      if (
+        deferredMessage
+        && !this.stopping
+        && !this.reconnectTimer
+        && !this.closeTask
+        && !this.connectTask
+        && (!this.client || !this.session || this.status.health !== "running")
+      ) {
+        this.reconnectRequestedMessage = undefined;
+        this.scheduleReconnect(deferredMessage);
+      }
     });
     this.connectTask = task;
     return task;
@@ -506,6 +530,9 @@ export class OpcUaDriver implements Driver {
       this.nextReconnectAttemptAt = 0;
       this.reconnectAttempt = 0;
       this.setStatus("running", "Connected");
+      if (this.runtimeDebug) {
+        console.log(`[OpcUaDriver:${this.id}] connect durationMs=${Date.now() - startedAt}`);
+      }
       logPerf({
         driver: "opcua",
         id: this.id,
@@ -527,6 +554,7 @@ export class OpcUaDriver implements Driver {
           message,
         });
         if (stillConnected) {
+          this.setStatus("running", "Connected");
           return;
         }
         throw error;
@@ -555,25 +583,13 @@ export class OpcUaDriver implements Driver {
       return;
     }
     if (this.connectTask) {
-      if (this.runtimeDebug) {
-        console.log(`[OpcUaDriver:${this.id}] reconnect deferred: connectTask is active`);
-      }
-      void this.connectTask.finally(() => {
-        if (!this.stopping) {
-          this.scheduleReconnect(message);
-        }
-      });
+      this.reconnectRequestedMessage = message;
+      this.logDiagnostic("reconnect-deferred-connect", `[OpcUaDriver:${this.id}] reconnect deferred: connectTask is active`, 5_000, true);
       return;
     }
     if (this.closeTask) {
-      if (this.runtimeDebug) {
-        console.log(`[OpcUaDriver:${this.id}] reconnect deferred: closeTask is active`);
-      }
-      void this.closeTask.finally(() => {
-        if (!this.stopping) {
-          this.scheduleReconnect(message);
-        }
-      });
+      this.reconnectRequestedMessage = message;
+      this.logDiagnostic("reconnect-deferred-close", `[OpcUaDriver:${this.id}] reconnect deferred: closeTask is active`, 5_000, true);
       return;
     }
 
@@ -585,7 +601,9 @@ export class OpcUaDriver implements Driver {
     this.reconnectBackoffMs = nextDelay;
     this.nextReconnectAttemptAt = Date.now() + nextDelay;
     this.reconnectAttempt += 1;
+    this.reconnectRequestedMessage = undefined;
     this.setStatus("reconnecting", message);
+    this.logDiagnostic("reconnect-scheduled", `[OpcUaDriver:${this.id}] reconnect scheduled in ${nextDelay} ms`, 2_000);
     logPerf({
       driver: "opcua",
       id: this.id,
@@ -708,6 +726,18 @@ export class OpcUaDriver implements Driver {
       }
     })().finally(() => {
       this.closeTask = undefined;
+      const deferredMessage = this.reconnectRequestedMessage;
+      if (
+        deferredMessage
+        && !this.stopping
+        && !this.reconnectTimer
+        && !this.connectTask
+        && !this.closeTask
+        && (!this.client || !this.session || this.status.health !== "running")
+      ) {
+        this.reconnectRequestedMessage = undefined;
+        this.scheduleReconnect(deferredMessage);
+      }
     });
     return this.closeTask;
   }
@@ -716,7 +746,14 @@ export class OpcUaDriver implements Driver {
     const now = Date.now();
     const isConnected = health === "running";
     const isDisconnected = health === "error" || health === "reconnecting" || health === "stopped" || health === "disabled";
-    const nextLastError = health === "error" || health === "reconnecting" ? message ?? this.status.lastError : this.status.lastError;
+    let nextLastError = this.status.lastError;
+    if (health === "error") {
+      nextLastError = message ?? this.status.lastError;
+    } else if (health === "reconnecting") {
+      nextLastError = message && !this.isTransientReconnectMessage(message) ? message : this.status.lastError;
+    } else if (health === "running" && this.isTransientReconnectMessage(this.status.lastError)) {
+      nextLastError = undefined;
+    }
     this.status = {
       ...this.status,
       health,
@@ -771,7 +808,12 @@ export class OpcUaDriver implements Driver {
     if (!this.isClockMismatchWarning(text)) {
       return;
     }
-    this.clockWarning = text.trim() || OpcUaDriver.CLOCK_WARNING_HELP;
+    const nextWarning = text.trim() || OpcUaDriver.CLOCK_WARNING_HELP;
+    if (this.clockWarning === nextWarning) {
+      return;
+    }
+    this.clockWarning = nextWarning;
+    this.logDiagnostic("clock-warning", `[OpcUaDriver:${this.id}] clock warning captured`, 10_000);
     this.setStatus(this.status.health, this.status.message);
   }
 
@@ -796,6 +838,80 @@ export class OpcUaDriver implements Driver {
     this.offlineSkipReadTagsCount = 0;
     this.offlineSkipReadTagsLogAt = now;
     console.log(`[OpcUaDriver:${this.id}] readTags offline_skip count=${count} lastTagCount=${tagCount}`);
+  }
+
+  private getReadBatchSize(): number {
+    return OpcUaDriver.DEFAULT_READ_BATCH_SIZE;
+  }
+
+  private logReadBatchDuration(batchTagCount: number, batchIndex: number, batchTotal: number, durationMs: number): void {
+    if (this.runtimeDebug) {
+      console.log(
+        `[OpcUaDriver:${this.id}] read batch ${batchIndex}/${batchTotal} tags=${batchTagCount} durationMs=${durationMs}`,
+      );
+    }
+    logPerf({
+      driver: "opcua",
+      id: this.id,
+      action: "readTags-batch",
+      count: batchTagCount,
+      durationMs,
+      batch: `${batchIndex}/${batchTotal}`,
+      status: "ok",
+    });
+  }
+
+  private getOfflineSkipReason(): string | undefined {
+    if (this.connectTask) {
+      return "connectTask_active";
+    }
+    if (this.closeTask) {
+      return "closeTask_active";
+    }
+    if (this.reconnectTimer) {
+      return "reconnect_timer_active";
+    }
+    if (Date.now() < this.nextReconnectAttemptAt) {
+      return "reconnect_window";
+    }
+    if (!this.client || !this.session) {
+      return "session_or_client_missing";
+    }
+    if (this.status.health !== "running") {
+      return `status_${this.status.health}`;
+    }
+    return undefined;
+  }
+
+  private logOfflineSkipReason(reason: string): void {
+    const now = Date.now();
+    if (this.runtimeDebug && now - this.connectTaskSkipLogAt >= 1_000) {
+      this.connectTaskSkipLogAt = now;
+      console.log(`[OpcUaDriver:${this.id}] ensureConnected skip reason=${reason}`);
+      return;
+    }
+    this.logDiagnostic("ensure-connected-offline-skip", `[OpcUaDriver:${this.id}] polling skipped: ${reason}`, 10_000);
+  }
+
+  private isTransientReconnectMessage(message: string | undefined): boolean {
+    if (!message) {
+      return false;
+    }
+    const normalized = message.toLowerCase();
+    return normalized === "reconnecting opc ua" || normalized === "connecting opc ua";
+  }
+
+  private logDiagnostic(key: string, message: string, throttleMs: number, debugOnly = false): void {
+    if (debugOnly && !this.runtimeDebug) {
+      return;
+    }
+    const now = Date.now();
+    const lastAt = this.diagnosticLogAt.get(key) ?? 0;
+    if (now - lastAt < throttleMs) {
+      return;
+    }
+    this.diagnosticLogAt.set(key, now);
+    console.log(message);
   }
 
   private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {

@@ -180,6 +180,7 @@ const opcUaDriverConfigSchema = z.object({
   endpointUrl: z.string().min(1),
   securityPolicy: z.enum(["None", "Basic256Sha256"]).optional(),
   securityMode: z.enum(["None", "Sign", "SignAndEncrypt"]).optional(),
+  readMode: z.enum(["polling", "subscription"]).optional(),
   username: z.string().optional(),
   password: z.string().optional(),
   timeoutMs: z.number().int().positive().optional(),

@@ -38,6 +38,7 @@ export type OpcUaDriverConfigInput = {
   endpointUrl: string;
   securityPolicy?: "None" | "Basic256Sha256";
   securityMode?: "None" | "Sign" | "SignAndEncrypt";
+  readMode?: "polling" | "subscription";
   username?: string;
   password?: string;
   timeoutMs?: number;

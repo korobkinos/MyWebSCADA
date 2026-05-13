@@ -19,8 +19,9 @@ type DriversTab = "opcua" | "simulation";
 
 const OPC_SECURITY_POLICIES: Array<NonNullable<OpcUaDriverConfig["securityPolicy"]>> = ["None", "Basic256Sha256"];
 const OPC_SECURITY_MODES: Array<NonNullable<OpcUaDriverConfig["securityMode"]>> = ["None", "Sign", "SignAndEncrypt"];
+const OPC_READ_MODES: Array<NonNullable<OpcUaDriverConfig["readMode"]>> = ["polling", "subscription"];
 const OPC_CLOCK_WARNING_HELP_TEXT =
-  "OPC UA clock mismatch detected. The OPC UA server time differs from the SCADA server time. Connection will continue, but certificates/tokens may be affected. Recommended: synchronize time on PLC/OPC UA server and SCADA server.";
+  "OPC UA clock mismatch detected. Synchronize PLC/OPC UA server clock and SCADA server clock. Connection will continue.";
 
 function createDriverId(prefix: "opcua" | "sim"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
@@ -35,6 +36,7 @@ function defaultOpcUaDriver(): OpcUaDriverConfig {
     endpointUrl: "opc.tcp://127.0.0.1:4840",
     securityPolicy: "None",
     securityMode: "None",
+    readMode: "polling",
     timeoutMs: 5000,
     reconnectMs: 2000,
     username: "",
@@ -800,6 +802,20 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                       </select>
                     </label>
                     <label className="screen-editor-settings-field">
+                      <span>OPC UA Read Mode</span>
+                      <select
+                        className="workbench-select"
+                        value={opcUaDraft.readMode ?? "polling"}
+                        onChange={(event) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, readMode: event.target.value as OpcUaDriverConfig["readMode"] }
+                          : prev))}
+                      >
+                        {OPC_READ_MODES.map((item) => (
+                          <option key={item} value={item}>{item}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="screen-editor-settings-field">
                       <span>Username</span>
                       <input
                         className="workbench-input"
@@ -874,7 +890,12 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                   <div className="screen-editor-drivers-status-card screen-editor-drivers-status-card--in-section">
                     <div className="screen-editor-drivers-status-line">
                       <span>Status</span>
-                      <span className={statusBadge.className}>{statusBadge.label}</span>
+                      <span>
+                        <span className={statusBadge.className}>{statusBadge.label}</span>
+                        {currentOpcStatus?.health === "running" && hasClockWarning ? (
+                          <span className="screen-editor-driver-status-badge screen-editor-driver-status-badge--reconnecting">Warning</span>
+                        ) : null}
+                      </span>
                     </div>
                     <div className="screen-editor-drivers-status-line">
                       <span>Linked tags</span>
@@ -932,8 +953,7 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                     {currentOpcStatus?.message ? <div className="screen-editor-drivers-note">{currentOpcStatus.message}</div> : null}
                     {clockWarningText ? (
                       <div className="screen-editor-drivers-warning">
-                        <div><strong>Clock mismatch detected. Check OPC UA server/client time.</strong></div>
-                        <div>{OPC_CLOCK_WARNING_HELP_TEXT}</div>
+                        <div><strong>OPC UA clock mismatch detected. Synchronize PLC/OPC UA server clock and SCADA server clock. Connection will continue.</strong></div>
                         <div>Details: {clockWarningText}</div>
                       </div>
                     ) : null}
