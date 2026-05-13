@@ -11409,7 +11409,8 @@
       "description": "Valve open command",
       "language": "javascript-lite",
       "code": "// 1) Read popup runtime context\nconst ctx = getContext();\nconst params = (ctx && typeof ctx.parameters === \"object\" && ctx.parameters) ? ctx.parameters : {};\n\n// 2) Resolve valve prefix from popup args/context\nconst paramPrefix = typeof params.valvePrefix === \"string\" ? params.valvePrefix.trim() : \"\";\nconst popupPrefix = typeof getCurrentTagPrefix() === \"string\" ? String(getCurrentTagPrefix()).trim() : \"\";\nconst prefix = paramPrefix || popupPrefix;\n\n// 3) Prefix is required to control target valve\nif (!prefix) {\n  log(\"valveOpen: prefix is empty\");\n  return;\n}\n\n// 4) Send open command and update runtime feedback\nawait writeTag(prefix + \".OpenCmd\", true);\nawait writeTag(prefix + \".CloseCmd\", false);\nawait writeTag(prefix + \".Opened\", true);\nawait writeTag(prefix + \".Closed\", false);\nawait writeTag(prefix + \".State\", 2);",
-      "enabled": true
+      "enabled": true,
+      "triggers": []
     },
     {
       "id": "valveClose",
@@ -12228,8 +12229,8 @@
         {
           "id": "val_27zk4t",
           "type": "value-display",
-          "x": 1211.5296083906037,
-          "y": 644.7941888619855,
+          "x": 1195.7889930212377,
+          "y": 647.2154963680388,
           "width": 180,
           "height": 40,
           "minWidth": 80,
@@ -12251,14 +12252,52 @@
         {
           "id": "value-display_92ahtl",
           "type": "value-display",
-          "x": 1431.5296083906037,
-          "y": 644.7941888619855,
+          "x": 810.7456774167669,
+          "y": 772.2779635763015,
+          "width": 855.6969195579992,
+          "height": 190.15487101288852,
+          "rotation": 0,
+          "minWidth": 80,
+          "minHeight": 28,
+          "visibleTag": "",
+          "tagIndexing": {
+            "enabled": false,
+            "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.send_count",
+            "bindings": [
+              {
+                "key": "INDEX_1",
+                "slotIndex": 0,
+                "baseValue": 0,
+                "source": "constant",
+                "constantValue": 0,
+                "offset": 0
+              }
+            ]
+          },
+          "tag": "Application.GVL_UDP.udp_channel_modbus.udp_channel_modbus[0].state.send_count",
+          "suffix": "",
+          "badQualityText": "BAD",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 200,
+            "fontStyle": "normal",
+            "color": "#ffd666",
+            "horizontalAlign": "right",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "value-display_ddvf3n",
+          "type": "value-display",
+          "x": 884.2405201634223,
+          "y": 708.9588377723973,
           "width": 180,
           "height": 40,
           "minWidth": 80,
           "minHeight": 28,
           "visibleTag": "",
-          "tag": "Application.GVL_UDP.udp_channel_modbus.udp_channel_modbus[0].state.send_count",
+          "tag": "Application.GVL_UDP.udp_cfg.udp_cfg[1].local_port",
           "suffix": "",
           "badQualityText": "BAD",
           "textStyle": {

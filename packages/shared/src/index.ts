@@ -13,3 +13,4 @@ export * from "./element-binding-resolver";
 export * from "./runtime-value-resolver";
 export * from "./password-policy";
 export * from "./runtime-command-types";
+export * from "./indexed-address";

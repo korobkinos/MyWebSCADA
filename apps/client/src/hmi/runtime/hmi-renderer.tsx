@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
+import { message } from "antd";
 import {
   clampAccessRoleLevel,
   combineTagPrefix,
@@ -30,12 +31,15 @@ import {
   type TextStyle,
 } from "@web-scada/shared";
 import { applyElementStateRules } from "./element-state-rules";
+import { getObjectIndexedConfigForField, resolveObjectTagField } from "../tags/indexed-address";
 
 type TagMap = Record<string, TagValue>;
 type ResolvedTagValue = {
   resolvedName?: string;
   value?: TagValue;
   missingBindingReference: boolean;
+  missingIndexedTag?: boolean;
+  indexedAddress?: string;
 };
 
 export type ObjectSelectPayload = {
@@ -201,6 +205,12 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
   if (object.type === "libraryElementInstance" || object.type === "frame") {
     return null;
   }
+  if (object.tagIndexingByField && Object.keys(object.tagIndexingByField).length > 0) {
+    return null;
+  }
+  if (object.tagIndexing?.enabled) {
+    return null;
+  }
 
   if (object.type === "group") {
     const tags = new Set<string>();
@@ -302,13 +312,40 @@ function ObjectNode({
     });
   }, [debugPerformance, interactive, resolvedObject.id, resolvedObject.type]);
 
-  const tagValue = (name: string | undefined): ResolvedTagValue => {
+  const indexedTagCache = new Map<string, ReturnType<typeof resolveObjectTagField>>();
+  const tagValue = (name: string | undefined, options?: { useObjectIndexing?: boolean; fieldName?: string }): ResolvedTagValue => {
     const resolved = resolveTagName(name, renderContext);
     const missingBindingReference = isBindingReference(name) && !resolved;
+    const fieldName = options?.fieldName ?? "tag";
+    const indexedConfig = getObjectIndexedConfigForField(resolvedObject, fieldName);
+    if (!runtimeMode || !options?.useObjectIndexing || !indexedConfig?.enabled) {
+      return {
+        resolvedName: resolved,
+        value: resolved ? tags[resolved] : undefined,
+        missingBindingReference,
+      };
+    }
+
+    const cacheKey = `${fieldName}|${name ?? ""}|${resolved ?? ""}`;
+    let indexed = indexedTagCache.get(cacheKey);
+    if (!indexed) {
+      indexed = resolveObjectTagField({
+        object: resolvedObject,
+        fieldName,
+        project,
+        context: renderContext,
+        tagValues: tags,
+        rawTagName: name,
+      });
+      indexedTagCache.set(cacheKey, indexed);
+    }
+
     return {
-      resolvedName: resolved,
-      value: resolved ? tags[resolved] : undefined,
+      resolvedName: indexed.resolvedTagName,
+      value: indexed.resolvedTagName ? tags[indexed.resolvedTagName] : undefined,
       missingBindingReference,
+      missingIndexedTag: indexed.usedIndexedAddress && !indexed.resolvedTagName,
+      indexedAddress: indexed.resolvedAddress,
     };
   };
 
@@ -317,11 +354,11 @@ function ObjectNode({
   if (!visibleByRole && mode === "runtime") {
     return null;
   }
-  const visibleByRuntimeState = mode !== "runtime" || resolveObjectVisible(resolvedObject, tags, renderContext);
+  const visibleByRuntimeState = mode !== "runtime" || resolveObjectVisible(resolvedObject, tags, renderContext, project);
   if (!visibleByRuntimeState && mode === "runtime") {
     return null;
   }
-  const disabledByRuntimeState = mode === "runtime" && resolveObjectDisabled(resolvedObject, tags, renderContext);
+  const disabledByRuntimeState = mode === "runtime" && resolveObjectDisabled(resolvedObject, tags, renderContext, project);
   const hasOwnDisabledBinding = hasRuntimeStateTag(resolvedObject.disabledTag);
   const runtimeDisabled = mode === "runtime" && (inheritedDisabled ? (hasOwnDisabledBinding ? disabledByRuntimeState : true) : disabledByRuntimeState);
 
@@ -487,12 +524,13 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "value-display") {
-    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag) : undefined;
+    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
     const runtimeTag = resolvedTag ?? { missingBindingReference: false, value: undefined };
     const value = resolvedTag?.value;
     const text = !runtimeMode
       ? (resolvedObject.tag?.trim() || `${resolvedObject.suffix ? `---${resolvedObject.suffix}` : "---"}`)
       : runtimeTag.missingBindingReference
+        || runtimeTag.missingIndexedTag
         ? resolvedObject.badQualityText ?? "BAD"
         : !value
         ? "---"
@@ -515,7 +553,14 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "value-input") {
-    const value = runtimeMode ? tagValue(resolvedObject.tag).value?.value : undefined;
+    const resolvedInputTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const value = runtimeMode ? resolvedInputTag?.value?.value : undefined;
+    const inputBad = runtimeMode && Boolean(
+      resolvedInputTag?.missingBindingReference
+      || resolvedInputTag?.missingIndexedTag
+      || !resolvedInputTag?.value
+      || resolvedInputTag.value.quality === "Bad",
+    );
     return (
       <Group
         {...commonGroupProps}
@@ -530,11 +575,20 @@ function ObjectNode({
           if (runtimeDisabled) {
             return;
           }
+          if (runtimeMode && resolvedInputTag?.missingIndexedTag) {
+            if (resolvedInputTag.indexedAddress) {
+              void message.warning(`Indexed tag not found: ${resolvedInputTag.indexedAddress}`);
+            }
+            return;
+          }
+          if (runtimeMode && !resolvedInputTag?.resolvedName) {
+            return;
+          }
           onAction?.(
             withActionRoleLevel({
               type: "writeNumberPrompt",
               target: "tag",
-              name: resolvedObject.tag,
+              name: runtimeMode ? (resolvedInputTag?.resolvedName ?? resolvedObject.tag) : resolvedObject.tag,
               min: resolvedObject.min,
               max: resolvedObject.max,
               confirm: resolvedObject.confirm,
@@ -553,7 +607,7 @@ function ObjectNode({
           cornerRadius={4}
           opacity={runtimeDisabled ? 0.7 : 1}
         />
-        {renderBoxText(`${value ?? "--"}${resolvedObject.suffix ?? ""}`, resolvedObject.textStyle, {
+        {renderBoxText(`${inputBad ? "BAD" : (value ?? "--")}${resolvedObject.suffix ?? ""}`, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
           wrap: resolvedObject.wrap,
@@ -565,9 +619,9 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "state-indicator") {
-    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag) : undefined;
+    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
     const value = resolvedTag?.value;
-    const isBad = runtimeMode && Boolean(resolvedTag?.missingBindingReference || !value || value.quality === "Bad");
+    const isBad = runtimeMode && Boolean(resolvedTag?.missingBindingReference || resolvedTag?.missingIndexedTag || !value || value.quality === "Bad");
     const boolValue = runtimeMode ? Boolean(value?.value) : false;
     const fill = isBad ? resolvedObject.badColor : boolValue ? resolvedObject.trueColor : resolvedObject.falseColor;
     const text = isBad ? "BAD" : boolValue ? resolvedObject.trueText : resolvedObject.falseText;
@@ -607,8 +661,15 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "switch") {
-    const isOn = runtimeMode ? Boolean(tagValue(resolvedObject.tag).value?.value) : false;
-    const fillColor = isOn ? (resolvedObject.onColor ?? "#389e0d") : (resolvedObject.offColor ?? "#434343");
+    const runtimeSwitchTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const switchBad = runtimeMode && Boolean(
+      runtimeSwitchTag?.missingBindingReference
+      || runtimeSwitchTag?.missingIndexedTag
+      || !runtimeSwitchTag?.value
+      || runtimeSwitchTag.value.quality === "Bad",
+    );
+    const isOn = runtimeMode ? Boolean(runtimeSwitchTag?.value?.value) : false;
+    const fillColor = switchBad ? "#6f6f6f" : (isOn ? (resolvedObject.onColor ?? "#389e0d") : (resolvedObject.offColor ?? "#434343"));
     return (
       <Group
         {...commonGroupProps}
@@ -623,10 +684,19 @@ function ObjectNode({
           if (runtimeDisabled) {
             return;
           }
+          if (runtimeMode && runtimeSwitchTag?.missingIndexedTag) {
+            if (runtimeSwitchTag.indexedAddress) {
+              void message.warning(`Indexed tag not found: ${runtimeSwitchTag.indexedAddress}`);
+            }
+            return;
+          }
+          if (runtimeMode && !runtimeSwitchTag?.resolvedName) {
+            return;
+          }
           onAction?.(
             withActionRoleLevel({
               type: "write",
-              tag: resolvedObject.tag,
+              tag: runtimeMode ? (runtimeSwitchTag?.resolvedName ?? resolvedObject.tag) : resolvedObject.tag,
               value: !isOn,
             }, resolvedObject.requiredActionRole),
             withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
@@ -643,19 +713,25 @@ function ObjectNode({
           cornerRadius={8}
           opacity={runtimeDisabled ? 0.65 : 1}
         />
-        {renderBoxText(isOn ? resolvedObject.onText ?? "ON" : resolvedObject.offText ?? "OFF", resolvedObject.textStyle, {
+        {renderBoxText(
+          switchBad
+            ? "BAD"
+            : (isOn ? resolvedObject.onText ?? "ON" : resolvedObject.offText ?? "OFF"),
+          resolvedObject.textStyle,
+          {
           width: resolvedObject.width,
           height: resolvedObject.height,
           wrap: resolvedObject.wrap,
           ellipsis: resolvedObject.ellipsis,
-        })}
+          },
+        )}
         <SelectionOutline object={resolvedObject} selected={selected} />
       </Group>
     );
   }
 
   if (resolvedObject.type === "valueSelect") {
-    const currentValue = runtimeMode ? readValueSelectTargetValue(resolvedObject, tags, renderContext) : undefined;
+    const currentValue = runtimeMode ? readValueSelectTargetValue(resolvedObject, project, tags, renderContext) : undefined;
     const currentIndex = runtimeMode
       ? resolvedObject.options.findIndex((item) => String(item.value) === String(currentValue))
       : (resolvedObject.options.length > 0 ? 0 : -1);
@@ -680,7 +756,7 @@ function ObjectNode({
           if (!nextOption) {
             return;
           }
-          const action = buildValueSelectAction(resolvedObject, nextOption.value);
+          const action = buildValueSelectAction(resolvedObject, nextOption.value, project, tags, renderContext);
           if (!action) {
             return;
           }
@@ -719,7 +795,9 @@ function ObjectNode({
         project={project}
         libraries={libraries}
         scopedAssets={scopedAssets}
-        stateValue={runtimeMode && resolvedObject.stateTag ? tagValue(resolvedObject.stateTag)?.value : undefined}
+        stateValue={runtimeMode && resolvedObject.stateTag
+          ? tagValue(resolvedObject.stateTag, { useObjectIndexing: true, fieldName: "stateTag" }).value
+          : undefined}
         interactive={interactive}
         onSelectObject={onSelectObject}
         onAction={onAction}
@@ -731,10 +809,10 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "stateImage") {
-    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag) : undefined;
+    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
     const tag = resolvedTag?.value;
     const stateAssetId = runtimeMode ? selectStateImageAssetId(resolvedObject.states, tag?.value) : undefined;
-    const isBad = runtimeMode && Boolean(resolvedTag?.missingBindingReference || tag?.quality === "Bad");
+    const isBad = runtimeMode && Boolean(resolvedTag?.missingBindingReference || resolvedTag?.missingIndexedTag || tag?.quality === "Bad");
     const activeAssetId = !runtimeMode
       ? (resolvedObject.defaultAssetId ?? resolvedObject.states[0]?.assetId)
       : isBad
@@ -790,9 +868,9 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "valve") {
-    const open = runtimeMode ? Boolean(tagValue(resolvedObject.openTag).value?.value) : false;
-    const closed = runtimeMode ? Boolean(tagValue(resolvedObject.closedTag).value?.value) : false;
-    const fault = runtimeMode ? Boolean(tagValue(resolvedObject.errorTag).value?.value) : false;
+    const open = runtimeMode ? Boolean(tagValue(resolvedObject.openTag, { useObjectIndexing: true, fieldName: "openTag" }).value?.value) : false;
+    const closed = runtimeMode ? Boolean(tagValue(resolvedObject.closedTag, { useObjectIndexing: true, fieldName: "closedTag" }).value?.value) : false;
+    const fault = runtimeMode ? Boolean(tagValue(resolvedObject.errorTag, { useObjectIndexing: true, fieldName: "errorTag" }).value?.value) : false;
     const color = fault ? "#d9363e" : open ? "#73d13d" : closed ? "#1677ff" : "#faad14";
 
     return (
@@ -808,8 +886,8 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "pump") {
-    const run = runtimeMode ? Boolean(tagValue(resolvedObject.runTag).value?.value) : false;
-    const fault = runtimeMode ? Boolean(tagValue(resolvedObject.faultTag).value?.value) : false;
+    const run = runtimeMode ? Boolean(tagValue(resolvedObject.runTag, { useObjectIndexing: true, fieldName: "runTag" }).value?.value) : false;
+    const fault = runtimeMode ? Boolean(tagValue(resolvedObject.faultTag, { useObjectIndexing: true, fieldName: "faultTag" }).value?.value) : false;
     const color = fault ? "#ff4d4f" : run ? "#52c41a" : "#8c8c8c";
 
     return (
@@ -1891,11 +1969,20 @@ function toLwRuntimeTag(address: number): string {
 
 function readValueSelectTargetValue(
   object: Extract<HmiObject, { type: "valueSelect" }>,
+  project: ScadaProject,
   tags: TagMap,
   context: RenderContext,
 ): unknown {
   if (object.target.type === "tag") {
-    const resolvedTag = resolveTagName(object.target.tag, context);
+    const indexed = resolveObjectTagField({
+      object,
+      fieldName: "target.tag",
+      project,
+      context,
+      tagValues: tags,
+      rawTagName: object.target.tag,
+    });
+    const resolvedTag = indexed.resolvedTagName ?? resolveTagName(object.target.tag, context);
     return resolvedTag ? tags[resolvedTag]?.value : undefined;
   }
   if (object.target.type === "lw") {
@@ -1921,6 +2008,9 @@ function getNextValueSelectOption(
 function buildValueSelectAction(
   object: Extract<HmiObject, { type: "valueSelect" }>,
   value: string | number | boolean,
+  project: ScadaProject,
+  tags: TagMap,
+  context: RenderContext,
 ): RuntimeAction | undefined {
   if (object.target.type === "internal") {
     return {
@@ -1936,9 +2026,18 @@ function buildValueSelectAction(
       value,
     };
   }
+  const indexed = resolveObjectTagField({
+    object,
+    fieldName: "target.tag",
+    project,
+    context,
+    tagValues: tags,
+    rawTagName: object.target.tag,
+  });
+  const resolvedTag = indexed.resolvedTagName ?? resolveTagName(object.target.tag, context) ?? object.target.tag;
   return {
     type: "write",
-    tag: object.target.tag,
+    tag: resolvedTag,
     value,
   };
 }
@@ -2000,21 +2099,43 @@ function hasRuntimeStateTag(tag: string | undefined): boolean {
   return Boolean(tag?.trim());
 }
 
-function resolveObjectVisible(object: HmiObject, tags: TagMap, context: RenderContext): boolean {
+function resolveObjectVisible(object: HmiObject, tags: TagMap, context: RenderContext, project: ScadaProject): boolean {
   if (!hasRuntimeStateTag(object.visibleTag)) {
     return true;
   }
-  const resolvedTag = resolveTagName(object.visibleTag, context);
+  const indexed = resolveObjectTagField({
+    object,
+    fieldName: "visibleTag",
+    project,
+    context,
+    tagValues: tags,
+    rawTagName: object.visibleTag,
+  });
+  const resolvedTag = indexed.resolvedTagName ?? resolveTagName(object.visibleTag, context);
+  if (indexed.usedIndexedAddress && !indexed.resolvedTagName) {
+    return false;
+  }
   const value = resolvedTag ? tags[resolvedTag]?.value : undefined;
   const visible = runtimeValueToBoolean(value);
   return object.visibleInvert ? !visible : visible;
 }
 
-function resolveObjectDisabled(object: HmiObject, tags: TagMap, context: RenderContext): boolean {
+function resolveObjectDisabled(object: HmiObject, tags: TagMap, context: RenderContext, project: ScadaProject): boolean {
   if (!hasRuntimeStateTag(object.disabledTag)) {
     return false;
   }
-  const resolvedTag = resolveTagName(object.disabledTag, context);
+  const indexed = resolveObjectTagField({
+    object,
+    fieldName: "disabledTag",
+    project,
+    context,
+    tagValues: tags,
+    rawTagName: object.disabledTag,
+  });
+  const resolvedTag = indexed.resolvedTagName ?? resolveTagName(object.disabledTag, context);
+  if (indexed.usedIndexedAddress && !indexed.resolvedTagName) {
+    return true;
+  }
   const value = resolvedTag ? tags[resolvedTag]?.value : undefined;
   const disabled = runtimeValueToBoolean(value);
   return object.disabledInvert ? !disabled : disabled;

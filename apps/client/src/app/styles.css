@@ -471,6 +471,23 @@ body {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
 }
+
+.tag-field-with-indexing {
+  width: 100%;
+  min-height: 26px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px;
+  align-items: center;
+}
+
+.tag-field-with-indexing__input {
+  min-width: 0;
+}
+
+.tag-field-with-indexing__meta {
+  margin-top: 4px;
+}
 .tag-picker-field__value {
   min-width: 0;
   min-height: 26px;
@@ -4265,6 +4282,180 @@ body {
 
 /* ── Login Page – Workbench style ── */
 
+/* Indexed Address summary in Object Properties */
+
+.object-index-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.object-index-summary__meta {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+}
+
+.object-index-summary__line {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.object-index-summary__label {
+  color: #a9a9a9;
+  font-size: 11px;
+}
+
+.object-index-summary__value {
+  min-width: 0;
+  color: #d2d2d2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Indexed Address editor window */
+
+.indexed-address-editor-window-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 4340;
+  pointer-events: none;
+}
+
+.indexed-address-editor-window-layer .workbench-window {
+  pointer-events: auto;
+}
+
+.indexed-address-editor-window {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #252526;
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.indexed-address-editor-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.indexed-address-editor-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.indexed-address-editor-section {
+  margin-bottom: 10px;
+}
+
+.indexed-address-editor-section__title {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #b9b9b9;
+}
+
+.indexed-address-editor-hint {
+  margin-top: 4px;
+  color: #9f9f9f;
+  font-size: 11px;
+}
+
+.indexed-address-editor-template {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  color: #cccccc;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  padding: 6px;
+  box-sizing: border-box;
+}
+
+.indexed-address-editor-table {
+  min-width: 760px;
+  border: 1px solid #3c3c3c;
+}
+
+.indexed-address-editor-row {
+  display: grid;
+  grid-template-columns: 90px 70px 150px minmax(220px, 1fr) 80px 70px 100px;
+  min-height: 30px;
+  border-bottom: 1px solid #2d2d2d;
+  align-items: center;
+}
+
+.indexed-address-editor-row--header {
+  background: #2d2d2d;
+  color: #bbbbbb;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.indexed-address-editor-cell {
+  min-width: 0;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+.indexed-address-editor-cell .workbench-select,
+.indexed-address-editor-cell .workbench-input {
+  width: 100%;
+  height: 24px;
+  font-size: 12px;
+}
+
+.indexed-address-editor-empty {
+  padding: 8px;
+  color: #9a9a9a;
+}
+
+.indexed-address-editor-preview {
+  border-top: 1px solid #3c3c3c;
+  padding: 8px;
+  background: #1e1e1e;
+  display: grid;
+  gap: 2px;
+}
+
+.indexed-address-editor-preview__line {
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.indexed-address-editor-preview__address {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.indexed-address-editor-preview__warning {
+  color: #ffb86c;
+}
+
+.indexed-address-editor-actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid #3c3c3c;
+}
+
+/* ── Login Page – Workbench style ── */
 .workbench-login-page {
   width: 100vw;
   height: 100vh;
@@ -4588,4 +4779,6 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+
 

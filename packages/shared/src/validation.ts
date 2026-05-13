@@ -53,6 +53,40 @@ const hmiBaseSchema = z.object({
   visibleInvert: z.boolean().optional(),
   disabledTag: z.string().optional(),
   disabledInvert: z.boolean().optional(),
+  tagIndexingByField: z.record(
+    z.object({
+      enabled: z.boolean(),
+      template: z.string(),
+      bindings: z.array(
+        z.object({
+          key: z.string().min(1),
+          slotIndex: z.number().int().nonnegative(),
+          baseValue: z.number(),
+          source: z.enum(["constant", "runtimeArg", "internalVariable", "tag", "macroVariable"]),
+          sourceName: z.string().optional(),
+          constantValue: z.number().optional(),
+          offset: z.number().optional(),
+        }),
+      ),
+    }),
+  ).optional(),
+  tagIndexing: z
+    .object({
+      enabled: z.boolean(),
+      template: z.string(),
+      bindings: z.array(
+        z.object({
+          key: z.string().min(1),
+          slotIndex: z.number().int().nonnegative(),
+          baseValue: z.number(),
+          source: z.enum(["constant", "runtimeArg", "internalVariable", "tag", "macroVariable"]),
+          sourceName: z.string().optional(),
+          constantValue: z.number().optional(),
+          offset: z.number().optional(),
+        }),
+      ),
+    })
+    .optional(),
 });
 
 const assetTypeSchema = z.enum(["png", "jpg", "jpeg", "svg"]);

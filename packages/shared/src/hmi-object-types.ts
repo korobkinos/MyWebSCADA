@@ -1,5 +1,8 @@
 import type { ElementBindingAssignment } from "./asset-library-types";
 import type { AccessRoleLevel, AppRole } from "./auth-types";
+import type { IndexedTagAddress } from "./indexed-address";
+
+export type HmiObjectTagIndexingByField = Record<string, IndexedTagAddress>;
 
 export type ExpressionBinding = {
   mode: "tag" | "expr";
@@ -74,6 +77,8 @@ export type HmiObjectBase = {
   visibleInvert?: boolean;
   disabledTag?: string;
   disabledInvert?: boolean;
+  tagIndexingByField?: HmiObjectTagIndexingByField;
+  tagIndexing?: IndexedTagAddress;
 };
 
 export type TextObject = HmiObjectBase & {

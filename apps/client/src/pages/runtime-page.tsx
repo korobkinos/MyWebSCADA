@@ -189,7 +189,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       })),
     });
     updateRuntimeTagSubscriptions(subscriptionTags);
-  }, [libraries, popupScreens, project, screen]);
+  }, [libraries, popupScreens, project, screen, tags]);
 
   useEffect(() => {
     return () => {

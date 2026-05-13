@@ -16,6 +16,7 @@ import {
   type ScadaProject,
   type TagValue,
 } from "@web-scada/shared";
+import { resolveObjectTagField } from "../tags/indexed-address";
 
 type TagMap = Record<string, TagValue>;
 
@@ -95,8 +96,23 @@ function collectObjectTags(
 ): void {
   const resolvedObject = resolveObjectParameters(object, context.parameters ?? {});
 
-  addTag(out, resolvedObject.visibleTag, context);
-  addTag(out, resolvedObject.disabledTag, context);
+  const runtimeTagValues = runtimeResolveContext.tagValues as TagMap | undefined;
+  addResolvedFieldTag(out, {
+    project,
+    object: resolvedObject,
+    fieldName: "visibleTag",
+    rawTagName: resolvedObject.visibleTag,
+    context,
+    runtimeTagValues,
+  });
+  addResolvedFieldTag(out, {
+    project,
+    object: resolvedObject,
+    fieldName: "disabledTag",
+    rawTagName: resolvedObject.disabledTag,
+    context,
+    runtimeTagValues,
+  });
 
   if ("action" in resolvedObject && resolvedObject.action) {
     collectActionTags(resolvedObject.action, context, out);
@@ -112,15 +128,37 @@ function collectObjectTags(
     case "value-input":
     case "state-indicator":
     case "switch":
-    case "stateImage":
-      addTag(out, resolvedObject.tag, context);
+    case "stateImage": {
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "tag",
+        rawTagName: resolvedObject.tag,
+        context,
+        runtimeTagValues,
+      });
       return;
+    }
     case "image":
-      addTag(out, resolvedObject.stateTag, context);
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "stateTag",
+        rawTagName: resolvedObject.stateTag,
+        context,
+        runtimeTagValues,
+      });
       return;
     case "valueSelect":
       if (resolvedObject.target.type === "tag") {
-        addTag(out, resolvedObject.target.tag, context);
+        addResolvedFieldTag(out, {
+          project,
+          object: resolvedObject,
+          fieldName: "target.tag",
+          rawTagName: resolvedObject.target.tag,
+          context,
+          runtimeTagValues,
+        });
       } else if (resolvedObject.target.type === "lw") {
         out.add(toLwRuntimeTag(resolvedObject.target.address));
       } else {
@@ -128,17 +166,80 @@ function collectObjectTags(
       }
       return;
     case "valve":
-      addTag(out, resolvedObject.openTag, context);
-      addTag(out, resolvedObject.closedTag, context);
-      addTag(out, resolvedObject.errorTag, context);
-      addTag(out, resolvedObject.commandOpenTag, context);
-      addTag(out, resolvedObject.commandCloseTag, context);
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "openTag",
+        rawTagName: resolvedObject.openTag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "closedTag",
+        rawTagName: resolvedObject.closedTag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "errorTag",
+        rawTagName: resolvedObject.errorTag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "commandOpenTag",
+        rawTagName: resolvedObject.commandOpenTag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "commandCloseTag",
+        rawTagName: resolvedObject.commandCloseTag,
+        context,
+        runtimeTagValues,
+      });
       return;
     case "pump":
-      addTag(out, resolvedObject.runTag, context);
-      addTag(out, resolvedObject.faultTag, context);
-      addTag(out, resolvedObject.commandStartTag, context);
-      addTag(out, resolvedObject.commandStopTag, context);
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "runTag",
+        rawTagName: resolvedObject.runTag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "faultTag",
+        rawTagName: resolvedObject.faultTag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "commandStartTag",
+        rawTagName: resolvedObject.commandStartTag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "commandStopTag",
+        rawTagName: resolvedObject.commandStopTag,
+        context,
+        runtimeTagValues,
+      });
       return;
     case "frame": {
       const childScreen = project.screens.find((item) => item.id === resolvedObject.screenId);
@@ -264,6 +365,37 @@ function addRuntimeDependencies(out: Set<string>, dependencies: RuntimeDependenc
   }
 }
 
+
+function addResolvedFieldTag(
+  out: Set<string>,
+  input: {
+    project: ScadaProject;
+    object: HmiObject;
+    fieldName: string;
+    rawTagName: string | undefined;
+    context: RenderContext;
+    runtimeTagValues?: TagMap;
+  },
+): void {
+  const indexed = resolveObjectTagField({
+    object: input.object,
+    fieldName: input.fieldName,
+    project: input.project,
+    context: input.context,
+    tagValues: input.runtimeTagValues,
+    rawTagName: input.rawTagName,
+  });
+  if (indexed.resolvedTagName?.trim()) {
+    out.add(indexed.resolvedTagName.trim());
+  } else {
+    addTag(out, input.rawTagName, input.context);
+  }
+  for (const dependency of indexed.dependencyTags) {
+    if (dependency.trim()) {
+      out.add(dependency.trim());
+    }
+  }
+}
 
 function addTag(out: Set<string>, tag: string | undefined, context: RenderContext): void {
   const resolved = resolveTagName(tag, context);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ACCESS_ROLE_LABELS_RU } from "@web-scada/shared";
 import type {
   AccessRoleLevel,
@@ -7,6 +7,7 @@ import type {
   ElementBindingDefinition,
   ElementLibrary,
   HmiObject,
+  IndexedTagAddress,
   HmiScreen,
   RuntimeAction,
   RuntimeResolveContext,
@@ -14,11 +15,26 @@ import type {
   ScadaProject,
   TextStyle,
 } from "@web-scada/shared";
-import { parseTagSegments, resolveElementBindingAssignment, resolveLibraryElementInstanceBindingsDetailed, resolveRuntimeValueSync } from "@web-scada/shared";
+import {
+  extractIndexedAddressSlots,
+  parseTagSegments,
+  resolveElementBindingAssignment,
+  resolveIndexedAddress,
+  resolveLibraryElementInstanceBindingsDetailed,
+  resolveRuntimeValueSync,
+} from "@web-scada/shared";
 import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
+import { IndexedAddressEditorWindow } from "./indexed-address-editor-window";
 import { getAssetDisplayPath } from "../utils/asset-path";
 import { WorkbenchCollapsibleSection } from "./workbench";
+import {
+  buildIndexedAddressRuntimeValues,
+  findTagByAddress,
+  getObjectIndexedConfigForField,
+  getTagAddressTemplate,
+  resolveObjectTagField,
+} from "../hmi/tags/indexed-address";
 
 type Props = {
   project: ScadaProject;
@@ -136,6 +152,7 @@ function TagFieldWithBindingSource({
   value,
   bindingLabel = "Binding Source",
   tagLabel = "Tag",
+  indexControl,
   onChange,
 }: {
   project: ScadaProject;
@@ -143,17 +160,54 @@ function TagFieldWithBindingSource({
   value: string | undefined;
   bindingLabel?: string;
   tagLabel?: string;
+  indexControl?: {
+    enabled: boolean;
+    status: string;
+    configureDisabled?: boolean;
+    onConfigure: () => void;
+    onToggleEnabled: (checked: boolean) => void;
+  };
   onChange: (nextValue: string) => void;
 }) {
   return (
     <>
       <BindingQuickSelect bindings={bindings} value={value} label={bindingLabel} onChange={onChange} />
       <Form.Item label={tagLabel}>
-        {extractBindingKey(value) ? (
-          <Input value={value} onChange={(event) => onChange(event.target.value)} />
-        ) : (
-          <TagPicker project={project} value={value ?? ""} onChange={(tag) => onChange(tag ?? "")} />
-        )}
+        <div className="tag-field-with-indexing">
+          <div className="tag-field-with-indexing__input">
+            {extractBindingKey(value) ? (
+              <Input value={value} onChange={(event) => onChange(event.target.value)} />
+            ) : (
+              <TagPicker project={project} value={value ?? ""} onChange={(tag) => onChange(tag ?? "")} />
+            )}
+          </div>
+          {indexControl ? (
+            <button
+              type="button"
+              className="workbench-button"
+              onClick={indexControl.onConfigure}
+              disabled={indexControl.configureDisabled}
+            >
+              <span className="workbench-button__label"># Indexes</span>
+            </button>
+          ) : null}
+        </div>
+        {indexControl ? (
+          <div className="tag-field-with-indexing__meta">
+            <Space size={6}>
+              <span>Indexed</span>
+              <Switch size="small" checked={indexControl.enabled} onChange={indexControl.onToggleEnabled} />
+              <Tag color={indexControl.status === "OK" ? "green" : indexControl.status === "Not found" ? "gold" : "default"}>
+                {indexControl.status}
+              </Tag>
+              {indexControl.configureDisabled ? (
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  Select tag first
+                </Typography.Text>
+              ) : null}
+            </Space>
+          </div>
+        ) : null}
       </Form.Item>
     </>
   );
@@ -416,6 +470,88 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
     return <div>Select object</div>;
   }
   const templateBindings = elementBindings ?? [];
+  const [indexedEditorTarget, setIndexedEditorTarget] = useState<{
+    fieldName: string;
+    fieldLabel: string;
+    rawTagName?: string;
+  } | null>(null);
+  const editorRuntimeValues = buildIndexedAddressRuntimeValues({ variables: project.variables });
+
+  useEffect(() => {
+    setIndexedEditorTarget(null);
+  }, [object.id]);
+
+  const getFieldIndexedConfig = (fieldName: string, rawTagName: string | undefined): IndexedTagAddress => {
+    const existing = getObjectIndexedConfigForField(object, fieldName);
+    if (existing) {
+      return existing;
+    }
+    const selectedTag = findTagByName(project, rawTagName);
+    const template = getTagAddressTemplate(selectedTag);
+    const slots = extractIndexedAddressSlots(template);
+    return {
+      enabled: false,
+      template,
+      bindings: createBindingsFromSlots(slots),
+    };
+  };
+
+  const applyFieldIndexedConfig = (fieldName: string, next: IndexedTagAddress) => {
+    const byField = {
+      ...(object.tagIndexingByField ?? {}),
+      [fieldName]: next,
+    };
+    onPatch({
+      tagIndexingByField: byField,
+      ...(fieldName === "tag" ? { tagIndexing: next } : {}),
+    } as Partial<HmiObject>);
+  };
+
+  const setFieldIndexedEnabled = (fieldName: string, rawTagName: string | undefined, enabled: boolean) => {
+    const current = getFieldIndexedConfig(fieldName, rawTagName);
+    const template = normalizeTemplate(current.template, project, rawTagName);
+    const slots = extractIndexedAddressSlots(template);
+    const bindings = current.bindings.length > 0 ? current.bindings : createBindingsFromSlots(slots);
+    applyFieldIndexedConfig(fieldName, {
+      ...current,
+      enabled,
+      template,
+      bindings,
+    });
+  };
+
+  const getFieldIndexedStatus = (fieldName: string, rawTagName: string | undefined): string => {
+    const config = getObjectIndexedConfigForField(object, fieldName);
+    if (!config?.enabled) {
+      return "Not configured";
+    }
+    const resolved = resolveObjectTagField({
+      object,
+      fieldName,
+      project,
+      context: {},
+      rawTagName,
+      tagValues: undefined,
+    });
+    if (!resolved.usedIndexedAddress) {
+      return "Not configured";
+    }
+    if (resolved.errors.some((item) => item.includes("missing or non-numeric") || item.includes("sourceName is missing"))) {
+      return "Not configured";
+    }
+    return resolved.resolvedTagName ? "OK" : "Not found";
+  };
+
+  const buildIndexControl = (fieldName: string, fieldLabel: string, rawTagName: string | undefined) => {
+    const config = getObjectIndexedConfigForField(object, fieldName);
+    return {
+      enabled: Boolean(config?.enabled),
+      status: getFieldIndexedStatus(fieldName, rawTagName),
+      configureDisabled: !(rawTagName?.trim()),
+      onConfigure: () => setIndexedEditorTarget({ fieldName, fieldLabel, rawTagName }),
+      onToggleEnabled: (checked: boolean) => setFieldIndexedEnabled(fieldName, rawTagName, checked),
+    };
+  };
 
   const applyTextStyle = (patch: Partial<TextStyle>) => {
     if (!hasTextStyle(object)) {
@@ -475,6 +611,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
       libraries={libraries}
       object={object}
       elementBindings={elementBindings}
+      buildIndexControl={buildIndexControl}
       onPatch={onPatch}
     />
   );
@@ -488,6 +625,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
         value={object.visibleTag ?? ""}
         bindingLabel="Visible Binding"
         tagLabel="Visible Tag"
+        indexControl={buildIndexControl("visibleTag", "Visible Tag", object.visibleTag)}
         onChange={(nextValue) => onPatch({ visibleTag: nextValue } as Partial<HmiObject>)}
       />
       <Space style={{ marginBottom: 8 }}>
@@ -500,6 +638,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
         value={object.disabledTag ?? ""}
         bindingLabel="Disabled Binding"
         tagLabel="Disabled Tag"
+        indexControl={buildIndexControl("disabledTag", "Disabled Tag", object.disabledTag)}
         onChange={(nextValue) => onPatch({ disabledTag: nextValue } as Partial<HmiObject>)}
       />
       <Space style={{ marginBottom: 8 }}>
@@ -661,6 +800,19 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
           {advancedContent}
         </WorkbenchCollapsibleSection>
       </Form>
+      {indexedEditorTarget ? (
+        <IndexedAddressEditorWindow
+          fieldName={indexedEditorTarget.fieldName}
+          fieldLabel={indexedEditorTarget.fieldLabel}
+          open
+          project={project}
+          value={getFieldIndexedConfig(indexedEditorTarget.fieldName, indexedEditorTarget.rawTagName)}
+          selectedTag={findTagByName(project, indexedEditorTarget.rawTagName) ?? null}
+          runtimePreviewValues={editorRuntimeValues}
+          onApply={(fieldName, next) => applyFieldIndexedConfig(fieldName, next)}
+          onClose={() => setIndexedEditorTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -671,6 +823,7 @@ function SpecificPropertyFields({
   libraries,
   object,
   elementBindings,
+  buildIndexControl,
   onPatch,
 }: {
   project: ScadaProject;
@@ -678,6 +831,13 @@ function SpecificPropertyFields({
   libraries: ElementLibrary[];
   object: HmiObject;
   elementBindings?: ElementBindingDefinition[];
+  buildIndexControl: (fieldName: string, fieldLabel: string, rawTagName: string | undefined) => {
+    enabled: boolean;
+    status: string;
+    configureDisabled?: boolean;
+    onConfigure: () => void;
+    onToggleEnabled: (checked: boolean) => void;
+  };
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
   const [stateImagePreviewValue, setStateImagePreviewValue] = useState<string>("0");
@@ -770,6 +930,7 @@ function SpecificPropertyFields({
           project={project}
           bindings={templateBindings}
           value={object.tag}
+          indexControl={buildIndexControl("tag", "Main Tag", object.tag)}
           onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
         />
         <Form.Item label="Suffix">
@@ -786,6 +947,7 @@ function SpecificPropertyFields({
           project={project}
           bindings={templateBindings}
           value={object.tag}
+          indexControl={buildIndexControl("tag", "Main Tag", object.tag)}
           onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
         />
         <Form.Item label="Min">
@@ -805,6 +967,7 @@ function SpecificPropertyFields({
           project={project}
           bindings={templateBindings}
           value={object.tag}
+          indexControl={buildIndexControl("tag", "Main Tag", object.tag)}
           onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
         />
         <Form.Item label="True Text">
@@ -1201,6 +1364,7 @@ function SpecificPropertyFields({
           project={project}
           bindings={templateBindings}
           value={object.tag}
+          indexControl={buildIndexControl("tag", "Main Tag", object.tag)}
           onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
         />
         <Form.Item label="ON Text">
@@ -1287,6 +1451,7 @@ function SpecificPropertyFields({
             value={object.target.tag}
             bindingLabel="Target Binding"
             tagLabel="Target Tag"
+            indexControl={buildIndexControl("target.tag", "Target Tag", object.target.tag)}
             onChange={(nextValue) => onPatch({ target: { ...object.target, tag: nextValue } } as Partial<HmiObject>)}
           />
         ) : null}
@@ -1590,9 +1755,15 @@ function SpecificPropertyFields({
             })()}
           </>
         ) : null}
-        <Form.Item label="State Tag">
-          <TagPicker project={project} value={object.stateTag ?? ""} onChange={(tag) => onPatch({ stateTag: tag } as Partial<HmiObject>)} />
-        </Form.Item>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.stateTag ?? ""}
+          bindingLabel="State Binding"
+          tagLabel="State Tag"
+          indexControl={buildIndexControl("stateTag", "State Tag", object.stateTag)}
+          onChange={(nextValue) => onPatch({ stateTag: nextValue } as Partial<HmiObject>)}
+        />
         <Form.Item label="State Images (JSON)">
           <Input.TextArea
             rows={4}
@@ -1643,6 +1814,7 @@ function SpecificPropertyFields({
           value={object.tag}
           bindingLabel="Source Binding"
           tagLabel="Source Tag"
+          indexControl={buildIndexControl("tag", "Main Tag", object.tag)}
           onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
         />
         <Form.Item label="Default Asset">
@@ -1925,6 +2097,9 @@ function SpecificPropertyFields({
         <Form.Item label="Tag Prefix">
           <Input value={object.tagPrefix ?? ""} onChange={(e) => onPatch({ tagPrefix: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Prefix is kept for compatibility. Use Indexed Address for arrays and structures.
+        </Typography.Text>
         <Form.Item label="Scale Mode">
           <Select
             value={object.scaleMode ?? "fit"}
@@ -2438,12 +2613,24 @@ function SpecificPropertyFields({
         <Form.Item label="Label">
           <Input value={object.label ?? ""} onChange={(e) => onPatch({ label: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
-        <Form.Item label="Open Tag">
-          <Input value={object.openTag ?? ""} onChange={(e) => onPatch({ openTag: e.target.value } as Partial<HmiObject>)} />
-        </Form.Item>
-        <Form.Item label="Closed Tag">
-          <Input value={object.closedTag ?? ""} onChange={(e) => onPatch({ closedTag: e.target.value } as Partial<HmiObject>)} />
-        </Form.Item>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.openTag ?? ""}
+          bindingLabel="Open Binding"
+          tagLabel="Open Tag"
+          indexControl={buildIndexControl("openTag", "Open Tag", object.openTag)}
+          onChange={(nextValue) => onPatch({ openTag: nextValue } as Partial<HmiObject>)}
+        />
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.closedTag ?? ""}
+          bindingLabel="Closed Binding"
+          tagLabel="Closed Tag"
+          indexControl={buildIndexControl("closedTag", "Closed Tag", object.closedTag)}
+          onChange={(nextValue) => onPatch({ closedTag: nextValue } as Partial<HmiObject>)}
+        />
       </>
     );
   }
@@ -2454,9 +2641,15 @@ function SpecificPropertyFields({
         <Form.Item label="Label">
           <Input value={object.label ?? ""} onChange={(e) => onPatch({ label: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
-        <Form.Item label="Run Tag">
-          <Input value={object.runTag ?? ""} onChange={(e) => onPatch({ runTag: e.target.value } as Partial<HmiObject>)} />
-        </Form.Item>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.runTag ?? ""}
+          bindingLabel="Run Binding"
+          tagLabel="Run Tag"
+          indexControl={buildIndexControl("runTag", "Run Tag", object.runTag)}
+          onChange={(nextValue) => onPatch({ runTag: nextValue } as Partial<HmiObject>)}
+        />
       </>
     );
   }
@@ -2471,6 +2664,9 @@ function SpecificPropertyFields({
         <Form.Item label="Tag Prefix">
           <Input value={object.tagPrefix ?? ""} onChange={(e) => onPatch({ tagPrefix: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Prefix is kept for compatibility. Use Indexed Address for arrays and structures.
+        </Typography.Text>
         <Form.Item label="Scale Mode">
           <Select
             value={object.scaleMode ?? "fit"}
@@ -2509,6 +2705,46 @@ function SpecificPropertyFields({
   }
 
   return <></>;
+}
+
+function findTagByName(project: ScadaProject, tagName: string | undefined) {
+  if (!tagName) {
+    return undefined;
+  }
+  const normalized = tagName.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return project.tags.find((tag) => tag.name === normalized);
+}
+
+function normalizeTemplate(currentTemplate: string, project: ScadaProject, tagName: string | undefined): string {
+  const selectedTag = findTagByName(project, tagName);
+  const fromSelected = getTagAddressTemplate(selectedTag);
+  const normalizedCurrent = (currentTemplate ?? "").trim();
+  if (normalizedCurrent) {
+    return normalizedCurrent;
+  }
+  return fromSelected;
+}
+
+function createBindingsFromSlots(
+  slots: ReturnType<typeof extractIndexedAddressSlots>,
+  existing: IndexedTagAddress["bindings"] = [],
+): IndexedTagAddress["bindings"] {
+  const existingBySlot = new Map(existing.map((item) => [item.slotIndex, item]));
+  return slots.map((slot) => {
+    const previous = existingBySlot.get(slot.slotIndex);
+    return {
+      key: slot.key,
+      slotIndex: slot.slotIndex,
+      baseValue: slot.baseValue,
+      source: previous?.source ?? "constant",
+      sourceName: previous?.sourceName,
+      constantValue: previous?.constantValue ?? 0,
+      offset: previous?.offset ?? 0,
+    };
+  });
 }
 
 function parseConditionValue(value: string): string | number | boolean {
@@ -2633,3 +2869,5 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
+
+
