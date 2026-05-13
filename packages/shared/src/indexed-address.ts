@@ -94,11 +94,15 @@ export function resolveIndexedAddress(input: ResolveIndexedAddressInput): Resolv
   const errors: string[] = [];
   const bindingsBySlot = new Map<number, IndexedAddressBinding>();
   for (const binding of input.config.bindings ?? []) {
-    if (!Number.isInteger(binding.slotIndex) || binding.slotIndex < 0) {
+    const normalizedSlotIndex = toSlotIndex(binding.slotIndex);
+    if (normalizedSlotIndex === undefined) {
       continue;
     }
-    if (!bindingsBySlot.has(binding.slotIndex)) {
-      bindingsBySlot.set(binding.slotIndex, binding);
+    if (!bindingsBySlot.has(normalizedSlotIndex)) {
+      bindingsBySlot.set(normalizedSlotIndex, {
+        ...binding,
+        slotIndex: normalizedSlotIndex,
+      });
     }
   }
 
@@ -239,4 +243,15 @@ function formatIndexNumber(value: number): number {
     return 0;
   }
   return Math.round(value);
+}
+
+function toSlotIndex(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 0 ? value : undefined;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value.trim());
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+  }
+  return undefined;
 }

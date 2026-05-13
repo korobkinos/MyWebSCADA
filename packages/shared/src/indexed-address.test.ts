@@ -127,4 +127,70 @@ describe("indexed-address", () => {
     expect(result.address).toBe("ns=2;s=Application.GVL_UDP.udp_channel_modbus[4].state.packet_count");
     expect(result.errors).toEqual([]);
   });
+
+  it("resolves tag sources from primitive and object payload values", () => {
+    const config: IndexedTagAddress = {
+      enabled: true,
+      template: "a[0].b[1]",
+      bindings: [
+        {
+          key: "INDEX_1",
+          slotIndex: 0,
+          baseValue: 0,
+          source: "tag",
+          sourceName: "Counter",
+          offset: 0,
+        },
+        {
+          key: "INDEX_2",
+          slotIndex: 1,
+          baseValue: 1,
+          source: "tag",
+          sourceName: "CounterObj",
+          offset: 0,
+        },
+      ],
+    };
+
+    const result = resolveIndexedAddress({
+      config,
+      values: {
+        Counter: 4,
+        CounterObj: { value: 2, quality: "Good" },
+      },
+    });
+
+    expect(result.address).toBe("a[4].b[3]");
+    expect(result.parts[0]?.runtimeValue).toBe(4);
+    expect(result.parts[1]?.runtimeValue).toBe(2);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("accepts string slotIndex values and still resolves tag source", () => {
+    const config: IndexedTagAddress = {
+      enabled: true,
+      template: "a[0]",
+      bindings: [
+        {
+          key: "INDEX_1",
+          slotIndex: "0" as unknown as number,
+          baseValue: 0,
+          source: "tag",
+          sourceName: "Counter",
+          offset: 0,
+        },
+      ],
+    };
+
+    const result = resolveIndexedAddress({
+      config,
+      values: {
+        Counter: 4,
+      },
+    });
+
+    expect(result.address).toBe("a[4]");
+    expect(result.parts[0]?.runtimeValue).toBe(4);
+    expect(result.errors).toEqual([]);
+  });
 });
