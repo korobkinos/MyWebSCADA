@@ -70,7 +70,7 @@ export class OpcUaDriver implements Driver {
   private static readonly DEFAULT_CONNECT_TIMEOUT_MS = 5000;
   private static readonly DEFAULT_OPERATION_TIMEOUT_MS = 5000;
   private static readonly DEFAULT_SESSION_TIMEOUT_MS = 60000;
-  private static readonly DEFAULT_KEEP_ALIVE_INTERVAL_MS = 5000;
+  private static readonly DEFAULT_KEEP_ALIVE_INTERVAL_MS = 60000;
   private static readonly DEFAULT_READ_BATCH_SIZE = 100;
   private static readonly DEFAULT_PUBLISHING_INTERVAL_MS = 250;
   private static readonly DEFAULT_SAMPLING_INTERVAL_MS = 250;
