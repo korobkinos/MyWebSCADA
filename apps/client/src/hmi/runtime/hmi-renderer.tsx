@@ -40,6 +40,8 @@ type ResolvedTagValue = {
   missingBindingReference: boolean;
   missingIndexedTag?: boolean;
   indexedAddress?: string;
+  indexedUsed?: boolean;
+  indexedErrors?: string[];
 };
 
 export type ObjectSelectPayload = {
@@ -346,6 +348,8 @@ function ObjectNode({
       missingBindingReference,
       missingIndexedTag: indexed.usedIndexedAddress && !indexed.resolvedTagName,
       indexedAddress: indexed.resolvedAddress,
+      indexedUsed: indexed.usedIndexedAddress,
+      indexedErrors: indexed.errors,
     };
   };
 
@@ -537,6 +541,28 @@ function ObjectNode({
         : value.quality === "Bad"
           ? resolvedObject.badQualityText ?? "BAD"
           : `${value.value ?? "---"}${resolvedObject.suffix ?? ""}`;
+
+    if (runtimeMode && isIndexedAddressDebugEnabled()) {
+      const rawTagName = resolvedObject.tag;
+      const resolvedTagName = resolvedTag?.resolvedName;
+      // eslint-disable-next-line no-console
+      console.debug("[indexed-address] renderer:value-display", {
+        objectId: resolvedObject.id,
+        objectName: resolvedObject.name,
+        rawTagName,
+        resolvedUsedIndexedAddress: resolvedTag?.indexedUsed,
+        resolvedAddress: resolvedTag?.indexedAddress,
+        resolvedTagName,
+        resolvedErrors: resolvedTag?.indexedErrors,
+        rawValue: rawTagName ? tags[rawTagName] : undefined,
+        resolvedValue: resolvedTagName ? tags[resolvedTagName] : undefined,
+        displayedValue: text,
+        tagValuesHasRaw: rawTagName ? Object.prototype.hasOwnProperty.call(tags, rawTagName) : false,
+        tagValuesHasResolved: resolvedTagName
+          ? Object.prototype.hasOwnProperty.call(tags, resolvedTagName)
+          : false,
+      });
+    }
 
     return (
       <Group {...commonGroupProps}>
@@ -936,6 +962,11 @@ function ObjectNode({
   }
 
   return <Group {...commonGroupProps} />;
+}
+
+function isIndexedAddressDebugEnabled(): boolean {
+  return typeof window !== "undefined" &&
+    window.localStorage.getItem("scada.debugIndexedAddress") === "1";
 }
 
 function isObjectVisibleByRole(object: HmiObject, mode: "editor" | "runtime", context: RenderContext): boolean {

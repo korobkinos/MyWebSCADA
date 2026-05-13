@@ -3,6 +3,7 @@ import {
   resolveIndexedAddress,
   resolveTagName,
   type HmiObject,
+  type IndexedAddressBinding,
   type IndexedTagAddress,
   type RenderContext,
   type ScadaProject,
@@ -13,6 +14,12 @@ import {
 type TagMap = Record<string, TagValue>;
 
 type RuntimeValueInput = {
+  context?: RenderContext;
+  tagValues?: TagMap;
+  variables?: ScadaProject["variables"];
+};
+
+type IndexedRuntimeSources = {
   context?: RenderContext;
   tagValues?: TagMap;
   variables?: ScadaProject["variables"];
@@ -145,6 +152,54 @@ function extractRuntimeTagValue(payload: unknown): unknown {
   return payload;
 }
 
+function getIndexedBindingRuntimeValue(
+  binding: IndexedAddressBinding,
+  sources: IndexedRuntimeSources,
+): unknown {
+  const sourceName = binding.sourceName?.trim();
+  if (binding.source === "constant") {
+    return binding.constantValue ?? 0;
+  }
+  if (!sourceName) {
+    return undefined;
+  }
+
+  switch (binding.source) {
+    case "runtimeArg":
+      return sources.context?.parameters?.[sourceName]
+        ?? (sources.context as Record<string, unknown> | undefined)?.[sourceName];
+    case "tag":
+      return extractRuntimeTagValue(
+        (sources.tagValues as Record<string, unknown> | undefined)?.[sourceName],
+      );
+    case "internalVariable":
+      return findInternalVariableValue(sources.variables, sourceName);
+    case "macroVariable":
+      return sources.context?.parameters?.[sourceName]
+        ?? (sources.context as Record<string, unknown> | undefined)?.[sourceName];
+    default:
+      return undefined;
+  }
+}
+
+function findInternalVariableValue(
+  variables: ScadaProject["variables"] | undefined,
+  name: string,
+): unknown {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const variable = (variables ?? []).find((item) => (
+    item.name === trimmed
+    || `LW.${item.name}` === trimmed
+    || (typeof item.lwAddress === "number" && `LW${item.lwAddress}` === trimmed)
+  ));
+
+  return variable?.currentValue ?? variable?.initialValue;
+}
+
 export function resolveIndexedObjectMainTag(params: {
   object: HmiObject;
   project: ScadaProject;
@@ -230,6 +285,21 @@ export function resolveObjectTagField(params: {
     tagValues: params.tagValues,
     variables: params.project.variables,
   });
+  const scopedValues: Record<string, unknown> = { ...values };
+  const bindingSourceValues = new Map<string, unknown>();
+
+  for (const binding of normalizedConfig.bindings) {
+    const sourceSpecificValue = getIndexedBindingRuntimeValue(binding, {
+      context: params.context,
+      tagValues: params.tagValues,
+      variables: params.project.variables,
+    });
+    bindingSourceValues.set(binding.key, sourceSpecificValue);
+    if (binding.sourceName?.trim()) {
+      scopedValues[binding.sourceName.trim()] = sourceSpecificValue;
+    }
+  }
+
   for (const binding of normalizedConfig.bindings) {
     if (binding.source !== "tag" || !binding.sourceName) {
       continue;
@@ -238,8 +308,8 @@ export function resolveObjectTagField(params: {
     if (!original || original === binding.sourceName) {
       continue;
     }
-    if (Object.prototype.hasOwnProperty.call(values, binding.sourceName)) {
-      values[original] = values[binding.sourceName];
+    if (Object.prototype.hasOwnProperty.call(scopedValues, binding.sourceName)) {
+      scopedValues[original] = scopedValues[binding.sourceName];
     }
   }
 
@@ -247,13 +317,16 @@ export function resolveObjectTagField(params: {
     fieldName: params.fieldName,
     template,
     valuesForBindings: normalizedConfig.bindings.map((binding) => {
-      const rawValueFromValues = binding.sourceName ? values[binding.sourceName] : undefined;
-      const numericDebug = toIndexedDebugNumber(rawValueFromValues);
+      const sourceName = binding.sourceName?.trim();
+      const flatValue = sourceName ? values[sourceName] : undefined;
+      const sourceSpecificValue = bindingSourceValues.get(binding.key);
+      const numericDebug = toIndexedDebugNumber(sourceSpecificValue);
       return {
         key: binding.key,
         source: binding.source,
         sourceName: binding.sourceName,
-        rawValueFromValues,
+        flatValue,
+        sourceSpecificValue,
         extractedValue: numericDebug.extracted,
         numericValue: numericDebug.value,
         ok: numericDebug.ok,
@@ -265,9 +338,57 @@ export function resolveObjectTagField(params: {
     }),
   });
 
+  debugIndexedAddress("resolveObjectTagField:beforeResolveCall", {
+    fieldName: params.fieldName,
+    template: normalizedConfig.template,
+    bindings: normalizedConfig.bindings,
+    valuesCounterFlat: values.Counter,
+    valuesCounterScoped: scopedValues.Counter,
+    valuesCounterType: typeof scopedValues.Counter,
+    valuesHasCounter: Object.prototype.hasOwnProperty.call(scopedValues, "Counter"),
+    valuesKeysIncludesCounter: Object.keys(scopedValues).includes("Counter"),
+    tagValueCounterRaw: (params.tagValues as Record<string, unknown> | undefined)?.Counter,
+    variableCounter: findInternalVariableValue(params.project.variables, "Counter"),
+    directManualExpectedAddress:
+      typeof scopedValues.Counter === "number"
+        ? normalizedConfig.template.replace("[0]", `[${scopedValues.Counter}]`)
+        : undefined,
+  });
+
+  if (isIndexedAddressDebugEnabled()) {
+    const testResolved = resolveIndexedAddress({
+      config: {
+        enabled: true,
+        template: "x[0]",
+        bindings: [
+          {
+            key: "INDEX_1",
+            slotIndex: 0,
+            baseValue: 0,
+            source: "tag",
+            sourceName: "Counter",
+            constantValue: 0,
+            offset: 0,
+          },
+        ],
+      },
+      values: { Counter: scopedValues.Counter },
+    });
+
+    debugIndexedAddress("resolveObjectTagField:selfTest", {
+      counter: scopedValues.Counter,
+      result: testResolved,
+    });
+  }
+
   const resolved = resolveIndexedAddress({
     config: normalizedConfig,
-    values,
+    values: scopedValues,
+  });
+  debugIndexedAddress("resolveObjectTagField:afterResolveCall", {
+    address: resolved.address,
+    parts: resolved.parts,
+    errors: resolved.errors,
   });
   debugIndexedAddress("resolveObjectTagField:resolved", {
     fieldName: params.fieldName,
