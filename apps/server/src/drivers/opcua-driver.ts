@@ -66,6 +66,7 @@ export class OpcUaDriver implements Driver {
   private client: OPCUAClient | undefined;
   private session: ClientSession | undefined;
   private connectTask: Promise<void> | undefined;
+  private closeTask: Promise<void> | undefined;
   private reconnectTimer: NodeJS.Timeout | undefined;
   private reconnectBackoffMs = 0;
   private nextReconnectAttemptAt = 0;
@@ -74,6 +75,10 @@ export class OpcUaDriver implements Driver {
   private stopping = false;
   private connectEpoch = 0;
   private clockWarning: string | undefined;
+  private readonly runtimeDebug = process.env.DEBUG_RUNTIME_COMMANDS === "1";
+  private offlineSkipReadTagsCount = 0;
+  private offlineSkipReadTagsLogAt = 0;
+  private connectTaskSkipLogAt = 0;
   private status: DriverStatus;
   private readonly processWarningListener = (warning: Error & { code?: string }) => {
     this.captureClockWarningFromText(`${warning.code ?? ""} ${warning.message ?? ""}`);
@@ -126,7 +131,7 @@ export class OpcUaDriver implements Driver {
   public async readTag(tag: TagDefinition): Promise<TagValue> {
     const startedAt = Date.now();
     try {
-      await this.ensureConnected();
+      await this.ensureConnected({ waitForConnect: false });
       const address = extractAddress(tag);
       const dataValue = await this.withTimeout(
         this.session!.read({
@@ -165,7 +170,7 @@ export class OpcUaDriver implements Driver {
           status: "offline_skip",
         });
       } else {
-      this.handleOperationFailure("readTag", message, startedAt, tag.name);
+        await this.handleOperationFailure("readTag", message, startedAt, tag.name);
       }
       return {
         name: tag.name,
@@ -184,7 +189,7 @@ export class OpcUaDriver implements Driver {
 
     const startedAt = Date.now();
     try {
-      await this.ensureConnected();
+      await this.ensureConnected({ waitForConnect: false });
 
       const valid: Array<{ tag: TagDefinition; nodeId: string }> = [];
       const invalid: TagDefinition[] = [];
@@ -256,6 +261,7 @@ export class OpcUaDriver implements Driver {
     } catch (error) {
       const message = error instanceof Error ? error.message : "OPC UA read error";
       if (message === OpcUaDriver.OFFLINE_SKIP_STATUS) {
+        this.logOfflineSkipReadTags(tags.length);
         logPerf({
           driver: "opcua",
           id: this.id,
@@ -265,7 +271,7 @@ export class OpcUaDriver implements Driver {
           status: "offline_skip",
         });
       } else {
-        this.handleOperationFailure("readTags", message, startedAt, undefined, tags.length);
+        await this.handleOperationFailure("readTags", message, startedAt, undefined, tags.length);
       }
       return tags.map((tag) => ({
         name: tag.name,
@@ -284,7 +290,7 @@ export class OpcUaDriver implements Driver {
 
     const startedAt = Date.now();
     try {
-      await this.ensureConnected();
+      await this.ensureConnected({ waitForConnect: false });
       const address = extractAddress(tag);
 
       await this.withTimeout(
@@ -312,7 +318,7 @@ export class OpcUaDriver implements Driver {
     } catch (error) {
       const message = error instanceof Error ? error.message : "OPC UA write error";
       if (message !== OpcUaDriver.OFFLINE_SKIP_STATUS) {
-        this.handleOperationFailure("writeTag", message, startedAt, tag.name);
+        await this.handleOperationFailure("writeTag", message, startedAt, tag.name);
       }
       throw error;
     }
@@ -326,7 +332,7 @@ export class OpcUaDriver implements Driver {
     if (!this.client || !this.session) {
       return false;
     }
-    if (this.stopping || this.reconnectTimer || this.connectTask) {
+    if (this.stopping || this.reconnectTimer || this.connectTask || this.closeTask) {
       return false;
     }
     if (this.status.health !== "running") {
@@ -335,21 +341,49 @@ export class OpcUaDriver implements Driver {
     return this.session.isReconnecting === false;
   }
 
-  private async ensureConnected(): Promise<void> {
+  private async ensureConnected(options?: { waitForConnect?: boolean }): Promise<void> {
+    const waitForConnect = options?.waitForConnect === true;
     if (this.client && this.session && this.status.health === "running") {
       return;
     }
 
     if (this.connectTask) {
-      await this.connectTask;
-      return;
+      if (waitForConnect) {
+        await this.connectTask;
+        return;
+      }
+      const now = Date.now();
+      if (this.runtimeDebug && now - this.connectTaskSkipLogAt >= 1000) {
+        this.connectTaskSkipLogAt = now;
+        console.log(`[OpcUaDriver:${this.id}] ensureConnected skip: connectTask is active`);
+      }
+      throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
+    }
+
+    if (this.closeTask) {
+      if (waitForConnect) {
+        const waitStartedAt = Date.now();
+        await this.closeTask.catch(() => undefined);
+        if (this.runtimeDebug) {
+          console.log(`[OpcUaDriver:${this.id}] waited closeTask durationMs=${Date.now() - waitStartedAt}`);
+        }
+        if (this.client && this.session && this.status.health === "running") {
+          return;
+        }
+      }
+      throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
     }
 
     if (this.shouldSkipImmediateConnect()) {
       throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
     }
 
-    await this.connect();
+    if (waitForConnect) {
+      await this.connect();
+      return;
+    }
+
+    throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
   }
 
   private shouldSkipImmediateConnect(): boolean {
@@ -360,6 +394,16 @@ export class OpcUaDriver implements Driver {
   }
 
   private async connect(): Promise<void> {
+    if (this.connectTask) {
+      return this.connectTask;
+    }
+    if (this.closeTask) {
+      const waitStartedAt = Date.now();
+      await this.closeTask.catch(() => undefined);
+      if (this.runtimeDebug) {
+        console.log(`[OpcUaDriver:${this.id}] connect waited closeTask durationMs=${Date.now() - waitStartedAt}`);
+      }
+    }
     if (this.connectTask) {
       return this.connectTask;
     }
@@ -467,8 +511,8 @@ export class OpcUaDriver implements Driver {
     } catch (error) {
       const message = error instanceof Error ? error.message : "OPC UA connect error";
       this.captureClockWarningFromText(message);
-      await this.closeActiveConnection();
       this.setStatus("error", message);
+      await this.closeActiveConnection();
       this.consecutiveFailures += 1;
       if (!this.stopping) {
         this.scheduleReconnect(message);
@@ -487,6 +531,28 @@ export class OpcUaDriver implements Driver {
 
   private scheduleReconnect(message: string): void {
     if (this.stopping || this.reconnectTimer) {
+      return;
+    }
+    if (this.connectTask) {
+      if (this.runtimeDebug) {
+        console.log(`[OpcUaDriver:${this.id}] reconnect deferred: connectTask is active`);
+      }
+      void this.connectTask.finally(() => {
+        if (!this.stopping) {
+          this.scheduleReconnect(message);
+        }
+      });
+      return;
+    }
+    if (this.closeTask) {
+      if (this.runtimeDebug) {
+        console.log(`[OpcUaDriver:${this.id}] reconnect deferred: closeTask is active`);
+      }
+      void this.closeTask.finally(() => {
+        if (!this.stopping) {
+          this.scheduleReconnect(message);
+        }
+      });
       return;
     }
 
@@ -560,34 +626,58 @@ export class OpcUaDriver implements Driver {
     if (this.stopping) {
       return;
     }
+    void this.handleConnectionLossInternal(message);
+  }
+
+  private async handleConnectionLossInternal(message: string): Promise<void> {
+    if (this.stopping) {
+      return;
+    }
     this.captureClockWarningFromText(message);
     this.connectEpoch += 1;
-    this.session = undefined;
-    this.client = undefined;
     this.consecutiveFailures += 1;
     this.setStatus("error", message);
+    await this.closeActiveConnection();
+    if (this.stopping) {
+      return;
+    }
     this.scheduleReconnect(message);
   }
 
   private async closeActiveConnection(): Promise<void> {
+    if (this.closeTask) {
+      return this.closeTask;
+    }
     const session = this.session;
     const client = this.client;
     this.session = undefined;
     this.client = undefined;
-    if (session) {
-      try {
-        await session.close();
-      } catch {
-        // ignore
+    const startedAt = Date.now();
+    this.closeTask = (async () => {
+      if (this.runtimeDebug) {
+        console.log(`[OpcUaDriver:${this.id}] close-start`);
       }
-    }
-    if (client) {
-      try {
-        await client.disconnect();
-      } catch {
-        // ignore
+      if (session) {
+        try {
+          await session.close();
+        } catch {
+          // ignore
+        }
       }
-    }
+      if (client) {
+        try {
+          await client.disconnect();
+        } catch {
+          // ignore
+        }
+      }
+      if (this.runtimeDebug) {
+        console.log(`[OpcUaDriver:${this.id}] close-end durationMs=${Date.now() - startedAt}`);
+      }
+    })().finally(() => {
+      this.closeTask = undefined;
+    });
+    return this.closeTask;
   }
 
   private setStatus(health: DriverStatus["health"], message?: string): void {
@@ -638,6 +728,21 @@ export class OpcUaDriver implements Driver {
     return Math.max(500, this.config.timeoutMs ?? OpcUaDriver.DEFAULT_OPERATION_TIMEOUT_MS);
   }
 
+  private logOfflineSkipReadTags(tagCount: number): void {
+    if (!this.runtimeDebug) {
+      return;
+    }
+    this.offlineSkipReadTagsCount += 1;
+    const now = Date.now();
+    if (now - this.offlineSkipReadTagsLogAt < 1000) {
+      return;
+    }
+    const count = this.offlineSkipReadTagsCount;
+    this.offlineSkipReadTagsCount = 0;
+    this.offlineSkipReadTagsLogAt = now;
+    console.log(`[OpcUaDriver:${this.id}] readTags offline_skip count=${count} lastTagCount=${tagCount}`);
+  }
+
   private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -652,19 +757,21 @@ export class OpcUaDriver implements Driver {
     }
   }
 
-  private handleOperationFailure(
+  private async handleOperationFailure(
     action: "readTag" | "readTags" | "writeTag",
     message: string,
     startedAt: number,
     tag?: string,
     count?: number,
-  ): void {
+  ): Promise<void> {
     this.captureClockWarningFromText(message);
     this.connectEpoch += 1;
     this.consecutiveFailures += 1;
-    void this.closeActiveConnection();
     this.setStatus("error", message);
-    this.scheduleReconnect(message);
+    await this.closeActiveConnection();
+    if (!this.stopping) {
+      this.scheduleReconnect(message);
+    }
     logPerf({
       driver: "opcua",
       id: this.id,
