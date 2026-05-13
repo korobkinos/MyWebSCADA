@@ -12292,7 +12292,7 @@
               }
             ]
           },
-          "tag": "Application.GVL_UDP.udp_channel_modbus.udp_channel_modbus[0].state.send_count",
+          "tag": "Application.GVL_UDP.udp_channel_modbus.udp_channel_modbus[0].state.packet_count",
           "suffix": "",
           "badQualityText": "BAD",
           "textStyle": {

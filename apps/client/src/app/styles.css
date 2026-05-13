@@ -556,10 +556,13 @@ body {
 .tag-picker-window__toolbar {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(200px, 1.2fr) 140px 160px 140px auto;
+  grid-template-columns: minmax(200px, 1.2fr) 140px 160px 140px 1fr auto;
   gap: 6px;
   padding: 6px;
   border-bottom: 1px solid #3c3c3c;
+}
+.tag-picker-window__toolbar .workbench-icon-button {
+  margin-left: 2px;
 }
 .tag-picker-window__create-row {
   display: grid;
@@ -627,20 +630,31 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid #3c3c3c;
-  background: #202020;
+  background: #1e2022;
+  user-select: none;
 }
 .tag-picker-column-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 11px;
   color: #cccccc;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 3px;
+  transition: background 80ms ease;
+}
+.tag-picker-column-toggle:hover {
+  background: #2a2d2e;
 }
 .tag-picker-column-toggle input {
   accent-color: #007acc;
+}
+.tag-picker-column-toggle input:disabled {
+  opacity: 0.45;
 }
 .tag-picker-cell {
   min-width: 0;

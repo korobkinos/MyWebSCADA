@@ -98,6 +98,25 @@ function getTagColumnValue(columnId: TagPickerColumnId, tag: TagPickerWindowTag)
   }
 }
 
+function ColumnsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.5" y="2" width="3.7" height="12" rx="1" />
+      <rect x="6.15" y="2" width="3.7" height="12" rx="1" />
+      <rect x="10.8" y="2" width="3.7" height="12" rx="1" />
+    </svg>
+  );
+}
+
+function ResetIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 8A5 5 0 1 0 3.5 11" />
+      <path d="M13 8h-3" />
+    </svg>
+  );
+}
+
 export function WorkbenchTagPickerWindow({
   open,
   rect,
@@ -400,10 +419,11 @@ export function WorkbenchTagPickerWindow({
             </button>
             <button
               type="button"
-              className="workbench-button"
+              className={["workbench-icon-button", columnsPanelOpen ? "workbench-icon-button--active" : ""].filter(Boolean).join(" ")}
+              title="Toggle columns panel"
               onClick={() => setColumnsPanelOpen((current) => !current)}
             >
-              <span className="workbench-button__label">Columns</span>
+              <ColumnsIcon />
             </button>
           </div>
 
@@ -429,6 +449,7 @@ export function WorkbenchTagPickerWindow({
               <button
                 type="button"
                 className="workbench-button"
+                title="Reset columns to defaults"
                 onClick={() => {
                   const defaults: Record<string, number> = {};
                   const allVisible: Record<string, boolean> = {};
@@ -440,6 +461,7 @@ export function WorkbenchTagPickerWindow({
                   setColumnVisibility(allVisible as Record<TagPickerColumnId, boolean>);
                 }}
               >
+                <span className="workbench-button__icon"><ResetIcon /></span>
                 <span className="workbench-button__label">Reset</span>
               </button>
             </div>
