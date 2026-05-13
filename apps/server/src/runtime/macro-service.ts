@@ -181,15 +181,30 @@ export class MacroService {
         throw new ManualCommandError("timeout", "Macro timeout");
       }
     };
+    const ensureTagDriverAvailable = (name: string) => {
+      if (!tagStore.getDefinition(name)) {
+        return;
+      }
+      if (commandService.isTagDriverAvailable(name)) {
+        return;
+      }
+      const status = commandService.getTagDriverStatus(name);
+      console.warn(
+        `[macro:${macro.id}] writeTag skipped: driver unavailable tag=${name} status=${status?.health ?? "unknown"}`,
+      );
+      throw new Error(`Tag ${name} driver is unavailable`);
+    };
 
     const api: MacroApi = {
       readTag: (name) => tagStore.getValue(name)?.value ?? null,
       writeTag: async (name, value) => {
         ensureNotTimedOut();
+        ensureTagDriverAvailable(name);
         await commandService.writeTag(name, value);
       },
       pulseTag: async (name, value, durationMs, resetValue) => {
         ensureNotTimedOut();
+        ensureTagDriverAvailable(name);
         await commandService.writeTag(name, value);
         const rollback = resetValue === undefined ? false : resetValue;
         const delay = Math.max(1, Math.floor(durationMs));
@@ -199,9 +214,19 @@ export class MacroService {
       },
       toggleTag: async (name) => {
         ensureNotTimedOut();
+        ensureTagDriverAvailable(name);
         await commandService.toggleTag(name);
       },
-      getTagQuality: (name) => tagStore.getValue(name)?.quality ?? (tagStore.getDefinition(name) ? "Uncertain" : "Bad"),
+      getTagQuality: (name) => {
+        const definition = tagStore.getDefinition(name);
+        if (!definition) {
+          return "Bad";
+        }
+        if (!commandService.isTagDriverAvailable(name)) {
+          return "Bad";
+        }
+        return tagStore.getValue(name)?.quality ?? "Uncertain";
+      },
       tagExists: (name) => Boolean(tagStore.getDefinition(name)),
       getLW: (address) => internalVariableService.get(`LW${Math.max(0, Math.floor(address))}`)?.value ?? null,
       setLW: (address, value) => {

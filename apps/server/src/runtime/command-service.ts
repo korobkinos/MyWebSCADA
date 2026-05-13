@@ -1,6 +1,7 @@
 import { COMMAND_TIMEOUT_MS, type ManualCommandMeta, type TagScalarValue } from "@web-scada/shared";
 import { TagStore } from "../tags/tag-store.js";
 import { DriverManager } from "../drivers/driver-manager.js";
+import type { DriverStatus } from "../drivers/driver.js";
 import { InternalVariableService } from "./internal-variable-service.js";
 import { logPerf } from "./perf-logger.js";
 import { ManualCommandError } from "./manual-command-error.js";
@@ -59,6 +60,25 @@ export class CommandService {
     await this.writeTag(name, next);
   }
 
+  public isTagDriverAvailable(name: string): boolean {
+    const tag = this.tagStore.getDefinition(name);
+    if (!tag) {
+      return false;
+    }
+    if (!tag.driverId && tag.sourceType !== "simulated") {
+      return true;
+    }
+    return this.driverManager.isTagDriverAvailable(tag);
+  }
+
+  public getTagDriverStatus(name: string): DriverStatus | undefined {
+    const tag = this.tagStore.getDefinition(name);
+    if (!tag) {
+      return undefined;
+    }
+    return this.driverManager.getTagDriverStatus(tag);
+  }
+
   private async writeTagInternal(name: string, value: TagScalarValue, commandKey?: string, manual = false): Promise<void> {
     const startedAt = Date.now();
     const tag = this.tagStore.getDefinition(name);
@@ -79,14 +99,12 @@ export class CommandService {
       return;
     }
 
-    if (manual && tag.driverId) {
-      const status = this.driverManager.getStatus(tag.driverId);
-      if (!status || status.health !== "running") {
-        throw new ManualCommandError(
-          "driver_offline",
-          `Command rejected: tag ${name} driver offline`,
-        );
-      }
+    if (manual && !this.isTagDriverAvailable(name)) {
+      const status = this.driverManager.getTagDriverStatus(tag);
+      throw new ManualCommandError(
+        "driver_offline",
+        `Command rejected: tag ${name} driver unavailable (${status?.health ?? "unknown"})`,
+      );
     }
 
     await this.withTimeout(

@@ -27,6 +27,9 @@ export class DriverManager {
   private readonly statuses = new Map<string, DriverStatus>();
   private defaultSimulatedDriverId: string | null = null;
   private readonly driverReadTimeoutMs = 2000;
+  private readonly driverWriteTimeoutMs = 2000;
+  private readonly unavailableLogThrottleMs = 5000;
+  private readonly unavailableLogAt = new Map<string, number>();
 
   public configure(configs: DriverConfig[]): void {
     this.statuses.clear();
@@ -76,6 +79,29 @@ export class DriverManager {
       return status;
     }
     return this.statuses.get(driverId);
+  }
+
+  public getTagDriverStatus(tag: TagDefinition): DriverStatus | undefined {
+    const driverId = this.resolveDriverId(tag);
+    if (!driverId) {
+      return undefined;
+    }
+    return this.getStatus(driverId);
+  }
+
+  public isTagDriverAvailable(tag: TagDefinition): boolean {
+    const driverId = this.resolveDriverId(tag);
+    if (!driverId) {
+      if (tag.sourceType === "simulated" && this.defaultSimulatedDriverId) {
+        return this.isDriverStatusAvailable(this.getStatus(this.defaultSimulatedDriverId));
+      }
+      return false;
+    }
+    const driver = this.drivers.get(driverId);
+    if (!driver) {
+      return false;
+    }
+    return this.isDriverStatusAvailable(this.getStatus(driverId));
   }
 
   public async connectDriver(config: DriverConfig): Promise<DriverStatus> {
@@ -137,6 +163,18 @@ export class DriverManager {
 
     const driver = this.drivers.get(driverId);
     if (!driver) {
+      this.logUnavailableOnce("readTag", driverId, tag.name);
+      return {
+        name: tag.name,
+        value: null,
+        quality: "Bad",
+        timestamp: Date.now(),
+        source: driverId,
+      };
+    }
+
+    if (!this.isTagDriverAvailable(tag)) {
+      this.logUnavailableOnce("readTag", driverId, tag.name);
       return {
         name: tag.name,
         value: null,
@@ -271,12 +309,22 @@ export class DriverManager {
 
     const driver = this.drivers.get(driverId);
     if (!driver) {
+      this.logUnavailableOnce("writeTag", driverId, tag.name);
       throw new Error(`Driver ${driverId} is unavailable`);
+    }
+
+    if (!this.isTagDriverAvailable(tag)) {
+      this.logUnavailableOnce("writeTag", driverId, tag.name);
+      throw new Error(`Driver ${driverId} is unavailable for tag ${tag.name}`);
     }
 
     const startedAt = Date.now();
     try {
-      await driver.writeTag(tag, value);
+      await this.withTimeout(
+        driver.writeTag(tag, value),
+        this.driverWriteTimeoutMs,
+        `Write timeout for tag ${tag.name} after ${this.driverWriteTimeoutMs} ms`,
+      );
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const text = error instanceof Error ? error.message : String(error);
@@ -295,7 +343,8 @@ export class DriverManager {
   private async readDriverTags(driverId: string, indexedTags: IndexedTag[]): Promise<DriverReadResult> {
     const driver = this.drivers.get(driverId);
 
-    if (!driver) {
+    if (!driver || !this.isDriverStatusAvailable(this.getStatus(driverId))) {
+      this.logUnavailableOnce("readTags", driverId);
       const driverTimestamp = Date.now();
       return {
         driverId,
@@ -375,6 +424,40 @@ export class DriverManager {
         clearTimeout(timer);
       }
     }
+  }
+
+  private isDriverStatusAvailable(status: DriverStatus | undefined): boolean {
+    if (!status) {
+      return false;
+    }
+    switch (String(status.health).toLowerCase()) {
+      case "connected":
+      case "ok":
+      case "running":
+      case "healthy":
+        return true;
+      case "error":
+      case "stopped":
+      case "disabled":
+      case "reconnecting":
+      case "disconnected":
+      case "starting":
+        return false;
+      default:
+        return false;
+    }
+  }
+
+  private logUnavailableOnce(action: "readTag" | "readTags" | "writeTag", driverId: string, tagName?: string): void {
+    const key = `${action}:${driverId}`;
+    const now = Date.now();
+    const lastAt = this.unavailableLogAt.get(key) ?? 0;
+    if (now - lastAt < this.unavailableLogThrottleMs) {
+      return;
+    }
+    this.unavailableLogAt.set(key, now);
+    const tagPart = tagName ? ` tag=${tagName}` : "";
+    console.warn(`[DriverManager] skip ${action}: driver unavailable driverId=${driverId}${tagPart}`);
   }
 
   private resolveDriverId(tag: TagDefinition): string | undefined {
