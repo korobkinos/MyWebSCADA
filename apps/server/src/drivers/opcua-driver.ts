@@ -56,7 +56,7 @@ export class OpcUaDriver implements Driver {
   public readonly id: string;
   public readonly type = "opcua";
   public static readonly CLOCK_WARNING_HELP =
-    "NODE-OPCUA-W33 detected: synchronize PLC/OPC UA server clock and SCADA server/client clock";
+    "Clock mismatch detected. Check OPC UA server/client time.";
 
   private static readonly DEFAULT_CONNECT_TIMEOUT_MS = 2000;
   private static readonly DEFAULT_OPERATION_TIMEOUT_MS = 2000;
@@ -81,7 +81,12 @@ export class OpcUaDriver implements Driver {
   private connectTaskSkipLogAt = 0;
   private status: DriverStatus;
   private readonly processWarningListener = (warning: Error & { code?: string }) => {
-    this.captureClockWarningFromText(`${warning.code ?? ""} ${warning.message ?? ""}`);
+    const text = `${warning.code ?? ""} ${warning.message ?? ""}`;
+    if (!this.isClockMismatchWarning(text)) {
+      return;
+    }
+    this.captureClockWarningFromText(text);
+    this.setStatus(this.status.health, this.status.message);
   };
 
   public constructor(private readonly config: OpcUaDriverConfig) {
@@ -510,6 +515,22 @@ export class OpcUaDriver implements Driver {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "OPC UA connect error";
+      if (this.isClockMismatchOnlyMessage(message)) {
+        this.captureClockWarningFromText(message);
+        const stillConnected = Boolean(this.client && this.session && this.status.health === "running");
+        logPerf({
+          driver: "opcua",
+          id: this.id,
+          action: "connect-end",
+          durationMs: Date.now() - startedAt,
+          status: "clock_warning",
+          message,
+        });
+        if (stillConnected) {
+          return;
+        }
+        throw error;
+      }
       this.captureClockWarningFromText(message);
       this.setStatus("error", message);
       await this.closeActiveConnection();
@@ -633,6 +654,17 @@ export class OpcUaDriver implements Driver {
     if (this.stopping) {
       return;
     }
+    if (this.isClockMismatchOnlyMessage(message)) {
+      this.captureClockWarningFromText(message);
+      logPerf({
+        driver: "opcua",
+        id: this.id,
+        action: "connection-loss",
+        status: "clock_warning",
+        message,
+      });
+      return;
+    }
     this.captureClockWarningFromText(message);
     this.connectEpoch += 1;
     this.consecutiveFailures += 1;
@@ -707,13 +739,36 @@ export class OpcUaDriver implements Driver {
     return !this.stopping && this.session === session && epoch === this.connectEpoch;
   }
 
-  private captureClockWarningFromText(text: string): void {
+  private isClockMismatchWarning(text: string): boolean {
     const normalized = text.toLowerCase();
-    const isClockWarning = normalized.includes("node-opcua-w33")
+    return normalized.includes("node-opcua-w33")
       || normalized.includes("clock discrepancy")
       || normalized.includes("time discrepancy")
       || normalized.includes("server token creation date exposes");
-    if (!isClockWarning) {
+  }
+
+  private isClockMismatchOnlyMessage(text: string): boolean {
+    if (!this.isClockMismatchWarning(text)) {
+      return false;
+    }
+    const normalized = text.toLowerCase();
+    const fatalHints = [
+      "timeout",
+      "timed out",
+      "connection lost",
+      "session closed",
+      "keepalive failure",
+      "socket",
+      "econn",
+      "badconnection",
+      "channel closed",
+      "servicefault",
+    ];
+    return fatalHints.every((hint) => !normalized.includes(hint));
+  }
+
+  private captureClockWarningFromText(text: string): void {
+    if (!this.isClockMismatchWarning(text)) {
       return;
     }
     this.clockWarning = text.trim() || OpcUaDriver.CLOCK_WARNING_HELP;
@@ -764,6 +819,20 @@ export class OpcUaDriver implements Driver {
     tag?: string,
     count?: number,
   ): Promise<void> {
+    if (this.isClockMismatchOnlyMessage(message)) {
+      this.captureClockWarningFromText(message);
+      logPerf({
+        driver: "opcua",
+        id: this.id,
+        action,
+        status: "clock_warning",
+        durationMs: Date.now() - startedAt,
+        tag,
+        count,
+        message,
+      });
+      return;
+    }
     this.captureClockWarningFromText(message);
     this.connectEpoch += 1;
     this.consecutiveFailures += 1;

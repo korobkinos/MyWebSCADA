@@ -20,7 +20,7 @@ type DriversTab = "opcua" | "simulation";
 const OPC_SECURITY_POLICIES: Array<NonNullable<OpcUaDriverConfig["securityPolicy"]>> = ["None", "Basic256Sha256"];
 const OPC_SECURITY_MODES: Array<NonNullable<OpcUaDriverConfig["securityMode"]>> = ["None", "Sign", "SignAndEncrypt"];
 const OPC_CLOCK_WARNING_HELP_TEXT =
-  "If connection drops and NODE-OPCUA-W33 appears in server logs, synchronize PLC/OPC UA server clock and PC/server clock.";
+  "OPC UA clock mismatch detected. The OPC UA server time differs from the SCADA server time. Connection will continue, but certificates/tokens may be affected. Recommended: synchronize time on PLC/OPC UA server and SCADA server.";
 
 function createDriverId(prefix: "opcua" | "sim"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
@@ -677,9 +677,10 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
 
   const statusBadge = formatStatusBadge(currentOpcStatus);
   const selectedLinkedTags = selectedOpcUaDriver ? (linkedTagCountByDriverId.get(selectedOpcUaDriver.id) ?? 0) : 0;
-  const clockWarningText = currentOpcStatus?.clockWarning
-    ?? (isOpcUaClockWarning(currentOpcStatus?.message) ? currentOpcStatus?.message : undefined)
-    ?? (statusBadge.label === "Connected" ? OPC_CLOCK_WARNING_HELP_TEXT : undefined);
+  const hasClockWarning = Boolean(currentOpcStatus?.clockWarning) || isOpcUaClockWarning(currentOpcStatus?.message);
+  const clockWarningText = hasClockWarning
+    ? (currentOpcStatus?.clockWarning ?? currentOpcStatus?.message ?? OPC_CLOCK_WARNING_HELP_TEXT)
+    : undefined;
   return (
     <div className="screen-editor-window-content screen-editor-drivers-window">
       <WorkbenchTabs items={tabItems} className="screen-editor-drivers-tabs" />
@@ -929,7 +930,13 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                     </div>
                     {statusStale ? <div className="screen-editor-drivers-warning">Status may be stale: {statusRefreshError || "polling request failed"}</div> : null}
                     {currentOpcStatus?.message ? <div className="screen-editor-drivers-note">{currentOpcStatus.message}</div> : null}
-                    {clockWarningText ? <div className="screen-editor-drivers-warning">{clockWarningText}</div> : null}
+                    {clockWarningText ? (
+                      <div className="screen-editor-drivers-warning">
+                        <div><strong>Clock mismatch detected. Check OPC UA server/client time.</strong></div>
+                        <div>{OPC_CLOCK_WARNING_HELP_TEXT}</div>
+                        <div>Details: {clockWarningText}</div>
+                      </div>
+                    ) : null}
                   </div>
                 </WorkbenchCollapsibleSection>
               </>
