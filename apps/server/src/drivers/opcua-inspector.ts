@@ -34,6 +34,11 @@ export type OpcUaImportCandidate = {
   writable?: boolean;
 };
 
+export type OpcUaSubtreeImportResult = {
+  candidates: OpcUaImportCandidate[];
+  scannedNodes: number;
+};
+
 const OPCUA_BROWSE_RESULT_MASK_ALL_FIELDS = 0x3f;
 const OPCUA_NODECLASS_UNSPECIFIED = 0;
 const OPCUA_NODECLASS_WITH_POTENTIAL_CHILDREN = new Set<number>([
@@ -288,7 +293,7 @@ export async function collectOpcUaSubtreeVariables(
   nodeId: string,
   rootBrowsePath?: string,
   maxNodes = 10_000,
-): Promise<OpcUaImportCandidate[]> {
+): Promise<OpcUaSubtreeImportResult> {
   const visited = new Set<string>();
   const output: OpcUaImportCandidate[] = [];
   const queue: Array<{ nodeId: string; path: string }> = [{ nodeId, path: rootBrowsePath?.trim() || "" }];
@@ -298,10 +303,10 @@ export async function collectOpcUaSubtreeVariables(
     if (visited.has(current.nodeId)) {
       continue;
     }
-    visited.add(current.nodeId);
-    if (visited.size > maxNodes) {
+    if (visited.size >= maxNodes) {
       break;
     }
+    visited.add(current.nodeId);
 
     const children = await browseOpcUaNode(session, current.nodeId);
     for (const child of children) {
@@ -323,7 +328,10 @@ export async function collectOpcUaSubtreeVariables(
     }
   }
 
-  return output;
+  return {
+    candidates: output,
+    scannedNodes: visited.size,
+  };
 }
 
 export async function readOpcUaNode(session: ClientSession, nodeId: string): Promise<OpcUaReadResult> {

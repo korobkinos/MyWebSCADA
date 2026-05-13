@@ -15,6 +15,6 @@ export type ManualCommandRejectReason =
   | "driver_offline"
   | "error";
 
-export type MacroRunSkipReason = "disabled" | "already_running";
+export type MacroRunSkipReason = "disabled" | "already_running" | "invalid";
 
 export type MacroRunReason = ManualCommandRejectReason | MacroRunSkipReason;

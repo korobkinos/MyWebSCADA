@@ -2259,10 +2259,14 @@ body {
   display: flex;
   flex-direction: column;
   background: #252526;
+  color: #cccccc;
+  font-size: 12px;
 }
 
 .screen-editor-drivers-tabs {
-  flex: 0 0 auto;
+  flex: 0 0 34px;
+  display: flex;
+  border-bottom: 1px solid #3c3c3c;
 }
 
 .screen-editor-drivers-panel {
@@ -2271,10 +2275,79 @@ body {
   overflow: auto;
 }
 
-.screen-editor-drivers-form {
+.screen-editor-drivers-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 320px minmax(520px, 1fr);
+}
+
+.screen-editor-drivers-list {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid #3c3c3c;
+  padding: 8px;
+}
+
+.screen-editor-drivers-editor {
+  min-height: 0;
+  overflow: auto;
   padding: 8px 10px;
+}
+
+.screen-editor-driver-card {
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  color: #cccccc;
+  padding: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.screen-editor-driver-card--selected {
+  border-color: #007acc;
+  background: #243447;
+}
+
+.screen-editor-driver-card__name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.screen-editor-driver-card__meta {
+  font-size: 11px;
+  opacity: 0.9;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screen-editor-driver-card__status {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.screen-editor-driver-card__warning {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #ffd666;
+}
+
+.screen-editor-drivers-form {
   display: grid;
   gap: 8px;
+  padding: 8px 10px;
+}
+
+.screen-editor-drivers-form--two-columns {
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
 }
 
 .screen-editor-drivers-row {
@@ -2291,6 +2364,12 @@ body {
   padding: 0 10px 10px;
 }
 
+.screen-editor-driver-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .screen-editor-drivers-status-card {
   margin: 0 10px 10px;
   border: 1px solid #3c3c3c;
@@ -2298,6 +2377,10 @@ body {
   padding: 8px;
   display: grid;
   gap: 6px;
+}
+
+.screen-editor-drivers-status-card--in-section {
+  margin: 0;
 }
 
 .screen-editor-drivers-status-line {
@@ -2352,6 +2435,22 @@ body {
   border-color: #883535;
   background: rgba(173, 61, 61, 0.18);
   color: #ff9f9f;
+}
+
+@media (max-width: 1120px) {
+  .screen-editor-drivers-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 1fr) minmax(260px, 1fr);
+  }
+
+  .screen-editor-drivers-list {
+    border-right: 0;
+    border-bottom: 1px solid #3c3c3c;
+  }
+
+  .screen-editor-drivers-form--two-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 .screen-editor-tag-list,
@@ -3181,10 +3280,36 @@ body {
 .screen-editor-opc-browser-footer {
   flex: 0 0 auto;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: flex-end;
   gap: 6px;
   padding: 8px;
   border-top: 1px solid #3c3c3c;
+  flex-wrap: wrap;
+}
+
+.screen-editor-opc-browser-import-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: flex-end;
+}
+
+.screen-editor-opc-browser-import-options__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.screen-editor-opc-browser-import-options__field {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.screen-editor-opc-browser-import-options__field .workbench-input {
+  width: 140px;
 }
 
 @media (max-width: 1080px) {

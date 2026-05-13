@@ -43,6 +43,8 @@ export class DriverManager {
           health: "disabled",
           updatedAt: Date.now(),
           message: "Driver disabled",
+          endpointUrl: config.type === "opcua" ? config.endpointUrl : undefined,
+          reconnectAttempt: 0,
         });
         continue;
       }
@@ -132,7 +134,14 @@ export class DriverManager {
         health: "stopped",
         updatedAt: Date.now(),
       };
-      const next = { ...fallback, health: "stopped" as const, message: "Disconnected by user", updatedAt: Date.now() };
+      const next = {
+        ...fallback,
+        health: "stopped" as const,
+        message: "Disconnected by user",
+        updatedAt: Date.now(),
+        reconnectAttempt: 0,
+        lastDisconnectedAt: Date.now(),
+      };
       this.statuses.set(driverId, next);
       return next;
     }
@@ -144,6 +153,8 @@ export class DriverManager {
       health: "stopped",
       message: "Disconnected by user",
       updatedAt: Date.now(),
+      reconnectAttempt: 0,
+      lastDisconnectedAt: Date.now(),
     };
     this.statuses.set(driverId, next);
     return next;

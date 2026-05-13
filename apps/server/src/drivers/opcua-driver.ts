@@ -55,6 +55,8 @@ function toDataType(value: TagScalarValue): DataType {
 export class OpcUaDriver implements Driver {
   public readonly id: string;
   public readonly type = "opcua";
+  public static readonly CLOCK_WARNING_HELP =
+    "NODE-OPCUA-W33 detected: synchronize PLC/OPC UA server clock and SCADA server/client clock";
 
   private static readonly DEFAULT_CONNECT_TIMEOUT_MS = 2000;
   private static readonly DEFAULT_OPERATION_TIMEOUT_MS = 2000;
@@ -68,8 +70,14 @@ export class OpcUaDriver implements Driver {
   private reconnectBackoffMs = 0;
   private nextReconnectAttemptAt = 0;
   private consecutiveFailures = 0;
+  private reconnectAttempt = 0;
   private stopping = false;
+  private connectEpoch = 0;
+  private clockWarning: string | undefined;
   private status: DriverStatus;
+  private readonly processWarningListener = (warning: Error & { code?: string }) => {
+    this.captureClockWarningFromText(`${warning.code ?? ""} ${warning.message ?? ""}`);
+  };
 
   public constructor(private readonly config: OpcUaDriverConfig) {
     this.id = config.id;
@@ -78,28 +86,40 @@ export class OpcUaDriver implements Driver {
       type: this.type,
       health: "stopped",
       updatedAt: Date.now(),
+      endpointUrl: config.endpointUrl,
+      reconnectAttempt: 0,
     };
   }
 
   public async start(): Promise<void> {
+    process.on("warning", this.processWarningListener);
     this.setStatus("starting", "Connecting OPC UA");
     await this.connect();
   }
 
   public async stop(): Promise<void> {
     this.stopping = true;
+    this.connectEpoch += 1;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
+    const inFlightConnect = this.connectTask;
     this.connectTask = undefined;
     this.nextReconnectAttemptAt = 0;
     this.reconnectBackoffMs = 0;
     this.consecutiveFailures = 0;
+    this.reconnectAttempt = 0;
+    this.clockWarning = undefined;
+    process.off("warning", this.processWarningListener);
+
+    if (inFlightConnect) {
+      await inFlightConnect.catch(() => undefined);
+    }
 
     await this.closeActiveConnection();
 
-    this.setStatus("stopped");
+    this.setStatus("stopped", "Disconnected by user");
     this.stopping = false;
   }
 
@@ -303,7 +323,7 @@ export class OpcUaDriver implements Driver {
   }
 
   private async ensureConnected(): Promise<void> {
-    if (this.client && this.session) {
+    if (this.client && this.session && this.status.health === "running") {
       return;
     }
 
@@ -333,7 +353,14 @@ export class OpcUaDriver implements Driver {
 
     const startedAt = Date.now();
     this.stopping = false;
-    this.setStatus("starting", "Connecting OPC UA");
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    this.setStatus(
+      this.reconnectAttempt > 0 ? "reconnecting" : "starting",
+      this.reconnectAttempt > 0 ? "Reconnecting OPC UA" : "Connecting OPC UA",
+    );
 
     const task = this.connectInternal(startedAt).finally(() => {
       this.connectTask = undefined;
@@ -343,6 +370,7 @@ export class OpcUaDriver implements Driver {
   }
 
   private async connectInternal(startedAt: number): Promise<void> {
+    const epoch = ++this.connectEpoch;
     try {
       await this.closeActiveConnection();
       const nextClient = OPCUAClient.create({
@@ -364,7 +392,7 @@ export class OpcUaDriver implements Driver {
           maxDelay: 800,
         },
       });
-      this.attachClientHandlers(nextClient);
+      this.attachClientHandlers(nextClient, epoch);
       this.client = nextClient;
 
       logPerf({
@@ -379,27 +407,43 @@ export class OpcUaDriver implements Driver {
         this.getConnectTimeoutMs(),
         `OPC UA connect timeout after ${this.getConnectTimeoutMs()} ms`,
       );
-      if (this.config.username) {
-        this.session = await this.withTimeout(
-          nextClient.createSession({
-            type: UserTokenType.UserName,
-            userName: this.config.username,
-            password: this.config.password ?? "",
-          }),
-          this.getConnectTimeoutMs(),
-          `OPC UA session timeout after ${this.getConnectTimeoutMs()} ms`,
-        );
-      } else {
-        this.session = await this.withTimeout(
-          nextClient.createSession(),
-          this.getConnectTimeoutMs(),
-          `OPC UA session timeout after ${this.getConnectTimeoutMs()} ms`,
-        );
+      const nextSession = this.config.username
+        ? await this.withTimeout(
+            nextClient.createSession({
+              type: UserTokenType.UserName,
+              userName: this.config.username,
+              password: this.config.password ?? "",
+            }),
+            this.getConnectTimeoutMs(),
+            `OPC UA session timeout after ${this.getConnectTimeoutMs()} ms`,
+          )
+        : await this.withTimeout(
+            nextClient.createSession(),
+            this.getConnectTimeoutMs(),
+            `OPC UA session timeout after ${this.getConnectTimeoutMs()} ms`,
+          );
+
+      if (this.stopping || epoch !== this.connectEpoch) {
+        try {
+          await nextSession.close();
+        } catch {
+          // ignore
+        }
+        try {
+          await nextClient.disconnect();
+        } catch {
+          // ignore
+        }
+        return;
       }
+
+      this.attachSessionHandlers(nextSession, epoch);
+      this.session = nextSession;
       this.consecutiveFailures = 0;
       this.reconnectBackoffMs = 0;
       this.nextReconnectAttemptAt = 0;
-      this.setStatus("running");
+      this.reconnectAttempt = 0;
+      this.setStatus("running", "Connected");
       logPerf({
         driver: "opcua",
         id: this.id,
@@ -409,6 +453,7 @@ export class OpcUaDriver implements Driver {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "OPC UA connect error";
+      this.captureClockWarningFromText(message);
       await this.closeActiveConnection();
       this.setStatus("error", message);
       this.consecutiveFailures += 1;
@@ -439,6 +484,7 @@ export class OpcUaDriver implements Driver {
         : Math.min(this.reconnectBackoffMs * 2, OpcUaDriver.MAX_RECONNECT_BACKOFF_MS);
     this.reconnectBackoffMs = nextDelay;
     this.nextReconnectAttemptAt = Date.now() + nextDelay;
+    this.reconnectAttempt += 1;
     this.setStatus("reconnecting", message);
     logPerf({
       driver: "opcua",
@@ -458,17 +504,42 @@ export class OpcUaDriver implements Driver {
     }, nextDelay);
   }
 
-  private attachClientHandlers(client: OPCUAClient): void {
+  private attachClientHandlers(client: OPCUAClient, epoch: number): void {
     const eventClient = client as unknown as { on: (event: string, callback: (...args: unknown[]) => void) => void };
     eventClient.on("connection_lost", () => {
+      if (!this.isActiveConnection(client, epoch)) {
+        return;
+      }
       this.handleConnectionLoss("OPC UA connection lost");
     });
     eventClient.on("timed_out", () => {
+      if (!this.isActiveConnection(client, epoch)) {
+        return;
+      }
       this.handleConnectionLoss("OPC UA connection timed out");
     });
     client.on("close", (error?: Error | null) => {
+      if (!this.isActiveConnection(client, epoch)) {
+        return;
+      }
       const message = error instanceof Error && error.message ? error.message : "OPC UA connection closed";
       this.handleConnectionLoss(message);
+    });
+  }
+
+  private attachSessionHandlers(session: ClientSession, epoch: number): void {
+    const eventSession = session as unknown as { on: (event: string, callback: (...args: unknown[]) => void) => void };
+    eventSession.on("session_closed", () => {
+      if (!this.isActiveSession(session, epoch)) {
+        return;
+      }
+      this.handleConnectionLoss("OPC UA session closed");
+    });
+    eventSession.on("keepalive_failure", () => {
+      if (!this.isActiveSession(session, epoch)) {
+        return;
+      }
+      this.handleConnectionLoss("OPC UA keepalive failure");
     });
   }
 
@@ -476,6 +547,8 @@ export class OpcUaDriver implements Driver {
     if (this.stopping) {
       return;
     }
+    this.captureClockWarningFromText(message);
+    this.connectEpoch += 1;
     this.session = undefined;
     this.client = undefined;
     this.consecutiveFailures += 1;
@@ -505,12 +578,43 @@ export class OpcUaDriver implements Driver {
   }
 
   private setStatus(health: DriverStatus["health"], message?: string): void {
+    const now = Date.now();
+    const isConnected = health === "running";
+    const isDisconnected = health === "error" || health === "reconnecting" || health === "stopped" || health === "disabled";
+    const nextLastError = health === "error" || health === "reconnecting" ? message ?? this.status.lastError : this.status.lastError;
     this.status = {
       ...this.status,
       health,
       message,
-      updatedAt: Date.now(),
+      updatedAt: now,
+      endpointUrl: this.config.endpointUrl,
+      reconnectAttempt: this.reconnectAttempt,
+      lastConnectedAt: isConnected ? now : this.status.lastConnectedAt,
+      lastDisconnectedAt: isDisconnected ? now : this.status.lastDisconnectedAt,
+      lastError: nextLastError,
+      clockWarning: this.clockWarning,
     };
+  }
+
+  private isActiveConnection(client: OPCUAClient, epoch: number): boolean {
+    return !this.stopping && this.client === client && epoch === this.connectEpoch;
+  }
+
+  private isActiveSession(session: ClientSession, epoch: number): boolean {
+    return !this.stopping && this.session === session && epoch === this.connectEpoch;
+  }
+
+  private captureClockWarningFromText(text: string): void {
+    const normalized = text.toLowerCase();
+    const isClockWarning = normalized.includes("node-opcua-w33")
+      || normalized.includes("clock discrepancy")
+      || normalized.includes("time discrepancy")
+      || normalized.includes("server token creation date exposes");
+    if (!isClockWarning) {
+      return;
+    }
+    this.clockWarning = text.trim() || OpcUaDriver.CLOCK_WARNING_HELP;
+    this.setStatus(this.status.health, this.status.message);
   }
 
   private getConnectTimeoutMs(): number {
@@ -542,9 +646,11 @@ export class OpcUaDriver implements Driver {
     tag?: string,
     count?: number,
   ): void {
+    this.captureClockWarningFromText(message);
+    this.connectEpoch += 1;
     this.consecutiveFailures += 1;
-    this.session = undefined;
-    this.client = undefined;
+    void this.closeActiveConnection();
+    this.setStatus("error", message);
     this.scheduleReconnect(message);
     logPerf({
       driver: "opcua",

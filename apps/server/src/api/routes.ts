@@ -234,6 +234,20 @@ const opcUaConnectSchema = z.object({
 const opcUaDisconnectSchema = z.object({
   driverId: z.string().min(1),
 });
+const opcUaDriverParamsSchema = z.object({
+  driverId: z.string().min(1),
+});
+const opcUaDeleteDriverQuerySchema = z.object({
+  deleteTags: z.union([z.boolean(), z.enum(["true", "false"])]).optional()
+    .transform((value) => (value === true || value === "true")),
+});
+
+type MacroTagReferenceResult = {
+  macroId: string;
+  macroName: string;
+  referencedTags: string[];
+  dynamicTagAccess: boolean;
+};
 
 type AuthContext = {
   userId: string;
@@ -289,6 +303,29 @@ async function requirePermission(
     return null;
   }
   return auth;
+}
+
+async function requireAnyPermission(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  deps: ApiDeps,
+  permissions: AppPermission[],
+): Promise<AuthContext | null> {
+  const user = await resolveAuthUser(request, deps);
+  if (!user) {
+    await reply.code(401).send({ error: "Unauthorized", message: "Authentication required" });
+    return null;
+  }
+  const auth = toAuthContext(user);
+  if (permissions.some((permission) => auth.permissions.has(permission))) {
+    return auth;
+  }
+  await reply.code(403).send({
+    error: "Forbidden",
+    requiredPermission: permissions,
+    message: `Insufficient permissions. Required one of: ${permissions.join(", ")}`,
+  });
+  return null;
 }
 
 async function resolveAuthUser(request: FastifyRequest, deps: ApiDeps): Promise<AuthUser | undefined> {
@@ -376,6 +413,113 @@ function resolveOpcUaConfigFromPayload(
     throw new Error(`Driver ${payload.driverId} is not OPC UA`);
   }
   return driver;
+}
+
+function getTagsByDriver(project: ScadaProject, driverId: string): { count: number; tagNames: string[]; preview: string[] } {
+  const tagNames = project.tags
+    .filter((tag) => tag.sourceType === "opcua" && tag.driverId === driverId)
+    .map((tag) => tag.name);
+  return {
+    count: tagNames.length,
+    tagNames,
+    preview: tagNames.slice(0, 10),
+  };
+}
+
+function hasDynamicTagAccess(macroCode: string): boolean {
+  return /\b(resolveTag|getCurrentTagPrefix)\s*\(/.test(macroCode)
+    || /\b(readTag|writeTag|pulseTag|toggleTag)\s*\(\s*[^"'`\s]/.test(macroCode);
+}
+
+function getLiteralMacroTagReferences(macroCode: string): string[] {
+  const refs = new Set<string>();
+  const pattern = /\b(?:tag|readTag|writeTag|pulseTag|toggleTag)\s*\(\s*(['"`])([^'"`]+)\1/g;
+  let match = pattern.exec(macroCode);
+  while (match) {
+    const tagName = match[2]?.trim();
+    if (tagName) {
+      refs.add(tagName);
+    }
+    match = pattern.exec(macroCode);
+  }
+  return [...refs];
+}
+
+function findMacroTagReferences(macros: MacroDefinition[] | undefined, tagNames: string[]): MacroTagReferenceResult[] {
+  const tags = [...new Set(tagNames.map((name) => name.trim()).filter(Boolean))];
+  if (tags.length === 0 || !macros || macros.length === 0) {
+    return [];
+  }
+  const results: MacroTagReferenceResult[] = [];
+  for (const macro of macros) {
+    const referencedTags = tags.filter((tagName) => macro.code.includes(tagName));
+    const dynamicTagAccess = hasDynamicTagAccess(macro.code);
+    if (referencedTags.length > 0 || dynamicTagAccess) {
+      results.push({
+        macroId: macro.id,
+        macroName: macro.name,
+        referencedTags,
+        dynamicTagAccess,
+      });
+    }
+  }
+  return results;
+}
+
+function markMacrosInvalidForDeletedTags(macros: MacroDefinition[] | undefined, deletedTagNames: string[]): {
+  macros: MacroDefinition[];
+  affectedMacros: MacroTagReferenceResult[];
+} {
+  const source = macros ?? [];
+  const references = findMacroTagReferences(source, deletedTagNames);
+  const byMacroId = new Map(references.map((item) => [item.macroId, item]));
+  const nextMacros = source.map((macro) => {
+    const ref = byMacroId.get(macro.id);
+    if (!ref || ref.referencedTags.length === 0) {
+      return macro;
+    }
+    const deletedErrors = ref.referencedTags.map((tagName) => `References deleted tag: ${tagName}`);
+    return {
+      ...macro,
+      validation: {
+        status: "error" as const,
+        errors: deletedErrors,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+  });
+  return {
+    macros: nextMacros,
+    affectedMacros: references.filter((item) => item.referencedTags.length > 0),
+  };
+}
+
+function validateMacroOnSave(macro: MacroDefinition, project: ScadaProject): MacroDefinition {
+  const existingTags = new Set(project.tags.map((tag) => tag.name));
+  const refs = getLiteralMacroTagReferences(macro.code)
+    .filter((tagName) => !tagName.startsWith("."));
+  const missing = [...new Set(refs.filter((tagName) => !existingTags.has(tagName)))];
+  if (missing.length === 0) {
+    if (macro.validation?.status === "error") {
+      return {
+        ...macro,
+        validation: {
+          status: "ok",
+          errors: [],
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    }
+    return macro;
+  }
+  return {
+    ...macro,
+    validation: {
+      status: "error",
+      errors: missing.map((tagName) => `References missing tag: ${tagName}`),
+      updatedAt: new Date().toISOString(),
+    },
+  };
 }
 
 async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): Promise<ScadaProject> {
@@ -749,7 +893,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
 
     const existing = macros[index]!;
-    const updatedMacro: MacroDefinition = {
+    const updatedMacroDraft: MacroDefinition = {
       id: existing.id,
       name: payload.name,
       description: payload.description ?? existing.description,
@@ -757,7 +901,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       language: payload.language,
       code: payload.code,
       triggers: (payload.triggers ?? existing.triggers ?? []) as MacroTrigger[],
+      validation: existing.validation,
     };
+    const updatedMacro = validateMacroOnSave(updatedMacroDraft, project);
 
     const nextMacros = [...macros];
     nextMacros[index] = updatedMacro;
@@ -871,19 +1017,37 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     const payload = opcUaConfigUpdateSchema.parse(request.body ?? {});
     const project = deps.projectService.getProject();
     const targetId = payload.driverId?.trim();
+    const requestedId = payload.config.id.trim();
+    if (!requestedId) {
+      return reply.code(400).send({ ok: false, message: "Driver id is required" });
+    }
     if (targetId) {
       const existing = project.drivers.find((driver) => driver.id === targetId);
       if (existing && existing.type !== "opcua") {
         return reply.code(400).send({ ok: false, message: `Driver ${targetId} is not OPC UA` });
       }
     }
+    const duplicate = project.drivers.find((driver) => driver.id === requestedId && driver.id !== targetId);
+    if (duplicate) {
+      return reply.code(409).send({ ok: false, message: `Driver id ${requestedId} already exists` });
+    }
     const nextConfig: OpcUaDriverConfig = {
       ...payload.config,
-      id: targetId || payload.config.id,
+      id: requestedId,
       type: "opcua",
       enabled: payload.config.enabled ?? true,
     };
-    const nextProject = withUpdatedDriver(project, nextConfig, targetId);
+    const withDriver = withUpdatedDriver(project, nextConfig, targetId);
+    const nextProject = targetId && targetId !== nextConfig.id
+      ? {
+          ...withDriver,
+          tags: withDriver.tags.map((tag) => (
+            tag.sourceType === "opcua" && tag.driverId === targetId
+              ? { ...tag, driverId: nextConfig.id }
+              : tag
+          )),
+        }
+      : withDriver;
     const saved = await persistProjectUpdate(deps, nextProject);
     const savedConfig = saved.drivers.find((driver) => driver.id === nextConfig.id && driver.type === "opcua");
     return reply.send({ ok: true, config: savedConfig ?? nextConfig });
@@ -972,6 +1136,115 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.code(404).send({ ok: false, message: `Driver ${query.driverId} status not found` });
     }
     return reply.send({ ok: true, status });
+  });
+
+  app.get("/api/drivers/opcua/:driverId/impact", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "drivers.view");
+    if (!auth) {
+      return;
+    }
+    const params = opcUaDriverParamsSchema.parse(request.params ?? {});
+    const project = deps.projectService.getProject();
+    const driver = project.drivers.find((item) => item.id === params.driverId);
+    if (!driver) {
+      return reply.code(404).send({ ok: false, message: `Driver ${params.driverId} not found` });
+    }
+    if (driver.type !== "opcua") {
+      return reply.code(400).send({ ok: false, message: `Driver ${params.driverId} is not OPC UA` });
+    }
+    const tagsByDriver = getTagsByDriver(project, params.driverId);
+    const macroRefs = findMacroTagReferences(project.macros, tagsByDriver.tagNames);
+    return reply.send({
+      ok: true,
+      driverId: params.driverId,
+      tagCount: tagsByDriver.count,
+      tagNamesPreview: tagsByDriver.preview,
+      affectedMacros: macroRefs,
+      affectedMacroCount: macroRefs.filter((item) => item.referencedTags.length > 0).length,
+      dynamicMacroCount: macroRefs.filter((item) => item.dynamicTagAccess).length,
+    });
+  });
+
+  app.post("/api/drivers/opcua/:driverId/delete-tags", async (request, reply) => {
+    const auth = await requireAnyPermission(request, reply, deps, ["tags.write", "drivers.write"]);
+    if (!auth) {
+      return;
+    }
+    const params = opcUaDriverParamsSchema.parse(request.params ?? {});
+    const project = deps.projectService.getProject();
+    const driver = project.drivers.find((item) => item.id === params.driverId);
+    if (!driver) {
+      return reply.code(404).send({ ok: false, message: `Driver ${params.driverId} not found` });
+    }
+    if (driver.type !== "opcua") {
+      return reply.code(400).send({ ok: false, message: `Driver ${params.driverId} is not OPC UA` });
+    }
+
+    const tagsByDriver = getTagsByDriver(project, params.driverId);
+    const nextTags = project.tags.filter((tag) => !(tag.sourceType === "opcua" && tag.driverId === params.driverId));
+    const macroUpdate = markMacrosInvalidForDeletedTags(project.macros, tagsByDriver.tagNames);
+    const nextProject: ScadaProject = {
+      ...project,
+      tags: nextTags,
+      macros: macroUpdate.macros,
+    };
+    await persistProjectUpdate(deps, nextProject);
+    return reply.send({
+      ok: true,
+      driverId: params.driverId,
+      deletedTags: tagsByDriver.count,
+      affectedMacros: macroUpdate.affectedMacros,
+    });
+  });
+
+  app.delete("/api/drivers/opcua/:driverId", async (request, reply) => {
+    const auth = await requireAnyPermission(request, reply, deps, ["drivers.delete", "drivers.write"]);
+    if (!auth) {
+      return;
+    }
+    const params = opcUaDriverParamsSchema.parse(request.params ?? {});
+    const query = opcUaDeleteDriverQuerySchema.parse(request.query ?? {});
+    const project = deps.projectService.getProject();
+    const driver = project.drivers.find((item) => item.id === params.driverId);
+    if (!driver) {
+      return reply.code(404).send({ ok: false, message: `Driver ${params.driverId} not found` });
+    }
+    if (driver.type !== "opcua") {
+      return reply.code(400).send({ ok: false, message: `Driver ${params.driverId} is not OPC UA` });
+    }
+
+    const tagsByDriver = getTagsByDriver(project, params.driverId);
+    if (tagsByDriver.count > 0 && !query.deleteTags) {
+      return reply.code(409).send({
+        ok: false,
+        reason: "driver_has_tags",
+        tagCount: tagsByDriver.count,
+        message: "Driver has linked tags. Delete tags first or use deleteTags=true.",
+      });
+    }
+
+    const driverId = params.driverId;
+    const nextDrivers = project.drivers.filter((item) => item.id !== driverId);
+    const macroUpdate = query.deleteTags
+      ? markMacrosInvalidForDeletedTags(project.macros, tagsByDriver.tagNames)
+      : { macros: project.macros ?? [], affectedMacros: [] };
+    const nextTags = query.deleteTags
+      ? project.tags.filter((tag) => !(tag.sourceType === "opcua" && tag.driverId === driverId))
+      : project.tags;
+    const nextProject: ScadaProject = {
+      ...project,
+      drivers: nextDrivers,
+      tags: nextTags,
+      macros: macroUpdate.macros,
+    };
+    await persistProjectUpdate(deps, nextProject);
+
+    return reply.send({
+      ok: true,
+      deletedDriverId: driverId,
+      deletedTags: query.deleteTags ? tagsByDriver.count : 0,
+      affectedMacros: macroUpdate.affectedMacros,
+    });
   });
 
   app.post("/api/drivers/opcua/browse", async (request, reply) => {
@@ -1088,8 +1361,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       collectOpcUaSubtreeVariables(session, payload.nodeId, payload.rootName, payload.maxNodes ?? 20_000),
     );
 
-    if (discovered.length === 0) {
-      return reply.send({ ok: true, created: 0, updated: 0, total: 0, scanned: 0 });
+    if (discovered.candidates.length === 0) {
+      return reply.send({ ok: true, created: 0, updated: 0, total: 0, scanned: discovered.scannedNodes });
     }
 
     const existingByName = new Map(project.tags.map((tag) => [tag.name, tag]));
@@ -1098,7 +1371,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     let updated = 0;
     const nextTags = [...project.tags];
 
-    for (const item of discovered) {
+    for (const item of discovered.candidates) {
       const tagNameBase = item.browsePath;
       let tagName = tagNameBase;
       if (!overwrite) {
@@ -1152,7 +1425,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       created,
       updated,
       total: created + updated,
-      scanned: discovered.length,
+      scanned: discovered.scannedNodes,
     });
   });
 

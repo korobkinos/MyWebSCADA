@@ -136,6 +136,28 @@ export class MacroService {
     if (!macro) {
       throw new Error(`Macro ${macroId} not found`);
     }
+    if (macro.validation?.status === "error") {
+      const details = (macro.validation.errors ?? []).join("; ");
+      console.warn(`[macro:${macro.id}] Macro is invalid and was not executed${details ? `: ${details}` : ""}`);
+      logPerf({
+        component: "macro",
+        action: "run",
+        macroId: macro.id,
+        status: "skipped_invalid",
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        status: "skipped",
+        reason: "invalid",
+        diagnostics: {
+          lookupMs,
+          compileMs: 0,
+          executionMs: 0,
+          totalMs: Date.now() - startedAt,
+          cacheStatus: "hit",
+        },
+      };
+    }
     if ((macro.enabled ?? true) === false && !options?.allowDisabledForTest) {
       console.warn(`[macro:${macro.id}] Macro is disabled and was not executed`);
       logPerf({

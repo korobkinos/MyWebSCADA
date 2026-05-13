@@ -675,6 +675,11 @@ const macroSchema = z.object({
   language: z.literal("javascript-lite"),
   code: z.string().min(1),
   enabled: z.boolean().optional(),
+  validation: z.object({
+    status: z.enum(["ok", "error"]),
+    errors: z.array(z.string().min(1)).optional(),
+    updatedAt: z.string().optional(),
+  }).optional(),
   triggers: z
     .array(
       z.discriminatedUnion("type", [

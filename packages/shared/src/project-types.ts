@@ -11,6 +11,12 @@ export type DriverStatus = {
   health: DriverHealth;
   message?: string;
   updatedAt: number;
+  lastConnectedAt?: number;
+  lastDisconnectedAt?: number;
+  lastError?: string;
+  reconnectAttempt?: number;
+  endpointUrl?: string;
+  clockWarning?: string;
 };
 
 export type DriverBaseConfig = {
@@ -89,6 +95,13 @@ export type MacroDefinition = {
   code: string;
   enabled?: boolean;
   triggers?: MacroTrigger[];
+  validation?: MacroValidationState;
+};
+
+export type MacroValidationState = {
+  status: "ok" | "error";
+  errors?: string[];
+  updatedAt?: string;
 };
 
 export type MacroRuntimeContext = {

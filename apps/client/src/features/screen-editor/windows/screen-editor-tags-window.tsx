@@ -39,6 +39,8 @@ const DEFAULT_PAGE_SIZE = 100;
 const OPC_BROWSER_MIN_WIDTH = 720;
 const OPC_BROWSER_MIN_HEIGHT = 420;
 const OPC_BROWSER_DEFAULT_RECT: WorkbenchWindowRect = { x: 120, y: 80, width: 980, height: 650 };
+const OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES = 20_000;
+const OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE = 500;
 
 function createDefaultColumnVisibility(): TagColumnVisibility {
   return TAG_COLUMNS.reduce<TagColumnVisibility>(
@@ -456,6 +458,17 @@ type OpcUaBrowserContentProps = {
   onCancel: () => void;
   onConfirmSingle: () => void;
   onConfirmMulti: () => void;
+  subtreeImportBusy: boolean;
+  subtreeImportEnabled: boolean;
+  subtreeImportOverwrite: boolean;
+  subtreeImportRootName: string;
+  subtreeImportScanRateMs: string;
+  subtreeImportMaxNodes: string;
+  onSubtreeImportOverwriteChange: (value: boolean) => void;
+  onSubtreeImportRootNameChange: (value: string) => void;
+  onSubtreeImportScanRateMsChange: (value: string) => void;
+  onSubtreeImportMaxNodesChange: (value: string) => void;
+  onImportSubtree: () => void;
 };
 
 function OpcUaBrowserContent({
@@ -486,6 +499,17 @@ function OpcUaBrowserContent({
   onCancel,
   onConfirmSingle,
   onConfirmMulti,
+  subtreeImportBusy,
+  subtreeImportEnabled,
+  subtreeImportOverwrite,
+  subtreeImportRootName,
+  subtreeImportScanRateMs,
+  subtreeImportMaxNodes,
+  onSubtreeImportOverwriteChange,
+  onSubtreeImportRootNameChange,
+  onSubtreeImportScanRateMsChange,
+  onSubtreeImportMaxNodesChange,
+  onImportSubtree,
 }: OpcUaBrowserContentProps) {
   return (
     <div className="screen-editor-window-content screen-editor-opc-browser-content">
@@ -621,23 +645,75 @@ function OpcUaBrowserContent({
       </div>
 
       <div className="screen-editor-opc-browser-footer">
-        <WorkbenchButton onClick={onCancel}>Cancel</WorkbenchButton>
+        {mode === "multi" ? (
+          <div className="screen-editor-opc-browser-import-options">
+            <label className="screen-editor-opc-browser-import-options__check">
+              <input
+                type="checkbox"
+                checked={subtreeImportOverwrite}
+                onChange={(event) => onSubtreeImportOverwriteChange(event.target.checked)}
+                disabled={subtreeImportBusy}
+              />
+              <span>Overwrite existing tags</span>
+            </label>
+            <label className="screen-editor-opc-browser-import-options__field">
+              <span>Root name / prefix</span>
+              <input
+                className="workbench-input"
+                value={subtreeImportRootName}
+                onChange={(event) => onSubtreeImportRootNameChange(event.target.value)}
+                disabled={subtreeImportBusy}
+              />
+            </label>
+            <label className="screen-editor-opc-browser-import-options__field">
+              <span>Scan rate ms</span>
+              <input
+                className="workbench-input"
+                type="number"
+                min={50}
+                value={subtreeImportScanRateMs}
+                onChange={(event) => onSubtreeImportScanRateMsChange(event.target.value)}
+                disabled={subtreeImportBusy}
+              />
+            </label>
+            <label className="screen-editor-opc-browser-import-options__field">
+              <span>Max nodes</span>
+              <input
+                className="workbench-input"
+                type="number"
+                min={1}
+                value={subtreeImportMaxNodes}
+                onChange={(event) => onSubtreeImportMaxNodesChange(event.target.value)}
+                disabled={subtreeImportBusy}
+              />
+            </label>
+          </div>
+        ) : null}
+        <WorkbenchButton onClick={onCancel} disabled={subtreeImportBusy}>Cancel</WorkbenchButton>
         {mode === "single" ? (
           <WorkbenchButton
             variant="primary"
             onClick={onConfirmSingle}
-            disabled={selectedNodeIds.size === 0}
+            disabled={selectedNodeIds.size === 0 || subtreeImportBusy}
           >
             Select Node
           </WorkbenchButton>
         ) : (
-          <WorkbenchButton
-            variant="primary"
-            onClick={onConfirmMulti}
-            disabled={selectedNodeIds.size === 0}
-          >
-            Import Selected
-          </WorkbenchButton>
+          <>
+            <WorkbenchButton
+              onClick={onConfirmMulti}
+              disabled={selectedNodeIds.size === 0 || subtreeImportBusy}
+            >
+              Import Selected
+            </WorkbenchButton>
+            <WorkbenchButton
+              variant="primary"
+              onClick={onImportSubtree}
+              disabled={!subtreeImportEnabled || subtreeImportBusy}
+            >
+              {subtreeImportBusy ? "Importing..." : "Import Subtree"}
+            </WorkbenchButton>
+          </>
         )}
       </div>
     </div>
@@ -764,6 +840,10 @@ export function ScreenEditorTagsWindow() {
   const runtimeTags = useScadaStore((s) => s.tags);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
   const saveProject = useScadaStore((s) => s.saveProject);
+  const loadProject = useScadaStore((s) => s.loadProject);
+  const loadTags = useScadaStore((s) => s.loadTags);
+  const loadDrivers = useScadaStore((s) => s.loadDrivers);
+  const loadMacros = useScadaStore((s) => s.loadMacros);
 
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
@@ -824,6 +904,11 @@ export function ScreenEditorTagsWindow() {
   const [opcBrowseFocusNodeId, setOpcBrowseFocusNodeId] = useState("");
   const [opcBrowseHistory, setOpcBrowseHistory] = useState<string[]>([]);
   const [opcBrowsePreselectNodeId, setOpcBrowsePreselectNodeId] = useState<string | null>(null);
+  const [opcImportSubtreeBusy, setOpcImportSubtreeBusy] = useState(false);
+  const [opcImportSubtreeOverwrite, setOpcImportSubtreeOverwrite] = useState(false);
+  const [opcImportSubtreeRootName, setOpcImportSubtreeRootName] = useState("");
+  const [opcImportSubtreeScanRateMs, setOpcImportSubtreeScanRateMs] = useState(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE));
+  const [opcImportSubtreeMaxNodes, setOpcImportSubtreeMaxNodes] = useState(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES));
   const [opcReadLoading, setOpcReadLoading] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -976,6 +1061,7 @@ export function ScreenEditorTagsWindow() {
     setOpcBrowseOpen(false);
     setOpcBrowseError(null);
     setOpcBrowseLoading(false);
+    setOpcImportSubtreeBusy(false);
     setOpcBrowseSelectedNodeIds(new Set());
     setOpcBrowseFocusNodeId("");
     setOpcBrowseHistory([]);
@@ -1004,6 +1090,10 @@ export function ScreenEditorTagsWindow() {
     setOpcBrowseFocusNodeId("");
     setOpcBrowseHistory([]);
     setOpcBrowsePreselectNodeId(targetNodeId || null);
+    setOpcImportSubtreeOverwrite(false);
+    setOpcImportSubtreeRootName("");
+    setOpcImportSubtreeScanRateMs(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE));
+    setOpcImportSubtreeMaxNodes(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES));
     setOpcBrowserZIndex((value) => value + 1);
     setOpcBrowseOpen(true);
     void browseOpcUaNodes({ driverId: initialDriverId, nodeId: initialNodeId, search: "" });
@@ -1024,9 +1114,47 @@ export function ScreenEditorTagsWindow() {
     setOpcBrowseFocusNodeId("");
     setOpcBrowseHistory([]);
     setOpcBrowsePreselectNodeId(null);
+    setOpcImportSubtreeOverwrite(false);
+    setOpcImportSubtreeRootName("");
+    setOpcImportSubtreeScanRateMs(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE));
+    setOpcImportSubtreeMaxNodes(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES));
+    setOpcImportSubtreeBusy(false);
     setOpcBrowserZIndex((value) => value + 1);
     setOpcBrowseOpen(true);
     void browseOpcUaNodes({ driverId: initialDriverId, nodeId: OPC_UA_BROWSE_ROOT_NODE_ID, search: "" });
+  };
+
+  const deleteOpcUaTagsForSelectedDriver = async (): Promise<void> => {
+    if (sourceFilter !== "opcua" || driverFilter === "all") {
+      void message.warning("Select source OPC UA and a specific driver first");
+      return;
+    }
+    const driverId = driverFilter;
+    const driver = drivers.find((item) => item.id === driverId && item.type === "opcua");
+    if (!driver) {
+      void message.warning(`OPC UA driver ${driverId} is not found`);
+      return;
+    }
+    try {
+      const impact = await api.getOpcUaDriverImpact(driverId);
+      const tagsText = impact.tagNamesPreview.length > 0 ? `\n${impact.tagNamesPreview.join("\n")}` : "\nNone";
+      const accepted = window.confirm(
+        `Delete OPC UA tags for driver ${driver.name ?? driver.id} (${driver.id})?\n`
+        + `Tags: ${impact.tagCount}\n`
+        + `Affected macros: ${impact.affectedMacroCount}\n`
+        + `Dynamic macros: ${impact.dynamicMacroCount}\n`
+        + `Tags preview:${tagsText}\n\n`
+        + "Affected macros will be marked invalid and excluded from execution.",
+      );
+      if (!accepted) {
+        return;
+      }
+      const response = await api.deleteOpcUaTagsByDriver(driverId);
+      await Promise.all([loadProject(), loadTags(), loadDrivers(), loadMacros()]);
+      void message.success(`Deleted ${response.deletedTags} OPC UA tags for ${driver.name ?? driver.id}`);
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : "Failed to delete OPC UA tags for driver");
+    }
   };
 
   const applyOpcUaNodeToDraft = (node: OpcUaBrowseItem): void => {
@@ -1064,9 +1192,9 @@ export function ScreenEditorTagsWindow() {
       void message.error("Select OPC UA driver");
       return;
     }
-    const selectedNodes = opcBrowseNodes.filter((node) => opcBrowseSelectedNodeIds.has(node.nodeId));
+    const selectedNodes = opcBrowseNodes.filter((node) => opcBrowseSelectedNodeIds.has(node.nodeId) && !node.hasChildren);
     if (!selectedNodes.length) {
-      void message.warning("Select at least one node");
+      void message.warning("Select at least one leaf variable node");
       return;
     }
 
@@ -1121,6 +1249,59 @@ export function ScreenEditorTagsWindow() {
       void message.warning(`Imported ${nextTags.length - tags.length} nodes. Skipped ${skipped} already imported nodes`);
     } else {
       void message.success(`Imported ${nextTags.length - tags.length} OPC UA tags`);
+    }
+  };
+
+  const resolveOpcBrowseSelectionForSubtree = (): OpcUaBrowseItem | null => {
+    if (opcBrowseFocusNodeId) {
+      const focused = opcBrowseNodes.find((node) => node.nodeId === opcBrowseFocusNodeId);
+      if (focused) {
+        return focused;
+      }
+    }
+    const selectedNodeId = [...opcBrowseSelectedNodeIds][0];
+    if (!selectedNodeId) {
+      return null;
+    }
+    return opcBrowseNodes.find((node) => node.nodeId === selectedNodeId) ?? null;
+  };
+
+  const importOpcUaSubtree = async (): Promise<void> => {
+    if (!opcBrowseDriverId) {
+      void message.error("Select OPC UA driver");
+      return;
+    }
+    const selectedNode = resolveOpcBrowseSelectionForSubtree();
+    if (!selectedNode) {
+      void message.warning("Select a folder/structure node first");
+      return;
+    }
+    if (!selectedNode.hasChildren) {
+      void message.warning("Import Subtree is available only for nodes with children");
+      return;
+    }
+
+    const maxNodes = toOptionalNumber(opcImportSubtreeMaxNodes) ?? OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES;
+    const scanRateMs = toOptionalNumber(opcImportSubtreeScanRateMs) ?? OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE;
+    const rootName = opcImportSubtreeRootName.trim() || selectedNode.browseName || selectedNode.displayName;
+
+    setOpcImportSubtreeBusy(true);
+    try {
+      const response = await api.opcUaImportSubtree({
+        driverId: opcBrowseDriverId,
+        nodeId: selectedNode.nodeId,
+        rootName,
+        overwrite: opcImportSubtreeOverwrite,
+        scanRateMs,
+        maxNodes,
+      });
+      await Promise.all([loadProject(), loadTags()]);
+      void message.success(`Imported ${response.created} tags, updated ${response.updated}, scanned ${response.scanned}`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Failed to import OPC UA subtree";
+      void message.error(text);
+    } finally {
+      setOpcImportSubtreeBusy(false);
     }
   };
 
@@ -1214,6 +1395,8 @@ export function ScreenEditorTagsWindow() {
   };
 
   const opcBrowseParentNodeId = getOpcUaParentNodeId(opcBrowseNodeId || OPC_UA_BROWSE_ROOT_NODE_ID);
+  const selectedOpcBrowseNodeForSubtree = resolveOpcBrowseSelectionForSubtree();
+  const canImportOpcBrowseSubtree = Boolean(selectedOpcBrowseNodeForSubtree?.hasChildren);
 
   const focusOpcBrowserWindow = useCallback(() => {
     setOpcBrowserZIndex((value) => value + 1);
@@ -1695,6 +1878,13 @@ export function ScreenEditorTagsWindow() {
         </WorkbenchButton>
         <WorkbenchButton onClick={openOpcBrowseImport} disabled={opcUaDrivers.length === 0}>
           Import from OPC UA
+        </WorkbenchButton>
+        <WorkbenchButton
+          variant="danger"
+          onClick={() => void deleteOpcUaTagsForSelectedDriver()}
+          disabled={sourceFilter !== "opcua" || driverFilter === "all"}
+        >
+          Delete OPC UA Tags (Driver)
         </WorkbenchButton>
         <WorkbenchButton onClick={() => void saveProject()}>
           Save Project
@@ -2399,6 +2589,17 @@ export function ScreenEditorTagsWindow() {
                   onCancel={closeOpcBrowseDialog}
                   onConfirmSingle={confirmSingleOpcNodeSelection}
                   onConfirmMulti={importSelectedOpcUaNodes}
+                  subtreeImportBusy={opcImportSubtreeBusy}
+                  subtreeImportEnabled={canImportOpcBrowseSubtree}
+                  subtreeImportOverwrite={opcImportSubtreeOverwrite}
+                  subtreeImportRootName={opcImportSubtreeRootName}
+                  subtreeImportScanRateMs={opcImportSubtreeScanRateMs}
+                  subtreeImportMaxNodes={opcImportSubtreeMaxNodes}
+                  onSubtreeImportOverwriteChange={setOpcImportSubtreeOverwrite}
+                  onSubtreeImportRootNameChange={setOpcImportSubtreeRootName}
+                  onSubtreeImportScanRateMsChange={setOpcImportSubtreeScanRateMs}
+                  onSubtreeImportMaxNodesChange={setOpcImportSubtreeMaxNodes}
+                  onImportSubtree={() => void importOpcUaSubtree()}
                 />
               </WorkbenchWindow>
             </div>,

@@ -8,6 +8,12 @@ export type DriverStatus = {
   health: DriverHealth;
   message?: string;
   updatedAt: number;
+  lastConnectedAt?: number;
+  lastDisconnectedAt?: number;
+  lastError?: string;
+  reconnectAttempt?: number;
+  endpointUrl?: string;
+  clockWarning?: string;
 };
 
 export interface Driver {

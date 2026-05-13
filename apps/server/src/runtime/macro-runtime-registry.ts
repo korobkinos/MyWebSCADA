@@ -21,12 +21,14 @@ export class MacroRuntimeRegistry {
   public registerAll(macros: MacroDefinition[]): void {
     this.stopAll();
     for (const macro of macros) {
-      if (!(macro.enabled ?? true)) {
+      if (!(macro.enabled ?? true) || macro.validation?.status === "error") {
         continue;
       }
       this.registerMacroTriggers(macro);
     }
-    console.log(`[MacroRuntimeRegistry] Registered triggers for ${macros.filter((m) => m.enabled ?? true).length} enabled macros`);
+    console.log(
+      `[MacroRuntimeRegistry] Registered triggers for ${macros.filter((m) => (m.enabled ?? true) && m.validation?.status !== "error").length} enabled macros`,
+    );
   }
 
   /**
@@ -35,6 +37,10 @@ export class MacroRuntimeRegistry {
   public registerMacroTriggers(macro: MacroDefinition): void {
     if (!(macro.enabled ?? true)) {
       console.log(`[MacroRuntimeRegistry] Macro ${macro.id} (${macro.name}) is disabled, skipping trigger registration`);
+      return;
+    }
+    if (macro.validation?.status === "error") {
+      console.log(`[MacroRuntimeRegistry] Macro ${macro.id} (${macro.name}) is invalid, skipping trigger registration`);
       return;
     }
 

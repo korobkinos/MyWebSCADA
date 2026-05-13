@@ -56,6 +56,23 @@ export type SimulatedDriverSettingsInput = {
   defaultStep?: number;
 };
 
+export type DriverMacroImpact = {
+  macroId: string;
+  macroName: string;
+  referencedTags: string[];
+  dynamicTagAccess: boolean;
+};
+
+export type OpcUaDriverImpactResponse = {
+  ok: boolean;
+  driverId: string;
+  tagCount: number;
+  tagNamesPreview: string[];
+  affectedMacros: DriverMacroImpact[];
+  affectedMacroCount: number;
+  dynamicMacroCount: number;
+};
+
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, "");
 type RequestOptions = {
@@ -230,9 +247,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ driverId }),
     }),
-  getOpcUaStatus: (driverId?: string) =>
+  getOpcUaStatus: (driverId?: string, options?: { signal?: AbortSignal }) =>
     request<{ ok: boolean; status?: DriverStatus; statuses?: DriverStatus[]; message?: string }>(
       `/api/drivers/opcua/status${driverId ? `?driverId=${encodeURIComponent(driverId)}` : ""}`,
+      { signal: options?.signal },
+    ),
+  getOpcUaDriverImpact: (driverId: string) =>
+    request<OpcUaDriverImpactResponse>(`/api/drivers/opcua/${encodeURIComponent(driverId)}/impact`),
+  deleteOpcUaTagsByDriver: (driverId: string) =>
+    request<{ ok: boolean; driverId: string; deletedTags: number; affectedMacros: DriverMacroImpact[] }>(
+      `/api/drivers/opcua/${encodeURIComponent(driverId)}/delete-tags`,
+      {
+        method: "POST",
+      },
+    ),
+  deleteOpcUaDriver: (driverId: string, options?: { deleteTags?: boolean }) =>
+    request<{ ok: boolean; deletedDriverId: string; deletedTags: number; affectedMacros: DriverMacroImpact[] }>(
+      `/api/drivers/opcua/${encodeURIComponent(driverId)}${options?.deleteTags ? "?deleteTags=true" : ""}`,
+      {
+        method: "DELETE",
+      },
     ),
   opcUaBrowse: (payload: { driverId?: string; config?: OpcUaDriverConfigInput; nodeId?: string; search?: string }) =>
     request<{ ok: boolean; nodeId: string; nodes: OpcUaBrowseItem[]; message?: string }>("/api/drivers/opcua/browse", {

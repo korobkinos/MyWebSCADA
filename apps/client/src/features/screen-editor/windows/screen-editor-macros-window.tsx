@@ -78,6 +78,13 @@ function parseErrorText(error: unknown): string {
   return String(error);
 }
 
+function macroValidationErrors(macro: MacroDefinition | null | undefined): string[] {
+  if (!macro || macro.validation?.status !== "error") {
+    return [];
+  }
+  return (macro.validation.errors ?? []).filter((item) => item.trim().length > 0);
+}
+
 function createMacroId(prefix = "macro"): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -238,6 +245,8 @@ export function ScreenEditorMacrosWindow() {
     () => macroSource.find((macro) => macro.id === selectedMacroId) ?? null,
     [macroSource, selectedMacroId],
   );
+  const selectedMacroErrors = useMemo(() => macroValidationErrors(selectedMacro), [selectedMacro]);
+  const selectedMacroInvalid = selectedMacroErrors.length > 0;
   const screenOptions = useMemo(
     () => (project?.screens ?? []).map((screen) => ({ label: `${screen.name} (${screen.id})`, value: screen.id })),
     [project?.screens],
@@ -407,6 +416,11 @@ export function ScreenEditorMacrosWindow() {
       const ts = formatTimestamp();
       setLastSaveAt(ts);
       appendConsole("success", `Macro saved: ${updated.name}`);
+      if ((updated as MacroDefinition).validation?.status === "error") {
+        const details = macroValidationErrors(updated as MacroDefinition).join("; ");
+        appendConsole("warn", `Validation error: ${details || "Macro is invalid"}`);
+        void message.warning(`Macro saved with validation errors: ${details || "Unknown error"}`);
+      }
       void message.success("Macro saved");
     } catch (error) {
       const text = parseErrorText(error);
@@ -419,6 +433,13 @@ export function ScreenEditorMacrosWindow() {
 
   const onRunMacro = useCallback(async () => {
     if (!selectedMacro) {
+      return;
+    }
+    if (selectedMacroInvalid) {
+      const text = selectedMacroErrors.join("; ") || "Macro is invalid";
+      setRunError(text);
+      appendConsole("warn", `Run skipped: ${text}`);
+      void message.warning(`Macro is invalid: ${text}`);
       return;
     }
     setRunning(true);
@@ -439,8 +460,8 @@ export function ScreenEditorMacrosWindow() {
       setRunResult(result);
       const elapsed = Math.round(performance.now() - started);
       if (result.status === "skipped") {
-        appendConsole("warn", `Run skipped (${elapsed} ms): macro disabled`);
-        void message.warning("Macro skipped (disabled)");
+        appendConsole("warn", `Run skipped (${elapsed} ms): ${result.reason ?? "unknown"}`);
+        void message.warning(`Macro skipped (${result.reason ?? "unknown"})`);
       } else {
         appendConsole("success", `Run completed (${elapsed} ms)`);
         void message.success("Macro executed");
@@ -453,7 +474,7 @@ export function ScreenEditorMacrosWindow() {
     } finally {
       setRunning(false);
     }
-  }, [appendConsole, currentScreenId, runMacro, selectedMacro]);
+  }, [appendConsole, currentScreenId, runMacro, selectedMacro, selectedMacroErrors, selectedMacroInvalid]);
 
   const onAddMacro = useCallback(() => {
     if (!project) {
@@ -596,7 +617,7 @@ export function ScreenEditorMacrosWindow() {
           icon={<PlayCircleOutlined />}
           title={running ? "Running..." : "Run/Test Macro"}
           onClick={() => void onRunMacro()}
-          disabled={!selectedMacro || running}
+          disabled={!selectedMacro || running || selectedMacroInvalid}
         />
         <WorkbenchButton
           icon={listCollapsed ? <UnorderedListOutlined /> : <LeftOutlined />}
@@ -633,6 +654,8 @@ export function ScreenEditorMacrosWindow() {
                 {filteredMacros.map((macro) => {
                   const selected = macro.id === selectedMacroId;
                   const enabled = macro.enabled ?? true;
+                  const errors = macroValidationErrors(macro);
+                  const invalid = errors.length > 0;
                   return (
                     <div
                       key={macro.id}
@@ -651,6 +674,15 @@ export function ScreenEditorMacrosWindow() {
                         >
                           {enabled ? "enabled" : "disabled"}
                         </span>
+                        {invalid ? (
+                          <span
+                            className="screen-editor-macro-badge"
+                            style={{ background: "rgba(255,77,79,0.2)", borderColor: "#ff4d4f", color: "#ffccc7" }}
+                            title={errors.join("\n")}
+                          >
+                            ERROR
+                          </span>
+                        ) : null}
                         {" "}
                         <span>{macro.language ?? "javascript-lite"}</span>
                       </div>
@@ -685,6 +717,13 @@ export function ScreenEditorMacrosWindow() {
                       <input type="checkbox" checked={draftMacro.enabled} onChange={(event) => updateDraft({ enabled: event.target.checked })} />
                       <span>Enabled</span>
                     </label>
+                    {selectedMacroErrors.length > 0 ? (
+                      <div className="screen-editor-drivers-warning" style={{ margin: 0 }}>
+                        {selectedMacroErrors.map((item, index) => (
+                          <div key={`${item}_${index}`}>{item}</div>
+                        ))}
+                      </div>
+                    ) : null}
                     <label className="workbench-field">
                       <span className="workbench-field__label">Code</span>
                       <textarea
