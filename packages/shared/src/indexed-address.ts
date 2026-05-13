@@ -162,30 +162,65 @@ function resolveRuntimeValue(
     return 0;
   }
 
-  const raw = values[sourceName];
-  const numeric = toMaybeNumeric(raw);
-  if (numeric === undefined) {
+  let rawRuntimeValue: unknown;
+  switch (binding.source) {
+    case "runtimeArg":
+    case "internalVariable":
+    case "tag":
+    case "macroVariable":
+      rawRuntimeValue = values[sourceName];
+      break;
+    default:
+      rawRuntimeValue = values[sourceName];
+      break;
+  }
+
+  const numeric = toIndexedNumber(rawRuntimeValue);
+  if (!numeric.ok) {
     errors.push(`${binding.key}: value "${sourceName}" is missing or non-numeric`);
     return 0;
   }
-  return numeric;
+  return numeric.value;
 }
 
 function toMaybeNumeric(value: unknown): number | undefined {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : undefined;
-  }
-  if (typeof value === "boolean") {
-    return value ? 1 : 0;
-  }
-  if (typeof value === "string") {
-    const parsed = Number(value.trim());
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  if (value && typeof value === "object" && "value" in value) {
-    return toMaybeNumeric((value as { value: unknown }).value);
+  const numeric = toIndexedNumber(value);
+  if (numeric.ok) {
+    return numeric.value;
   }
   return undefined;
+}
+
+function extractIndexedSourceValue(raw: unknown): unknown {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "value" in raw
+  ) {
+    return (raw as { value?: unknown }).value;
+  }
+  return raw;
+}
+
+function toIndexedNumber(raw: unknown): { value: number; ok: boolean } {
+  const extracted = extractIndexedSourceValue(raw);
+
+  if (typeof extracted === "number") {
+    return Number.isFinite(extracted)
+      ? { value: extracted, ok: true }
+      : { value: 0, ok: false };
+  }
+  if (typeof extracted === "string" && extracted.trim() !== "") {
+    const parsed = Number(extracted.trim());
+    if (Number.isFinite(parsed)) {
+      return { value: parsed, ok: true };
+    }
+  }
+  if (typeof extracted === "boolean") {
+    return { value: extracted ? 1 : 0, ok: true };
+  }
+
+  return { value: 0, ok: false };
 }
 
 function toNumeric(value: unknown, label: string, errors: string[]): number {

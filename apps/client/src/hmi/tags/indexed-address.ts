@@ -119,6 +119,17 @@ export function buildIndexedAddressRuntimeValues(input: RuntimeValueInput): Reco
     }
   }
 
+  debugIndexedAddress("runtimeValues:built", {
+    keys: Object.keys(values).slice(0, 80),
+    counter: values.Counter,
+    lwCounter: values["LW.Counter"],
+    sample: {
+      Counter: values.Counter,
+      "LW.Counter": values["LW.Counter"],
+      tagPrefix: values.tagPrefix,
+    },
+  });
+
   return values;
 }
 
@@ -157,6 +168,25 @@ export function resolveObjectTagField(params: {
 }): ResolvedIndexedObjectTag {
   const rawTagName = resolveTagName(params.rawTagName, params.context);
   const config = getObjectIndexedConfigForField(params.object, params.fieldName);
+
+  if (config?.enabled) {
+    debugIndexedAddress("resolveObjectTagField:start", {
+      objectId: params.object.id,
+      objectName: params.object.name,
+      objectType: params.object.type,
+      fieldName: params.fieldName,
+      rawTagNameInput: params.rawTagName,
+      rawTagNameResolved: rawTagName,
+      hasConfig: Boolean(config),
+      configEnabled: config.enabled,
+      template: config.template,
+      bindings: config.bindings,
+      context: params.context,
+      tagValuesKeys: Object.keys(params.tagValues ?? {}).slice(0, 50),
+      tagValuesHasCounter: Object.prototype.hasOwnProperty.call(params.tagValues ?? {}, "Counter"),
+      tagValueCounterRaw: (params.tagValues as Record<string, unknown> | undefined)?.Counter,
+    });
+  }
 
   if (!rawTagName) {
     return {
@@ -213,28 +243,47 @@ export function resolveObjectTagField(params: {
     }
   }
 
+  debugIndexedAddress("resolveObjectTagField:values", {
+    fieldName: params.fieldName,
+    template,
+    valuesForBindings: normalizedConfig.bindings.map((binding) => {
+      const rawValueFromValues = binding.sourceName ? values[binding.sourceName] : undefined;
+      const numericDebug = toIndexedDebugNumber(rawValueFromValues);
+      return {
+        key: binding.key,
+        source: binding.source,
+        sourceName: binding.sourceName,
+        rawValueFromValues,
+        extractedValue: numericDebug.extracted,
+        numericValue: numericDebug.value,
+        ok: numericDebug.ok,
+        constantValue: binding.constantValue,
+        offset: binding.offset,
+        baseValue: binding.baseValue,
+        slotIndex: binding.slotIndex,
+      };
+    }),
+  });
+
   const resolved = resolveIndexedAddress({
     config: normalizedConfig,
     values,
   });
-  if (isIndexedAddressDebugEnabled()) {
-    for (const binding of normalizedConfig.bindings) {
-      if (binding.source !== "tag" || !binding.sourceName) {
-        continue;
-      }
-      const part = resolved.parts.find((item) => item.key === binding.key || item.key === `INDEX_${binding.slotIndex + 1}`);
-      // eslint-disable-next-line no-console
-      console.debug("[Indexed Address]", {
-        fieldName: params.fieldName,
-        bindingKey: binding.key,
-        sourceName: binding.sourceName,
-        rawValue: values[binding.sourceName],
-        numericValue: part?.runtimeValue ?? 0,
-        resolvedAddress: resolved.address,
-      });
-    }
-  }
+  debugIndexedAddress("resolveObjectTagField:resolved", {
+    fieldName: params.fieldName,
+    rawTagName,
+    resolvedAddress: resolved.address,
+    parts: resolved.parts,
+    errors: resolved.errors,
+  });
   const matchingTag = findTagByAddress(params.project, resolved.address);
+  debugIndexedAddress("resolveObjectTagField:matchingTag", {
+    resolvedAddress: resolved.address,
+    found: Boolean(matchingTag),
+    matchingTagName: matchingTag?.name,
+    matchingTagNodeId: matchingTag?.nodeId,
+    similarAddresses: matchingTag ? undefined : findSimilarAddressCandidates(params.project, resolved.address),
+  });
   if (!matchingTag) {
     return {
       usedIndexedAddress: true,
@@ -325,9 +374,75 @@ function normalizeAddress(value: unknown): string | undefined {
 }
 
 function isIndexedAddressDebugEnabled(): boolean {
-  if (!import.meta.env.DEV || typeof window === "undefined") {
-    return false;
+  return typeof window !== "undefined" &&
+    window.localStorage.getItem("scada.debugIndexedAddress") === "1";
+}
+
+function debugIndexedAddress(label: string, payload: Record<string, unknown>): void {
+  if (!isIndexedAddressDebugEnabled()) {
+    return;
   }
-  const value = window.localStorage.getItem("debugPerformance");
-  return value === "1";
+  // eslint-disable-next-line no-console
+  console.debug("[indexed-address]", label, payload);
+}
+
+function findSimilarAddressCandidates(project: ScadaProject, address: string): string[] {
+  const limited: string[] = [];
+  const seen = new Set<string>();
+  const normalized = normalizeAddress(address) ?? "";
+  const bracketIndex = normalized.indexOf("[");
+  const prefix = bracketIndex > 0 ? normalized.slice(0, bracketIndex) : normalized;
+  const markerMatch = normalized.match(/[A-Za-z0-9_]+(?=\[\d+\])/);
+  const marker = markerMatch?.[0];
+
+  for (const tag of project.tags ?? []) {
+    const candidates = collectAddressCandidates(tag);
+    for (const candidate of candidates) {
+      const hitByMarker = marker ? candidate.includes(`${marker}[`) : false;
+      const hitByPrefix = prefix ? candidate.startsWith(prefix) : false;
+      if (!hitByMarker && !hitByPrefix) {
+        continue;
+      }
+      if (seen.has(candidate)) {
+        continue;
+      }
+      seen.add(candidate);
+      limited.push(candidate);
+      if (limited.length >= 10) {
+        return limited;
+      }
+    }
+  }
+
+  return limited;
+}
+
+function extractIndexedDebugValue(raw: unknown): unknown {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "value" in raw
+  ) {
+    return (raw as { value?: unknown }).value;
+  }
+  return raw;
+}
+
+function toIndexedDebugNumber(raw: unknown): { extracted: unknown; value: number; ok: boolean } {
+  const extracted = extractIndexedDebugValue(raw);
+  if (typeof extracted === "number") {
+    return Number.isFinite(extracted)
+      ? { extracted, value: extracted, ok: true }
+      : { extracted, value: 0, ok: false };
+  }
+  if (typeof extracted === "string" && extracted.trim() !== "") {
+    const parsed = Number(extracted.trim());
+    if (Number.isFinite(parsed)) {
+      return { extracted, value: parsed, ok: true };
+    }
+  }
+  if (typeof extracted === "boolean") {
+    return { extracted, value: extracted ? 1 : 0, ok: true };
+  }
+  return { extracted, value: 0, ok: false };
 }

@@ -43,6 +43,7 @@ const RUNTIME_ACCESS_WINDOW_ID = "runtimeAccessRequired";
 const RUNTIME_AUTH_WINDOW_ID = "runtimeAuthorization";
 const COMMAND_WARNING_COOLDOWN_MS = 1200;
 const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
+const INDEXED_ADDRESS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugIndexedAddress";
 const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
 const COMMAND_WARNING_RETENTION_MS = 30_000;
 
@@ -74,6 +75,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   }>());
   const commandWarningTimestampsRef = useRef(new Map<string, number>());
   const runtimeRootRef = useRef<HTMLDivElement | null>(null);
+  const indexedAddressDebugCounterRef = useRef<unknown>(Symbol("init"));
   const debugActionTiming =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -190,6 +192,34 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     });
     updateRuntimeTagSubscriptions(subscriptionTags);
   }, [libraries, popupScreens, project, screen, tags]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (window.localStorage.getItem(INDEXED_ADDRESS_DEBUG_LOCAL_STORAGE_KEY) !== "1") {
+      return;
+    }
+
+    const counterRaw = (tags as Record<string, unknown>).Counter;
+    const counterLowerRaw = (tags as Record<string, unknown>).counter;
+    const counter = unwrapRuntimeTagValue(counterRaw);
+    const counterLower = unwrapRuntimeTagValue(counterLowerRaw);
+
+    if (indexedAddressDebugCounterRef.current === counter) {
+      return;
+    }
+    indexedAddressDebugCounterRef.current = counter;
+
+    // eslint-disable-next-line no-console
+    console.debug("[indexed-address] runtime-page:tagValues", {
+      Counter: counter,
+      counterLower,
+      keysHasCounter: Object.keys(tags).includes("Counter"),
+      counterRaw,
+      counterLowerRaw,
+    });
+  }, [tags]);
 
   useEffect(() => {
     return () => {
@@ -1419,6 +1449,13 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       {runtimeAuthWindows}
     </div>
   );
+}
+
+function unwrapRuntimeTagValue(value: unknown): unknown {
+  if (value && typeof value === "object" && "value" in value) {
+    return (value as { value?: unknown }).value;
+  }
+  return value;
 }
 
 function getRuntimeActionCommandKey(action: RuntimeAction, context: RenderContext): string {
