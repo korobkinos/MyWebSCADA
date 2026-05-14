@@ -21,6 +21,11 @@ export type NumericInputDialogState = {
   dialogBackgroundColor?: string;
   dialogTextColor?: string;
   dialogBorderColor?: string;
+  dialogCloseButtonTextColor?: string;
+  dialogCloseButtonBackgroundColor?: string;
+  dialogSetButtonTextColor?: string;
+  dialogSetButtonBackgroundColor?: string;
+  dialogSetButtonBorderColor?: string;
   showMeta?: boolean;
   stepButtonUseTextColor?: boolean;
   stepButtonTextColor?: string;
@@ -76,6 +81,11 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
   const dialogBackgroundColor = state.dialogBackgroundColor ?? "#252526";
   const dialogTextColor = state.dialogTextColor ?? "#cccccc";
   const dialogBorderColor = state.dialogBorderColor ?? "#3c3c3c";
+  const closeButtonTextColor = state.dialogCloseButtonTextColor ?? dialogTextColor;
+  const closeButtonBackgroundColor = state.dialogCloseButtonBackgroundColor ?? "#2d2d2d";
+  const setButtonTextColor = state.dialogSetButtonTextColor ?? "#ffffff";
+  const setButtonBackgroundColor = state.dialogSetButtonBackgroundColor ?? "#0e639c";
+  const setButtonBorderColor = state.dialogSetButtonBorderColor ?? "#007acc";
   const signalBad = state.signalBad === true;
   const badTextColor = state.badTextColor ?? "#f14c4c";
   const badBackgroundColor = state.badBackgroundColor ?? "#2b1a1a";
@@ -263,7 +273,8 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
           onClick={onCancel}
           style={{
             borderColor: dialogBorderColor,
-            color: dialogTextColor,
+            color: closeButtonTextColor,
+            background: closeButtonBackgroundColor,
           }}
         >
           Close
@@ -274,7 +285,9 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
           onClick={() => void doCommit()}
           disabled={committing}
           style={{
-            borderColor: dialogBorderColor,
+            borderColor: setButtonBorderColor,
+            color: setButtonTextColor,
+            background: setButtonBackgroundColor,
           }}
         >
           Set

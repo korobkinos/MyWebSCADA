@@ -602,6 +602,11 @@ const numericInputObjectSchema = hmiBaseSchema.extend({
   dialogBackgroundColor: z.string().optional(),
   dialogTextColor: z.string().optional(),
   dialogBorderColor: z.string().optional(),
+  dialogCloseButtonTextColor: z.string().optional(),
+  dialogCloseButtonBackgroundColor: z.string().optional(),
+  dialogSetButtonTextColor: z.string().optional(),
+  dialogSetButtonBackgroundColor: z.string().optional(),
+  dialogSetButtonBorderColor: z.string().optional(),
 });
 
 export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>

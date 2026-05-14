@@ -4378,11 +4378,13 @@ body {
   padding: 0 6px;
 }
 
+.object-property-tabs--main > .ant-tabs-nav,
 .object-property-tabs--numeric > .ant-tabs-nav {
   margin-bottom: 10px;
   border-bottom: 1px solid #3a3d3f;
 }
 
+.object-property-tabs--main .ant-tabs-tab,
 .object-property-tabs--numeric .ant-tabs-tab {
   background: transparent;
   border: none;
@@ -4391,20 +4393,24 @@ body {
   border-radius: 0;
 }
 
+.object-property-tabs--main .ant-tabs-tab-btn,
 .object-property-tabs--numeric .ant-tabs-tab-btn {
   font-size: 12px;
   color: #9aa0a6;
   transition: color 0.15s ease;
 }
 
+.object-property-tabs--main .ant-tabs-tab:hover .ant-tabs-tab-btn,
 .object-property-tabs--numeric .ant-tabs-tab:hover .ant-tabs-tab-btn {
   color: #cfd2d6;
 }
 
+.object-property-tabs--main .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn,
 .object-property-tabs--numeric .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
   color: #ffffff;
 }
 
+.object-property-tabs--main .ant-tabs-ink-bar,
 .object-property-tabs--numeric .ant-tabs-ink-bar {
   background: #4d89ff;
   height: 2px !important;

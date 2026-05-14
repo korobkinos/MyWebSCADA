@@ -144,6 +144,11 @@ export type NumericInputOpenPayload = {
   dialogBackgroundColor?: string;
   dialogTextColor?: string;
   dialogBorderColor?: string;
+  dialogCloseButtonTextColor?: string;
+  dialogCloseButtonBackgroundColor?: string;
+  dialogSetButtonTextColor?: string;
+  dialogSetButtonBackgroundColor?: string;
+  dialogSetButtonBorderColor?: string;
   showMeta?: boolean;
   stepButtonUseTextColor?: boolean;
   stepButtonTextColor?: string;
@@ -1813,6 +1818,11 @@ function ObjectNode({
             dialogBackgroundColor: resolvedObject.dialogBackgroundColor,
             dialogTextColor: resolvedObject.dialogTextColor,
             dialogBorderColor: resolvedObject.dialogBorderColor,
+            dialogCloseButtonTextColor: resolvedObject.dialogCloseButtonTextColor,
+            dialogCloseButtonBackgroundColor: resolvedObject.dialogCloseButtonBackgroundColor,
+            dialogSetButtonTextColor: resolvedObject.dialogSetButtonTextColor,
+            dialogSetButtonBackgroundColor: resolvedObject.dialogSetButtonBackgroundColor,
+            dialogSetButtonBorderColor: resolvedObject.dialogSetButtonBorderColor,
             showMeta: resolvedObject.showMeta,
             stepButtonUseTextColor: resolvedObject.stepButtonUseTextColor,
             stepButtonTextColor: resolvedObject.stepButtonTextColor,

@@ -27,7 +27,6 @@ import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, 
 import { TagPicker } from "./tag-picker";
 import { IndexedAddressEditorWindow } from "./indexed-address-editor-window";
 import { getAssetDisplayPath } from "../utils/asset-path";
-import { WorkbenchCollapsibleSection } from "./workbench";
 import {
   buildIndexedAddressRuntimeValues,
   findTagByAddress,
@@ -619,6 +618,54 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
       onPatch={onPatch}
     />
   );
+  const numericValueContent = object.type === "numeric-input" ? (
+    <SpecificPropertyFields
+      project={project}
+      assets={assets}
+      libraries={libraries}
+      object={object}
+      elementBindings={elementBindings}
+      buildIndexControl={buildIndexControl}
+      numericInputSection="value"
+      onPatch={onPatch}
+    />
+  ) : null;
+  const numericAppearanceContent = object.type === "numeric-input" ? (
+    <SpecificPropertyFields
+      project={project}
+      assets={assets}
+      libraries={libraries}
+      object={object}
+      elementBindings={elementBindings}
+      buildIndexControl={buildIndexControl}
+      numericInputSection="appearance"
+      onPatch={onPatch}
+    />
+  ) : null;
+  const numericSignalErrorContent = object.type === "numeric-input" ? (
+    <SpecificPropertyFields
+      project={project}
+      assets={assets}
+      libraries={libraries}
+      object={object}
+      elementBindings={elementBindings}
+      buildIndexControl={buildIndexControl}
+      numericInputSection="error"
+      onPatch={onPatch}
+    />
+  ) : null;
+  const numericDialogContent = object.type === "numeric-input" ? (
+    <SpecificPropertyFields
+      project={project}
+      assets={assets}
+      libraries={libraries}
+      object={object}
+      elementBindings={elementBindings}
+      buildIndexControl={buildIndexControl}
+      numericInputSection="dialog"
+      onPatch={onPatch}
+    />
+  ) : null;
 
   const hasRuntimeStateBinding = Boolean((object.visibleTag ?? "").trim() || (object.disabledTag ?? "").trim());
   const runtimeStateContent = (
@@ -736,9 +783,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
         </>
       ) : null}
     </>
-  ) : (
-    <Typography.Text type="secondary">This object has no text style settings.</Typography.Text>
-  );
+  ) : null;
 
   const accessContent = (
     <>
@@ -772,60 +817,32 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
     </>
   );
 
-  const advancedContent = (
-    <>
-      <Typography.Text type="secondary">Danger zone</Typography.Text>
-      <Divider style={{ margin: "10px 0" }} />
-      <Button danger onClick={onDelete} block>
-        Delete Object
-      </Button>
-    </>
-  );
+  const panelTabs = object.type === "numeric-input"
+    ? [
+        { key: "general", label: "General", children: generalContent },
+        { key: "value", label: "Value", children: numericValueContent },
+        { key: "appearance", label: "Appearance", children: numericAppearanceContent },
+        { key: "error", label: "Signal Error", children: numericSignalErrorContent },
+        { key: "dialog", label: "Dialog", children: numericDialogContent },
+        { key: "runtime", label: "Runtime", children: runtimeStateContent },
+        { key: "access", label: "Access", children: accessContent },
+      ]
+    : [
+        { key: "general", label: "General", children: generalContent },
+        { key: "specific", label: "Specific", children: objectContent },
+        ...(textContent ? [{ key: "text", label: "Text", children: textContent }] : []),
+        { key: "runtime", label: "Runtime", children: runtimeStateContent },
+        { key: "access", label: "Access", children: accessContent },
+      ];
 
   return (
     <div className="object-property-panel object-property-panel--workbench">
       <Form layout="vertical" size="small">
-        <WorkbenchCollapsibleSection title="GENERAL" storageKey={`object-panel.general.${object.type}`}>
-          {generalContent}
-        </WorkbenchCollapsibleSection>
-        <WorkbenchCollapsibleSection title="LAYER / Z ORDER" storageKey={`object-panel.zorder.${object.type}`}>
-          <Form.Item label="zIndex">
-            <InputNumber
-              value={object.zIndex ?? 0}
-              onChange={(value) => onPatch({ zIndex: typeof value === "number" ? value : undefined })}
-              style={{ width: "100%" }}
-            />
-          </Form.Item>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            <Button size="small" onClick={onBringToFront} disabled={!onBringToFront}>
-              Front
-            </Button>
-            <Button size="small" onClick={onSendToBack} disabled={!onSendToBack}>
-              Back
-            </Button>
-            <Button size="small" onClick={onMoveForward} disabled={!onMoveForward}>
-              Up
-            </Button>
-            <Button size="small" onClick={onMoveBackward} disabled={!onMoveBackward}>
-              Down
-            </Button>
-          </div>
-        </WorkbenchCollapsibleSection>
-        <WorkbenchCollapsibleSection title="RUNTIME STATE" storageKey={`object-panel.runtime-state.${object.type}`}>
-          {runtimeStateContent}
-        </WorkbenchCollapsibleSection>
-        <WorkbenchCollapsibleSection title="OBJECT / SPECIFIC" storageKey={`object-panel.specific.${object.type}`}>
-          {objectContent}
-        </WorkbenchCollapsibleSection>
-        <WorkbenchCollapsibleSection title="TEXT" storageKey={`object-panel.text.${object.type}`} defaultCollapsed>
-          {textContent}
-        </WorkbenchCollapsibleSection>
-        <WorkbenchCollapsibleSection title="ACCESS / SECURITY" storageKey={`object-panel.access.${object.type}`}>
-          {accessContent}
-        </WorkbenchCollapsibleSection>
-        <WorkbenchCollapsibleSection title="ADVANCED" storageKey={`object-panel.advanced.${object.type}`} defaultCollapsed>
-          {advancedContent}
-        </WorkbenchCollapsibleSection>
+        <Tabs
+          size="small"
+          className="object-property-tabs object-property-tabs--main"
+          items={panelTabs}
+        />
       </Form>
       {indexedEditorTarget ? (
         <IndexedAddressEditorWindow
@@ -851,6 +868,7 @@ function SpecificPropertyFields({
   object,
   elementBindings,
   buildIndexControl,
+  numericInputSection,
   onPatch,
 }: {
   project: ScadaProject;
@@ -864,7 +882,8 @@ function SpecificPropertyFields({
     configureDisabled?: boolean;
     onConfigure: () => void;
     onToggleEnabled: (checked: boolean) => void;
-  };
+    };
+  numericInputSection?: "value" | "appearance" | "error" | "dialog";
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
   const [stateImagePreviewValue, setStateImagePreviewValue] = useState<string>("0");
@@ -3128,20 +3147,46 @@ function SpecificPropertyFields({
         <Form.Item label="Dialog Border">
           <ColorPicker value={object.dialogBorderColor ?? "#3c3c3c"} onChange={(c: any) => onPatch({ dialogBorderColor: normalizePickerColor(c.toHexString?.() ?? c, "#3c3c3c") } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Close Button Text">
+          <ColorPicker value={object.dialogCloseButtonTextColor ?? "#cccccc"} onChange={(c: any) => onPatch({ dialogCloseButtonTextColor: normalizePickerColor(c.toHexString?.() ?? c, "#cccccc") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Close Button Background">
+          <ColorPicker value={object.dialogCloseButtonBackgroundColor ?? "#2d2d2d"} onChange={(c: any) => onPatch({ dialogCloseButtonBackgroundColor: normalizePickerColor(c.toHexString?.() ?? c, "#2d2d2d") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Set Button Text">
+          <ColorPicker value={object.dialogSetButtonTextColor ?? "#ffffff"} onChange={(c: any) => onPatch({ dialogSetButtonTextColor: normalizePickerColor(c.toHexString?.() ?? c, "#ffffff") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Set Button Background">
+          <ColorPicker value={object.dialogSetButtonBackgroundColor ?? "#0e639c"} onChange={(c: any) => onPatch({ dialogSetButtonBackgroundColor: normalizePickerColor(c.toHexString?.() ?? c, "#0e639c") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Set Button Border">
+          <ColorPicker value={object.dialogSetButtonBorderColor ?? "#007acc"} onChange={(c: any) => onPatch({ dialogSetButtonBorderColor: normalizePickerColor(c.toHexString?.() ?? c, "#007acc") } as Partial<HmiObject>)} />
+        </Form.Item>
       </>
     );
 
+    if (numericInputSection === "value") {
+      return <>{numericValueContent}</>;
+    }
+    if (numericInputSection === "appearance") {
+      return <>{numericAppearanceContent}</>;
+    }
+    if (numericInputSection === "error") {
+      return <>{numericSignalErrorContent}</>;
+    }
+    if (numericInputSection === "dialog") {
+      return <>{numericDialogContent}</>;
+    }
     return (
-      <Tabs
-        size="small"
-        className="object-property-tabs object-property-tabs--numeric"
-        items={[
-          { key: "value", label: "Value", children: numericValueContent },
-          { key: "appearance", label: "Appearance", children: numericAppearanceContent },
-          { key: "error", label: "Signal Error", children: numericSignalErrorContent },
-          { key: "dialog", label: "Dialog", children: numericDialogContent },
-        ]}
-      />
+      <>
+        {numericValueContent}
+        <Divider style={{ margin: "10px 0" }} />
+        {numericAppearanceContent}
+        <Divider style={{ margin: "10px 0" }} />
+        {numericSignalErrorContent}
+        <Divider style={{ margin: "10px 0" }} />
+        {numericDialogContent}
+      </>
     );
   }
 

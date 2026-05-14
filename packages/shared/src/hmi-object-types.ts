@@ -473,6 +473,11 @@ export type NumericInputObject = HmiObjectBase & {
   dialogBackgroundColor?: string;
   dialogTextColor?: string;
   dialogBorderColor?: string;
+  dialogCloseButtonTextColor?: string;
+  dialogCloseButtonBackgroundColor?: string;
+  dialogSetButtonTextColor?: string;
+  dialogSetButtonBackgroundColor?: string;
+  dialogSetButtonBorderColor?: string;
 };
 
 export type HmiObject =

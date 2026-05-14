@@ -388,6 +388,11 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         dialogBackgroundColor: "#252526",
         dialogTextColor: "#cccccc",
         dialogBorderColor: "#3c3c3c",
+        dialogCloseButtonTextColor: "#cccccc",
+        dialogCloseButtonBackgroundColor: "#2d2d2d",
+        dialogSetButtonTextColor: "#ffffff",
+        dialogSetButtonBackgroundColor: "#0e639c",
+        dialogSetButtonBorderColor: "#007acc",
       };
     default:
       return {
