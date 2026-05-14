@@ -58,6 +58,16 @@ const gradientDirectionOptions = [
   { label: "center-outward", value: "center-outward" },
   { label: "outside-inward", value: "outside-inward" },
 ] as const;
+const shadowDirectionOptions = [
+  { label: "right", value: "right" },
+  { label: "left", value: "left" },
+  { label: "top", value: "top" },
+  { label: "bottom", value: "bottom" },
+  { label: "top-left", value: "top-left" },
+  { label: "top-right", value: "top-right" },
+  { label: "bottom-left", value: "bottom-left" },
+  { label: "bottom-right", value: "bottom-right" },
+] as const;
 const roleOptions: Array<{ label: string; value: AppRole }> = [
   { label: "admin", value: "admin" },
   { label: "engineer", value: "engineer" },
@@ -711,6 +721,61 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
     </>
   );
 
+  const effectsContent = (
+    <>
+      <Space style={{ marginBottom: 8 }}>
+        <span>Enable Shadow</span>
+        <Switch checked={object.shadowEnabled ?? false} onChange={(checked) => onPatch({ shadowEnabled: checked } as Partial<HmiObject>)} />
+      </Space>
+      <ColorField
+        label="Shadow Color"
+        value={object.shadowColor ?? "#000000"}
+        fallback="#000000"
+        disabled={!(object.shadowEnabled ?? false)}
+        onChange={(next) => onPatch({ shadowColor: next } as Partial<HmiObject>)}
+      />
+      <Form.Item label="Shadow Opacity (0..1)">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={0}
+          max={1}
+          step={0.05}
+          disabled={!(object.shadowEnabled ?? false)}
+          value={object.shadowOpacity ?? 0.35}
+          onChange={(value) => onPatch({ shadowOpacity: clampOpacity(value) } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+      <Form.Item label="Shadow Size">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={0}
+          max={100}
+          disabled={!(object.shadowEnabled ?? false)}
+          value={object.shadowBlur ?? 8}
+          onChange={(value) => onPatch({ shadowBlur: Math.max(0, Number(value ?? 8)) } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+      <Form.Item label="Shadow Distance">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={0}
+          max={100}
+          disabled={!(object.shadowEnabled ?? false)}
+          value={object.shadowDistance ?? 4}
+          onChange={(value) => onPatch({ shadowDistance: Math.max(0, Number(value ?? 4)) } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+      <Form.Item label="Shadow Direction">
+        <Select
+          disabled={!(object.shadowEnabled ?? false)}
+          value={object.shadowDirection ?? "bottom-right"}
+          options={shadowDirectionOptions.map((item) => ({ label: item.label, value: item.value }))}
+          onChange={(value) => onPatch({ shadowDirection: value } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+    </>
+  );
+
   const objectContent = (
     <SpecificPropertyFields
       project={project}
@@ -924,6 +989,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
   const panelTabs = object.type === "numeric-input"
     ? [
         { key: "general", label: "General", children: generalContent },
+        { key: "effects", label: "Effects", children: effectsContent },
         { key: "value", label: "Value", children: numericValueContent },
         { key: "appearance", label: "Appearance", children: numericAppearanceContent },
         { key: "error", label: "Signal Error", children: numericSignalErrorContent },
@@ -933,6 +999,7 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
       ]
     : [
         { key: "general", label: "General", children: generalContent },
+        { key: "effects", label: "Effects", children: effectsContent },
         { key: "specific", label: "Specific", children: objectContent },
         ...(textContent ? [{ key: "text", label: "Text", children: textContent }] : []),
         { key: "runtime", label: "Runtime", children: runtimeStateContent },

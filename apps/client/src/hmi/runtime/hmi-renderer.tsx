@@ -59,6 +59,7 @@ type FormatNumericOptions = {
 };
 
 type GradientDirection = "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
+type ShadowDirection = "right" | "left" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
 function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   const formatMode = opts.formatMode ?? "decimals";
@@ -195,6 +196,73 @@ function resolveLineGradientProps(args: {
     strokeLinearGradientStartPoint: { x: 0, y: 0 },
     strokeLinearGradientEndPoint: endPoint,
     strokeLinearGradientColorStops: [0, startColor, 1, endColor],
+  };
+}
+
+function resolveShadowOffset(direction: ShadowDirection, distance: number): { x: number; y: number } {
+  const diagonal = distance * Math.SQRT1_2;
+  switch (direction) {
+    case "right":
+      return { x: distance, y: 0 };
+    case "left":
+      return { x: -distance, y: 0 };
+    case "top":
+      return { x: 0, y: -distance };
+    case "bottom":
+      return { x: 0, y: distance };
+    case "top-left":
+      return { x: -diagonal, y: -diagonal };
+    case "top-right":
+      return { x: diagonal, y: -diagonal };
+    case "bottom-left":
+      return { x: -diagonal, y: diagonal };
+    case "bottom-right":
+    default:
+      return { x: diagonal, y: diagonal };
+  }
+}
+
+function resolveShapeShadowProps(object: HmiObject): Record<string, unknown> {
+  if (!(object.shadowEnabled ?? false)) {
+    return {};
+  }
+  const shadowColor = object.shadowColor ?? "#000000";
+  const shadowOpacity = Math.max(0, Math.min(1, object.shadowOpacity ?? 0.35));
+  const shadowBlur = Math.max(0, object.shadowBlur ?? 8);
+  const shadowDistance = Math.max(0, object.shadowDistance ?? 4);
+  const shadowDirection = (object.shadowDirection ?? "bottom-right") as ShadowDirection;
+  const shadowOffset = resolveShadowOffset(shadowDirection, shadowDistance);
+  return {
+    shadowColor,
+    shadowOpacity,
+    shadowBlur,
+    shadowOffsetX: shadowOffset.x,
+    shadowOffsetY: shadowOffset.y,
+  };
+}
+
+function resolveShadowSettings(object: HmiObject): {
+  enabled: boolean;
+  color: string;
+  opacity: number;
+  blur: number;
+  offsetX: number;
+  offsetY: number;
+} {
+  const enabled = object.shadowEnabled ?? false;
+  const color = object.shadowColor ?? "#000000";
+  const opacity = Math.max(0, Math.min(1, object.shadowOpacity ?? 0.35));
+  const blur = Math.max(0, object.shadowBlur ?? 8);
+  const distance = Math.max(0, object.shadowDistance ?? 4);
+  const direction = (object.shadowDirection ?? "bottom-right") as ShadowDirection;
+  const offset = resolveShadowOffset(direction, distance);
+  return {
+    enabled,
+    color,
+    opacity,
+    blur,
+    offsetX: offset.x,
+    offsetY: offset.y,
   };
 }
 
@@ -737,14 +805,39 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "text") {
+    const textShadowProps = resolveShapeShadowProps(resolvedObject);
+    const textShadowSettings = resolveShadowSettings(resolvedObject);
+    const shadowTextStyle: TextStyle = {
+      ...resolvedObject.textStyle,
+      color: textShadowSettings.color,
+    };
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        {textShadowSettings.enabled && textShadowSettings.opacity > 0 ? (
+          renderBoxText(resolvedObject.text, shadowTextStyle, {
+            width: resolvedObject.width,
+            height: resolvedObject.height,
+            wrap: resolvedObject.wrap,
+            ellipsis: resolvedObject.ellipsis,
+            xOffset: textShadowSettings.offsetX,
+            yOffset: textShadowSettings.offsetY,
+            opacity: textShadowSettings.opacity,
+            shadowProps: {
+              shadowColor: textShadowSettings.color,
+              shadowOpacity: 1,
+              shadowBlur: textShadowSettings.blur,
+              shadowOffsetX: 0,
+              shadowOffsetY: 0,
+            },
+          })
+        ) : null}
         {renderBoxText(resolvedObject.text, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
           wrap: resolvedObject.wrap,
           ellipsis: resolvedObject.ellipsis,
+          shadowProps: textShadowProps,
         })}
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
@@ -777,6 +870,7 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
+    const lineShadowProps = resolveShapeShadowProps(resolvedObject);
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -787,6 +881,7 @@ function ObjectNode({
           closed={resolvedObject.closed ?? false}
           fill={resolvedObject.fill}
           {...lineGradientProps}
+          {...lineShadowProps}
         />
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
@@ -806,6 +901,7 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
+    const rectShadowProps = resolveShapeShadowProps(resolvedObject);
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -816,6 +912,7 @@ function ObjectNode({
           stroke={resolvedObject.stroke}
           strokeWidth={resolvedObject.strokeWidth}
           cornerRadius={resolvedObject.cornerRadius}
+          {...rectShadowProps}
         />
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
@@ -882,6 +979,7 @@ function ObjectNode({
       || !resolvedInputTag?.value
       || resolvedInputTag.value.quality === "Bad",
     );
+    const valueInputShadowProps = resolveShapeShadowProps(resolvedObject);
     return (
       <Group
         {...commonGroupProps}
@@ -927,6 +1025,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
           cornerRadius={4}
           opacity={runtimeDisabled ? 0.7 : 1}
+          {...valueInputShadowProps}
         />
         {renderBoxText(`${inputBad ? "BAD" : (value ?? "--")}${resolvedObject.suffix ?? ""}`, resolvedObject.textStyle, {
           width: resolvedObject.width,
@@ -956,12 +1055,13 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
+    const stateIndicatorShadowProps = resolveShapeShadowProps(resolvedObject);
     const text = isBad ? "BAD" : boolValue ? resolvedObject.trueText : resolvedObject.falseText;
 
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} cornerRadius={8} {...indicatorGradientProps} />
+        <Rect width={resolvedObject.width} height={resolvedObject.height} cornerRadius={8} {...indicatorGradientProps} {...stateIndicatorShadowProps} />
         {renderBoxText(text, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
@@ -1012,6 +1112,7 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
+    const switchShadowProps = resolveShapeShadowProps(resolvedObject);
     return (
       <Group
         {...commonGroupProps}
@@ -1054,6 +1155,7 @@ function ObjectNode({
           strokeWidth={resolvedObject.borderWidth ?? 0}
           cornerRadius={8}
           opacity={runtimeDisabled ? 0.65 : 1}
+          {...switchShadowProps}
         />
         {renderBoxText(
           switchBad
@@ -1079,6 +1181,7 @@ function ObjectNode({
       : (resolvedObject.options.length > 0 ? 0 : -1);
     const activeOption = currentIndex >= 0 ? resolvedObject.options[currentIndex] : undefined;
     const displayText = activeOption?.label ?? (currentValue === undefined ? "--" : String(currentValue));
+    const valueSelectShadowProps = resolveShapeShadowProps(resolvedObject);
 
     return (
       <Group
@@ -1116,6 +1219,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? "#707070" : "#5b6b7c"}
           cornerRadius={6}
           opacity={runtimeDisabled ? 0.65 : 1}
+          {...valueSelectShadowProps}
         />
         {renderBoxText(displayText, resolvedObject.textStyle, {
           width: resolvedObject.width,
@@ -1214,11 +1318,12 @@ function ObjectNode({
     const closed = runtimeMode ? Boolean(tagValue(resolvedObject.closedTag, { useObjectIndexing: true, fieldName: "closedTag" }).value?.value) : false;
     const fault = runtimeMode ? Boolean(tagValue(resolvedObject.errorTag, { useObjectIndexing: true, fieldName: "errorTag" }).value?.value) : false;
     const color = fault ? "#d9363e" : open ? "#73d13d" : closed ? "#1677ff" : "#faad14";
+    const valveShadowProps = resolveShapeShadowProps(resolvedObject);
 
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} />
+        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} {...valveShadowProps} />
         <Line points={[20, 20, resolvedObject.width - 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
         <Line points={[resolvedObject.width - 20, 20, 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
         {renderBoxText(resolvedObject.label ?? "Valve", resolvedObject.textStyle, { width: resolvedObject.width, height: resolvedObject.height })}
@@ -1231,11 +1336,12 @@ function ObjectNode({
     const run = runtimeMode ? Boolean(tagValue(resolvedObject.runTag, { useObjectIndexing: true, fieldName: "runTag" }).value?.value) : false;
     const fault = runtimeMode ? Boolean(tagValue(resolvedObject.faultTag, { useObjectIndexing: true, fieldName: "faultTag" }).value?.value) : false;
     const color = fault ? "#ff4d4f" : run ? "#52c41a" : "#8c8c8c";
+    const pumpShadowProps = resolveShapeShadowProps(resolvedObject);
 
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} />
+        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} {...pumpShadowProps} />
         <Circle x={resolvedObject.width * 0.35} y={resolvedObject.height * 0.45} radius={Math.min(resolvedObject.width, resolvedObject.height) * 0.2} fill={color} />
         <Line
           points={[
@@ -1291,6 +1397,7 @@ function ObjectNode({
     const checkY = (resolvedObject.height - checkBoxSize) / 2;
     const checkX = 2;
     const labelPadding = checkX + checkBoxSize + 6;
+    const checkboxShadowProps = resolveShapeShadowProps(resolvedObject);
     return (
       <Group
         {...commonGroupProps}
@@ -1343,6 +1450,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : isChecked ? fillColor : HMI_CONTROL_COLORS.border}
           strokeWidth={1.5}
           cornerRadius={3}
+          {...checkboxShadowProps}
         />
         {isChecked ? (
           <>
@@ -1467,6 +1575,7 @@ function ObjectNode({
       }
       return { x: innerX, y: innerY, width: fillW, height: innerH };
     })();
+    const progressBarShadowProps = resolveShapeShadowProps(resolvedObject);
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -1477,6 +1586,7 @@ function ObjectNode({
           stroke={renderBorder}
           strokeWidth={borderWidth}
           cornerRadius={cornerRadius}
+          {...progressBarShadowProps}
         />
         <Rect
           x={innerX}
@@ -1557,6 +1667,7 @@ function ObjectNode({
     const sliderReleaseSourceValueRef = useRef<number | null>(null);
     const lastWrittenValueRef = useRef<number | null>(null);
     const lastWriteAtRef = useRef(0);
+    const sliderLastFractionRef = useRef(0);
     const renderTrackColor = runtimeDisabled ? sliderDisabledColor : sliderTrackColor;
     const renderFillColor = runtimeDisabled
       ? sliderDisabledColor
@@ -1621,9 +1732,58 @@ function ObjectNode({
           tag: tagName ?? "",
           value: clamped,
         }, resolvedObject.requiredActionRole),
-        withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+        (() => {
+          const nextContext = withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name);
+          return {
+            ...nextContext,
+            parameters: {
+              ...(nextContext.parameters ?? {}),
+              __allowConcurrentWrite: true,
+            },
+          };
+        })(),
       );
     }, [resolvedObject, sliderMin, sliderMax, runtimeMode, onAction, renderContext, sliderDragWriteIntervalMs]);
+
+    const finalizeSliderDrag = useCallback((allowWrite = true) => {
+      sliderDragRef.current = false;
+      const fraction = Math.max(0, Math.min(1, sliderLastFractionRef.current));
+      commitSliderValue(fraction, true, allowWrite);
+      sliderReleaseAtRef.current = Date.now();
+      sliderReleaseSourceValueRef.current = sliderValue;
+    }, [commitSliderValue, sliderValue]);
+
+    useEffect(() => {
+      if (sliderDragRef.current) {
+        return;
+      }
+      const fraction = sliderMax > sliderMin ? (sliderValue - sliderMin) / (sliderMax - sliderMin) : 0;
+      sliderLastFractionRef.current = Math.max(0, Math.min(1, fraction));
+    }, [sliderMax, sliderMin, sliderValue]);
+
+    useEffect(() => {
+      if (interactive || runtimeDisabled) {
+        return;
+      }
+      const handleMouseUp = () => {
+        if (!sliderDragRef.current) {
+          return;
+        }
+        finalizeSliderDrag(true);
+      };
+      const handleWindowBlur = () => {
+        if (!sliderDragRef.current) {
+          return;
+        }
+        finalizeSliderDrag(true);
+      };
+      window.addEventListener("mouseup", handleMouseUp);
+      window.addEventListener("blur", handleWindowBlur);
+      return () => {
+        window.removeEventListener("mouseup", handleMouseUp);
+        window.removeEventListener("blur", handleWindowBlur);
+      };
+    }, [finalizeSliderDrag, interactive, runtimeDisabled]);
 
     useEffect(() => {
       if (sliderDragRef.current || sliderDragValue === null) {
@@ -1675,6 +1835,7 @@ function ObjectNode({
             showUnit: Boolean(resolvedObject.unit),
           }))
       : "";
+    const sliderShadowProps = resolveShapeShadowProps(resolvedObject);
     const sliderMinText = formatNumericValue(sliderMin, {
       formatMode: "decimals",
       decimals,
@@ -1735,6 +1896,7 @@ function ObjectNode({
           const pointer = groupNode.getRelativePointerPosition();
           if (pointer) {
             const fraction = getSliderFraction(pointer.x, pointer.y);
+            sliderLastFractionRef.current = fraction;
             commitSliderValue(fraction, true, !sliderWriteOnRelease);
           }
         }}
@@ -1746,6 +1908,7 @@ function ObjectNode({
           const pointer = groupNode.getRelativePointerPosition();
           if (pointer) {
             const fraction = getSliderFraction(pointer.x, pointer.y);
+            sliderLastFractionRef.current = fraction;
             commitSliderValue(fraction, false, !sliderWriteOnRelease);
           }
         }}
@@ -1761,22 +1924,21 @@ function ObjectNode({
           const pointer = groupNode.getRelativePointerPosition();
           if (pointer) {
             const fraction = getSliderFraction(pointer.x, pointer.y);
-            commitSliderValue(fraction, true);
+            sliderLastFractionRef.current = fraction;
           }
-          sliderDragRef.current = false;
-          sliderReleaseAtRef.current = Date.now();
-          sliderReleaseSourceValueRef.current = sliderValue;
+          finalizeSliderDrag(true);
         }}
         onMouseLeave={() => {
-          sliderDragRef.current = false;
           if (interactive || runtimeDisabled) {
+            sliderDragRef.current = false;
             setSliderDragValue(null);
             sliderReleaseAtRef.current = null;
             sliderReleaseSourceValueRef.current = null;
             return;
           }
-          sliderReleaseAtRef.current = Date.now();
-          sliderReleaseSourceValueRef.current = sliderValue;
+          if (sliderDragRef.current) {
+            finalizeSliderDrag(true);
+          }
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -1788,6 +1950,7 @@ function ObjectNode({
           strokeWidth={sliderBorderWidth}
           cornerRadius={sliderCornerRadius}
           opacity={runtimeDisabled ? 0.7 : 1}
+          {...sliderShadowProps}
         />
         {isSliderVertical ? (
           <>
@@ -1814,6 +1977,7 @@ function ObjectNode({
               fill={renderThumbColor}
               stroke={sliderThumbBorderColor}
               strokeWidth={1}
+              {...sliderShadowProps}
             />
           </>
         ) : (
@@ -1841,6 +2005,7 @@ function ObjectNode({
               fill={renderThumbColor}
               stroke={sliderThumbBorderColor}
               strokeWidth={1}
+              {...sliderShadowProps}
             />
           </>
         )}
@@ -1937,6 +2102,7 @@ function ObjectNode({
       ? selectDisabledTextColor
       : (selectBad ? selectBadTextColor : (isPlaceholder ? selectPlaceholderColor : selectTextColor));
     const renderArrowColor = runtimeDisabled ? selectDisabledTextColor : (selectBad ? selectBadTextColor : selectArrowColor);
+    const selectShadowProps = resolveShapeShadowProps(resolvedObject);
 
     return (
       <Group
@@ -2058,6 +2224,7 @@ function ObjectNode({
           strokeWidth={selectBorderWidth}
           cornerRadius={selectCornerRadius}
           opacity={runtimeDisabled ? 0.65 : 1}
+          {...selectShadowProps}
         />
         {renderBoxText(displayText, {
           fontFamily: selectFontFamily,
@@ -2144,6 +2311,7 @@ function ObjectNode({
     const renderSelectedLabel = runtimeDisabled ? disabledTextColor : (radioBad ? badTextColor : selectedLabelColor);
     const radioCount = Math.max(1, radioOptions.length);
     const totalGap = itemGap * Math.max(0, radioCount - 1);
+    const radioShadowProps = resolveShapeShadowProps(resolvedObject);
     const itemRects = radioOptions.map((_, idx) => {
       if (isRadioVertical) {
         const itemHeight = Math.max(1, (resolvedObject.height - totalGap) / radioCount);
@@ -2228,6 +2396,7 @@ function ObjectNode({
           strokeWidth={borderWidth}
           cornerRadius={cornerRadius}
           opacity={runtimeDisabled ? 0.7 : 1}
+          {...radioShadowProps}
         />
         {radioOptions.map((opt, idx) => {
           const isSelected = runtimeMode && String(radioValue) === String(opt.value);
@@ -2321,6 +2490,7 @@ function ObjectNode({
             showUnit: resolvedObject.showUnit,
           })
         : resolvedObject.placeholder ?? "---";
+    const numericInputShadowProps = resolveShapeShadowProps(resolvedObject);
 
     return (
       <Group
@@ -2392,6 +2562,7 @@ function ObjectNode({
           strokeWidth={objBorderWidth}
           cornerRadius={objCornerRadius}
           opacity={runtimeDisabled ? 0.55 : 1}
+          {...numericInputShadowProps}
         />
         {renderBoxText(displayNumText, {
           fontFamily: objFontFamily,
@@ -2872,6 +3043,7 @@ function ImageNode({
   });
   const source = stateSrc ?? resolvedUrl ?? object.src;
   const { image, status: imageStatus } = useImage(source);
+  const imageShadowProps = resolveShapeShadowProps(object);
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, object.fit),
     [image?.height, image?.width, object.fit, object.height, object.width],
@@ -2909,6 +3081,7 @@ function ImageNode({
           height={placement.height}
           crop={placement.crop}
           perfectDrawEnabled={false}
+          {...imageShadowProps}
         />
       ) : source && imageStatus === "loading" ? null : isAssetMissing ? (
         <>
@@ -2919,6 +3092,7 @@ function ImageNode({
             stroke="#f14c4c"
             strokeWidth={1}
             dash={[4, 3]}
+            {...imageShadowProps}
           />
           <Text
             text="asset not found"
@@ -2932,7 +3106,7 @@ function ImageNode({
         </>
       ) : source && imageStatus === "error" ? (
         <>
-          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} />
+          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} {...imageShadowProps} />
           <Text
             text="Failed to load image"
             width={object.width}
@@ -2944,7 +3118,7 @@ function ImageNode({
         </>
       ) : (
         <>
-          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} />
+          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} {...imageShadowProps} />
           <Text
             text="Image source is empty"
             width={object.width}
@@ -3021,6 +3195,7 @@ function ButtonNode({
     height: object.height,
   });
   const { image } = useImage(currentSrc);
+  const buttonShadowProps = resolveShapeShadowProps(object);
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, "stretch"),
     [image?.height, image?.width, object.height, object.width],
@@ -3082,6 +3257,7 @@ function ButtonNode({
         stroke={object.borderColor}
         strokeWidth={object.borderWidth ?? 0}
         cornerRadius={6}
+        {...buttonShadowProps}
       />
       {currentSrc && image ? (
         <KonvaImage image={image} x={placement.x} y={placement.y} width={placement.width} height={placement.height} />
@@ -3701,13 +3877,17 @@ function renderBoxText(
     height: number;
     wrap?: "none" | "word" | "char";
     ellipsis?: boolean;
+    xOffset?: number;
+    yOffset?: number;
+    opacity?: number;
+    shadowProps?: Record<string, unknown>;
   },
 ) {
   const padding = textStyle.padding ?? 0;
   return (
     <Text
-      x={padding}
-      y={padding}
+      x={padding + (options.xOffset ?? 0)}
+      y={padding + (options.yOffset ?? 0)}
       text={text}
       width={Math.max(0, options.width - padding * 2)}
       height={Math.max(0, options.height - padding * 2)}
@@ -3719,7 +3899,9 @@ function renderBoxText(
       fontFamily={textStyle.fontFamily}
       fontSize={textStyle.fontSize}
       fontStyle={textStyle.fontStyle ?? "normal"}
+      opacity={options.opacity ?? 1}
       listening={false}
+      {...(options.shadowProps ?? {})}
     />
   );
 }

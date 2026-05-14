@@ -522,6 +522,18 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     return true;
   };
 
+  const abortRuntimeCommandsByKey = (commandKey: string): number => {
+    let abortedCount = 0;
+    for (const meta of activeRuntimeCommandsRef.current.values()) {
+      if (meta.commandKey !== commandKey) {
+        continue;
+      }
+      meta.abortController?.abort();
+      abortedCount += 1;
+    }
+    return abortedCount;
+  };
+
   const abortPopupRuntimeCommands = (popupInstanceId: string): void => {
     let abortedCount = 0;
     for (const meta of activeRuntimeCommandsRef.current.values()) {
@@ -637,6 +649,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     );
     const existing = pendingCommandKeysRef.current.get(params.commandKey);
     const inFlightForKey = isCommandKeyInFlight(params.commandKey);
+    const replacePendingWrite = params.action.type === "write" && params.context.parameters?.__allowConcurrentWrite === true;
     debugRuntimeCommand("pending-check-result", {
       timestamp: getCommandDebugTimestamp(),
       actionType: params.action.type,
@@ -657,56 +670,61 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         ? inFlightForKey
         : Date.now() - existing.startedAt <= existing.timeoutMs + 750;
       if (shouldBlock) {
-        const warnText = params.macroId
-          ? "Macro ignored: already pending"
-          : "Command ignored: already pending";
-        debugRuntimeCommand("pending-hit", {
-          timestamp: getCommandDebugTimestamp(),
-          actionType: params.action.type,
-          commandKey: params.commandKey,
-          macroId: params.macroId,
-          durationMs: Date.now() - existing.startedAt,
-          reason: "already_pending",
-          duplicatePolicy,
-          inFlightForKey,
-        });
-        debugRuntimeCommand(
-          "skipped",
-          createRuntimeCommandDebugPayload({
-            status: "skipped",
+        if (replacePendingWrite) {
+          abortRuntimeCommandsByKey(params.commandKey);
+          pendingCommandKeysRef.current.delete(params.commandKey);
+        } else {
+          const warnText = params.macroId
+            ? "Macro ignored: already pending"
+            : "Command ignored: already pending";
+          debugRuntimeCommand("pending-hit", {
+            timestamp: getCommandDebugTimestamp(),
+            actionType: params.action.type,
+            commandKey: params.commandKey,
+            macroId: params.macroId,
+            durationMs: Date.now() - existing.startedAt,
+            reason: "already_pending",
+            duplicatePolicy,
+            inFlightForKey,
+          });
+          debugRuntimeCommand(
+            "skipped",
+            createRuntimeCommandDebugPayload({
+              status: "skipped",
+              actionType: params.action.type,
+              commandKey: params.commandKey,
+              context: params.context,
+              macroId: params.macroId,
+              reason: "already_pending",
+              details: {
+                pendingForMs: Date.now() - existing.startedAt,
+              },
+            }),
+          );
+          logRuntimeCommand({
+            level: "warning",
+            reason: "already_pending",
             actionType: params.action.type,
             commandKey: params.commandKey,
             context: params.context,
             macroId: params.macroId,
-            reason: "already_pending",
-            details: {
-              pendingForMs: Date.now() - existing.startedAt,
-            },
-          }),
-        );
-        logRuntimeCommand({
-          level: "warning",
-          reason: "already_pending",
-          actionType: params.action.type,
-          commandKey: params.commandKey,
-          context: params.context,
-          macroId: params.macroId,
-          messageText: warnText,
-        });
-        if (shouldShowCommandWarning(params.commandKey)) {
-          void message.warning(warnText);
-        }
-        if (debugActionTiming) {
-          logActionTiming({
-            actionType: params.action.type,
-            actionId: params.actionId,
-            status: "already_pending",
-            context: params.context,
-            clickTs: params.clickTs,
-            requestStartTs: performance.now(),
+            messageText: warnText,
           });
+          if (shouldShowCommandWarning(params.commandKey)) {
+            void message.warning(warnText);
+          }
+          if (debugActionTiming) {
+            logActionTiming({
+              actionType: params.action.type,
+              actionId: params.actionId,
+              status: "already_pending",
+              context: params.context,
+              clickTs: params.clickTs,
+              requestStartTs: performance.now(),
+            });
+          }
+          return undefined;
         }
-        return undefined;
       }
       pendingCommandKeysRef.current.delete(params.commandKey);
       debugRuntimeCommand("pending-delete", {
@@ -717,6 +735,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         durationMs: Date.now() - existing.startedAt,
         reason: "stale_pending",
       });
+    }
+
+    if (replacePendingWrite && inFlightForKey) {
+      abortRuntimeCommandsByKey(params.commandKey);
+      pendingCommandKeysRef.current.delete(params.commandKey);
     }
 
     const pendingStartedAt = Date.now();
@@ -1749,6 +1772,13 @@ function getRuntimeActionCommandKey(action: RuntimeAction, context: RenderContex
     ].join(":");
   }
   if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+    const allowConcurrentWrite = action.type === "write" && context.parameters?.__allowConcurrentWrite === true;
+    if (allowConcurrentWrite) {
+      const objectScope = typeof context.parameters?.__runtimeObjectScope === "string"
+        ? context.parameters.__runtimeObjectScope.trim()
+        : "";
+      return `tag:${action.tag}:scope:${objectScope || "none"}:latest`;
+    }
     return `tag:${action.tag}`;
   }
   if (action.type === "writeConst") {

@@ -74,6 +74,12 @@ export type HmiObjectBase = {
   requiredActionRole?: AccessRoleLevel;
   locked?: boolean;
   opacity?: number;
+  shadowEnabled?: boolean;
+  shadowColor?: string;
+  shadowOpacity?: number;
+  shadowBlur?: number;
+  shadowDistance?: number;
+  shadowDirection?: "right" | "left" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
   minWidth?: number;
   minHeight?: number;
