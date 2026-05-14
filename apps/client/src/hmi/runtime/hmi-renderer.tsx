@@ -1,7 +1,7 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { message } from "antd";
+import { InputNumber, message } from "antd";
 import {
   clampAccessRoleLevel,
   combineTagPrefix,
@@ -50,6 +50,13 @@ export type ObjectSelectPayload = {
   additive: boolean;
 };
 
+export type RuntimeOverlayState = {
+  x: number;
+  y: number;
+  objectId: string;
+  content: React.ReactNode;
+};
+
 type HmiRendererProps = {
   project: ScadaProject;
   screen: HmiScreen;
@@ -70,6 +77,9 @@ type HmiRendererProps = {
   onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
   showObjectFrames?: boolean;
   scopedAssets?: Record<string, Asset>;
+  overlayState?: RuntimeOverlayState | null;
+  onShowOverlay?: (overlay: RuntimeOverlayState) => void;
+  onHideOverlay?: () => void;
 };
 
 type BaseNodeProps = {
@@ -92,6 +102,9 @@ type BaseNodeProps = {
   onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
   showObjectFrames: boolean;
   scopedAssets?: Record<string, Asset>;
+  overlayState?: RuntimeOverlayState | null;
+  onShowOverlay?: (overlay: RuntimeOverlayState) => void;
+  onHideOverlay?: () => void;
 };
 
 export function HmiRenderer({
@@ -114,6 +127,9 @@ export function HmiRenderer({
   onContextMenuObject,
   showObjectFrames = false,
   scopedAssets,
+  overlayState,
+  onShowOverlay,
+  onHideOverlay,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
@@ -159,6 +175,9 @@ export function HmiRenderer({
           onContextMenuObject={onContextMenuObject}
           showObjectFrames={showObjectFrames}
           scopedAssets={scopedAssets}
+          overlayState={overlayState}
+          onShowOverlay={onShowOverlay}
+          onHideOverlay={onHideOverlay}
         />
       ))}
     </>
@@ -261,6 +280,18 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
         candidates.push(normalized);
       }
       break;
+    case "checkbox":
+    case "slider":
+    case "radio-group":
+    case "numeric-input":
+      candidates.push(object.tag, object.writeTag);
+      break;
+    case "progress-bar":
+      candidates.push(object.tag);
+      break;
+    case "select":
+      candidates.push(object.tag, object.writeTag);
+      break;
     case "valve":
       candidates.push(object.openTag, object.closedTag, object.errorTag);
       break;
@@ -296,6 +327,9 @@ function ObjectNode({
   onContextMenuObject,
   showObjectFrames,
   scopedAssets,
+  overlayState,
+  onShowOverlay,
+  onHideOverlay,
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
@@ -477,6 +511,9 @@ function ObjectNode({
         showObjectFrames={showObjectFrames}
         scopedAssets={scopedAssets}
         groupProps={commonGroupProps}
+        overlayState={overlayState}
+        onShowOverlay={onShowOverlay}
+        onHideOverlay={onHideOverlay}
       />
     );
   }
@@ -963,6 +1000,755 @@ function ObjectNode({
     );
   }
 
+  if (resolvedObject.type === "checkbox") {
+    const checkboxTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const checkboxBad = runtimeMode && Boolean(
+      checkboxTag?.missingBindingReference
+      || checkboxTag?.missingIndexedTag
+      || (resolvedObject.tag?.trim() && !checkboxTag?.value)
+    );
+    const isChecked = runtimeMode && !checkboxBad ? Boolean(checkboxTag?.value?.value) : false;
+    const fillColor = isChecked ? (resolvedObject.checkedColor ?? "#0e639c") : (resolvedObject.uncheckedColor ?? "#3c3c3c");
+    const displayText = checkboxBad ? "BAD" : (isChecked ? (resolvedObject.checkedText ?? "On") : (resolvedObject.uncheckedText ?? "Off"));
+    const checkBoxSize = Math.min(18, resolvedObject.height * 0.55);
+    return (
+      <Group
+        {...commonGroupProps}
+        onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive) {
+            onSelectObject?.({
+              objectId: resolvedObject.id,
+              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+            });
+            return;
+          }
+          if (runtimeDisabled) {
+            return;
+          }
+          const writeTagField = runtimeMode
+            ? (resolvedObject.writeTag?.trim() || resolvedObject.tag)
+            : resolvedObject.tag;
+          const resolvedWriteTag = runtimeMode
+            ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
+            : undefined;
+          if (runtimeMode && resolvedWriteTag?.missingIndexedTag) {
+            if (resolvedWriteTag.indexedAddress) {
+              void message.warning(`Indexed tag not found: ${resolvedWriteTag.indexedAddress}`);
+            }
+            return;
+          }
+          const tagName = runtimeMode
+            ? (resolvedWriteTag?.resolvedName ?? writeTagField)
+            : writeTagField;
+          if (runtimeMode && !tagName?.trim()) {
+            return;
+          }
+          onAction?.(
+            withActionRoleLevel({
+              type: "write",
+              tag: tagName ?? "",
+              value: !isChecked,
+            }, resolvedObject.requiredActionRole),
+            withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+          );
+        }}
+      >
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={runtimeDisabled ? "#3d3d3d" : "#141414"}
+          stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
+          cornerRadius={4}
+          opacity={runtimeDisabled ? 0.7 : 1}
+        />
+        <Rect
+          x={6}
+          y={(resolvedObject.height - checkBoxSize) / 2}
+          width={checkBoxSize}
+          height={checkBoxSize}
+          fill={runtimeDisabled ? "#4a4a4a" : fillColor}
+          stroke={isChecked ? "#ffffff" : "#595959"}
+          strokeWidth={1}
+          cornerRadius={3}
+        />
+        {isChecked ? (
+          <>
+            <Line
+              points={[8, (resolvedObject.height) / 2, 6 + checkBoxSize * 0.4, (resolvedObject.height) / 2 + checkBoxSize * 0.4]}
+              stroke="#ffffff"
+              strokeWidth={2}
+              lineCap="round"
+            />
+            <Line
+              points={[6 + checkBoxSize * 0.4, (resolvedObject.height) / 2 + checkBoxSize * 0.4, 6 + checkBoxSize, (resolvedObject.height) / 2 - checkBoxSize * 0.1]}
+              stroke="#ffffff"
+              strokeWidth={2}
+              lineCap="round"
+            />
+          </>
+        ) : null}
+        {renderBoxText(resolvedObject.label ?? displayText, {
+          fontFamily: "Arial",
+          fontSize: 14,
+          color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+          horizontalAlign: "left",
+          verticalAlign: "middle",
+          padding: 6 + checkBoxSize + 8,
+        }, {
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+        })}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
+  if (resolvedObject.type === "progress-bar") {
+    const progressTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const progressBad = runtimeMode && Boolean(
+      progressTag?.missingBindingReference
+      || progressTag?.missingIndexedTag
+      || (resolvedObject.tag?.trim() && (!progressTag?.value || progressTag.value.quality === "Bad"))
+    );
+    const rawValue = runtimeMode ? Number(progressTag?.value?.value ?? 0) : 0;
+    const minVal = resolvedObject.min ?? 0;
+    const maxVal = resolvedObject.max ?? 100;
+    const clampedValue = Number.isFinite(rawValue) ? Math.min(maxVal, Math.max(minVal, rawValue)) : minVal;
+    const ratio = maxVal > minVal ? (clampedValue - minVal) / (maxVal - minVal) : 0;
+    const isVertical = resolvedObject.orientation === "vertical";
+    const fillColor = progressBad ? (resolvedObject.alarmColor ?? "#d9363e") : (resolvedObject.fillColor ?? "#0e639c");
+    const trackColor = resolvedObject.trackColor ?? "#1e1e1e";
+    const showValue = resolvedObject.showValue ?? true;
+    const valueText = showValue ? `${progressBad ? "BAD" : `${Math.round(clampedValue * 100) / 100}${resolvedObject.unit ?? ""}`}` : "";
+    return (
+      <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={trackColor}
+          cornerRadius={4}
+        />
+        {isVertical ? (
+          <Rect
+            x={2}
+            y={2 + resolvedObject.height * (1 - ratio)}
+            width={resolvedObject.width - 4}
+            height={Math.max(0, resolvedObject.height * ratio - 4)}
+            fill={fillColor}
+            cornerRadius={3}
+          />
+        ) : (
+          <Rect
+            x={2}
+            y={2}
+            width={Math.max(0, (resolvedObject.width - 4) * ratio)}
+            height={resolvedObject.height - 4}
+            fill={fillColor}
+            cornerRadius={3}
+          />
+        )}
+        {valueText ? (
+          renderBoxText(valueText, {
+            fontFamily: "Arial",
+            fontSize: Math.max(10, resolvedObject.height * 0.35),
+            color: "#ffffff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          }, {
+            width: resolvedObject.width,
+            height: resolvedObject.height,
+          })
+        ) : null}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
+  if (resolvedObject.type === "slider") {
+    const sliderTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const sliderBad = runtimeMode && Boolean(
+      sliderTag?.missingBindingReference
+      || sliderTag?.missingIndexedTag
+      || (resolvedObject.tag?.trim() && (!sliderTag?.value || sliderTag.value.quality === "Bad"))
+    );
+    const rawSliderValue = runtimeMode ? Number(sliderTag?.value?.value ?? 0) : 0;
+    const sliderMin = resolvedObject.min ?? 0;
+    const sliderMax = resolvedObject.max ?? 100;
+    const sliderValue = Number.isFinite(rawSliderValue) ? Math.min(sliderMax, Math.max(sliderMin, rawSliderValue)) : sliderMin;
+    const sliderRatio = sliderMax > sliderMin ? (sliderValue - sliderMin) / (sliderMax - sliderMin) : 0;
+    const isSliderVertical = resolvedObject.orientation === "vertical";
+    const sliderTrackColor = resolvedObject.trackColor ?? "#1e1e1e";
+    const sliderFillColor = resolvedObject.fillColor ?? "#0e639c";
+    const sliderThumbColor = resolvedObject.thumbColor ?? "#d9d9d9";
+    const sliderShowValue = resolvedObject.showValue ?? true;
+    const sliderDragRef = useRef(false);
+
+    const getSliderFraction = useCallback((pointerX: number, pointerY: number): number => {
+      if (isSliderVertical) {
+        return 1 - Math.max(0, Math.min(1, pointerY / resolvedObject.height));
+      }
+      return Math.max(0, Math.min(1, pointerX / resolvedObject.width));
+    }, [isSliderVertical, resolvedObject.height, resolvedObject.width]);
+
+    const commitSliderValue = useCallback((fraction: number) => {
+      const val = sliderMin + fraction * (sliderMax - sliderMin);
+      const step = resolvedObject.step ?? 1;
+      const stepped = step > 0 ? Math.round(val / step) * step : val;
+      const clamped = Math.min(sliderMax, Math.max(sliderMin, stepped));
+      const writeTagField = runtimeMode
+        ? (resolvedObject.writeTag?.trim() || resolvedObject.tag)
+        : resolvedObject.tag;
+      const resolvedWriteTag = runtimeMode
+        ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
+        : undefined;
+      const tagName = runtimeMode
+        ? (resolvedWriteTag?.resolvedName ?? writeTagField)
+        : writeTagField;
+      if (runtimeMode && !tagName?.trim()) {
+        return;
+      }
+      onAction?.(
+        withActionRoleLevel({
+          type: "write",
+          tag: tagName ?? "",
+          value: clamped,
+        }, resolvedObject.requiredActionRole),
+        withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+      );
+    }, [resolvedObject, sliderMin, sliderMax, runtimeMode, onAction, renderContext]);
+
+    const sliderValueText = sliderShowValue ? `${sliderBad ? "BAD" : sliderValue}${resolvedObject.unit ?? ""}` : "";
+
+    return (
+      <Group
+        {...commonGroupProps}
+        onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive) {
+            onSelectObject?.({
+              objectId: resolvedObject.id,
+              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+            });
+            return;
+          }
+          if (runtimeDisabled) {
+            return;
+          }
+          const node = evt.target;
+          const pointer = node.getRelativePointerPosition();
+          if (pointer) {
+            const fraction = getSliderFraction(pointer.x, pointer.y);
+            commitSliderValue(fraction);
+          }
+        }}
+        onMouseDown={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive || runtimeDisabled) {
+            return;
+          }
+          sliderDragRef.current = true;
+        }}
+        onMouseMove={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive || runtimeDisabled || !sliderDragRef.current) {
+            return;
+          }
+          const node = evt.target;
+          const pointer = node.getRelativePointerPosition();
+          if (pointer) {
+            const fraction = getSliderFraction(pointer.x, pointer.y);
+            commitSliderValue(fraction);
+          }
+        }}
+        onMouseUp={() => {
+          sliderDragRef.current = false;
+        }}
+        onMouseLeave={() => {
+          sliderDragRef.current = false;
+        }}
+      >
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        {isSliderVertical ? (
+          <>
+            <Rect
+              x={resolvedObject.width * 0.35}
+              y={0}
+              width={resolvedObject.width * 0.3}
+              height={resolvedObject.height}
+              fill={sliderTrackColor}
+              cornerRadius={4}
+            />
+            <Rect
+              x={resolvedObject.width * 0.35}
+              y={resolvedObject.height * (1 - sliderRatio)}
+              width={resolvedObject.width * 0.3}
+              height={resolvedObject.height * sliderRatio}
+              fill={runtimeDisabled ? "#4a4a4a" : sliderFillColor}
+              cornerRadius={4}
+            />
+            <Circle
+              x={resolvedObject.width * 0.5}
+              y={resolvedObject.height * (1 - sliderRatio)}
+              radius={Math.min(8, resolvedObject.width * 0.18, resolvedObject.height * 0.1)}
+              fill={runtimeDisabled ? "#6f6f6f" : sliderThumbColor}
+              stroke="#595959"
+              strokeWidth={1}
+            />
+          </>
+        ) : (
+          <>
+            <Rect
+              x={0}
+              y={resolvedObject.height * 0.35}
+              width={resolvedObject.width}
+              height={resolvedObject.height * 0.3}
+              fill={sliderTrackColor}
+              cornerRadius={4}
+            />
+            <Rect
+              x={0}
+              y={resolvedObject.height * 0.35}
+              width={resolvedObject.width * sliderRatio}
+              height={resolvedObject.height * 0.3}
+              fill={runtimeDisabled ? "#4a4a4a" : sliderFillColor}
+              cornerRadius={4}
+            />
+            <Circle
+              x={resolvedObject.width * sliderRatio}
+              y={resolvedObject.height * 0.5}
+              radius={Math.min(8, resolvedObject.width * 0.05, resolvedObject.height * 0.18)}
+              fill={runtimeDisabled ? "#6f6f6f" : sliderThumbColor}
+              stroke="#595959"
+              strokeWidth={1}
+            />
+          </>
+        )}
+        {sliderValueText ? (
+          renderBoxText(sliderValueText, {
+            fontFamily: "Arial",
+            fontSize: Math.max(9, resolvedObject.height * 0.32),
+            color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+            horizontalAlign: "center",
+            verticalAlign: isSliderVertical ? "top" : "middle",
+            padding: isSliderVertical ? 2 : 0,
+          }, {
+            width: resolvedObject.width,
+            height: resolvedObject.height,
+          })
+        ) : null}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
+  if (resolvedObject.type === "select") {
+    const selectTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const selectBad = runtimeMode && Boolean(
+      selectTag?.missingBindingReference
+      || selectTag?.missingIndexedTag
+      || (resolvedObject.tag?.trim() && (!selectTag?.value || selectTag.value.quality === "Bad"))
+    );
+    const currentValue = runtimeMode ? selectTag?.value?.value : undefined;
+    const options = resolvedObject.options ?? [];
+    const selectedOption = runtimeMode && currentValue !== undefined
+      ? options.find((opt) => String(opt.value) === String(currentValue))
+      : undefined;
+    const displayText = selectBad ? "BAD" : (selectedOption?.label ?? resolvedObject.placeholder ?? "--");
+
+    return (
+      <Group
+        {...commonGroupProps}
+        onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive) {
+            onSelectObject?.({
+              objectId: resolvedObject.id,
+              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+            });
+            return;
+          }
+          if (runtimeDisabled) {
+            return;
+          }
+          if (resolvedObject.requiredActionRole) {
+            const hasAccess = hasRoleAccess(renderContext.userRoleLevel, resolvedObject.requiredActionRole);
+            if (!hasAccess) {
+              return;
+            }
+          }
+          const node = evt.target;
+          const stage = node.getStage();
+          const container = stage?.container();
+          if (!container) {
+            return;
+          }
+          const rect = container.getBoundingClientRect();
+          const absPos = node.getAbsolutePosition();
+          const scale = stage?.scaleX() ?? 1;
+          const overlayX = rect.left + absPos.x * scale;
+          const overlayY = rect.top + (absPos.y + resolvedObject.height) * scale;
+          if (overlayState?.objectId === resolvedObject.id) {
+            onHideOverlay?.();
+            return;
+          }
+          onShowOverlay?.({
+            x: overlayX,
+            y: overlayY,
+            objectId: resolvedObject.id,
+            content: (
+              <div className="hmi-select-overlay" style={{
+                background: "#252526",
+                border: "1px solid #3c3c3c",
+                borderRadius: 4,
+                minWidth: resolvedObject.width * scale,
+                maxHeight: 200,
+                overflowY: "auto",
+              }}>
+                {options.map((opt, idx) => (
+                  <div
+                    key={idx}
+                    className="hmi-select-overlay__option"
+                    style={{
+                      padding: "4px 8px",
+                      cursor: "pointer",
+                      color: selectedOption?.value === opt.value ? "#69c0ff" : "#d9d9d9",
+                      background: selectedOption?.value === opt.value ? "#1a3a5c" : "transparent",
+                      fontSize: 13,
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.target as HTMLElement).style.background = "#2a2a2a";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.target as HTMLElement).style.background = selectedOption?.value === opt.value ? "#1a3a5c" : "transparent";
+                    }}
+                    onClick={() => {
+                      const writeTagField = runtimeMode
+                        ? (resolvedObject.writeTag?.trim() || resolvedObject.tag)
+                        : resolvedObject.tag;
+                      const resolvedWriteTag = runtimeMode
+                        ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
+                        : undefined;
+                      const tagName = runtimeMode
+                        ? (resolvedWriteTag?.resolvedName ?? writeTagField)
+                        : writeTagField;
+                      if (runtimeMode && tagName?.trim()) {
+                        onAction?.(
+                          withActionRoleLevel({
+                            type: "write",
+                            tag: tagName,
+                            value: opt.value,
+                          }, resolvedObject.requiredActionRole),
+                          withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+                        );
+                      }
+                      onHideOverlay?.();
+                    }}
+                  >
+                    {opt.label}
+                  </div>
+                ))}
+              </div>
+            ),
+          });
+        }}
+      >
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={runtimeDisabled ? "#3d3d3d" : "#1f2a38"}
+          stroke={runtimeDisabled ? "#707070" : "#5b6b7c"}
+          cornerRadius={4}
+          opacity={runtimeDisabled ? 0.65 : 1}
+        />
+        {renderBoxText(displayText, {
+          fontFamily: "Arial",
+          fontSize: 14,
+          color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+          horizontalAlign: "left",
+          verticalAlign: "middle",
+          padding: 8,
+        }, {
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+        })}
+        <Line
+          points={[resolvedObject.width - 18, resolvedObject.height * 0.4, resolvedObject.width - 10, resolvedObject.height * 0.6, resolvedObject.width - 2, resolvedObject.height * 0.4]}
+          stroke="#8c8c8c"
+          strokeWidth={1.5}
+          closed
+          fill="#8c8c8c"
+        />
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
+  if (resolvedObject.type === "radio-group") {
+    const radioTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const radioBad = runtimeMode && Boolean(
+      radioTag?.missingBindingReference
+      || radioTag?.missingIndexedTag
+      || (resolvedObject.tag?.trim() && (!radioTag?.value || radioTag.value.quality === "Bad"))
+    );
+    const radioValue = runtimeMode ? radioTag?.value?.value : undefined;
+    const radioOptions = resolvedObject.options ?? [];
+    const isRadioVertical = resolvedObject.orientation === "vertical";
+    const radioSize = Math.min(14, resolvedObject.height * 0.28);
+    return (
+      <Group
+        {...commonGroupProps}
+        onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive) {
+            onSelectObject?.({
+              objectId: resolvedObject.id,
+              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+            });
+            return;
+          }
+          if (runtimeDisabled) {
+            return;
+          }
+          if (!radioOptions.length) {
+            return;
+          }
+          const node = evt.target;
+          const pointer = node.getRelativePointerPosition();
+          if (!pointer) {
+            return;
+          }
+          let clickedIndex = -1;
+          if (isRadioVertical) {
+            const itemHeight = resolvedObject.height / radioOptions.length;
+            clickedIndex = Math.floor(pointer.y / itemHeight);
+          } else {
+            const itemWidth = resolvedObject.width / radioOptions.length;
+            clickedIndex = Math.floor(pointer.x / itemWidth);
+          }
+          if (clickedIndex < 0 || clickedIndex >= radioOptions.length) {
+            return;
+          }
+          const selectedOpt = radioOptions[clickedIndex];
+          if (!selectedOpt) {
+            return;
+          }
+          const writeTagField = runtimeMode
+            ? (resolvedObject.writeTag?.trim() || resolvedObject.tag)
+            : resolvedObject.tag;
+          const resolvedWriteTag = runtimeMode
+            ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
+            : undefined;
+          const tagName = runtimeMode
+            ? (resolvedWriteTag?.resolvedName ?? writeTagField)
+            : writeTagField;
+          if (runtimeMode && !tagName?.trim()) {
+            return;
+          }
+          onAction?.(
+            withActionRoleLevel({
+              type: "write",
+              tag: tagName ?? "",
+              value: selectedOpt.value,
+            }, resolvedObject.requiredActionRole),
+            withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+          );
+        }}
+      >
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={runtimeDisabled ? "#3d3d3d" : "#141414"}
+          stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
+          cornerRadius={4}
+          opacity={runtimeDisabled ? 0.7 : 1}
+        />
+        {radioOptions.map((opt, idx) => {
+          const isSelected = runtimeMode && String(radioValue) === String(opt.value);
+          let optX = 0;
+          let optY = 0;
+          let optW = resolvedObject.width;
+          let optH = resolvedObject.height;
+          if (isRadioVertical) {
+            optY = (resolvedObject.height / radioOptions.length) * idx;
+            optH = resolvedObject.height / radioOptions.length;
+          } else {
+            optX = (resolvedObject.width / radioOptions.length) * idx;
+            optW = resolvedObject.width / radioOptions.length;
+          }
+          return (
+            <Group key={idx} x={optX} y={optY}>
+              <Circle
+                x={14}
+                y={optH / 2}
+                radius={radioSize / 2}
+                fill={isSelected ? "#0e639c" : "transparent"}
+                stroke={isSelected ? "#0e639c" : "#595959"}
+                strokeWidth={1.5}
+              />
+              {isSelected ? (
+                <Circle
+                  x={14}
+                  y={optH / 2}
+                  radius={radioSize / 4}
+                  fill="#ffffff"
+                />
+              ) : null}
+              {renderBoxText(opt.label, {
+                fontFamily: "Arial",
+                fontSize: Math.max(10, optH * 0.38),
+                color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+                horizontalAlign: "left",
+                verticalAlign: "middle",
+                padding: 22,
+              }, {
+                width: optW,
+                height: optH,
+              })}
+            </Group>
+          );
+        })}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
+  if (resolvedObject.type === "numeric-input") {
+    const numInputTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const numInputBad = runtimeMode && Boolean(
+      numInputTag?.missingBindingReference
+      || numInputTag?.missingIndexedTag
+      || (resolvedObject.tag?.trim() && (!numInputTag?.value || numInputTag.value.quality === "Bad"))
+    );
+    const rawNumValue = runtimeMode ? Number(numInputTag?.value?.value ?? 0) : 0;
+    const numMin = resolvedObject.min ?? 0;
+    const numMax = resolvedObject.max ?? 100;
+    const numValue = Number.isFinite(rawNumValue) ? Math.min(numMax, Math.max(numMin, rawNumValue)) : numMin;
+    const decimals = resolvedObject.decimals ?? 0;
+    const displayNumText = numInputBad ? "BAD" : `${numValue.toFixed(decimals)}${resolvedObject.unit ?? ""}`;
+    return (
+      <Group
+        {...commonGroupProps}
+        onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive) {
+            onSelectObject?.({
+              objectId: resolvedObject.id,
+              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+            });
+            return;
+          }
+          if (runtimeDisabled) {
+            return;
+          }
+          const node = evt.target;
+          const stage = node.getStage();
+          const container = stage?.container();
+          if (!container) {
+            return;
+          }
+          const rect = container.getBoundingClientRect();
+          const absPos = node.getAbsolutePosition();
+          const scale = stage?.scaleX() ?? 1;
+          const overlayX = rect.left + absPos.x * scale;
+          const overlayY = rect.top + (absPos.y + resolvedObject.height) * scale;
+          if (overlayState?.objectId === resolvedObject.id) {
+            return;
+          }
+          const numObjMax = resolvedObject.max ?? 100;
+          const numObjMin = resolvedObject.min ?? 0;
+          const numObjStep = resolvedObject.step;
+          const numObjWriteTag = resolvedObject.writeTag;
+          const numObjTag = resolvedObject.tag;
+          const numObjRequiredActionRole = resolvedObject.requiredActionRole;
+          const numObjId = resolvedObject.id;
+          const numObjName = resolvedObject.name;
+          onShowOverlay?.({
+            x: overlayX,
+            y: overlayY,
+            objectId: resolvedObject.id,
+            content: (
+              <div className="hmi-numeric-input-overlay" style={{
+                background: "#252526",
+                border: "1px solid #3c3c3c",
+                borderRadius: 4,
+                padding: 4,
+              }}>
+                <InputNumber
+                  style={{ width: 120 }}
+                  autoFocus
+                  defaultValue={numValue}
+                  min={numObjMin}
+                  max={numObjMax}
+                  step={numObjStep}
+                  precision={decimals}
+                  onPressEnter={(e: any) => {
+                    const val = Number(e?.target?.value ?? e);
+                    commitNumericValue(val);
+                  }}
+                  onBlur={(e: any) => {
+                    const val = Number(e?.target?.value ?? e);
+                    commitNumericValue(val);
+                  }}
+                  onKeyDown={(e: any) => {
+                    if (e.key === "Escape") {
+                      onHideOverlay?.();
+                    }
+                  }}
+                />
+              </div>
+            ),
+          });
+          function commitNumericValue(val: number) {
+            if (!Number.isFinite(val)) {
+              return;
+            }
+            const clamped = Math.min(numObjMax, Math.max(numObjMin, val));
+            const writeTagField = runtimeMode
+              ? (numObjWriteTag?.trim() || numObjTag)
+              : numObjTag;
+            const resolvedWriteTag = runtimeMode
+              ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
+              : undefined;
+            const tagName = runtimeMode
+              ? (resolvedWriteTag?.resolvedName ?? writeTagField)
+              : writeTagField;
+            if (runtimeMode && tagName?.trim()) {
+              onAction?.(
+                withActionRoleLevel({
+                  type: "write",
+                  tag: tagName,
+                  value: clamped,
+                }, numObjRequiredActionRole),
+                withRuntimeActionContext(renderContext, numObjId, performance.now(), numObjName),
+              );
+            }
+            onHideOverlay?.();
+          }
+        }}
+      >
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={runtimeDisabled ? "#3d3d3d" : "#141414"}
+          stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
+          cornerRadius={4}
+          opacity={runtimeDisabled ? 0.7 : 1}
+        />
+        {renderBoxText(displayNumText, {
+          fontFamily: "Arial",
+          fontSize: 14,
+          color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+          horizontalAlign: "right",
+          verticalAlign: "middle",
+          padding: 8,
+        }, {
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+        })}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
   return <Group {...commonGroupProps} />;
 }
 
@@ -1023,6 +1809,9 @@ function GroupNode({
   showObjectFrames,
   scopedAssets,
   groupProps,
+  overlayState,
+  onShowOverlay,
+  onHideOverlay,
 }: {
   object: GroupObject;
   project: ScadaProject;
@@ -1044,6 +1833,9 @@ function GroupNode({
   showObjectFrames: boolean;
   scopedAssets?: Record<string, Asset>;
   groupProps: Record<string, unknown>;
+  overlayState?: RuntimeOverlayState | null;
+  onShowOverlay?: (overlay: RuntimeOverlayState) => void;
+  onHideOverlay?: () => void;
 }) {
   const scopedContext = useMemo(
     () => ({
@@ -1093,6 +1885,9 @@ function GroupNode({
         onContextMenuObject={onContextMenuObject}
         showObjectFrames={showObjectFrames}
         scopedAssets={scopedAssets}
+        overlayState={overlayState}
+        onShowOverlay={onShowOverlay}
+        onHideOverlay={onHideOverlay}
       />
       {interactive ? <SelectionOutline object={object} selected={selected || showObjectFrames} /> : null}
     </Group>
@@ -1787,6 +2582,21 @@ function collectMissingBindingReferencesFromObjects(
     }
     if (object.type === "valueSelect" && object.target.type === "tag") {
       collectMissingBindingReference(object.target.tag, resolvedBindings, output);
+    }
+    if (
+      object.type === "checkbox" ||
+      object.type === "slider" ||
+      object.type === "radio-group" ||
+      object.type === "numeric-input"
+    ) {
+      collectMissingBindingReference(object.tag, resolvedBindings, output);
+      collectMissingBindingReference(object.writeTag, resolvedBindings, output);
+    }
+    if (object.type === "progress-bar" || object.type === "select") {
+      collectMissingBindingReference(object.tag, resolvedBindings, output);
+    }
+    if (object.type === "select") {
+      collectMissingBindingReference(object.writeTag, resolvedBindings, output);
     }
     if (object.type === "valve") {
       collectMissingBindingReference(object.openTag, resolvedBindings, output);

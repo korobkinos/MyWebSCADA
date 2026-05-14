@@ -11616,8 +11616,8 @@
         {
           "id": "pressure_label",
           "type": "text",
-          "x": 40,
-          "y": 95,
+          "x": 191.35207085928698,
+          "y": 366.1864406779662,
           "width": 180,
           "height": 30,
           "text": "Давление",
@@ -12365,6 +12365,111 @@
           "assetId": "e2fb9382-5624-4dbf-a639-d4dec2484f7b",
           "fit": "contain",
           "preserveAspectRatio": true
+        },
+        {
+          "id": "chk_ewz4qa",
+          "type": "checkbox",
+          "x": 1409.730455597779,
+          "y": 204.95396956695933,
+          "width": 260.38600224427296,
+          "height": 52.07720044885484,
+          "rotation": 0,
+          "minWidth": 60,
+          "minHeight": 24,
+          "label": "Checkbox",
+          "checkedText": "On",
+          "uncheckedText": "Off",
+          "checkedColor": "#0e639c",
+          "uncheckedColor": "#3c3c3c"
+        },
+        {
+          "id": "sldr_ggxvtf",
+          "type": "slider",
+          "x": 1452.6774494941678,
+          "y": 140.21614228186766,
+          "width": 157.8367117174253,
+          "height": 60.14391884675734,
+          "rotation": 0,
+          "minWidth": 100,
+          "minHeight": 32,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "orientation": "horizontal",
+          "showValue": true
+        },
+        {
+          "id": "pgbar_v9hoq1",
+          "type": "progress-bar",
+          "x": 1132.826531543774,
+          "y": 547.9418886198548,
+          "width": 220,
+          "height": 32,
+          "minWidth": 80,
+          "minHeight": 20,
+          "min": 0,
+          "max": 100,
+          "showValue": true,
+          "fillColor": "#0e639c",
+          "trackColor": "#1e1e1e"
+        },
+        {
+          "id": "sel_kgqinp",
+          "type": "select",
+          "x": 1406.8450292405166,
+          "y": 91.89937731196463,
+          "width": 247.31164496717756,
+          "height": 43.96651466083151,
+          "rotation": 0,
+          "minWidth": 80,
+          "minHeight": 24,
+          "options": [
+            {
+              "label": "Option 1",
+              "value": 1
+            },
+            {
+              "label": "Option 2",
+              "value": 2
+            }
+          ],
+          "placeholder": "Select..."
+        },
+        {
+          "id": "rgrp_7hku7s",
+          "type": "radio-group",
+          "x": 1434.319856695474,
+          "y": 16.464891041162222,
+          "width": 220,
+          "height": 60,
+          "minWidth": 100,
+          "minHeight": 36,
+          "options": [
+            {
+              "label": "A",
+              "value": "A"
+            },
+            {
+              "label": "B",
+              "value": "B"
+            }
+          ],
+          "orientation": "horizontal"
+        },
+        {
+          "id": "nmin_k7kv2s",
+          "type": "numeric-input",
+          "x": 1615.9423417266185,
+          "y": 284.01937046004844,
+          "width": 140,
+          "height": 32,
+          "minWidth": 80,
+          "minHeight": 24,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "decimals": 0,
+          "placeholder": "0"
         }
       ]
     },

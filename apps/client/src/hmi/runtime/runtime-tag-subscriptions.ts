@@ -241,6 +241,111 @@ function collectObjectTags(
         runtimeTagValues,
       });
       return;
+    case "checkbox": {
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "tag",
+        rawTagName: resolvedObject.tag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "writeTag",
+        rawTagName: resolvedObject.writeTag,
+        context,
+        runtimeTagValues,
+      });
+      return;
+    }
+    case "slider": {
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "tag",
+        rawTagName: resolvedObject.tag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "writeTag",
+        rawTagName: resolvedObject.writeTag,
+        context,
+        runtimeTagValues,
+      });
+      return;
+    }
+    case "progress-bar":
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "tag",
+        rawTagName: resolvedObject.tag,
+        context,
+        runtimeTagValues,
+      });
+      return;
+    case "select": {
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "tag",
+        rawTagName: resolvedObject.tag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "writeTag",
+        rawTagName: resolvedObject.writeTag,
+        context,
+        runtimeTagValues,
+      });
+      return;
+    }
+    case "radio-group": {
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "tag",
+        rawTagName: resolvedObject.tag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "writeTag",
+        rawTagName: resolvedObject.writeTag,
+        context,
+        runtimeTagValues,
+      });
+      return;
+    }
+    case "numeric-input": {
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "tag",
+        rawTagName: resolvedObject.tag,
+        context,
+        runtimeTagValues,
+      });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "writeTag",
+        rawTagName: resolvedObject.writeTag,
+        context,
+        runtimeTagValues,
+      });
+      return;
+    }
     case "frame": {
       const childScreen = project.screens.find((item) => item.id === resolvedObject.screenId);
       if (!childScreen) {

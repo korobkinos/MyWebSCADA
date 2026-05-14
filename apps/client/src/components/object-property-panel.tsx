@@ -2727,6 +2727,283 @@ function SpecificPropertyFields({
     );
   }
 
+  if (object.type === "checkbox") {
+    return (
+      <>
+        <Form.Item label="Label">
+          <Input value={object.label ?? ""} onChange={(e) => onPatch({ label: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag ?? ""}
+          bindingLabel="Tag Binding"
+          tagLabel="Read Tag"
+          indexControl={buildIndexControl("tag", "Read Tag", object.tag)}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.writeTag ?? ""}
+          bindingLabel="Write Binding"
+          tagLabel="Write Tag"
+          indexControl={buildIndexControl("writeTag", "Write Tag", object.writeTag)}
+          onChange={(nextValue) => onPatch({ writeTag: nextValue } as Partial<HmiObject>)}
+        />
+        <Form.Item label="Checked Text">
+          <Input value={object.checkedText ?? "On"} onChange={(e) => onPatch({ checkedText: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Unchecked Text">
+          <Input value={object.uncheckedText ?? "Off"} onChange={(e) => onPatch({ uncheckedText: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="Checked Color" value={object.checkedColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ checkedColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Unchecked Color" value={object.uncheckedColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ uncheckedColor: next } as Partial<HmiObject>)} />
+      </>
+    );
+  }
+
+  if (object.type === "slider") {
+    return (
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag ?? ""}
+          bindingLabel="Tag Binding"
+          tagLabel="Read Tag"
+          indexControl={buildIndexControl("tag", "Read Tag", object.tag)}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.writeTag ?? ""}
+          bindingLabel="Write Binding"
+          tagLabel="Write Tag"
+          indexControl={buildIndexControl("writeTag", "Write Tag", object.writeTag)}
+          onChange={(nextValue) => onPatch({ writeTag: nextValue } as Partial<HmiObject>)}
+        />
+        <Form.Item label="Min">
+          <InputNumber style={{ width: "100%" }} value={object.min ?? 0} onChange={(v) => onPatch({ min: Number(v ?? 0) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Max">
+          <InputNumber style={{ width: "100%" }} value={object.max ?? 100} onChange={(v) => onPatch({ max: Number(v ?? 100) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Step">
+          <InputNumber style={{ width: "100%" }} value={object.step ?? 1} onChange={(v) => onPatch({ step: Number(v ?? 1) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Orientation">
+          <Select
+            value={object.orientation ?? "horizontal"}
+            options={[{ label: "horizontal", value: "horizontal" }, { label: "vertical", value: "vertical" }]}
+            onChange={(value) => onPatch({ orientation: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Unit">
+          <Input value={object.unit ?? ""} onChange={(e) => onPatch({ unit: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Space>
+          <span>Show Value</span>
+          <Switch checked={object.showValue ?? true} onChange={(checked) => onPatch({ showValue: checked } as Partial<HmiObject>)} />
+        </Space>
+        <ColorField label="Fill Color" value={object.fillColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ fillColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Track Color" value={object.trackColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ trackColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Thumb Color" value={object.thumbColor ?? "#d9d9d9"} fallback="#d9d9d9" onChange={(next) => onPatch({ thumbColor: next } as Partial<HmiObject>)} />
+      </>
+    );
+  }
+
+  if (object.type === "progress-bar") {
+    return (
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag ?? ""}
+          bindingLabel="Tag Binding"
+          tagLabel="Read Tag"
+          indexControl={buildIndexControl("tag", "Read Tag", object.tag)}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
+        <Form.Item label="Min">
+          <InputNumber style={{ width: "100%" }} value={object.min ?? 0} onChange={(v) => onPatch({ min: Number(v ?? 0) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Max">
+          <InputNumber style={{ width: "100%" }} value={object.max ?? 100} onChange={(v) => onPatch({ max: Number(v ?? 100) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Orientation">
+          <Select
+            value={object.orientation ?? "horizontal"}
+            options={[{ label: "horizontal", value: "horizontal" }, { label: "vertical", value: "vertical" }]}
+            onChange={(value) => onPatch({ orientation: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Unit">
+          <Input value={object.unit ?? ""} onChange={(e) => onPatch({ unit: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Space>
+          <span>Show Value</span>
+          <Switch checked={object.showValue ?? true} onChange={(checked) => onPatch({ showValue: checked } as Partial<HmiObject>)} />
+        </Space>
+        <ColorField label="Fill Color" value={object.fillColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ fillColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Track Color" value={object.trackColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ trackColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Alarm Color (BAD)" value={object.alarmColor ?? "#d9363e"} fallback="#d9363e" onChange={(next) => onPatch({ alarmColor: next } as Partial<HmiObject>)} />
+      </>
+    );
+  }
+
+  if (object.type === "select") {
+    const selectOptionsText = (object.options ?? []).map((item) => `${item.label}|${String(item.value)}`).join("\n");
+    return (
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag ?? ""}
+          bindingLabel="Tag Binding"
+          tagLabel="Read Tag"
+          indexControl={buildIndexControl("tag", "Read Tag", object.tag)}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.writeTag ?? ""}
+          bindingLabel="Write Binding"
+          tagLabel="Write Tag"
+          indexControl={buildIndexControl("writeTag", "Write Tag", object.writeTag)}
+          onChange={(nextValue) => onPatch({ writeTag: nextValue } as Partial<HmiObject>)}
+        />
+        <Form.Item label="Placeholder">
+          <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Options (one per line: label|value)">
+          <Input.TextArea
+            rows={5}
+            value={selectOptionsText}
+            onChange={(event) => {
+              const lines = event.target.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+              const options = lines.map((line, index) => {
+                const [labelToken, valueToken] = line.split("|");
+                const label = (labelToken ?? `Option ${index + 1}`).trim();
+                const rawValue = (valueToken ?? label).trim();
+                let parsed: string | number | boolean = rawValue;
+                const asNumber = Number(rawValue);
+                if (rawValue !== "" && Number.isFinite(asNumber) && !rawValue.startsWith("0x")) {
+                  parsed = asNumber;
+                }
+                if (rawValue.toLowerCase() === "true") { parsed = true; }
+                if (rawValue.toLowerCase() === "false") { parsed = false; }
+                return { label, value: parsed };
+              });
+              onPatch({ options } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+      </>
+    );
+  }
+
+  if (object.type === "radio-group") {
+    const radioOptionsText = (object.options ?? []).map((item) => `${item.label}|${String(item.value)}`).join("\n");
+    return (
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag ?? ""}
+          bindingLabel="Tag Binding"
+          tagLabel="Read Tag"
+          indexControl={buildIndexControl("tag", "Read Tag", object.tag)}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.writeTag ?? ""}
+          bindingLabel="Write Binding"
+          tagLabel="Write Tag"
+          indexControl={buildIndexControl("writeTag", "Write Tag", object.writeTag)}
+          onChange={(nextValue) => onPatch({ writeTag: nextValue } as Partial<HmiObject>)}
+        />
+        <Form.Item label="Orientation">
+          <Select
+            value={object.orientation ?? "horizontal"}
+            options={[{ label: "horizontal", value: "horizontal" }, { label: "vertical", value: "vertical" }]}
+            onChange={(value) => onPatch({ orientation: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Options (one per line: label|value)">
+          <Input.TextArea
+            rows={5}
+            value={radioOptionsText}
+            onChange={(event) => {
+              const lines = event.target.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+              const options = lines.map((line, index) => {
+                const [labelToken, valueToken] = line.split("|");
+                const label = (labelToken ?? `Option ${index + 1}`).trim();
+                const rawValue = (valueToken ?? label).trim();
+                let parsed: string | number | boolean = rawValue;
+                const asNumber = Number(rawValue);
+                if (rawValue !== "" && Number.isFinite(asNumber) && !rawValue.startsWith("0x")) {
+                  parsed = asNumber;
+                }
+                if (rawValue.toLowerCase() === "true") { parsed = true; }
+                if (rawValue.toLowerCase() === "false") { parsed = false; }
+                return { label, value: parsed };
+              });
+              onPatch({ options } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+      </>
+    );
+  }
+
+  if (object.type === "numeric-input") {
+    return (
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag ?? ""}
+          bindingLabel="Tag Binding"
+          tagLabel="Read Tag"
+          indexControl={buildIndexControl("tag", "Read Tag", object.tag)}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.writeTag ?? ""}
+          bindingLabel="Write Binding"
+          tagLabel="Write Tag"
+          indexControl={buildIndexControl("writeTag", "Write Tag", object.writeTag)}
+          onChange={(nextValue) => onPatch({ writeTag: nextValue } as Partial<HmiObject>)}
+        />
+        <Form.Item label="Min">
+          <InputNumber style={{ width: "100%" }} value={object.min ?? 0} onChange={(v) => onPatch({ min: Number(v ?? 0) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Max">
+          <InputNumber style={{ width: "100%" }} value={object.max ?? 100} onChange={(v) => onPatch({ max: Number(v ?? 100) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Step">
+          <InputNumber style={{ width: "100%" }} value={object.step ?? 1} onChange={(v) => onPatch({ step: Number(v ?? 1) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Decimals">
+          <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 0} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Unit">
+          <Input value={object.unit ?? ""} onChange={(e) => onPatch({ unit: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Placeholder">
+          <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+      </>
+    );
+  }
+
   if (object.type === "group") {
     return (
       <>

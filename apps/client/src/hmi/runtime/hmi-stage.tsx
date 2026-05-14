@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Layer, Rect, Stage, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
@@ -11,7 +11,7 @@ import type {
   ScadaProject,
   TagValue,
 } from "@web-scada/shared";
-import { HmiRenderer, type ObjectSelectPayload } from "./hmi-renderer";
+import { HmiRenderer, type ObjectSelectPayload, type RuntimeOverlayState } from "./hmi-renderer";
 import { sortObjectsByZIndex } from "../editor/z-order";
 
 type TagMap = Record<string, TagValue>;
@@ -75,6 +75,15 @@ export function HmiStage({
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [runtimeOverlay, setRuntimeOverlay] = useState<RuntimeOverlayState | null>(null);
+
+  const handleShowOverlay = useCallback((overlay: RuntimeOverlayState) => {
+    setRuntimeOverlay(overlay);
+  }, []);
+
+  const handleHideOverlay = useCallback(() => {
+    setRuntimeOverlay(null);
+  }, []);
 
   useEffect(() => {
     const onResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -282,6 +291,9 @@ export function HmiStage({
             onDoubleClickObject={onDoubleClickObject}
             onContextMenuObject={onContextMenuObject}
             showObjectFrames={showObjectFrames}
+            overlayState={runtimeOverlay}
+            onShowOverlay={handleShowOverlay}
+            onHideOverlay={handleHideOverlay}
           />
 
           {mode === "editor" && selectionRect ? (
@@ -325,6 +337,19 @@ export function HmiStage({
           ) : null}
         </Layer>
       </Stage>
+      {runtimeOverlay ? (
+        <div
+          className="hmi-runtime-overlay"
+          style={{
+            position: "absolute",
+            left: runtimeOverlay.x,
+            top: runtimeOverlay.y,
+            zIndex: 1000,
+          }}
+        >
+          {runtimeOverlay.content}
+        </div>
+      ) : null}
     </div>
   );
 }

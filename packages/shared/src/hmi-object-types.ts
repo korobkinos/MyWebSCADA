@@ -53,7 +53,13 @@ export type HmiObjectBase = {
     | "libraryElementInstance"
     | "valve"
     | "pump"
-    | "frame";
+    | "frame"
+    | "checkbox"
+    | "slider"
+    | "progress-bar"
+    | "select"
+    | "radio-group"
+    | "numeric-input";
   name?: string;
 
   x: number;
@@ -375,6 +381,73 @@ export type FrameObject = HmiObjectBase & {
   scaleMode?: "none" | "fit" | "stretch";
 };
 
+export type CheckboxObject = HmiObjectBase & {
+  type: "checkbox";
+  label?: string;
+  tag?: string;
+  writeTag?: string;
+  checkedText?: string;
+  uncheckedText?: string;
+  checkedColor?: string;
+  uncheckedColor?: string;
+};
+
+export type SliderObject = HmiObjectBase & {
+  type: "slider";
+  tag?: string;
+  writeTag?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  orientation?: "horizontal" | "vertical";
+  unit?: string;
+  showValue?: boolean;
+  fillColor?: string;
+  trackColor?: string;
+  thumbColor?: string;
+};
+
+export type ProgressBarObject = HmiObjectBase & {
+  type: "progress-bar";
+  tag?: string;
+  min?: number;
+  max?: number;
+  orientation?: "horizontal" | "vertical";
+  unit?: string;
+  showValue?: boolean;
+  fillColor?: string;
+  trackColor?: string;
+  alarmColor?: string;
+};
+
+export type SelectObject = HmiObjectBase & {
+  type: "select";
+  tag?: string;
+  writeTag?: string;
+  options?: Array<{ label: string; value: string | number | boolean }>;
+  placeholder?: string;
+};
+
+export type RadioGroupObject = HmiObjectBase & {
+  type: "radio-group";
+  tag?: string;
+  writeTag?: string;
+  options?: Array<{ label: string; value: string | number | boolean }>;
+  orientation?: "horizontal" | "vertical";
+};
+
+export type NumericInputObject = HmiObjectBase & {
+  type: "numeric-input";
+  tag?: string;
+  writeTag?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  decimals?: number;
+  unit?: string;
+  placeholder?: string;
+};
+
 export type HmiObject =
   | GroupObject
   | TextObject
@@ -391,4 +464,10 @@ export type HmiObject =
   | LibraryElementInstanceObject
   | ValveObject
   | PumpObject
-  | FrameObject;
+  | FrameObject
+  | CheckboxObject
+  | SliderObject
+  | ProgressBarObject
+  | SelectObject
+  | RadioGroupObject
+  | NumericInputObject;

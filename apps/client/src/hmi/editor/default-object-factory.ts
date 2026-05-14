@@ -265,6 +265,102 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         borderWidth: 1,
         scaleMode: "fit",
       };
+    case "checkbox":
+      return {
+        id: id("chk"),
+        type,
+        x: 100,
+        y: 100,
+        width: 160,
+        height: 32,
+        minWidth: 60,
+        minHeight: 24,
+        label: "Checkbox",
+        checkedText: "On",
+        uncheckedText: "Off",
+        checkedColor: "#0e639c",
+        uncheckedColor: "#3c3c3c",
+      };
+    case "slider":
+      return {
+        id: id("sldr"),
+        type,
+        x: 100,
+        y: 100,
+        width: 220,
+        height: 44,
+        minWidth: 100,
+        minHeight: 32,
+        min: 0,
+        max: 100,
+        step: 1,
+        orientation: "horizontal",
+        showValue: true,
+      };
+    case "progress-bar":
+      return {
+        id: id("pgbar"),
+        type,
+        x: 100,
+        y: 100,
+        width: 220,
+        height: 32,
+        minWidth: 80,
+        minHeight: 20,
+        min: 0,
+        max: 100,
+        showValue: true,
+        fillColor: "#0e639c",
+        trackColor: "#1e1e1e",
+      };
+    case "select":
+      return {
+        id: id("sel"),
+        type,
+        x: 100,
+        y: 100,
+        width: 180,
+        height: 32,
+        minWidth: 80,
+        minHeight: 24,
+        placeholder: "Select...",
+        options: [
+          { label: "Option 1", value: 1 },
+          { label: "Option 2", value: 2 },
+        ],
+      };
+    case "radio-group":
+      return {
+        id: id("rgrp"),
+        type,
+        x: 100,
+        y: 100,
+        width: 220,
+        height: 60,
+        minWidth: 100,
+        minHeight: 36,
+        orientation: "horizontal",
+        options: [
+          { label: "A", value: "A" },
+          { label: "B", value: "B" },
+        ],
+      };
+    case "numeric-input":
+      return {
+        id: id("nmin"),
+        type,
+        x: 100,
+        y: 100,
+        width: 140,
+        height: 32,
+        minWidth: 80,
+        minHeight: 24,
+        min: 0,
+        max: 100,
+        step: 1,
+        decimals: 0,
+        placeholder: "0",
+      };
     default:
       return {
         id: id("obj"),

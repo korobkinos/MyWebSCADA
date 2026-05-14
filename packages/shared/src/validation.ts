@@ -495,6 +495,87 @@ const frameObjectSchema = hmiBaseSchema.extend({
   scaleMode: z.enum(["none", "fit", "stretch"]).optional(),
 });
 
+const checkboxObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("checkbox"),
+  label: z.string().optional(),
+  tag: z.string().optional(),
+  writeTag: z.string().optional(),
+  checkedText: z.string().optional(),
+  uncheckedText: z.string().optional(),
+  checkedColor: z.string().optional(),
+  uncheckedColor: z.string().optional(),
+});
+
+const sliderObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("slider"),
+  tag: z.string().optional(),
+  writeTag: z.string().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().optional(),
+  orientation: z.enum(["horizontal", "vertical"]).optional(),
+  unit: z.string().optional(),
+  showValue: z.boolean().optional(),
+  fillColor: z.string().optional(),
+  trackColor: z.string().optional(),
+  thumbColor: z.string().optional(),
+});
+
+const progressBarObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("progress-bar"),
+  tag: z.string().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  orientation: z.enum(["horizontal", "vertical"]).optional(),
+  unit: z.string().optional(),
+  showValue: z.boolean().optional(),
+  fillColor: z.string().optional(),
+  trackColor: z.string().optional(),
+  alarmColor: z.string().optional(),
+});
+
+const selectObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("select"),
+  tag: z.string().optional(),
+  writeTag: z.string().optional(),
+  options: z
+    .array(
+      z.object({
+        label: z.string().min(1),
+        value: z.union([z.string(), z.number(), z.boolean()]),
+      }),
+    )
+    .optional(),
+  placeholder: z.string().optional(),
+});
+
+const radioGroupObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("radio-group"),
+  tag: z.string().optional(),
+  writeTag: z.string().optional(),
+  options: z
+    .array(
+      z.object({
+        label: z.string().min(1),
+        value: z.union([z.string(), z.number(), z.boolean()]),
+      }),
+    )
+    .optional(),
+  orientation: z.enum(["horizontal", "vertical"]).optional(),
+});
+
+const numericInputObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("numeric-input"),
+  tag: z.string().optional(),
+  writeTag: z.string().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().optional(),
+  decimals: z.number().optional(),
+  unit: z.string().optional(),
+  placeholder: z.string().optional(),
+});
+
 export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
   z.discriminatedUnion("type", [
     groupObjectSchema,
@@ -513,6 +594,12 @@ export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
     valveObjectSchema,
     pumpObjectSchema,
     frameObjectSchema,
+    checkboxObjectSchema,
+    sliderObjectSchema,
+    progressBarObjectSchema,
+    selectObjectSchema,
+    radioGroupObjectSchema,
+    numericInputObjectSchema,
   ]) as z.ZodType<HmiObject>,
 );
 

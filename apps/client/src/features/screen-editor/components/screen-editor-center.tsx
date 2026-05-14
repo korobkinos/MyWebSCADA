@@ -297,6 +297,15 @@ export function ScreenEditorCenter({
             <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<span>I</span>} />
           </div>
 
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("checkbox"))} title="Add Checkbox" icon={<span>Cb</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("slider"))} title="Add Slider" icon={<span>Sl</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("progress-bar"))} title="Add Progress Bar" icon={<span>Pb</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("select"))} title="Add Select" icon={<span>Se</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("radio-group"))} title="Add Radio Group" icon={<span>Rg</span>} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("numeric-input"))} title="Add Numeric Input" icon={<span>Ni</span>} />
+          </div>
+
           <div className="screen-editor-toolbar__spacer" />
 
           <div className="screen-editor-toolbar__group">

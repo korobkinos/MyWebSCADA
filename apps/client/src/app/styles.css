@@ -4878,5 +4878,45 @@ body {
   }
 }
 
+/* ==========================================================================
+   HMI runtime overlays (Select dropdown, Numeric Input)
+   ========================================================================== */
+
+.hmi-runtime-overlay {
+  pointer-events: auto;
+}
+
+.hmi-select-overlay {
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.hmi-select-overlay__option {
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #d9d9d9;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hmi-select-overlay__option:hover {
+  background: #2a2a2a;
+}
+
+.hmi-numeric-input-overlay {
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+}
+
+
 
 
