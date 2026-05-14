@@ -345,6 +345,8 @@ export function HmiStage({
             position: "absolute",
             left: runtimeOverlay.x,
             top: runtimeOverlay.y,
+            width: runtimeOverlay.width,
+            height: runtimeOverlay.height,
             zIndex: 1000,
           }}
         >

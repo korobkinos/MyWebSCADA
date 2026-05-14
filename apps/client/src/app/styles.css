@@ -4912,28 +4912,18 @@ body {
   color: #ffffff;
 }
 
-.hmi-numeric-input-overlay {
-  position: fixed;
+.hmi-numeric-inline-editor {
   box-sizing: border-box;
-  outline: none;
-  background: #1e1e1e;
-  color: #ffffff;
-  border: 1px solid #007acc;
-  padding: 0 6px;
-  font-family: Consolas, "Courier New", monospace;
-  font-size: 12px;
-  z-index: 10000;
   border-radius: 2px;
 }
-
-.hmi-numeric-input-overlay::-webkit-outer-spin-button,
-.hmi-numeric-input-overlay::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+.hmi-numeric-inline-editor__input {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
-
-.hmi-numeric-input-overlay[type="number"] {
-  -moz-appearance: textfield;
+.hmi-numeric-inline-editor__input::selection {
+  background: #007acc;
+  color: #ffffff;
 }
 
 

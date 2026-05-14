@@ -12428,13 +12428,12 @@
           "orientation": "vertical"
         },
         {
-          "id": "nmin_gkfrtz",
+          "id": "nmin_8x7e1y",
           "type": "numeric-input",
-          "x": 499.71341834391944,
-          "y": 739.6138790672208,
-          "width": 127.03231049695393,
-          "height": 56.876638025999426,
-          "rotation": 0,
+          "x": 497.14783393476904,
+          "y": 730.7506053268766,
+          "width": 140,
+          "height": 32,
           "minWidth": 80,
           "minHeight": 24,
           "tag": "Counter2",
@@ -12443,11 +12442,17 @@
           "max": 100,
           "step": 1,
           "decimals": 0,
+          "formatMode": "decimals",
+          "showUnit": true,
           "placeholder": "0",
-          "textColor": "#1e0404",
-          "fontSize": 25,
-          "backgroundColor": "#eddbdb",
-          "textAlign": "center"
+          "textColor": "#ffffff",
+          "fontSize": 12,
+          "fontFamily": "Consolas",
+          "backgroundColor": "#1e1e1e",
+          "borderColor": "#3c3c3c",
+          "borderWidth": 1,
+          "cornerRadius": 4,
+          "textAlign": "right"
         }
       ]
     },

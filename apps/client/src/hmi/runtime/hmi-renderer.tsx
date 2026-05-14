@@ -116,8 +116,6 @@ function NumericInputOverlayContent({
   max,
   step,
   decimals,
-  width,
-  height,
   backgroundColor,
   textColor,
   fontFamily,
@@ -131,8 +129,6 @@ function NumericInputOverlayContent({
   max: number;
   step?: number;
   decimals: number;
-  width: number;
-  height: number;
   backgroundColor: string;
   textColor: string;
   fontFamily: string;
@@ -204,17 +200,19 @@ function NumericInputOverlayContent({
 
   return (
     <div
-      className="hmi-numeric-input-overlay"
+      className="hmi-numeric-inline-editor"
       style={{
-        display: "flex",
-        width,
-        height,
+        width: "100%",
+        height: "100%",
+        boxSizing: "border-box",
         background: backgroundColor,
+        display: "flex",
+        alignItems: "center",
       }}
     >
       <input
         ref={inputRef}
-        className="hmi-numeric-input-overlay__input"
+        className="hmi-numeric-inline-editor__input"
         type="text"
         inputMode="decimal"
         value={displayValue}
@@ -222,8 +220,7 @@ function NumericInputOverlayContent({
         onKeyDown={handleKeyDown}
         onBlur={commit}
         style={{
-          flex: 1,
-          minWidth: 0,
+          width: "100%",
           height: "100%",
           border: "none",
           outline: "none",
@@ -259,6 +256,8 @@ export type ObjectSelectPayload = {
 export type RuntimeOverlayState = {
   x: number;
   y: number;
+  width?: number;
+  height?: number;
   objectId: string;
   content: React.ReactNode;
 };
@@ -1917,6 +1916,8 @@ function ObjectNode({
           onShowOverlay?.({
             x: overlayX,
             y: overlayY,
+            width: overlayWidth,
+            height: overlayHeight,
             objectId: resolvedObject.id,
             content: (
               <NumericInputOverlayContent
@@ -1925,8 +1926,6 @@ function ObjectNode({
                 max={numObjMax}
                 step={numObjStep}
                 decimals={resolvedObject.decimals ?? 0}
-                width={overlayWidth}
-                height={overlayHeight}
                 backgroundColor={objBgColor}
                 textColor={objTextColor}
                 fontFamily={objFontFamily}
@@ -1949,17 +1948,19 @@ function ObjectNode({
           cornerRadius={objCornerRadius}
           opacity={runtimeDisabled ? 0.55 : 1}
         />
-        {renderBoxText(displayNumText, {
-          fontFamily: objFontFamily,
-          fontSize: Math.max(9, objFontSize),
-          color: runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objTextColor,
-          horizontalAlign: objTextAlign,
-          verticalAlign: "middle",
-          padding: 6,
-        }, {
-          width: resolvedObject.width,
-          height: resolvedObject.height,
-        })}
+        {overlayState?.objectId !== resolvedObject.id ? (
+          renderBoxText(displayNumText, {
+            fontFamily: objFontFamily,
+            fontSize: Math.max(9, objFontSize),
+            color: runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objTextColor,
+            horizontalAlign: objTextAlign,
+            verticalAlign: "middle",
+            padding: 6,
+          }, {
+            width: resolvedObject.width,
+            height: resolvedObject.height,
+          })
+        ) : null}
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
