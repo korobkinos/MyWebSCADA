@@ -1262,43 +1262,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     openWindow({
       id: numericDialogId,
       title: payload.objectName || "Numeric Input",
-      defaultRect: { x: 200, y: 150, width: 260, height: 150 },
+      defaultRect: { x: 200, y: 150, width: 270, height: 120 },
       minWidth: 240,
       minHeight: 135,
-      render: () => {
-        const state = numericDialogState;
-        if (!state) return null;
-        return (
-          <NumericInputDialog
-            state={state}
-            onCommit={async (value) => {
-              const targetTag = state.targetTag;
-              if (!targetTag) return;
-              await executeAction(
-                {
-                  type: "write",
-                  tag: targetTag,
-                  value,
-                  confirm: false,
-                  requireAuth: false,
-                },
-                {
-                  screenId: screen?.id,
-                  userRoles: runtimeUserRoles,
-                  userRoleLevel,
-                  isAuthenticated: Boolean(authUser),
-                },
-              );
-              closeWindow(numericDialogId);
-              setNumericDialogState(null);
-            }}
-            onCancel={() => {
-              closeWindow(numericDialogId);
-              setNumericDialogState(null);
-            }}
-          />
-        );
-      },
+      render: () => null,
     });
   };
 
@@ -1496,17 +1463,16 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     {
       id: numericDialogId,
       title: "Numeric Input",
-      defaultRect: { x: 200, y: 150, width: 260, height: 150 },
+      defaultRect: { x: 200, y: 150, width: 270, height: 150 },
       minWidth: 240,
       minHeight: 135,
       render: () => {
-        const state = numericDialogState;
-        if (!state) return null;
+        if (!numericDialogState) return null;
         return (
           <NumericInputDialog
-            state={state}
+            state={numericDialogState}
             onCommit={async (value) => {
-              const targetTag = state.targetTag;
+              const targetTag = numericDialogState.targetTag;
               if (!targetTag) return;
               await executeAction(
                 {
@@ -1524,9 +1490,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
                 },
               );
               closeWindow(numericDialogId);
+              setNumericDialogState(null);
             }}
             onCancel={() => {
               closeWindow(numericDialogId);
+              setNumericDialogState(null);
             }}
           />
         );

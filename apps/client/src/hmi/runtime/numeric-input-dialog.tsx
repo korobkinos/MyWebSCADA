@@ -184,7 +184,7 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
               fontFamily: inputFontFamily,
               fontSize: inputFontSize,
               lineHeight: "1.2",
-              padding: "6px 10px",
+              padding: "8px 12px",
             }}
           />
           <button
@@ -202,9 +202,11 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
           {metaParts.join(" \u00B7 ")}
         </div>
 
-        <div className="hmi-numeric-dialog__error">
-          {error || "\u00A0"}
-        </div>
+        {error ? (
+          <div className="hmi-numeric-dialog__error">
+            {error}
+          </div>
+        ) : null}
       </div>
 
       <div className="hmi-numeric-dialog__actions">

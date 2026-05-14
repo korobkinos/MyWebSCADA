@@ -4925,12 +4925,11 @@ body {
 }
 
 .hmi-numeric-dialog__body {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1;
   padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .hmi-numeric-dialog__input-row {
@@ -4941,16 +4940,15 @@ body {
 }
 
 .hmi-numeric-dialog__input {
-  width: 100%;
   height: 36px;
-  padding: 6px 10px;
-  line-height: 1.2;
   box-sizing: border-box;
   background: #1e1e1e;
   border: 1px solid #3c3c3c;
   color: #ffffff;
-  font: inherit;
+  padding: 4px 10px;
+  line-height: 1.2;
   outline: none;
+  font: inherit;
 }
 
 .hmi-numeric-dialog__input:focus {
