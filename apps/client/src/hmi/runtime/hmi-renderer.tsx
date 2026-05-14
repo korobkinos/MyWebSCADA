@@ -1650,6 +1650,9 @@ function ObjectNode({
     const selectOptionSelectedColor = resolvedObject.optionSelectedColor ?? "rgba(14, 99, 156, 0.3)";
     const selectOptionSelectedText = resolvedObject.optionSelectedTextColor ?? "#69c0ff";
     const selectDropdownMaxHeight = Math.max(60, resolvedObject.dropdownMaxHeight ?? 200);
+    const selectDropdownOffsetY = Math.max(-8, Math.min(24, resolvedObject.dropdownOffsetY ?? 2));
+    const selectOptionHeight = Math.max(20, resolvedObject.optionHeight ?? 28);
+    const selectArrowAreaWidth = Math.max(14, Math.min(resolvedObject.width * 0.45, resolvedObject.arrowAreaWidth ?? 24));
     const selectBadTextColor = resolvedObject.badTextColor ?? HMI_CONTROL_COLORS.bad;
     const selectBadBackgroundColor = resolvedObject.badBackgroundColor ?? "#2b1a1a";
     const selectBadBorderColor = resolvedObject.badBorderColor ?? "#a03030";
@@ -1686,8 +1689,8 @@ function ObjectNode({
               return;
             }
           }
-          const node = evt.target;
-          const stage = node.getStage();
+          const groupNode = evt.currentTarget;
+          const stage = groupNode.getStage();
           const container = stage?.container();
           const canvasWrap = container?.closest(".canvas-wrap") as HTMLElement | null;
           if (!container || !canvasWrap) {
@@ -1695,10 +1698,11 @@ function ObjectNode({
           }
           const containerRect = container.getBoundingClientRect();
           const wrapRect = canvasWrap.getBoundingClientRect();
-          const absPos = node.getAbsolutePosition();
-          const scale = stage?.scaleX() ?? 1;
-          const overlayX = (containerRect.left - wrapRect.left) + absPos.x * scale;
-          const overlayY = (containerRect.top - wrapRect.top) + (absPos.y + resolvedObject.height) * scale;
+          const absPos = groupNode.getAbsolutePosition();
+          const scaleX = stage?.scaleX() ?? 1;
+          const scaleY = stage?.scaleY() ?? 1;
+          const overlayX = (containerRect.left - wrapRect.left) + absPos.x * scaleX;
+          const overlayY = (containerRect.top - wrapRect.top) + (absPos.y + resolvedObject.height + selectDropdownOffsetY) * scaleY;
           if (overlayState?.objectId === resolvedObject.id) {
             onHideOverlay?.();
             return;
@@ -1709,7 +1713,7 @@ function ObjectNode({
             objectId: resolvedObject.id,
             content: (
               <div className="hmi-select-overlay" style={{
-                minWidth: Math.max(resolvedObject.width * scale, 100),
+                minWidth: Math.max(resolvedObject.width * scaleX, 100),
                 maxHeight: selectDropdownMaxHeight,
                 background: selectDropdownBackground,
                 borderColor: selectDropdownBorder,
@@ -1724,6 +1728,7 @@ function ObjectNode({
                     style={{
                       color: selectedOption?.value === opt.value ? selectOptionSelectedText : selectOptionTextColor,
                       background: selectedOption?.value === opt.value ? selectOptionSelectedColor : "transparent",
+                      minHeight: selectOptionHeight,
                       padding: `0 ${selectPadding}px`,
                       fontFamily: selectFontFamily,
                       fontSize: selectFontSize,
@@ -1790,20 +1795,35 @@ function ObjectNode({
           verticalAlign: "middle",
           padding: selectPadding,
         }, {
-          width: resolvedObject.width,
+          width: Math.max(1, resolvedObject.width - selectArrowAreaWidth),
           height: resolvedObject.height,
         })}
-        <Text
-          text="▾"
-          x={resolvedObject.width - 22}
-          y={0}
-          width={20}
-          height={resolvedObject.height}
-          align="center"
-          verticalAlign="middle"
-          fill={renderArrowColor}
-          fontSize={Math.max(10, selectFontSize)}
-          fontFamily={selectFontFamily}
+        <Line
+          points={[
+            Math.max(0, resolvedObject.width - selectArrowAreaWidth),
+            4,
+            Math.max(0, resolvedObject.width - selectArrowAreaWidth),
+            Math.max(4, resolvedObject.height - 4),
+          ]}
+          stroke={renderBorder}
+          opacity={0.7}
+          strokeWidth={Math.max(1, selectBorderWidth)}
+          listening={false}
+        />
+        <Line
+          points={[
+            resolvedObject.width - selectArrowAreaWidth / 2 - 5,
+            resolvedObject.height / 2 - 2,
+            resolvedObject.width - selectArrowAreaWidth / 2,
+            resolvedObject.height / 2 + 3,
+            resolvedObject.width - selectArrowAreaWidth / 2 + 5,
+            resolvedObject.height / 2 - 2,
+          ]}
+          stroke={renderArrowColor}
+          strokeWidth={1.8}
+          lineCap="round"
+          lineJoin="round"
+          listening={false}
         />
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
@@ -1825,6 +1845,8 @@ function ObjectNode({
     const radioStrokeWidth = Math.max(0.5, resolvedObject.radioStrokeWidth ?? 1.5);
     const itemGap = Math.max(0, resolvedObject.itemGap ?? 4);
     const itemPadding = Math.max(0, resolvedObject.itemPadding ?? 6);
+    const indicatorGap = Math.max(0, resolvedObject.indicatorGap ?? 6);
+    const itemInset = Math.max(0, resolvedObject.itemInset ?? 4);
     const borderWidth = Math.max(0, resolvedObject.borderWidth ?? 1);
     const cornerRadius = Math.max(0, resolvedObject.cornerRadius ?? 4);
     const backgroundColor = resolvedObject.backgroundColor ?? HMI_CONTROL_COLORS.fieldBg;
@@ -1882,8 +1904,8 @@ function ObjectNode({
           if (!radioOptions.length) {
             return;
           }
-          const node = evt.target;
-          const pointer = node.getRelativePointerPosition();
+          const groupNode = evt.currentTarget;
+          const pointer = groupNode.getRelativePointerPosition();
           if (!pointer) {
             return;
           }
@@ -1939,12 +1961,16 @@ function ObjectNode({
           const optY = rect.y;
           const optW = rect.width;
           const optH = rect.height;
-          const cx = radioSize;
-          const cy = optH / 2;
+          const contentStartX = styleMode === "radio" ? itemInset : 0;
+          const cx = contentStartX + itemPadding + radioSize / 2;
+          const cy = Math.round(optH / 2);
           const outerRadius = radioSize / 2;
           const innerRadius = radioSize * 0.28;
           const circleStroke = isSelected ? renderSelected : renderBorder;
           const fillColor = isSelected ? renderSelected : renderUnselected;
+          const textPadding = styleMode === "radio"
+            ? Math.max(itemPadding, Math.round(cx + outerRadius + indicatorGap))
+            : itemPadding;
           return (
             <Group key={idx} x={optX} y={optY}>
               {styleMode === "segmented" || styleMode === "card" ? (
@@ -1985,7 +2011,7 @@ function ObjectNode({
                 color: isSelected ? renderSelectedLabel : renderLabel,
                 horizontalAlign: styleMode === "radio" ? "left" : "center",
                 verticalAlign: "middle",
-                padding: styleMode === "radio" ? (itemPadding + radioSize * 1.8) : itemPadding,
+                padding: textPadding,
               }, {
                 width: optW,
                 height: optH,

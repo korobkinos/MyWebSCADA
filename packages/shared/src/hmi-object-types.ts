@@ -480,6 +480,9 @@ export type SelectObject = HmiObjectBase & {
   optionSelectedColor?: string;
   optionSelectedTextColor?: string;
   dropdownMaxHeight?: number;
+  dropdownOffsetY?: number;
+  optionHeight?: number;
+  arrowAreaWidth?: number;
   badTextColor?: string;
   badBackgroundColor?: string;
   badBorderColor?: string;
@@ -501,6 +504,8 @@ export type RadioGroupObject = HmiObjectBase & {
   itemPadding?: number;
   radioSize?: number;
   radioStrokeWidth?: number;
+  indicatorGap?: number;
+  itemInset?: number;
   selectedColor?: string;
   unselectedColor?: string;
   labelColor?: string;

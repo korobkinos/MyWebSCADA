@@ -4934,12 +4934,14 @@ body {
 }
 
 .hmi-select-overlay__option {
-  height: 26px;
+  min-height: 26px;
   padding: 0 8px;
   display: flex;
   align-items: center;
   cursor: pointer;
   font-size: 12px;
+  line-height: 1.2;
+  user-select: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

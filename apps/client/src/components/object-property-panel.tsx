@@ -3019,6 +3019,12 @@ function SpecificPropertyFields({
         <Form.Item label="Dropdown Max Height">
           <InputNumber style={{ width: "100%" }} min={60} max={600} value={object.dropdownMaxHeight ?? 200} onChange={(v) => onPatch({ dropdownMaxHeight: Number(v ?? 200) } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Dropdown Offset Y">
+          <InputNumber style={{ width: "100%" }} min={-8} max={24} value={object.dropdownOffsetY ?? 2} onChange={(v) => onPatch({ dropdownOffsetY: Number(v ?? 2) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Option Height">
+          <InputNumber style={{ width: "100%" }} min={20} max={60} value={object.optionHeight ?? 28} onChange={(v) => onPatch({ optionHeight: Number(v ?? 28) } as Partial<HmiObject>)} />
+        </Form.Item>
         <Form.Item label="Options (one per line: label|value)">
           <Input.TextArea
             rows={5}
@@ -3056,6 +3062,9 @@ function SpecificPropertyFields({
         <ColorField label="Placeholder Color" value={object.placeholderColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ placeholderColor: next } as Partial<HmiObject>)} />
         <Form.Item label="Padding">
           <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.padding ?? 8} onChange={(v) => onPatch({ padding: Number(v ?? 8) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Arrow Area Width">
+          <InputNumber style={{ width: "100%" }} min={14} max={56} value={object.arrowAreaWidth ?? 24} onChange={(v) => onPatch({ arrowAreaWidth: Number(v ?? 24) } as Partial<HmiObject>)} />
         </Form.Item>
         <ColorField label="Arrow Color" value={object.arrowColor ?? "#cccccc"} fallback="#cccccc" onChange={(next) => onPatch({ arrowColor: next } as Partial<HmiObject>)} />
         <Form.Item label="Font Family">
@@ -3166,6 +3175,12 @@ function SpecificPropertyFields({
         </Form.Item>
         <Form.Item label="Radio Stroke Width">
           <InputNumber style={{ width: "100%" }} min={0.5} max={6} step={0.5} value={object.radioStrokeWidth ?? 1.5} onChange={(v) => onPatch({ radioStrokeWidth: Number(v ?? 1.5) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Indicator Gap">
+          <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.indicatorGap ?? 6} onChange={(v) => onPatch({ indicatorGap: Number(v ?? 6) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Item Inset">
+          <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.itemInset ?? 4} onChange={(v) => onPatch({ itemInset: Number(v ?? 4) } as Partial<HmiObject>)} />
         </Form.Item>
         <ColorField label="Selected Color" value={object.selectedColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ selectedColor: next } as Partial<HmiObject>)} />
         <ColorField label="Unselected Color" value={object.unselectedColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ unselectedColor: next } as Partial<HmiObject>)} />
