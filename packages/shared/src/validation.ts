@@ -199,6 +199,7 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
     type: z.literal("runMacro"),
     macroId: z.string().min(1),
     args: z.record(z.unknown()).optional(),
+    allowRepeat: z.boolean().optional(),
     confirm: z.boolean().optional(),
     confirmText: z.string().optional(),
   }),
