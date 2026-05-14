@@ -55,6 +55,11 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         stroke: "#d9d9d9",
         strokeWidth: 3,
         closed: false,
+        activeValue: 1,
+        inactiveStroke: "#d9d9d9",
+        activeStroke: "#0e639c",
+        gradientEnabled: false,
+        gradientDirection: "horizontal",
       };
     case "rectangle":
       return {
@@ -68,6 +73,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         minHeight: 20,
         fill: "#262626",
         stroke: "#8c8c8c",
+        gradientEnabled: false,
+        gradientDirection: "horizontal",
       };
     case "value-display":
       return {
@@ -114,6 +121,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         trueColor: "#389e0d",
         falseColor: "#595959",
         badColor: "#bfbfbf",
+        gradientEnabled: false,
+        gradientDirection: "horizontal",
         textStyle: { ...defaultTextStyle },
       };
     case "button":
@@ -133,6 +142,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         disabledBackgroundColor: "#434343",
         borderColor: "#0958d9",
         borderWidth: 1,
+        gradientEnabled: false,
+        gradientDirection: "horizontal",
         textStyle: { ...defaultTextStyle },
         action: { type: "pulse", tag: "", value: true, durationMs: 500 },
       };
@@ -153,6 +164,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         offColor: "#434343",
         borderColor: "#595959",
         borderWidth: 1,
+        gradientEnabled: false,
+        gradientDirection: "horizontal",
         textStyle: { ...defaultTextStyle },
       };
     case "image":

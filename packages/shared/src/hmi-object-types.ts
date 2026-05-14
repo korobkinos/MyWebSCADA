@@ -102,6 +102,14 @@ export type LineObject = HmiObjectBase & {
   strokeWidth: number;
   closed?: boolean;
   fill?: string;
+  stateTag?: string;
+  activeValue?: string | number | boolean;
+  inactiveStroke?: string;
+  activeStroke?: string;
+  gradientEnabled?: boolean;
+  gradientStartColor?: string;
+  gradientEndColor?: string;
+  gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
 };
 
 export type GroupObject = HmiObjectBase & {
@@ -115,6 +123,10 @@ export type RectangleObject = HmiObjectBase & {
   stroke?: string;
   strokeWidth?: number;
   cornerRadius?: number;
+  gradientEnabled?: boolean;
+  gradientStartColor?: string;
+  gradientEndColor?: string;
+  gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
 };
 
 export type ValueDisplayObject = HmiObjectBase & {
@@ -146,6 +158,10 @@ export type StateIndicatorObject = HmiObjectBase & {
   trueColor: string;
   falseColor: string;
   badColor: string;
+  gradientEnabled?: boolean;
+  gradientStartColor?: string;
+  gradientEndColor?: string;
+  gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
   textStyle: TextStyle;
 } & TextLayout;
 
@@ -252,6 +268,10 @@ export type ButtonObject = HmiObjectBase & {
   disabledBackgroundColor?: string;
   borderColor?: string;
   borderWidth?: number;
+  gradientEnabled?: boolean;
+  gradientStartColor?: string;
+  gradientEndColor?: string;
+  gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
   action: RuntimeAction;
   textStyle: TextStyle;
 } & TextLayout;
@@ -265,6 +285,10 @@ export type SwitchObject = HmiObjectBase & {
   offColor?: string;
   borderColor?: string;
   borderWidth?: number;
+  gradientEnabled?: boolean;
+  gradientStartColor?: string;
+  gradientEndColor?: string;
+  gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
   textStyle: TextStyle;
 } & TextLayout;
 

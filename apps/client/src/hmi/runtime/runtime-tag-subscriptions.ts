@@ -124,6 +124,16 @@ function collectObjectTags(
         collectObjectTags(project, libraries, child, context, runtimeResolveContext, out, frameGuard);
       }
       return;
+    case "line":
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "stateTag",
+        rawTagName: resolvedObject.stateTag,
+        context,
+        runtimeTagValues,
+      });
+      return;
     case "value-display":
     case "value-input":
     case "state-indicator":

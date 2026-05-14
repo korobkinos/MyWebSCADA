@@ -58,6 +58,8 @@ type FormatNumericOptions = {
   showUnit?: boolean;
 };
 
+type GradientDirection = "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
+
 function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   const formatMode = opts.formatMode ?? "decimals";
   const decimals = opts.decimals ?? 2;
@@ -90,6 +92,110 @@ function formatNumericValue(value: number, opts: FormatNumericOptions): string {
     return `${formatted} ${unit}`;
   }
   return formatted;
+}
+
+function matchesStateValue(actual: unknown, expected: string | number | boolean): boolean {
+  if (typeof expected === "number") {
+    if (typeof actual === "number") {
+      return Number.isFinite(actual) && Math.abs(actual - expected) < 1e-9;
+    }
+    if (typeof actual === "string") {
+      const parsed = Number(actual.trim());
+      return Number.isFinite(parsed) && Math.abs(parsed - expected) < 1e-9;
+    }
+    return false;
+  }
+  if (typeof expected === "boolean") {
+    if (typeof actual === "boolean") {
+      return actual === expected;
+    }
+    if (typeof actual === "number") {
+      return (actual !== 0) === expected;
+    }
+    if (typeof actual === "string") {
+      const normalized = actual.trim().toLowerCase();
+      if (normalized === "true" || normalized === "1") {
+        return expected === true;
+      }
+      if (normalized === "false" || normalized === "0" || normalized === "") {
+        return expected === false;
+      }
+    }
+    return false;
+  }
+  return String(actual ?? "").trim() === expected;
+}
+
+function resolveFillGradientProps(args: {
+  enabled: boolean;
+  direction: GradientDirection;
+  startColor: string;
+  endColor: string;
+  baseFill: string;
+  width: number;
+  height: number;
+}): Record<string, unknown> {
+  if (!args.enabled) {
+    return {
+      fill: args.baseFill,
+      fillPriority: "color",
+      fillLinearGradientColorStops: undefined,
+      fillRadialGradientColorStops: undefined,
+    };
+  }
+  if (args.direction === "center-outward" || args.direction === "outside-inward") {
+    const center = { x: args.width * 0.5, y: args.height * 0.5 };
+    const radius = Math.max(args.width, args.height) * 0.5;
+    const start = args.direction === "outside-inward" ? args.endColor : args.startColor;
+    const end = args.direction === "outside-inward" ? args.startColor : args.endColor;
+    return {
+      fill: args.baseFill,
+      fillPriority: "radial-gradient",
+      fillRadialGradientStartPoint: center,
+      fillRadialGradientStartRadius: 0,
+      fillRadialGradientEndPoint: center,
+      fillRadialGradientEndRadius: radius,
+      fillRadialGradientColorStops: [0, start, 1, end],
+      fillLinearGradientColorStops: undefined,
+    };
+  }
+  const endPoint = args.direction === "vertical"
+    ? { x: 0, y: args.height }
+    : args.direction === "diagonal"
+      ? { x: args.width, y: args.height }
+      : { x: args.width, y: 0 };
+  return {
+    fill: args.baseFill,
+    fillPriority: "linear-gradient",
+    fillLinearGradientStartPoint: { x: 0, y: 0 },
+    fillLinearGradientEndPoint: endPoint,
+    fillLinearGradientColorStops: [0, args.startColor, 1, args.endColor],
+    fillRadialGradientColorStops: undefined,
+  };
+}
+
+function resolveLineGradientProps(args: {
+  enabled: boolean;
+  direction: GradientDirection;
+  startColor: string;
+  endColor: string;
+  width: number;
+  height: number;
+}): Record<string, unknown> {
+  if (!args.enabled) {
+    return {};
+  }
+  const reversed = args.direction === "outside-inward";
+  const endPoint = args.direction === "vertical"
+    ? { x: 0, y: args.height }
+    : { x: args.width, y: args.height };
+  const startColor = reversed ? args.endColor : args.startColor;
+  const endColor = reversed ? args.startColor : args.endColor;
+  return {
+    strokeLinearGradientStartPoint: { x: 0, y: 0 },
+    strokeLinearGradientEndPoint: endPoint,
+    strokeLinearGradientColorStops: [0, startColor, 1, endColor],
+  };
 }
 
 type TagMap = Record<string, TagValue>;
@@ -364,6 +470,9 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
   const candidates: Array<string | undefined> = [];
   candidates.push(object.visibleTag, object.disabledTag);
   switch (object.type) {
+    case "line":
+      candidates.push(object.stateTag);
+      break;
     case "value-display":
     case "value-input":
     case "state-indicator":
@@ -643,15 +752,41 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "line") {
+    const lineStateTag = runtimeMode ? tagValue(resolvedObject.stateTag, { useObjectIndexing: true, fieldName: "stateTag" }) : undefined;
+    const hasStateTag = Boolean(resolvedObject.stateTag?.trim());
+    const lineStateValue = lineStateTag?.value?.value;
+    const isStateActive = runtimeMode && hasStateTag
+      ? (resolvedObject.activeValue !== undefined
+        ? matchesStateValue(lineStateValue, resolvedObject.activeValue)
+        : Boolean(lineStateValue))
+      : false;
+    const lineStroke = hasStateTag
+      ? (isStateActive
+        ? (resolvedObject.activeStroke ?? resolvedObject.stroke)
+        : (resolvedObject.inactiveStroke ?? resolvedObject.stroke))
+      : resolvedObject.stroke;
+    const lineGradientEnabled = resolvedObject.gradientEnabled ?? false;
+    const lineGradientStart = resolvedObject.gradientStartColor ?? lineStroke;
+    const lineGradientEnd = resolvedObject.gradientEndColor ?? lineStroke;
+    const lineGradientDirection = (resolvedObject.gradientDirection ?? "horizontal") as GradientDirection;
+    const lineGradientProps = resolveLineGradientProps({
+      enabled: lineGradientEnabled,
+      direction: lineGradientDirection,
+      startColor: lineGradientStart,
+      endColor: lineGradientEnd,
+      width: resolvedObject.width,
+      height: resolvedObject.height,
+    });
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Line
           points={resolvedObject.points}
-          stroke={resolvedObject.stroke}
+          stroke={lineStroke}
           strokeWidth={resolvedObject.strokeWidth}
           closed={resolvedObject.closed ?? false}
           fill={resolvedObject.fill}
+          {...lineGradientProps}
         />
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
@@ -659,13 +794,25 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "rectangle") {
+    const rectBaseFill = resolvedObject.fill ?? "#262626";
+    const rectGradientEnabled = resolvedObject.gradientEnabled ?? false;
+    const rectGradientDirection = (resolvedObject.gradientDirection ?? "horizontal") as GradientDirection;
+    const rectGradientProps = resolveFillGradientProps({
+      enabled: rectGradientEnabled,
+      direction: rectGradientDirection,
+      startColor: resolvedObject.gradientStartColor ?? rectBaseFill,
+      endColor: resolvedObject.gradientEndColor ?? rectBaseFill,
+      baseFill: rectBaseFill,
+      width: resolvedObject.width,
+      height: resolvedObject.height,
+    });
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect
           width={resolvedObject.width}
           height={resolvedObject.height}
-          fill={resolvedObject.fill}
+          {...rectGradientProps}
           stroke={resolvedObject.stroke}
           strokeWidth={resolvedObject.strokeWidth}
           cornerRadius={resolvedObject.cornerRadius}
@@ -798,12 +945,23 @@ function ObjectNode({
     const isBad = runtimeMode && Boolean(resolvedTag?.missingBindingReference || resolvedTag?.missingIndexedTag || !value || value.quality === "Bad");
     const boolValue = runtimeMode ? Boolean(value?.value) : false;
     const fill = isBad ? resolvedObject.badColor : boolValue ? resolvedObject.trueColor : resolvedObject.falseColor;
+    const indicatorGradientEnabled = resolvedObject.gradientEnabled ?? false;
+    const indicatorGradientDirection = (resolvedObject.gradientDirection ?? "horizontal") as GradientDirection;
+    const indicatorGradientProps = resolveFillGradientProps({
+      enabled: indicatorGradientEnabled,
+      direction: indicatorGradientDirection,
+      startColor: resolvedObject.gradientStartColor ?? fill,
+      endColor: resolvedObject.gradientEndColor ?? fill,
+      baseFill: fill,
+      width: resolvedObject.width,
+      height: resolvedObject.height,
+    });
     const text = isBad ? "BAD" : boolValue ? resolvedObject.trueText : resolvedObject.falseText;
 
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill={fill} cornerRadius={8} />
+        <Rect width={resolvedObject.width} height={resolvedObject.height} cornerRadius={8} {...indicatorGradientProps} />
         {renderBoxText(text, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
@@ -844,6 +1002,16 @@ function ObjectNode({
     );
     const isOn = runtimeMode ? Boolean(runtimeSwitchTag?.value?.value) : false;
     const fillColor = switchBad ? "#6f6f6f" : (isOn ? (resolvedObject.onColor ?? "#389e0d") : (resolvedObject.offColor ?? "#434343"));
+    const switchBaseFill = runtimeDisabled ? "#4a4a4a" : fillColor;
+    const switchGradientProps = resolveFillGradientProps({
+      enabled: resolvedObject.gradientEnabled ?? false,
+      direction: (resolvedObject.gradientDirection ?? "horizontal") as GradientDirection,
+      startColor: resolvedObject.gradientStartColor ?? (resolvedObject.offColor ?? switchBaseFill),
+      endColor: resolvedObject.gradientEndColor ?? (resolvedObject.onColor ?? switchBaseFill),
+      baseFill: switchBaseFill,
+      width: resolvedObject.width,
+      height: resolvedObject.height,
+    });
     return (
       <Group
         {...commonGroupProps}
@@ -881,7 +1049,7 @@ function ObjectNode({
         <Rect
           width={resolvedObject.width}
           height={resolvedObject.height}
-          fill={runtimeDisabled ? "#4a4a4a" : fillColor}
+          {...switchGradientProps}
           stroke={resolvedObject.borderColor}
           strokeWidth={resolvedObject.borderWidth ?? 0}
           cornerRadius={8}
@@ -1582,6 +1750,13 @@ function ObjectNode({
           }
         }}
         onMouseUp={(evt: KonvaEventObject<MouseEvent>) => {
+          if (interactive || runtimeDisabled) {
+            sliderDragRef.current = false;
+            setSliderDragValue(null);
+            sliderReleaseAtRef.current = null;
+            sliderReleaseSourceValueRef.current = null;
+            return;
+          }
           const groupNode = evt.currentTarget;
           const pointer = groupNode.getRelativePointerPosition();
           if (pointer) {
@@ -1594,6 +1769,12 @@ function ObjectNode({
         }}
         onMouseLeave={() => {
           sliderDragRef.current = false;
+          if (interactive || runtimeDisabled) {
+            setSliderDragValue(null);
+            sliderReleaseAtRef.current = null;
+            sliderReleaseSourceValueRef.current = null;
+            return;
+          }
           sliderReleaseAtRef.current = Date.now();
           sliderReleaseSourceValueRef.current = sliderValue;
         }}
@@ -2830,6 +3011,15 @@ function ButtonNode({
     : pressed
       ? object.pressedBackgroundColor ?? object.backgroundColor ?? "#0958d9"
       : object.backgroundColor ?? "#0958d9";
+  const buttonGradientProps = resolveFillGradientProps({
+    enabled: object.gradientEnabled ?? false,
+    direction: (object.gradientDirection ?? "horizontal") as GradientDirection,
+    startColor: object.gradientStartColor ?? currentFill,
+    endColor: object.gradientEndColor ?? currentFill,
+    baseFill: currentFill,
+    width: object.width,
+    height: object.height,
+  });
   const { image } = useImage(currentSrc);
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, "stretch"),
@@ -2888,7 +3078,7 @@ function ButtonNode({
       <Rect
         width={object.width}
         height={object.height}
-        fill={currentFill}
+        {...buttonGradientProps}
         stroke={object.borderColor}
         strokeWidth={object.borderWidth ?? 0}
         cornerRadius={6}
@@ -3055,6 +3245,9 @@ function collectMissingBindingReferencesFromObjects(
       object.type === "stateImage"
     ) {
       collectMissingBindingReference(object.tag, resolvedBindings, output);
+    }
+    if (object.type === "line") {
+      collectMissingBindingReference(object.stateTag, resolvedBindings, output);
     }
     if (object.type === "image") {
       collectMissingBindingReference(object.stateTag, resolvedBindings, output);

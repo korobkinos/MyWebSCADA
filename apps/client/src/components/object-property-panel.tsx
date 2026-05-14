@@ -51,6 +51,13 @@ type Props = {
 };
 
 const fontOptions = ["Arial", "Tahoma", "Verdana", "Consolas", "Segoe UI", "Roboto", "Noto Sans"];
+const gradientDirectionOptions = [
+  { label: "horizontal", value: "horizontal" },
+  { label: "vertical", value: "vertical" },
+  { label: "diagonal", value: "diagonal" },
+  { label: "center-outward", value: "center-outward" },
+  { label: "outside-inward", value: "outside-inward" },
+] as const;
 const roleOptions: Array<{ label: string; value: AppRole }> = [
   { label: "admin", value: "admin" },
   { label: "engineer", value: "engineer" },
@@ -98,6 +105,54 @@ function ColorField({
   );
 }
 
+function GradientTabContent({
+  enabled,
+  direction,
+  startColor,
+  endColor,
+  startFallback,
+  endFallback,
+  onPatch,
+}: {
+  enabled: boolean;
+  direction: string | undefined;
+  startColor: string | undefined;
+  endColor: string | undefined;
+  startFallback: string;
+  endFallback: string;
+  onPatch: (patch: Partial<HmiObject>) => void;
+}) {
+  return (
+    <>
+      <Space>
+        <span>Enable Gradient</span>
+        <Switch checked={enabled} onChange={(checked) => onPatch({ gradientEnabled: checked } as Partial<HmiObject>)} />
+      </Space>
+      <Form.Item label="Gradient Direction">
+        <Select
+          value={direction ?? "horizontal"}
+          options={gradientDirectionOptions.map((item) => ({ label: item.label, value: item.value }))}
+          onChange={(value) => onPatch({ gradientDirection: value } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+      <ColorField
+        label="Gradient Start"
+        value={startColor}
+        fallback={startFallback}
+        disabled={!enabled}
+        onChange={(next) => onPatch({ gradientStartColor: next } as Partial<HmiObject>)}
+      />
+      <ColorField
+        label="Gradient End"
+        value={endColor}
+        fallback={endFallback}
+        disabled={!enabled}
+        onChange={(next) => onPatch({ gradientEndColor: next } as Partial<HmiObject>)}
+      />
+    </>
+  );
+}
+
 function optionsToMultilineText(options: Array<{ label: string; value: string | number | boolean }> | undefined): string {
   return (options ?? []).map((item) => `${item.label}|${String(item.value)}`).join("\n");
 }
@@ -123,6 +178,28 @@ function parseOptionsMultiline(
     }
     return { label, value: parsed };
   });
+}
+
+function parseScalarToken(rawValue: string): string | number | boolean {
+  const trimmed = rawValue.trim();
+  if (trimmed.toLowerCase() === "true") {
+    return true;
+  }
+  if (trimmed.toLowerCase() === "false") {
+    return false;
+  }
+  const asNumber = Number(trimmed);
+  if (trimmed !== "" && Number.isFinite(asNumber) && !trimmed.startsWith("0x")) {
+    return asNumber;
+  }
+  return trimmed;
+}
+
+function scalarToText(value: string | number | boolean | undefined): string {
+  if (value === undefined) {
+    return "";
+  }
+  return String(value);
 }
 
 function extractBindingKey(tag: string | undefined): string | undefined {
@@ -942,8 +1019,36 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "line") {
-    return (
+    const lineMainContent = (
       <>
+        <Typography.Text strong>State</Typography.Text>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.stateTag ?? ""}
+          bindingLabel="State Binding"
+          tagLabel="State Tag"
+          indexControl={buildIndexControl("stateTag", "State Tag", object.stateTag)}
+          onChange={(nextValue) => onPatch({ stateTag: nextValue } as Partial<HmiObject>)}
+        />
+        <Form.Item label="Active Value">
+          <Input
+            value={scalarToText(object.activeValue)}
+            placeholder="1 / true / ON"
+            onChange={(event) => {
+              const raw = event.target.value;
+              if (raw.trim() === "") {
+                onPatch({ activeValue: undefined } as Partial<HmiObject>);
+                return;
+              }
+              onPatch({ activeValue: parseScalarToken(raw) } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+        <ColorField label="Inactive Stroke" value={object.inactiveStroke ?? object.stroke} fallback="#d9d9d9" onChange={(next) => onPatch({ inactiveStroke: next } as Partial<HmiObject>)} />
+        <ColorField label="Active Stroke" value={object.activeStroke ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ activeStroke: next } as Partial<HmiObject>)} />
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Geometry</Typography.Text>
         <ColorField label="Stroke Color" value={object.stroke} fallback="#d9d9d9" onChange={(next) => onPatch({ stroke: next } as Partial<HmiObject>)} />
         <Form.Item label="Stroke Width">
           <InputNumber
@@ -982,10 +1087,35 @@ function SpecificPropertyFields({
         </Form.Item>
       </>
     );
+
+    return (
+      <Tabs
+        size="small"
+        className="object-property-tabs object-property-tabs--main"
+        items={[
+          { key: "main", label: "Main", children: lineMainContent },
+          {
+            key: "gradient",
+            label: "Gradient",
+            children: (
+              <GradientTabContent
+                enabled={object.gradientEnabled ?? false}
+                direction={object.gradientDirection}
+                startColor={object.gradientStartColor ?? object.inactiveStroke ?? object.stroke}
+                endColor={object.gradientEndColor ?? object.activeStroke ?? object.stroke}
+                startFallback={object.inactiveStroke ?? object.stroke ?? "#d9d9d9"}
+                endFallback={object.activeStroke ?? object.stroke ?? "#0e639c"}
+                onPatch={onPatch}
+              />
+            ),
+          },
+        ]}
+      />
+    );
   }
 
   if (object.type === "rectangle") {
-    return (
+    const rectangleMainContent = (
       <>
         <ColorField label="Fill Color" value={object.fill ?? ""} fallback="#262626" onChange={(next) => onPatch({ fill: next } as Partial<HmiObject>)} />
         <ColorField label="Stroke Color" value={object.stroke ?? ""} fallback="#8c8c8c" onChange={(next) => onPatch({ stroke: next } as Partial<HmiObject>)} />
@@ -1006,6 +1136,30 @@ function SpecificPropertyFields({
           />
         </Form.Item>
       </>
+    );
+    return (
+      <Tabs
+        size="small"
+        className="object-property-tabs object-property-tabs--main"
+        items={[
+          { key: "main", label: "Main", children: rectangleMainContent },
+          {
+            key: "gradient",
+            label: "Gradient",
+            children: (
+              <GradientTabContent
+                enabled={object.gradientEnabled ?? false}
+                direction={object.gradientDirection}
+                startColor={object.gradientStartColor ?? object.fill}
+                endColor={object.gradientEndColor ?? object.fill}
+                startFallback={object.fill ?? "#262626"}
+                endFallback={object.fill ?? "#3c3c3c"}
+                onPatch={onPatch}
+              />
+            ),
+          },
+        ]}
+      />
     );
   }
 
@@ -1047,7 +1201,7 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "state-indicator") {
-    return (
+    const stateIndicatorMainContent = (
       <>
         <TagFieldWithBindingSource
           project={project}
@@ -1067,6 +1221,30 @@ function SpecificPropertyFields({
         <ColorField label="Bad Color" value={object.badColor} fallback="#bfbfbf" onChange={(next) => onPatch({ badColor: next } as Partial<HmiObject>)} />
       </>
     );
+    return (
+      <Tabs
+        size="small"
+        className="object-property-tabs object-property-tabs--main"
+        items={[
+          { key: "main", label: "Main", children: stateIndicatorMainContent },
+          {
+            key: "gradient",
+            label: "Gradient",
+            children: (
+              <GradientTabContent
+                enabled={object.gradientEnabled ?? false}
+                direction={object.gradientDirection}
+                startColor={object.gradientStartColor ?? object.falseColor}
+                endColor={object.gradientEndColor ?? object.trueColor}
+                startFallback={object.falseColor ?? "#595959"}
+                endFallback={object.trueColor ?? "#389e0d"}
+                onPatch={onPatch}
+              />
+            ),
+          },
+        ]}
+      />
+    );
   }
 
   if (object.type === "button") {
@@ -1081,7 +1259,7 @@ function SpecificPropertyFields({
     const macro = runMacroAction
       ? (project.macros ?? []).find((item) => item.id === runMacroAction.macroId)
       : undefined;
-    return (
+    const buttonMainContent = (
       <>
         <Form.Item label="Text">
           <Input value={object.text ?? ""} onChange={(e) => onPatch({ text: e.target.value } as Partial<HmiObject>)} />
@@ -1444,10 +1622,31 @@ function SpecificPropertyFields({
         ) : null}
       </>
     );
+    const buttonGradientContent = (
+      <GradientTabContent
+        enabled={object.gradientEnabled ?? false}
+        direction={object.gradientDirection}
+        startColor={object.gradientStartColor ?? object.backgroundColor}
+        endColor={object.gradientEndColor ?? object.pressedBackgroundColor ?? object.backgroundColor}
+        startFallback={object.backgroundColor ?? "#0958d9"}
+        endFallback={object.pressedBackgroundColor ?? "#0747b3"}
+        onPatch={onPatch}
+      />
+    );
+    return (
+      <Tabs
+        size="small"
+        className="object-property-tabs object-property-tabs--main"
+        items={[
+          { key: "main", label: "Main", children: buttonMainContent },
+          { key: "gradient", label: "Gradient", children: buttonGradientContent },
+        ]}
+      />
+    );
   }
 
   if (object.type === "switch") {
-    return (
+    const switchMainContent = (
       <>
         <TagFieldWithBindingSource
           project={project}
@@ -1474,6 +1673,30 @@ function SpecificPropertyFields({
           />
         </Form.Item>
       </>
+    );
+    return (
+      <Tabs
+        size="small"
+        className="object-property-tabs object-property-tabs--main"
+        items={[
+          { key: "main", label: "Main", children: switchMainContent },
+          {
+            key: "gradient",
+            label: "Gradient",
+            children: (
+              <GradientTabContent
+                enabled={object.gradientEnabled ?? false}
+                direction={object.gradientDirection}
+                startColor={object.gradientStartColor ?? object.offColor}
+                endColor={object.gradientEndColor ?? object.onColor}
+                startFallback={object.offColor ?? "#434343"}
+                endFallback={object.onColor ?? "#389e0d"}
+                onPatch={onPatch}
+              />
+            ),
+          },
+        ]}
+      />
     );
   }
 

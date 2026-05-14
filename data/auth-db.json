@@ -11,8 +11,8 @@
       "roleLevel": 4,
       "permissions": [],
       "createdAt": "2026-05-08T07:59:46.962Z",
-      "updatedAt": "2026-05-14T20:17:10.668Z",
-      "lastLoginAt": "2026-05-14T20:17:10.668Z",
+      "updatedAt": "2026-05-14T20:46:33.199Z",
+      "lastLoginAt": "2026-05-14T20:46:33.198Z",
       "passwordHash": "$2b$12$Zg1FuvMDni8Mq5SVOls8dOrw0UOwJmeuhSHIFKqaxZ0nkLa.F9BMu",
       "passwordAlgorithm": "bcrypt"
     },

@@ -232,6 +232,14 @@ const lineObjectSchema = hmiBaseSchema.extend({
   strokeWidth: z.number().positive(),
   closed: z.boolean().optional(),
   fill: z.string().optional(),
+  stateTag: z.string().optional(),
+  activeValue: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  inactiveStroke: z.string().optional(),
+  activeStroke: z.string().optional(),
+  gradientEnabled: z.boolean().optional(),
+  gradientStartColor: z.string().optional(),
+  gradientEndColor: z.string().optional(),
+  gradientDirection: z.enum(["horizontal", "vertical", "diagonal", "center-outward", "outside-inward"]).optional(),
 });
 
 const rectangleObjectSchema = hmiBaseSchema.extend({
@@ -240,6 +248,10 @@ const rectangleObjectSchema = hmiBaseSchema.extend({
   stroke: z.string().optional(),
   strokeWidth: z.number().optional(),
   cornerRadius: z.number().optional(),
+  gradientEnabled: z.boolean().optional(),
+  gradientStartColor: z.string().optional(),
+  gradientEndColor: z.string().optional(),
+  gradientDirection: z.enum(["horizontal", "vertical", "diagonal", "center-outward", "outside-inward"]).optional(),
 });
 
 const valueDisplayObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
@@ -271,6 +283,10 @@ const stateIndicatorObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend(
   trueColor: z.string(),
   falseColor: z.string(),
   badColor: z.string(),
+  gradientEnabled: z.boolean().optional(),
+  gradientStartColor: z.string().optional(),
+  gradientEndColor: z.string().optional(),
+  gradientDirection: z.enum(["horizontal", "vertical", "diagonal", "center-outward", "outside-inward"]).optional(),
   textStyle: textStyleSchema,
 });
 
@@ -286,6 +302,10 @@ const buttonObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   disabledBackgroundColor: z.string().optional(),
   borderColor: z.string().optional(),
   borderWidth: z.number().nonnegative().optional(),
+  gradientEnabled: z.boolean().optional(),
+  gradientStartColor: z.string().optional(),
+  gradientEndColor: z.string().optional(),
+  gradientDirection: z.enum(["horizontal", "vertical", "diagonal", "center-outward", "outside-inward"]).optional(),
   textStyle: textStyleSchema,
   action: runtimeActionSchema,
 });
@@ -299,6 +319,10 @@ const switchObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   offColor: z.string().optional(),
   borderColor: z.string().optional(),
   borderWidth: z.number().nonnegative().optional(),
+  gradientEnabled: z.boolean().optional(),
+  gradientStartColor: z.string().optional(),
+  gradientEndColor: z.string().optional(),
+  gradientDirection: z.enum(["horizontal", "vertical", "diagonal", "center-outward", "outside-inward"]).optional(),
   textStyle: textStyleSchema,
 });
 

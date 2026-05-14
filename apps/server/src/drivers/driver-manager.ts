@@ -725,6 +725,9 @@ export class DriverManager {
     this.unavailableLogAt.set(key, now);
     const status = this.getStatus(driverId);
     const health = status?.health ?? "disconnected";
+    if (String(health).toLowerCase() === "disabled") {
+      return;
+    }
     if (action === "readTags" && (status?.type === "opcua" || this.drivers.get(driverId)?.type === "opcua")) {
       console.warn(`[DriverManager] Skipping OPC UA polling: driver ${driverId} is ${health}`);
       return;
