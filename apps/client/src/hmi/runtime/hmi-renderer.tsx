@@ -32,6 +32,7 @@ import {
 } from "@web-scada/shared";
 import { applyElementStateRules } from "./element-state-rules";
 import { getObjectIndexedConfigForField, resolveObjectTagField } from "../tags/indexed-address";
+import { sortObjectsByZIndex } from "../editor/z-order";
 
 type TagMap = Record<string, TagValue>;
 type ResolvedTagValue = {
@@ -115,6 +116,7 @@ export function HmiRenderer({
   scopedAssets,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
+  const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
   const debugPerformance =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -135,7 +137,7 @@ export function HmiRenderer({
 
   return (
     <>
-      {screen.objects.map((object) => (
+      {sortedObjects.map((object) => (
         <MemoObjectNode
           key={object.id}
           object={object}

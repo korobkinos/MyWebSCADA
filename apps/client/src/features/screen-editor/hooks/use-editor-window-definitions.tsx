@@ -105,6 +105,10 @@ type UseEditorWindowDefinitionsParams = {
   saveObjectProperties: () => Promise<void>;
   patchActiveObject: (patch: Partial<HmiObject>) => void;
   deleteActiveObject: () => void;
+  onBringToFront: () => void;
+  onSendToBack: () => void;
+  onMoveForward: () => void;
+  onMoveBackward: () => void;
   openWindow: (definition: WorkbenchWindowDefinition) => void;
   closeWindow: (id: string) => void;
 };
@@ -260,6 +264,10 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
             onDeleteSelected={params.deleteSelectionWithHistory}
             onLockSelected={() => params.runCommand({ type: "lockSelected" })}
             onUnlockSelected={() => params.runCommand({ type: "unlockSelected" })}
+            onBringToFront={params.onBringToFront}
+            onSendToBack={params.onSendToBack}
+            onMoveForward={params.onMoveForward}
+            onMoveBackward={params.onMoveBackward}
             canDelete={params.canDelete}
             canLock={params.canLock}
             canUnlock={params.canUnlock}
@@ -430,6 +438,10 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
               object={params.activeObject}
               onPatch={params.patchActiveObject}
               onDelete={params.deleteActiveObject}
+              onBringToFront={params.onBringToFront}
+              onSendToBack={params.onSendToBack}
+              onMoveForward={params.onMoveForward}
+              onMoveBackward={params.onMoveBackward}
             />
           </div>
         ),

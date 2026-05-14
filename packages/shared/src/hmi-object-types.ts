@@ -72,6 +72,8 @@ export type HmiObjectBase = {
   minWidth?: number;
   minHeight?: number;
 
+  zIndex?: number;
+
   bindings?: HmiBindings;
   visibleTag?: string;
   visibleInvert?: boolean;

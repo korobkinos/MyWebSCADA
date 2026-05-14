@@ -86,6 +86,18 @@
       "updatedAt": "2026-05-12T07:06:42.930Z",
       "storagePath": "assets/60a1cdd8-ccb3-4b8b-8544-5ba787ee1da2.jpg",
       "previewUrl": "/api/assets/60a1cdd8-ccb3-4b8b-8544-5ba787ee1da2/file"
+    },
+    {
+      "id": "e2fb9382-5624-4dbf-a639-d4dec2484f7b",
+      "name": "photo_2026-04-11_08-04-58",
+      "type": "jpg",
+      "mimeType": "image/jpeg",
+      "fileName": "e2fb9382-5624-4dbf-a639-d4dec2484f7b.jpg",
+      "size": 182262,
+      "createdAt": "2026-05-14T05:36:01.303Z",
+      "updatedAt": "2026-05-14T05:36:01.303Z",
+      "storagePath": "assets/e2fb9382-5624-4dbf-a639-d4dec2484f7b.jpg",
+      "previewUrl": "/api/assets/e2fb9382-5624-4dbf-a639-d4dec2484f7b/file"
     }
   ],
   "libraries": [
@@ -119,10 +131,10 @@
       "type": "opcua",
       "enabled": true,
       "name": "OPC UA Driver",
-      "endpointUrl": "opc.tcp://192.168.56.2:4840",
+      "endpointUrl": "opc.tcp://192.168.4.220:4840",
       "securityPolicy": "None",
       "securityMode": "None",
-      "readMode": "subscription",
+      "readMode": "polling",
       "publishingIntervalMs": 250,
       "samplingIntervalMs": 250,
       "queueSize": 1,
@@ -11393,7 +11405,12 @@
       "language": "javascript-lite",
       "code": "const current = Number(api.readVariable('Counter2') ?? 0); \napi.writeVariable('Counter2', current + 1);",
       "enabled": false,
-      "triggers": []
+      "triggers": [
+        {
+          "type": "interval",
+          "intervalMs": 100
+        }
+      ]
     },
     {
       "id": "openValvePopup",
@@ -12162,25 +12179,10 @@
           }
         },
         {
-          "id": "img_kh3vyt",
-          "type": "image",
-          "x": 1394.4934019327113,
-          "y": 417.12673323153865,
-          "width": 100.27731704616173,
-          "height": 100.27731704616158,
-          "rotation": 0,
-          "opacity": 1,
-          "minWidth": 40,
-          "minHeight": 40,
-          "assetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        },
-        {
           "id": "img_oqiwgy",
           "type": "image",
-          "x": 1351.6408250918457,
-          "y": 313.41199273943954,
+          "x": 1371.0138901618345,
+          "y": 484.11417191619506,
           "width": 218.29730031425754,
           "height": 218.29730031425743,
           "rotation": -69.25025532260561,
@@ -12332,6 +12334,37 @@
             "verticalAlign": "middle",
             "padding": 4
           }
+        },
+        {
+          "id": "img_kh3vyt",
+          "type": "image",
+          "x": 1396.9150350664597,
+          "y": 436.49719327996485,
+          "width": 100.27731704616173,
+          "height": 100.27731704616158,
+          "rotation": 0,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "img_mk7kly",
+          "type": "image",
+          "x": 1453.1545749173201,
+          "y": 455.0384017943441,
+          "width": 254.66728951610972,
+          "height": 254.66728951610978,
+          "rotation": 0,
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "visibleTag": "Counter2",
+          "assetId": "e2fb9382-5624-4dbf-a639-d4dec2484f7b",
+          "fit": "contain",
+          "preserveAspectRatio": true
         }
       ]
     },

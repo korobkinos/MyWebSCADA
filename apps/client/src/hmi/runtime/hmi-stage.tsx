@@ -12,6 +12,7 @@ import type {
   TagValue,
 } from "@web-scada/shared";
 import { HmiRenderer, type ObjectSelectPayload } from "./hmi-renderer";
+import { sortObjectsByZIndex } from "../editor/z-order";
 
 type TagMap = Record<string, TagValue>;
 
@@ -207,7 +208,8 @@ export function HmiStage({
       return;
     }
 
-    const hitIds = screen.objects
+    const sorted = sortObjectsByZIndex(screen.objects);
+    const hitIds = sorted
       .filter((obj) => intersectsRect(selectionRect, { x: obj.x, y: obj.y, width: obj.width, height: obj.height }))
       .map((obj) => obj.id);
     onSelectObjects?.(hitIds, hitIds[hitIds.length - 1]);

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { HmiObject, HmiScreen } from "@web-scada/shared";
 import { message } from "antd";
 import { useScadaStore } from "../../../store/scada-store";
+import { getNextZIndex } from "../../../hmi/editor/z-order";
 
 type UseEditorClipboardParams = {
   selectedObjects: HmiObject[];
@@ -42,7 +43,9 @@ export function useEditorClipboard({
       if (!currentScreen) {
         return;
       }
-      setScreenObjects(screen.id, [...currentScreen.objects, ...cloned]);
+      const baseZ = getNextZIndex(currentScreen.objects);
+      const withZ = cloned.map((obj, i) => ({ ...obj, zIndex: baseZ + i }));
+      setScreenObjects(screen.id, [...currentScreen.objects, ...withZ]);
     });
     setPasteIteration(newIteration);
     void message.success(`Pasted ${cloned.length} object(s)`);

@@ -3,6 +3,7 @@ import {
   WorkbenchButton,
   WorkbenchSection,
 } from "../../../components/workbench";
+import { sortObjectsByZIndex } from "../../../hmi/editor/z-order";
 
 type ScreenEditorLayersWindowProps = {
   screen: HmiScreen;
@@ -14,6 +15,10 @@ type ScreenEditorLayersWindowProps = {
   onDeleteSelected: () => void;
   onLockSelected: () => void;
   onUnlockSelected: () => void;
+  onBringToFront: () => void;
+  onSendToBack: () => void;
+  onMoveForward: () => void;
+  onMoveBackward: () => void;
   canDelete: boolean;
   canLock: boolean;
   canUnlock: boolean;
@@ -22,6 +27,7 @@ type ScreenEditorLayersWindowProps = {
 type LayerRow = {
   object: HmiObject;
   depth: number;
+  zIndex: number;
 };
 
 export function ScreenEditorLayersWindow({
@@ -34,11 +40,16 @@ export function ScreenEditorLayersWindow({
   onDeleteSelected,
   onLockSelected,
   onUnlockSelected,
+  onBringToFront,
+  onSendToBack,
+  onMoveForward,
+  onMoveBackward,
   canDelete,
   canLock,
   canUnlock,
 }: ScreenEditorLayersWindowProps) {
-  const rows = flattenLayers(screen.objects);
+  const rows = flattenLayers(sortObjectsByZIndex(screen.objects));
+  const hasSelection = selectedObjectIds.length > 0;
 
   return (
     <div className="screen-editor-window-content">
@@ -52,6 +63,20 @@ export function ScreenEditorLayersWindow({
           </WorkbenchButton>
           <WorkbenchButton onClick={onUnlockSelected} disabled={!canUnlock}>
             Unlock
+          </WorkbenchButton>
+        </div>
+        <div style={{ padding: "0 10px 6px", display: "flex", gap: 4, flexWrap: "wrap" }}>
+          <WorkbenchButton onClick={onBringToFront} disabled={!hasSelection} title="Bring to front">
+            Front
+          </WorkbenchButton>
+          <WorkbenchButton onClick={onSendToBack} disabled={!hasSelection} title="Send to back">
+            Back
+          </WorkbenchButton>
+          <WorkbenchButton onClick={onMoveForward} disabled={!hasSelection} title="Move forward">
+            Up
+          </WorkbenchButton>
+          <WorkbenchButton onClick={onMoveBackward} disabled={!hasSelection} title="Move backward">
+            Down
           </WorkbenchButton>
         </div>
 
@@ -78,10 +103,10 @@ export function ScreenEditorLayersWindow({
                   style={{ paddingLeft: `${6 + row.depth * 14}px` }}
                   onClick={() => onSelectObject(item.id)}
                   onDoubleClick={() => onOpenObjectPropertiesForObject?.(item.id)}
-                  title="Single click to select. Double click to open object properties."
+                  title={`zIndex: ${row.zIndex} | Single click to select. Double click to open object properties.`}
                 >
                   <div>{item.name?.trim() || item.id}</div>
-                  <div className="screen-editor-item-meta">{item.type} | {item.id}</div>
+                  <div className="screen-editor-item-meta">{item.type} | z={row.zIndex} | {item.id}</div>
                   <div className="screen-editor-layer-badges">
                     {item.type === "libraryElementInstance" ? (
                       <span
@@ -114,8 +139,12 @@ export function ScreenEditorLayersWindow({
 
 function flattenLayers(objects: HmiObject[], depth = 0): LayerRow[] {
   const rows: LayerRow[] = [];
-  for (const object of objects) {
-    rows.push({ object, depth });
+  const sorted = sortObjectsByZIndex(objects);
+  for (let i = 0; i < sorted.length; i++) {
+    const object = sorted[i];
+    if (!object) continue;
+    const zIndex = object.zIndex ?? i;
+    rows.push({ object, depth, zIndex });
     if (object.type === "group") {
       rows.push(...flattenLayers(object.objects, depth + 1));
     }

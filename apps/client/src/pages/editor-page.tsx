@@ -253,6 +253,7 @@ export function EditorPage() {
     moveObjectWithHistory,
     resizeObjectWithHistory,
     deleteSelectionWithHistory,
+    zOrderWithHistory,
   } = useEditorObjectHistory({
     screen,
     selection,
@@ -745,6 +746,10 @@ export function EditorPage() {
     saveObjectProperties,
     patchActiveObject,
     deleteActiveObject,
+    onBringToFront: () => zOrderWithHistory("bringToFront"),
+    onSendToBack: () => zOrderWithHistory("sendToBack"),
+    onMoveForward: () => zOrderWithHistory("moveForward"),
+    onMoveBackward: () => zOrderWithHistory("moveBackward"),
     openWindow,
     closeWindow,
   });
@@ -1049,6 +1054,10 @@ export function EditorPage() {
             <Button type="text" size="small" danger block onClick={deleteSelectionWithHistory} disabled={!selectedUnlocked.length}>Delete</Button>
             <Button type="text" size="small" block onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>Group</Button>
             <Button type="text" size="small" block onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</Button>
+            <Button type="text" size="small" block onClick={() => zOrderWithHistory("bringToFront")} disabled={!selectedObjects.length}>Bring to Front</Button>
+            <Button type="text" size="small" block onClick={() => zOrderWithHistory("sendToBack")} disabled={!selectedObjects.length}>Send to Back</Button>
+            <Button type="text" size="small" block onClick={() => zOrderWithHistory("moveForward")} disabled={!selectedObjects.length}>Move Forward</Button>
+            <Button type="text" size="small" block onClick={() => zOrderWithHistory("moveBackward")} disabled={!selectedObjects.length}>Move Backward</Button>
             <Button type="text" size="small" block onClick={() => runCommand({ type: "lockSelected" })} disabled={!canLock}>Lock</Button>
             <Button type="text" size="small" block onClick={() => runCommand({ type: "unlockSelected" })} disabled={!canUnlock}>Unlock</Button>
           </Space>

@@ -3,6 +3,14 @@ import type { HmiObject, HmiScreen } from "@web-scada/shared";
 import { message } from "antd";
 import { useSnapshotHistory } from "../../../hooks/use-snapshot-history";
 import { useScadaStore } from "../../../store/scada-store";
+import {
+  bringToFront,
+  sendToBack,
+  moveForward,
+  moveBackward,
+  getNextZIndex,
+  ensureNormalized,
+} from "../../../hmi/editor/z-order";
 
 type SelectionState = {
   selectedObjectIds: string[];
@@ -91,7 +99,8 @@ export function useEditorObjectHistory({
       if (!screen) {
         return;
       }
-      runWithHistory("Add object", () => addObject(screen.id, object));
+      const zIndex = getNextZIndex(screen.objects);
+      runWithHistory("Add object", () => addObject(screen.id, { ...object, zIndex }));
       setSelectedObjects([object.id], object.id);
     },
     [addObject, runWithHistory, screen, setSelectedObjects],
@@ -148,6 +157,41 @@ export function useEditorObjectHistory({
     setSelectedObjects([], undefined);
   }, [removeObject, runWithHistory, screen, selectedUnlocked, setSelectedObjects]);
 
+  const zOrderWithHistory = useCallback(
+    (operation: "bringToFront" | "sendToBack" | "moveForward" | "moveBackward") => {
+      if (!screen) {
+        return;
+      }
+      const selectedIds = selection.selectedObjectIds;
+      if (!selectedIds.length) {
+        void message.warning("No objects selected");
+        return;
+      }
+      const normalized = ensureNormalized(screen.objects);
+      runWithHistory(`Z-order: ${operation}`, () => {
+        let next: HmiObject[];
+        switch (operation) {
+          case "bringToFront":
+            next = bringToFront(normalized, selectedIds);
+            break;
+          case "sendToBack":
+            next = sendToBack(normalized, selectedIds);
+            break;
+          case "moveForward":
+            next = moveForward(normalized, selectedIds);
+            break;
+          case "moveBackward":
+            next = moveBackward(normalized, selectedIds);
+            break;
+          default:
+            return;
+        }
+        setScreenObjects(screen.id, next);
+      });
+    },
+    [runWithHistory, screen, selection.selectedObjectIds, setScreenObjects],
+  );
+
   return {
     history,
     canUndo: history.canUndo,
@@ -161,5 +205,6 @@ export function useEditorObjectHistory({
     moveObjectWithHistory,
     resizeObjectWithHistory,
     deleteSelectionWithHistory,
+    zOrderWithHistory,
   };
 }

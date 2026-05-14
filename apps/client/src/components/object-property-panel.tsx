@@ -45,6 +45,10 @@ type Props = {
   elementBindings?: ElementBindingDefinition[];
   onPatch: (patch: Partial<HmiObject>) => void;
   onDelete: () => void;
+  onBringToFront?: () => void;
+  onSendToBack?: () => void;
+  onMoveForward?: () => void;
+  onMoveBackward?: () => void;
 };
 
 const fontOptions = ["Arial", "Tahoma", "Verdana", "Consolas", "Segoe UI", "Roboto", "Noto Sans"];
@@ -465,7 +469,7 @@ function ActionAccessFields({
   );
 }
 
-export function ObjectPropertyPanel({ project, assets, libraries, object, elementBindings, onPatch, onDelete }: Props) {
+export function ObjectPropertyPanel({ project, assets, libraries, object, elementBindings, onPatch, onDelete, onBringToFront, onSendToBack, onMoveForward, onMoveBackward }: Props) {
   if (!object) {
     return <div>Select object</div>;
   }
@@ -783,6 +787,29 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
       <Form layout="vertical" size="small">
         <WorkbenchCollapsibleSection title="GENERAL" storageKey={`object-panel.general.${object.type}`}>
           {generalContent}
+        </WorkbenchCollapsibleSection>
+        <WorkbenchCollapsibleSection title="LAYER / Z ORDER" storageKey={`object-panel.zorder.${object.type}`}>
+          <Form.Item label="zIndex">
+            <InputNumber
+              value={object.zIndex ?? 0}
+              onChange={(value) => onPatch({ zIndex: typeof value === "number" ? value : undefined })}
+              style={{ width: "100%" }}
+            />
+          </Form.Item>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            <Button size="small" onClick={onBringToFront} disabled={!onBringToFront}>
+              Front
+            </Button>
+            <Button size="small" onClick={onSendToBack} disabled={!onSendToBack}>
+              Back
+            </Button>
+            <Button size="small" onClick={onMoveForward} disabled={!onMoveForward}>
+              Up
+            </Button>
+            <Button size="small" onClick={onMoveBackward} disabled={!onMoveBackward}>
+              Down
+            </Button>
+          </div>
         </WorkbenchCollapsibleSection>
         <WorkbenchCollapsibleSection title="RUNTIME STATE" storageKey={`object-panel.runtime-state.${object.type}`}>
           {runtimeStateContent}
