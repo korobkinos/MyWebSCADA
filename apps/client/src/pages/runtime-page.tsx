@@ -18,6 +18,8 @@ import {
 } from "@web-scada/shared";
 import { Button, Card, Form, InputNumber, Modal, Space, Typography, message } from "antd";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
+import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime/numeric-input-dialog";
+import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 import { collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
 import { updateRuntimeTagSubscriptions } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
@@ -93,6 +95,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     context?: RenderContext;
     value?: number;
   }>({ open: false });
+  const [numericDialogState, setNumericDialogState] = useState<NumericInputDialogState | null>(null);
+  const numericDialogId = "runtimeNumericInput";
   const [runtimeActionPending, setRuntimeActionPending] = useState<"start" | "stop" | "refresh" | null>(null);
   const [accessState, setAccessState] = useState<RuntimeAccessState>({
     requiredRole: 1,
@@ -1234,6 +1238,70 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
   };
 
+  const handleRequestNumericInput = (payload: NumericInputOpenPayload) => {
+    const dialogState: NumericInputDialogState = {
+      objectId: payload.objectId,
+      objectName: payload.objectName,
+      targetTag: payload.writeTag ?? "",
+      currentValue: payload.currentValue,
+      min: payload.min,
+      max: payload.max,
+      step: payload.step,
+      decimals: payload.decimals,
+      formatMode: payload.formatMode,
+      formatPattern: payload.formatPattern,
+      unit: payload.unit,
+      requiredActionRole: payload.requiredActionRole,
+      backgroundColor: payload.backgroundColor,
+      textColor: payload.textColor,
+      borderColor: payload.borderColor,
+      fontFamily: payload.fontFamily,
+      fontSize: payload.fontSize,
+    };
+    setNumericDialogState(dialogState);
+    openWindow({
+      id: numericDialogId,
+      title: payload.objectName || "Numeric Input",
+      defaultRect: { x: 200, y: 150, width: 320, height: 200 },
+      minWidth: 260,
+      minHeight: 160,
+      render: () => {
+        const state = numericDialogState;
+        if (!state) return null;
+        return (
+          <NumericInputDialog
+            state={state}
+            onCommit={async (value) => {
+              const targetTag = state.targetTag;
+              if (!targetTag) return;
+              await executeAction(
+                {
+                  type: "write",
+                  tag: targetTag,
+                  value,
+                  confirm: false,
+                  requireAuth: false,
+                },
+                {
+                  screenId: screen?.id,
+                  userRoles: runtimeUserRoles,
+                  userRoleLevel,
+                  isAuthenticated: Boolean(authUser),
+                },
+              );
+              closeWindow(numericDialogId);
+              setNumericDialogState(null);
+            }}
+            onCancel={() => {
+              closeWindow(numericDialogId);
+              setNumericDialogState(null);
+            }}
+          />
+        );
+      },
+    });
+  };
+
   const stageElement = (
     <HmiStage
       project={project}
@@ -1245,6 +1313,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       currentUserRoleLevel={userRoleLevel}
       renderContext={mainRenderContext}
       onAction={(action, context) => executeAction(action, context)}
+      onRequestNumericInput={handleRequestNumericInput}
     />
   );
 
@@ -1342,6 +1411,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             onAction={(action, context) => {
               return executeAction(action, context);
             }}
+            onRequestNumericInput={handleRequestNumericInput}
           />
         </div>
       ))}
@@ -1422,6 +1492,45 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           />
         </div>
       ),
+    },
+    {
+      id: numericDialogId,
+      title: "Numeric Input",
+      defaultRect: { x: 200, y: 150, width: 320, height: 200 },
+      minWidth: 260,
+      minHeight: 160,
+      render: () => {
+        const state = numericDialogState;
+        if (!state) return null;
+        return (
+          <NumericInputDialog
+            state={state}
+            onCommit={async (value) => {
+              const targetTag = state.targetTag;
+              if (!targetTag) return;
+              await executeAction(
+                {
+                  type: "write",
+                  tag: targetTag,
+                  value,
+                  confirm: false,
+                  requireAuth: false,
+                },
+                {
+                  screenId: screen?.id,
+                  userRoles: runtimeUserRoles,
+                  userRoleLevel,
+                  isAuthenticated: Boolean(authUser),
+                },
+              );
+              closeWindow(numericDialogId);
+            }}
+            onCancel={() => {
+              closeWindow(numericDialogId);
+            }}
+          />
+        );
+      },
     },
   ];
 

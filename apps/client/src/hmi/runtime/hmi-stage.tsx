@@ -11,7 +11,7 @@ import type {
   ScadaProject,
   TagValue,
 } from "@web-scada/shared";
-import { HmiRenderer, type ObjectSelectPayload, type RuntimeOverlayState } from "./hmi-renderer";
+import { HmiRenderer, type NumericInputOpenPayload, type ObjectSelectPayload, type RuntimeOverlayState } from "./hmi-renderer";
 import { sortObjectsByZIndex } from "../editor/z-order";
 
 type TagMap = Record<string, TagValue>;
@@ -45,6 +45,7 @@ type HmiStageProps = {
   fullscreenRuntime?: boolean;
   editorZoom?: number;
   currentUserRoleLevel?: number;
+  onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
 };
 
 export function HmiStage({
@@ -69,6 +70,7 @@ export function HmiStage({
   fullscreenRuntime = false,
   editorZoom = 1,
   currentUserRoleLevel,
+  onRequestNumericInput,
 }: HmiStageProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -295,6 +297,7 @@ export function HmiStage({
             overlayState={runtimeOverlay}
             onShowOverlay={handleShowOverlay}
             onHideOverlay={handleHideOverlay}
+            onRequestNumericInput={onRequestNumericInput}
           />
 
           {mode === "editor" && selectionRect ? (

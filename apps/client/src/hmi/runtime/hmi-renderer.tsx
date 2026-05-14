@@ -92,22 +92,6 @@ function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   return formatted;
 }
 
-function getNumericInputStep(object: HmiObject): number {
-  if ("numeric-input" !== object.type) return 1;
-  if (typeof object.step === "number" && object.step > 0) return object.step;
-  if (typeof object.decimals === "number" && object.decimals > 0) {
-    return 1 / Math.pow(10, object.decimals);
-  }
-  if (object.formatMode === "pattern" && object.formatPattern) {
-    const dotIndex = object.formatPattern.indexOf(".");
-    if (dotIndex >= 0) {
-      const decimalCount = object.formatPattern.slice(dotIndex + 1).length;
-      if (decimalCount > 0) return 1 / Math.pow(10, decimalCount);
-    }
-  }
-  return 1;
-}
-
 type TagMap = Record<string, TagValue>;
 type ResolvedTagValue = {
   resolvedName?: string;
@@ -133,6 +117,26 @@ export type RuntimeOverlayState = {
   content: React.ReactNode;
 };
 
+export type NumericInputOpenPayload = {
+  objectId: string;
+  objectName: string;
+  currentValue: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  decimals?: number;
+  formatMode?: "decimals" | "pattern";
+  formatPattern?: string;
+  unit?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  borderColor?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  writeTag?: string;
+  requiredActionRole?: number;
+};
+
 type HmiRendererProps = {
   project: ScadaProject;
   screen: HmiScreen;
@@ -156,6 +160,7 @@ type HmiRendererProps = {
   overlayState?: RuntimeOverlayState | null;
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
+  onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
 };
 
 type BaseNodeProps = {
@@ -181,6 +186,7 @@ type BaseNodeProps = {
   overlayState?: RuntimeOverlayState | null;
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
+  onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
 };
 
 export function HmiRenderer({
@@ -206,6 +212,7 @@ export function HmiRenderer({
   overlayState,
   onShowOverlay,
   onHideOverlay,
+  onRequestNumericInput,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
@@ -254,6 +261,7 @@ export function HmiRenderer({
           overlayState={overlayState}
           onShowOverlay={onShowOverlay}
           onHideOverlay={onHideOverlay}
+          onRequestNumericInput={onRequestNumericInput}
         />
       ))}
     </>
@@ -406,6 +414,7 @@ function ObjectNode({
   overlayState,
   onShowOverlay,
   onHideOverlay,
+  onRequestNumericInput,
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
@@ -1710,7 +1719,6 @@ function ObjectNode({
     const numObjWriteTag = resolvedObject.writeTag;
     const numObjTag = resolvedObject.tag;
     const numObjRequiredActionRole = resolvedObject.requiredActionRole;
-    const numObjId = resolvedObject.id;
     const numObjName = resolvedObject.name;
 
     const displayNumText = numInputBad
@@ -1725,49 +1733,41 @@ function ObjectNode({
           })
         : resolvedObject.placeholder ?? "---";
 
-    // Stepper arrow helpers
-    const writeNumericValue = (nextValue: number) => {
-      const writeTagField = runtimeMode
-        ? (numObjWriteTag?.trim() || numObjTag)
-        : numObjTag;
-      const resolvedWriteTag = runtimeMode
-        ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
-        : undefined;
-      const tagName = runtimeMode
-        ? (resolvedWriteTag?.resolvedName ?? writeTagField)
-        : writeTagField;
-      if (runtimeMode && tagName?.trim()) {
-        onAction?.(
-          withActionRoleLevel({
-            type: "write",
-            tag: tagName,
-            value: nextValue,
-          }, numObjRequiredActionRole),
-          withRuntimeActionContext(renderContext, numObjId, performance.now(), numObjName),
-        );
-      }
-    };
-
-    const numericStep = getNumericInputStep(resolvedObject);
-    const currentNum = Number.isFinite(rawNumValue) ? rawNumValue : 0;
-
-    // Stepper layout
-    const stepperWidth = Math.min(24, Math.max(18, resolvedObject.height * 0.55));
-    const inputWidth = Math.max(0, resolvedObject.width - stepperWidth);
-    const halfHeight = resolvedObject.height / 2;
-    const arrowFontSize = Math.max(9, Math.min(objFontSize * 0.7, halfHeight * 0.45));
-    const arrowColor = runtimeDisabled
-      ? HMI_CONTROL_COLORS.disabled
-      : objTextColor;
-    const stepperBgColor = runtimeDisabled
-      ? HMI_CONTROL_COLORS.fieldDisabledBg
-      : "#252526";
-    const stepperDividerColor = runtimeDisabled
-      ? HMI_CONTROL_COLORS.disabled
-      : objBorderColor;
-
     return (
-      <Group {...commonGroupProps}>
+      <Group
+        {...commonGroupProps}
+        onClick={() => {
+          if (interactive) {
+            return;
+          }
+          if (runtimeDisabled) {
+            return;
+          }
+          const targetTag = (numObjWriteTag?.trim() || numObjTag)?.trim();
+          if (!targetTag) {
+            return;
+          }
+          onRequestNumericInput?.({
+            objectId: resolvedObject.id,
+            objectName: numObjName ?? "Numeric Input",
+            currentValue: Number.isFinite(rawNumValue) ? rawNumValue : 0,
+            min: resolvedObject.min,
+            max: resolvedObject.max,
+            step: resolvedObject.step,
+            decimals: resolvedObject.decimals,
+            formatMode: resolvedObject.formatMode,
+            formatPattern: resolvedObject.formatPattern,
+            unit: resolvedObject.unit,
+            backgroundColor: objBgColor,
+            textColor: objTextColor,
+            borderColor: objBorderColor,
+            fontFamily: objFontFamily,
+            fontSize: objFontSize,
+            writeTag: targetTag,
+            requiredActionRole: numObjRequiredActionRole,
+          });
+        }}
+      >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect
           width={resolvedObject.width}
@@ -1778,98 +1778,17 @@ function ObjectNode({
           cornerRadius={objCornerRadius}
           opacity={runtimeDisabled ? 0.55 : 1}
         />
-        <Text
-          x={6}
-          y={0}
-          text={displayNumText}
-          width={Math.max(0, inputWidth - 12)}
-          height={resolvedObject.height}
-          align={objTextAlign}
-          verticalAlign="middle"
-          fill={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objTextColor}
-          fontFamily={objFontFamily}
-          fontSize={Math.max(9, objFontSize)}
-          listening={false}
-        />
-        {inputWidth > 4 ? (
-          <>
-            {/* Divider line */}
-            <Line
-              points={[inputWidth, 2, inputWidth, resolvedObject.height - 2]}
-              stroke={stepperDividerColor}
-              strokeWidth={1}
-              listening={false}
-            />
-            {/* Stepper background */}
-            <Rect
-              x={inputWidth}
-              y={0}
-              width={stepperWidth}
-              height={resolvedObject.height}
-              fill={stepperBgColor}
-              cornerRadius={[0, objCornerRadius, objCornerRadius, 0]}
-              listening={false}
-            />
-            {/* Up arrow hit area + icon */}
-            <Rect
-              x={inputWidth}
-              y={0}
-              width={stepperWidth}
-              height={halfHeight}
-              fill="transparent"
-              onClick={() => {
-                if (interactive || runtimeDisabled) return;
-                const next = Math.min(numMax, Math.max(numMin, currentNum + numericStep));
-                const rounded = numericStep < 1
-                  ? Math.round(next * (1 / numericStep)) / (1 / numericStep)
-                  : next;
-                writeNumericValue(rounded);
-              }}
-            />
-            <Text
-              x={inputWidth}
-              y={1}
-              text="▲"
-              width={stepperWidth}
-              height={halfHeight}
-              align="center"
-              verticalAlign="middle"
-              fill={arrowColor}
-              fontSize={arrowFontSize}
-              fontFamily="Arial"
-              listening={false}
-            />
-            {/* Down arrow hit area + icon */}
-            <Rect
-              x={inputWidth}
-              y={halfHeight}
-              width={stepperWidth}
-              height={halfHeight}
-              fill="transparent"
-              onClick={() => {
-                if (interactive || runtimeDisabled) return;
-                const next = Math.min(numMax, Math.max(numMin, currentNum - numericStep));
-                const rounded = numericStep < 1
-                  ? Math.round(next * (1 / numericStep)) / (1 / numericStep)
-                  : next;
-                writeNumericValue(rounded);
-              }}
-            />
-            <Text
-              x={inputWidth}
-              y={halfHeight}
-              text="▼"
-              width={stepperWidth}
-              height={halfHeight}
-              align="center"
-              verticalAlign="middle"
-              fill={arrowColor}
-              fontSize={arrowFontSize}
-              fontFamily="Arial"
-              listening={false}
-            />
-          </>
-        ) : null}
+        {renderBoxText(displayNumText, {
+          fontFamily: objFontFamily,
+          fontSize: Math.max(9, objFontSize),
+          color: runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objTextColor,
+          horizontalAlign: objTextAlign,
+          verticalAlign: "middle",
+          padding: 6,
+        }, {
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+        })}
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );

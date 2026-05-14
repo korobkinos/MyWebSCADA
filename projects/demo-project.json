@@ -12430,8 +12430,8 @@
         {
           "id": "nmin_8x7e1y",
           "type": "numeric-input",
-          "x": 491.1728246686059,
-          "y": 714.40958853354,
+          "x": 595.3030494197955,
+          "y": 824.5790800589638,
           "width": 154.82538148765596,
           "height": 80.11599691272563,
           "rotation": 0,
@@ -12446,14 +12446,14 @@
           "formatMode": "decimals",
           "showUnit": true,
           "placeholder": "0",
-          "textColor": "#1b0303",
+          "textColor": "#e6e6e6",
           "fontSize": 40,
           "fontFamily": "Consolas",
-          "backgroundColor": "#efe4e4",
+          "backgroundColor": "#330808",
           "borderColor": "#3c3c3c",
           "borderWidth": 1,
           "cornerRadius": 4,
-          "textAlign": "right"
+          "textAlign": "center"
         }
       ]
     },

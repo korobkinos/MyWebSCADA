@@ -4912,6 +4912,121 @@ body {
   color: #ffffff;
 }
 
+/* ---- Numeric Input Dialog ---- */
+
+.hmi-numeric-dialog {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #252526;
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.hmi-numeric-dialog__body {
+  flex: 1;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.hmi-numeric-dialog__label {
+  font-size: 12px;
+  color: #cccccc;
+}
+
+.hmi-numeric-dialog__input-row {
+  display: grid;
+  grid-template-columns: 1fr 32px 32px;
+  gap: 4px;
+  align-items: center;
+}
+
+.hmi-numeric-dialog__input {
+  height: 32px;
+  box-sizing: border-box;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  color: #ffffff;
+  padding: 0 8px;
+  outline: none;
+  font-size: 14px;
+  border-radius: 2px;
+}
+
+.hmi-numeric-dialog__input:focus {
+  border-color: #007acc;
+}
+
+.hmi-numeric-dialog__step {
+  height: 32px;
+  border: 1px solid #3c3c3c;
+  background: #2d2d2d;
+  color: #cccccc;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  user-select: none;
+  border-radius: 2px;
+}
+
+.hmi-numeric-dialog__step:hover {
+  background: #37373d;
+  color: #ffffff;
+  border-color: #007acc;
+}
+
+.hmi-numeric-dialog__step:active {
+  background: #0e639c;
+  color: #ffffff;
+}
+
+.hmi-numeric-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid #3c3c3c;
+  flex-shrink: 0;
+}
+
+.hmi-numeric-dialog__button {
+  height: 28px;
+  padding: 0 16px;
+  border: 1px solid #3c3c3c;
+  background: #2d2d2d;
+  color: #cccccc;
+  cursor: pointer;
+  font-size: 12px;
+  border-radius: 2px;
+}
+
+.hmi-numeric-dialog__button:hover {
+  background: #37373d;
+  color: #ffffff;
+}
+
+.hmi-numeric-dialog__button--ok {
+  background: #007acc;
+  border-color: #007acc;
+  color: #ffffff;
+}
+
+.hmi-numeric-dialog__button--ok:hover {
+  background: #0e639c;
+}
+
+.hmi-numeric-dialog__button--ok:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 
 
 
