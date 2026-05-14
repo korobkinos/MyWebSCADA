@@ -12377,6 +12377,8 @@
           "minWidth": 60,
           "minHeight": 24,
           "label": "Checkbox",
+          "tag": "Counter2",
+          "writeTag": "Counter2",
           "checkedText": "On",
           "uncheckedText": "Off",
           "checkedColor": "#0e639c",
@@ -12393,11 +12395,11 @@
           "minHeight": 24,
           "options": [
             {
-              "label": "Option 1",
+              "label": "Горелка№1",
               "value": 1
             },
             {
-              "label": "Option 2",
+              "label": "Горелка№2",
               "value": 2
             }
           ],
@@ -12406,10 +12408,10 @@
         {
           "id": "rgrp_3gd6at",
           "type": "radio-group",
-          "x": 1629.0175170064663,
-          "y": 20.63996776856575,
-          "width": 112.72493945973265,
-          "height": 125.17385619882361,
+          "x": 1586.677240060534,
+          "y": 21.224756633364034,
+          "width": 193.51019941659783,
+          "height": 111.84812488870054,
           "rotation": 0,
           "minWidth": 100,
           "minHeight": 36,
@@ -12428,12 +12430,15 @@
         {
           "id": "nmin_gkfrtz",
           "type": "numeric-input",
-          "x": 543.1588634759921,
-          "y": 762.227602905569,
-          "width": 140,
-          "height": 32,
+          "x": 499.71341834391944,
+          "y": 739.6138790672208,
+          "width": 127.03231049695393,
+          "height": 56.876638025999426,
+          "rotation": 0,
           "minWidth": 80,
           "minHeight": 24,
+          "tag": "Counter2",
+          "writeTag": "Counter2",
           "min": 0,
           "max": 100,
           "step": 1,

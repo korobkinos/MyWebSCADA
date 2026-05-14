@@ -92,6 +92,15 @@ function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   return formatted;
 }
 
+function parseNumericString(raw: string): number {
+  const trimmed = raw.trim().replace(/,/g, ".");
+  const val = Number(trimmed);
+  if (!Number.isFinite(val)) {
+    return NaN;
+  }
+  return val;
+}
+
 type TagMap = Record<string, TagValue>;
 type ResolvedTagValue = {
   resolvedName?: string;
@@ -1674,18 +1683,40 @@ function ObjectNode({
       || numInputTag?.missingIndexedTag
       || (resolvedObject.tag?.trim() && (!numInputTag?.value || numInputTag.value.quality === "Bad"))
     );
-    const rawNumValue = runtimeMode ? Number(numInputTag?.value?.value ?? 0) : 0;
+    const rawNumValue = runtimeMode ? Number(numInputTag?.value?.value ?? NaN) : NaN;
     const numMin = resolvedObject.min ?? 0;
     const numMax = resolvedObject.max ?? 100;
-    const numValue = Number.isFinite(rawNumValue) ? Math.min(numMax, Math.max(numMin, rawNumValue)) : numMin;
-    const decimals = resolvedObject.decimals ?? 2;
-    const displayNumText = numInputBad ? "BAD" : formatNumericValue(numValue, {
-      formatMode: resolvedObject.formatMode ?? "decimals",
-      decimals,
-      formatPattern: resolvedObject.formatPattern,
-      unit: resolvedObject.unit,
-      showUnit: resolvedObject.showUnit,
-    });
+    const numValue = Number.isFinite(rawNumValue) ? Math.min(numMax, Math.max(numMin, rawNumValue)) : NaN;
+
+    const objTextColor = resolvedObject.textColor ?? HMI_CONTROL_COLORS.text;
+    const objFontSize = resolvedObject.fontSize ?? 12;
+    const objFontFamily = resolvedObject.fontFamily ?? "Consolas";
+    const objBgColor = resolvedObject.backgroundColor ?? HMI_CONTROL_COLORS.fieldBg;
+    const objBorderColor = resolvedObject.borderColor ?? HMI_CONTROL_COLORS.border;
+    const objBorderWidth = resolvedObject.borderWidth ?? 1;
+    const objCornerRadius = resolvedObject.cornerRadius ?? 4;
+    const objTextAlign = resolvedObject.textAlign ?? "right";
+    const numObjMax = resolvedObject.max ?? 100;
+    const numObjMin = resolvedObject.min ?? 0;
+    const numObjStep = resolvedObject.step;
+    const numObjWriteTag = resolvedObject.writeTag;
+    const numObjTag = resolvedObject.tag;
+    const numObjRequiredActionRole = resolvedObject.requiredActionRole;
+    const numObjId = resolvedObject.id;
+    const numObjName = resolvedObject.name;
+
+    const displayNumText = numInputBad
+      ? "BAD"
+      : Number.isFinite(numValue)
+        ? formatNumericValue(numValue, {
+            formatMode: resolvedObject.formatMode ?? "decimals",
+            decimals: resolvedObject.decimals ?? 0,
+            formatPattern: resolvedObject.formatPattern,
+            unit: resolvedObject.unit,
+            showUnit: resolvedObject.showUnit,
+          })
+        : resolvedObject.placeholder ?? "---";
+
     return (
       <Group
         {...commonGroupProps}
@@ -1714,13 +1745,6 @@ function ObjectNode({
           if (overlayState?.objectId === resolvedObject.id) {
             return;
           }
-          const numObjMax = resolvedObject.max ?? 100;
-          const numObjMin = resolvedObject.min ?? 0;
-          const numObjWriteTag = resolvedObject.writeTag;
-          const numObjTag = resolvedObject.tag;
-          const numObjRequiredActionRole = resolvedObject.requiredActionRole;
-          const numObjId = resolvedObject.id;
-          const numObjName = resolvedObject.name;
           onShowOverlay?.({
             x: overlayX,
             y: overlayY,
@@ -1728,36 +1752,47 @@ function ObjectNode({
             content: (
               <input
                 className="hmi-numeric-input-overlay"
-                type="number"
+                type="text"
+                inputMode="decimal"
                 autoFocus
-                defaultValue={rawNumValue}
-                min={numObjMin}
-                max={numObjMax}
-                step={resolvedObject.step}
+                defaultValue={Number.isFinite(rawNumValue) ? rawNumValue : ""}
                 style={{
                   width: resolvedObject.width * scale,
                   height: resolvedObject.height * scale,
+                  fontFamily: objFontFamily,
+                  fontSize: Math.max(8, objFontSize * scale),
+                  color: objTextColor,
+                  background: objBgColor,
+                  textAlign: objTextAlign,
+                }}
+                onFocus={(e: React.FocusEvent<HTMLInputElement>) => {
+                  e.target.select();
                 }}
                 onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
                   if (e.key === "Enter") {
-                    commitNumericValue(Number((e.target as HTMLInputElement).value));
+                    commitNumericInput(e.currentTarget.value);
                   }
                   if (e.key === "Escape") {
                     onHideOverlay?.();
                   }
                 }}
                 onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
-                  commitNumericValue(Number((e.target as HTMLInputElement).value));
+                  commitNumericInput(e.currentTarget.value);
                 }}
               />
             ),
           });
-          function commitNumericValue(val: number) {
-            if (!Number.isFinite(val)) {
+          function commitNumericInput(raw: string) {
+            const parsed = parseNumericString(raw);
+            if (!Number.isFinite(parsed)) {
               onHideOverlay?.();
               return;
             }
-            const clamped = Math.min(numObjMax, Math.max(numObjMin, val));
+            const step = numObjStep;
+            let clamped = Math.min(numObjMax, Math.max(numObjMin, parsed));
+            if (step && step > 0) {
+              clamped = Math.round(clamped / step) * step;
+            }
             const writeTagField = runtimeMode
               ? (numObjWriteTag?.trim() || numObjTag)
               : numObjTag;
@@ -1785,19 +1820,19 @@ function ObjectNode({
         <Rect
           width={resolvedObject.width}
           height={resolvedObject.height}
-          fill={runtimeDisabled ? HMI_CONTROL_COLORS.fieldDisabledBg : HMI_CONTROL_COLORS.fieldBg}
-          stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : HMI_CONTROL_COLORS.border}
-          strokeWidth={1}
-          cornerRadius={4}
-          opacity={runtimeDisabled ? 0.7 : 1}
+          fill={runtimeDisabled ? HMI_CONTROL_COLORS.fieldDisabledBg : objBgColor}
+          stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objBorderColor}
+          strokeWidth={objBorderWidth}
+          cornerRadius={objCornerRadius}
+          opacity={runtimeDisabled ? 0.55 : 1}
         />
         {renderBoxText(displayNumText, {
-          fontFamily: "Arial",
-          fontSize: Math.max(11, resolvedObject.height * 0.42),
-          color: runtimeDisabled ? "#8c8c8c" : HMI_CONTROL_COLORS.text,
-          horizontalAlign: "right",
+          fontFamily: objFontFamily,
+          fontSize: Math.max(9, objFontSize),
+          color: runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objTextColor,
+          horizontalAlign: objTextAlign,
           verticalAlign: "middle",
-          padding: 8,
+          padding: 6,
         }, {
           width: resolvedObject.width,
           height: resolvedObject.height,

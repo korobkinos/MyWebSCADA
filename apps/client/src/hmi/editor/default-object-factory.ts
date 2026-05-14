@@ -361,10 +361,18 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         min: 0,
         max: 100,
         step: 1,
-        decimals: 2,
+        decimals: 0,
         formatMode: "decimals",
-        showUnit: false,
+        showUnit: true,
         placeholder: "0",
+        backgroundColor: "#1e1e1e",
+        borderColor: "#3c3c3c",
+        borderWidth: 1,
+        cornerRadius: 4,
+        textColor: "#ffffff",
+        fontSize: 12,
+        fontFamily: "Consolas",
+        textAlign: "right",
       };
     default:
       return {

@@ -449,6 +449,14 @@ export type NumericInputObject = HmiObjectBase & {
   unit?: string;
   showUnit?: boolean;
   placeholder?: string;
+  textColor?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  cornerRadius?: number;
+  textAlign?: "left" | "center" | "right";
 };
 
 export type HmiObject =

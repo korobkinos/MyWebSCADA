@@ -3003,7 +3003,7 @@ function SpecificPropertyFields({
         </Form.Item>
         {object.formatMode !== "pattern" ? (
           <Form.Item label="Decimals">
-            <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 2} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)} />
+            <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 0} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)} />
           </Form.Item>
         ) : null}
         {object.formatMode === "pattern" ? (
@@ -3019,6 +3019,38 @@ function SpecificPropertyFields({
         </Form.Item>
         <Form.Item label="Placeholder">
           <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Text Color">
+          <ColorPicker value={object.textColor ?? "#ffffff"} onChange={(c: any) => onPatch({ textColor: normalizePickerColor(c.toHexString?.() ?? c, "#ffffff") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Font Size">
+          <InputNumber style={{ width: "100%" }} min={8} max={48} value={object.fontSize ?? 12} onChange={(v) => onPatch({ fontSize: Number(v ?? 12) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Font Family">
+          <Input value={object.fontFamily ?? "Consolas"} onChange={(e) => onPatch({ fontFamily: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Text Align">
+          <Select
+            value={object.textAlign ?? "right"}
+            onChange={(v) => onPatch({ textAlign: v } as Partial<HmiObject>)}
+            options={[
+              { value: "left", label: "Left" },
+              { value: "center", label: "Center" },
+              { value: "right", label: "Right" },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item label="Background Color">
+          <ColorPicker value={object.backgroundColor ?? "#1e1e1e"} onChange={(c: any) => onPatch({ backgroundColor: normalizePickerColor(c.toHexString?.() ?? c, "#1e1e1e") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Border Color">
+          <ColorPicker value={object.borderColor ?? "#3c3c3c"} onChange={(c: any) => onPatch({ borderColor: normalizePickerColor(c.toHexString?.() ?? c, "#3c3c3c") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Border Width">
+          <InputNumber style={{ width: "100%" }} min={0} max={4} value={object.borderWidth ?? 1} onChange={(v) => onPatch({ borderWidth: Number(v ?? 1) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Corner Radius">
+          <InputNumber style={{ width: "100%" }} min={0} max={12} value={object.cornerRadius ?? 4} onChange={(v) => onPatch({ cornerRadius: Number(v ?? 4) } as Partial<HmiObject>)} />
         </Form.Item>
       </>
     );
