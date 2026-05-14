@@ -1736,8 +1736,12 @@ function ObjectNode({
     return (
       <Group
         {...commonGroupProps}
-        onClick={() => {
+        onClick={(evt: KonvaEventObject<MouseEvent>) => {
           if (interactive) {
+            onSelectObject?.({
+              objectId: resolvedObject.id,
+              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+            });
             return;
           }
           if (runtimeDisabled) {
