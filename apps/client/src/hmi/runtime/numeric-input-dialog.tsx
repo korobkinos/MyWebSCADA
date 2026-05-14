@@ -71,6 +71,7 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
   metaParts.push(`Step: ${step}`);
   if (hasMin) metaParts.push(`Min: ${minVal}`);
   if (hasMax) metaParts.push(`Max: ${maxVal}`);
+  if (state.unit) metaParts.push(`Unit: ${state.unit}`);
 
   useEffect(() => {
     const el = inputRef.current;
@@ -158,20 +159,6 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
   return (
     <div className="hmi-numeric-dialog">
       <div className="hmi-numeric-dialog__body">
-        <div className="hmi-numeric-dialog__label">Object</div>
-        <div className="hmi-numeric-dialog__object-name" title={state.objectName}>
-          {state.objectName || "Numeric Input"}
-        </div>
-
-        <div className="hmi-numeric-dialog__label">Target tag</div>
-        <div className="hmi-numeric-dialog__target" title={state.targetTag}>
-          {state.targetTag || "--"}
-        </div>
-
-        {state.unit ? (
-          <div className="hmi-numeric-dialog__label">Unit: {state.unit}</div>
-        ) : null}
-
         <div className="hmi-numeric-dialog__input-row">
           <button
             type="button"
@@ -196,6 +183,8 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
               borderColor: inputBorderColor,
               fontFamily: inputFontFamily,
               fontSize: inputFontSize,
+              lineHeight: "1.2",
+              padding: "6px 10px",
             }}
           />
           <button
@@ -213,9 +202,9 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
           {metaParts.join(" \u00B7 ")}
         </div>
 
-        {error ? (
-          <div className="hmi-numeric-dialog__error">{error}</div>
-        ) : null}
+        <div className="hmi-numeric-dialog__error">
+          {error || "\u00A0"}
+        </div>
       </div>
 
       <div className="hmi-numeric-dialog__actions">

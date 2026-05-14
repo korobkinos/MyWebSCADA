@@ -1262,9 +1262,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     openWindow({
       id: numericDialogId,
       title: payload.objectName || "Numeric Input",
-      defaultRect: { x: 200, y: 150, width: 320, height: 200 },
-      minWidth: 260,
-      minHeight: 160,
+      defaultRect: { x: 200, y: 150, width: 260, height: 150 },
+      minWidth: 240,
+      minHeight: 135,
       render: () => {
         const state = numericDialogState;
         if (!state) return null;
@@ -1496,9 +1496,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     {
       id: numericDialogId,
       title: "Numeric Input",
-      defaultRect: { x: 200, y: 150, width: 320, height: 200 },
-      minWidth: 260,
-      minHeight: 160,
+      defaultRect: { x: 200, y: 150, width: 260, height: 150 },
+      minWidth: 240,
+      minHeight: 135,
       render: () => {
         const state = numericDialogState;
         if (!state) return null;

@@ -4921,54 +4921,36 @@ body {
   background: #252526;
   color: #cccccc;
   font-size: 12px;
+  min-height: 0;
 }
 
 .hmi-numeric-dialog__body {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   padding: 10px;
-  display: grid;
-  gap: 6px;
-  align-content: start;
-}
-
-.hmi-numeric-dialog__label {
-  color: #969696;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  line-height: 1.2;
-}
-
-.hmi-numeric-dialog__object-name,
-.hmi-numeric-dialog__target {
-  min-height: 24px;
   display: flex;
-  align-items: center;
-  padding: 0 7px;
-  background: #1e1e1e;
-  border: 1px solid #3c3c3c;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .hmi-numeric-dialog__input-row {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 30px;
-  gap: 4px;
-  align-items: center;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  gap: 6px;
+  align-items: stretch;
 }
 
 .hmi-numeric-dialog__input {
-  height: 30px;
+  width: 100%;
+  height: 36px;
+  padding: 6px 10px;
+  line-height: 1.2;
   box-sizing: border-box;
   background: #1e1e1e;
   border: 1px solid #3c3c3c;
   color: #ffffff;
-  padding: 0 8px;
-  outline: none;
   font: inherit;
+  outline: none;
 }
 
 .hmi-numeric-dialog__input:focus {
@@ -4976,7 +4958,9 @@ body {
 }
 
 .hmi-numeric-dialog__step {
-  height: 30px;
+  width: 32px;
+  height: 36px;
+  box-sizing: border-box;
   border: 1px solid #3c3c3c;
   background: #2d2d2d;
   color: #cccccc;
@@ -4996,14 +4980,15 @@ body {
 }
 
 .hmi-numeric-dialog__meta {
-  color: #969696;
   font-size: 11px;
+  color: #969696;
+  min-height: 14px;
 }
 
 .hmi-numeric-dialog__error {
-  color: #f14c4c;
   font-size: 11px;
-  min-height: 16px;
+  color: #f14c4c;
+  min-height: 14px;
 }
 
 .hmi-numeric-dialog__actions {
