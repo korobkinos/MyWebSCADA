@@ -1089,22 +1089,6 @@ export function EditorPage() {
             Ungroup
           </button>
           <div className="screen-editor-context-menu__separator" />
-          <div className="screen-editor-context-menu__section-title">Order</div>
-          <div className="screen-editor-context-menu__row">
-            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!selectedObjects.length} onClick={() => { zOrderWithHistory("bringToFront"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Bring to Front">
-              <span style={{ fontSize: 13 }}>&#x2912;</span>
-            </button>
-            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!selectedObjects.length} onClick={() => { zOrderWithHistory("sendToBack"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Send to Back">
-              <span style={{ fontSize: 13 }}>&#x2913;</span>
-            </button>
-            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!selectedObjects.length} onClick={() => { zOrderWithHistory("moveForward"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Move Forward">
-              <span style={{ fontSize: 14 }}>↑</span>
-            </button>
-            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!selectedObjects.length} onClick={() => { zOrderWithHistory("moveBackward"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Move Backward">
-              <span style={{ fontSize: 14 }}>↓</span>
-            </button>
-          </div>
-          <div className="screen-editor-context-menu__separator" />
           <button type="button" className="screen-editor-context-menu__item" disabled={!canLock} onClick={() => { runCommand({ type: "lockSelected" }); setContextMenu({ visible: false, x: 0, y: 0 }); }}>
             Lock
           </button>
@@ -1381,6 +1365,7 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, "");
   return clean || `element-${Math.random().toString(36).slice(2, 8)}`;
 }
+
 
 
 

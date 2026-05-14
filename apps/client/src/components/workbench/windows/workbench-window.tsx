@@ -8,6 +8,7 @@ type WorkbenchWindowProps = {
   zIndex: number;
   minWidth?: number;
   minHeight?: number;
+  resizable?: boolean;
   children: ReactNode;
   onClose: () => void;
   onFocus: () => void;
@@ -22,6 +23,7 @@ export function WorkbenchWindow({
   zIndex,
   minWidth = 260,
   minHeight = 160,
+  resizable = true,
   children,
   onClose,
   onFocus,
@@ -49,7 +51,7 @@ export function WorkbenchWindow({
 
       const target = event.target as HTMLElement;
       const isHeader = target.closest(".workbench-window__header");
-      const isResizeHandle = target.closest(".workbench-window__resize-handle");
+      const isResizeHandle = resizable && target.closest(".workbench-window__resize-handle");
 
       if (!isHeader && !isResizeHandle) {
         return;
@@ -137,7 +139,7 @@ export function WorkbenchWindow({
         </div>
       </div>
       <div className="workbench-window__content">{children}</div>
-      <div className="workbench-window__resize-handle" />
+      {resizable ? <div className="workbench-window__resize-handle" /> : null}
     </div>
   );
 }

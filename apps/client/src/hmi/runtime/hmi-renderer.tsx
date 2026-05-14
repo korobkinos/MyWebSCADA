@@ -134,7 +134,24 @@ export type NumericInputOpenPayload = {
   fontFamily?: string;
   fontSize?: number;
   writeTag?: string;
+  errorTag?: string;
   requiredActionRole?: number;
+  dialogTitle?: string;
+  dialogWidth?: number;
+  dialogHeight?: number;
+  dialogX?: number;
+  dialogY?: number;
+  dialogBackgroundColor?: string;
+  dialogTextColor?: string;
+  dialogBorderColor?: string;
+  showMeta?: boolean;
+  stepButtonUseTextColor?: boolean;
+  stepButtonTextColor?: string;
+  stepButtonBackgroundColor?: string;
+  badTextColor?: string;
+  badBackgroundColor?: string;
+  badBorderColor?: string;
+  signalBad?: boolean;
 };
 
 type HmiRendererProps = {
@@ -367,8 +384,10 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
     case "checkbox":
     case "slider":
     case "radio-group":
-    case "numeric-input":
       candidates.push(object.tag, object.writeTag);
+      break;
+    case "numeric-input":
+      candidates.push(object.tag, object.writeTag, object.errorTag);
       break;
     case "progress-bar":
       candidates.push(object.tag);
@@ -1698,10 +1717,19 @@ function ObjectNode({
 
   if (resolvedObject.type === "numeric-input") {
     const numInputTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const numErrorTag = runtimeMode ? tagValue(resolvedObject.errorTag, { useObjectIndexing: true, fieldName: "errorTag" }) : undefined;
+    const numErrorActive = runtimeMode ? runtimeValueToBoolean(numErrorTag?.value?.value) : false;
+    const numErrorStateBad = runtimeMode && Boolean(
+      numErrorTag?.missingBindingReference
+      || numErrorTag?.missingIndexedTag
+      || (resolvedObject.errorTag?.trim() && numErrorTag?.value?.quality === "Bad")
+    );
     const numInputBad = runtimeMode && Boolean(
       numInputTag?.missingBindingReference
       || numInputTag?.missingIndexedTag
       || (resolvedObject.tag?.trim() && (!numInputTag?.value || numInputTag.value.quality === "Bad"))
+      || numErrorActive
+      || numErrorStateBad
     );
     const rawNumValue = runtimeMode ? Number(numInputTag?.value?.value ?? NaN) : NaN;
     const numMin = resolvedObject.min ?? 0;
@@ -1718,8 +1746,15 @@ function ObjectNode({
     const objTextAlign = resolvedObject.textAlign ?? "right";
     const numObjWriteTag = resolvedObject.writeTag;
     const numObjTag = resolvedObject.tag;
+    const numObjErrorTag = resolvedObject.errorTag;
     const numObjRequiredActionRole = resolvedObject.requiredActionRole;
     const numObjName = resolvedObject.name;
+    const badTextColor = resolvedObject.badTextColor ?? "#f14c4c";
+    const badBackgroundColor = resolvedObject.badBackgroundColor ?? "#2b1a1a";
+    const badBorderColor = resolvedObject.badBorderColor ?? "#a03030";
+    const displayTextColor = numInputBad ? badTextColor : objTextColor;
+    const displayBgColor = numInputBad ? badBackgroundColor : objBgColor;
+    const displayBorderColor = numInputBad ? badBorderColor : objBorderColor;
 
     const displayNumText = numInputBad
       ? "BAD"
@@ -1768,7 +1803,24 @@ function ObjectNode({
             fontFamily: objFontFamily,
             fontSize: objFontSize,
             writeTag: targetTag,
+            errorTag: numObjErrorTag,
             requiredActionRole: numObjRequiredActionRole,
+            dialogTitle: resolvedObject.dialogTitle,
+            dialogWidth: resolvedObject.dialogWidth,
+            dialogHeight: resolvedObject.dialogHeight,
+            dialogX: resolvedObject.dialogX,
+            dialogY: resolvedObject.dialogY,
+            dialogBackgroundColor: resolvedObject.dialogBackgroundColor,
+            dialogTextColor: resolvedObject.dialogTextColor,
+            dialogBorderColor: resolvedObject.dialogBorderColor,
+            showMeta: resolvedObject.showMeta,
+            stepButtonUseTextColor: resolvedObject.stepButtonUseTextColor,
+            stepButtonTextColor: resolvedObject.stepButtonTextColor,
+            stepButtonBackgroundColor: resolvedObject.stepButtonBackgroundColor,
+            badTextColor,
+            badBackgroundColor,
+            badBorderColor,
+            signalBad: numInputBad,
           });
         }}
       >
@@ -1776,8 +1828,8 @@ function ObjectNode({
         <Rect
           width={resolvedObject.width}
           height={resolvedObject.height}
-          fill={runtimeDisabled ? HMI_CONTROL_COLORS.fieldDisabledBg : objBgColor}
-          stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objBorderColor}
+          fill={runtimeDisabled ? HMI_CONTROL_COLORS.fieldDisabledBg : displayBgColor}
+          stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : displayBorderColor}
           strokeWidth={objBorderWidth}
           cornerRadius={objCornerRadius}
           opacity={runtimeDisabled ? 0.55 : 1}
@@ -1785,7 +1837,7 @@ function ObjectNode({
         {renderBoxText(displayNumText, {
           fontFamily: objFontFamily,
           fontSize: Math.max(9, objFontSize),
-          color: runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objTextColor,
+          color: runtimeDisabled ? HMI_CONTROL_COLORS.disabled : displayTextColor,
           horizontalAlign: objTextAlign,
           verticalAlign: "middle",
           padding: 6,
@@ -2635,11 +2687,15 @@ function collectMissingBindingReferencesFromObjects(
     if (
       object.type === "checkbox" ||
       object.type === "slider" ||
-      object.type === "radio-group" ||
-      object.type === "numeric-input"
+      object.type === "radio-group"
     ) {
       collectMissingBindingReference(object.tag, resolvedBindings, output);
       collectMissingBindingReference(object.writeTag, resolvedBindings, output);
+    }
+    if (object.type === "numeric-input") {
+      collectMissingBindingReference(object.tag, resolvedBindings, output);
+      collectMissingBindingReference(object.writeTag, resolvedBindings, output);
+      collectMissingBindingReference(object.errorTag, resolvedBindings, output);
     }
     if (object.type === "progress-bar" || object.type === "select") {
       collectMissingBindingReference(object.tag, resolvedBindings, output);

@@ -440,6 +440,7 @@ export type NumericInputObject = HmiObjectBase & {
   type: "numeric-input";
   tag?: string;
   writeTag?: string;
+  errorTag?: string;
   min?: number;
   max?: number;
   step?: number;
@@ -457,6 +458,21 @@ export type NumericInputObject = HmiObjectBase & {
   borderWidth?: number;
   cornerRadius?: number;
   textAlign?: "left" | "center" | "right";
+  showMeta?: boolean;
+  stepButtonUseTextColor?: boolean;
+  stepButtonTextColor?: string;
+  stepButtonBackgroundColor?: string;
+  badTextColor?: string;
+  badBackgroundColor?: string;
+  badBorderColor?: string;
+  dialogTitle?: string;
+  dialogWidth?: number;
+  dialogHeight?: number;
+  dialogX?: number;
+  dialogY?: number;
+  dialogBackgroundColor?: string;
+  dialogTextColor?: string;
+  dialogBorderColor?: string;
 };
 
 export type HmiObject =

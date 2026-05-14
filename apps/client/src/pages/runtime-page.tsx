@@ -1239,6 +1239,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   };
 
   const handleRequestNumericInput = (payload: NumericInputOpenPayload) => {
+    const dialogWidth = Number.isFinite(payload.dialogWidth) ? Math.max(220, Math.round(payload.dialogWidth!)) : 300;
+    const dialogHeight = Number.isFinite(payload.dialogHeight) ? Math.max(120, Math.round(payload.dialogHeight!)) : 150;
+    const dialogX = Number.isFinite(payload.dialogX) ? Math.round(payload.dialogX!) : 200;
+    const dialogY = Number.isFinite(payload.dialogY) ? Math.round(payload.dialogY!) : 150;
     const dialogState: NumericInputDialogState = {
       objectId: payload.objectId,
       objectName: payload.objectName,
@@ -1257,14 +1261,27 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       borderColor: payload.borderColor,
       fontFamily: payload.fontFamily,
       fontSize: payload.fontSize,
+      dialogBackgroundColor: payload.dialogBackgroundColor,
+      dialogTextColor: payload.dialogTextColor,
+      dialogBorderColor: payload.dialogBorderColor,
+      showMeta: payload.showMeta,
+      stepButtonUseTextColor: payload.stepButtonUseTextColor,
+      stepButtonTextColor: payload.stepButtonTextColor,
+      stepButtonBackgroundColor: payload.stepButtonBackgroundColor,
+      badTextColor: payload.badTextColor,
+      badBackgroundColor: payload.badBackgroundColor,
+      badBorderColor: payload.badBorderColor,
+      signalBad: payload.signalBad,
     };
     setNumericDialogState(dialogState);
     openWindow({
       id: numericDialogId,
-      title: payload.objectName || "Numeric Input",
-      defaultRect: { x: 200, y: 150, width: 270, height: 120 },
-      minWidth: 240,
-      minHeight: 135,
+      title: payload.dialogTitle?.trim() || payload.objectName || "Numeric Input",
+      defaultRect: { x: dialogX, y: dialogY, width: dialogWidth, height: dialogHeight },
+      minWidth: dialogWidth,
+      minHeight: dialogHeight,
+      resizable: false,
+      resetRectOnOpen: true,
       render: () => null,
     });
   };
@@ -1466,6 +1483,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       defaultRect: { x: 200, y: 150, width: 270, height: 150 },
       minWidth: 240,
       minHeight: 135,
+      resizable: false,
       render: () => {
         if (!numericDialogState) return null;
         return (
@@ -1489,8 +1507,6 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
                   isAuthenticated: Boolean(authUser),
                 },
               );
-              closeWindow(numericDialogId);
-              setNumericDialogState(null);
             }}
             onCancel={() => {
               closeWindow(numericDialogId);
@@ -1508,6 +1524,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       definitions={runtimeWindowDefinitions}
       onClose={(id) => {
         closeWindow(id);
+        if (id === numericDialogId) {
+          setNumericDialogState(null);
+        }
       }}
       onFocus={focusWindow}
       onMove={moveWindow}

@@ -33,7 +33,16 @@ export function useWorkbenchWindows() {
       if (existing) {
         return prev.map((window) =>
           window.id === definition.id
-            ? { ...window, isOpen: true, zIndex: next }
+            ? {
+                ...window,
+                title: definition.title,
+                rect: definition.resetRectOnOpen ? definition.defaultRect : window.rect,
+                minWidth: definition.minWidth,
+                minHeight: definition.minHeight,
+                resizable: definition.resizable,
+                isOpen: true,
+                zIndex: next,
+              }
             : window,
         );
       }
@@ -46,6 +55,7 @@ export function useWorkbenchWindows() {
           rect: definition.defaultRect,
           minWidth: definition.minWidth,
           minHeight: definition.minHeight,
+          resizable: definition.resizable,
           zIndex: next,
           isOpen: true,
         },

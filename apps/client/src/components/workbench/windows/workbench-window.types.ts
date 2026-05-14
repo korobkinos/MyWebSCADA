@@ -26,6 +26,7 @@ export type WorkbenchWindowState = {
   rect: WorkbenchWindowRect;
   minWidth?: number;
   minHeight?: number;
+  resizable?: boolean;
   zIndex: number;
   isOpen: boolean;
 };
@@ -36,5 +37,7 @@ export type WorkbenchWindowDefinition = {
   defaultRect: WorkbenchWindowRect;
   minWidth?: number;
   minHeight?: number;
+  resizable?: boolean;
+  resetRectOnOpen?: boolean;
   render: () => ReactNode;
 };

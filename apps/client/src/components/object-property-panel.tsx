@@ -23,7 +23,7 @@ import {
   resolveLibraryElementInstanceBindingsDetailed,
   resolveRuntimeValueSync,
 } from "@web-scada/shared";
-import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tag, Typography } from "antd";
+import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 import { IndexedAddressEditorWindow } from "./indexed-address-editor-window";
 import { getAssetDisplayPath } from "../utils/asset-path";
@@ -2962,7 +2962,7 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "numeric-input") {
-    return (
+    const numericValueContent = (
       <>
         <TagFieldWithBindingSource
           project={project}
@@ -3020,9 +3020,12 @@ function SpecificPropertyFields({
         <Form.Item label="Placeholder">
           <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
-        <Divider style={{ margin: "8px 0" }} />
-        <Typography.Text type="secondary" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Style</Typography.Text>
-        <Form.Item label="Text Color" style={{ marginTop: 4 }}>
+      </>
+    );
+
+    const numericAppearanceContent = (
+      <>
+        <Form.Item label="Text Color">
           <ColorPicker value={object.textColor ?? "#ffffff"} onChange={(c: any) => onPatch({ textColor: normalizePickerColor(c.toHexString?.() ?? c, "#ffffff") } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Font Size">
@@ -3058,7 +3061,87 @@ function SpecificPropertyFields({
         <Form.Item label="Corner Radius">
           <InputNumber style={{ width: "100%" }} min={0} max={12} value={object.cornerRadius ?? 4} onChange={(v) => onPatch({ cornerRadius: Number(v ?? 4) } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Show Meta (Step/Min/Max)">
+          <Switch checked={object.showMeta ?? true} onChange={(v) => onPatch({ showMeta: v } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Step Button Uses Text Color">
+          <Switch checked={object.stepButtonUseTextColor ?? true} onChange={(v) => onPatch({ stepButtonUseTextColor: v } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Step Button Text Color">
+          <ColorPicker value={object.stepButtonTextColor ?? "#cccccc"} disabled={object.stepButtonUseTextColor !== false} onChange={(c: any) => onPatch({ stepButtonTextColor: normalizePickerColor(c.toHexString?.() ?? c, "#cccccc") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Step Button Background">
+          <ColorPicker value={object.stepButtonBackgroundColor ?? "#2d2d2d"} onChange={(c: any) => onPatch({ stepButtonBackgroundColor: normalizePickerColor(c.toHexString?.() ?? c, "#2d2d2d") } as Partial<HmiObject>)} />
+        </Form.Item>
       </>
+    );
+
+    const numericSignalErrorContent = (
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.errorTag ?? ""}
+          bindingLabel="Error Binding"
+          tagLabel="Error Bit Tag"
+          indexControl={buildIndexControl("errorTag", "Error Bit Tag", object.errorTag)}
+          onChange={(nextValue) => onPatch({ errorTag: nextValue } as Partial<HmiObject>)}
+        />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          Applied when read tag/index is missing or signal quality is Bad.
+        </Typography.Text>
+        <Form.Item label="Error Text Color" style={{ marginTop: 8 }}>
+          <ColorPicker value={object.badTextColor ?? "#f14c4c"} onChange={(c: any) => onPatch({ badTextColor: normalizePickerColor(c.toHexString?.() ?? c, "#f14c4c") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Error Field Background">
+          <ColorPicker value={object.badBackgroundColor ?? "#2b1a1a"} onChange={(c: any) => onPatch({ badBackgroundColor: normalizePickerColor(c.toHexString?.() ?? c, "#2b1a1a") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Error Border Color">
+          <ColorPicker value={object.badBorderColor ?? "#a03030"} onChange={(c: any) => onPatch({ badBorderColor: normalizePickerColor(c.toHexString?.() ?? c, "#a03030") } as Partial<HmiObject>)} />
+        </Form.Item>
+      </>
+    );
+
+    const numericDialogContent = (
+      <>
+        <Form.Item label="Dialog Title">
+          <Input value={object.dialogTitle ?? ""} onChange={(e) => onPatch({ dialogTitle: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Dialog Width">
+          <InputNumber style={{ width: "100%" }} min={220} max={800} value={object.dialogWidth ?? 300} onChange={(v) => onPatch({ dialogWidth: Number(v ?? 300) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Dialog Height">
+          <InputNumber style={{ width: "100%" }} min={120} max={480} value={object.dialogHeight ?? 150} onChange={(v) => onPatch({ dialogHeight: Number(v ?? 150) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Dialog X">
+          <InputNumber style={{ width: "100%" }} value={object.dialogX ?? 200} onChange={(v) => onPatch({ dialogX: Number(v ?? 200) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Dialog Y">
+          <InputNumber style={{ width: "100%" }} value={object.dialogY ?? 150} onChange={(v) => onPatch({ dialogY: Number(v ?? 150) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Dialog Background">
+          <ColorPicker value={object.dialogBackgroundColor ?? "#252526"} onChange={(c: any) => onPatch({ dialogBackgroundColor: normalizePickerColor(c.toHexString?.() ?? c, "#252526") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Dialog Text">
+          <ColorPicker value={object.dialogTextColor ?? "#cccccc"} onChange={(c: any) => onPatch({ dialogTextColor: normalizePickerColor(c.toHexString?.() ?? c, "#cccccc") } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Dialog Border">
+          <ColorPicker value={object.dialogBorderColor ?? "#3c3c3c"} onChange={(c: any) => onPatch({ dialogBorderColor: normalizePickerColor(c.toHexString?.() ?? c, "#3c3c3c") } as Partial<HmiObject>)} />
+        </Form.Item>
+      </>
+    );
+
+    return (
+      <Tabs
+        size="small"
+        className="object-property-tabs object-property-tabs--numeric"
+        items={[
+          { key: "value", label: "Value", children: numericValueContent },
+          { key: "appearance", label: "Appearance", children: numericAppearanceContent },
+          { key: "error", label: "Signal Error", children: numericSignalErrorContent },
+          { key: "dialog", label: "Dialog", children: numericDialogContent },
+        ]}
+      />
     );
   }
 

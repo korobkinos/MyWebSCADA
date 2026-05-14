@@ -38,6 +38,7 @@ export function WorkbenchWindowManager({
             rect={window.rect}
             minWidth={window.minWidth}
             minHeight={window.minHeight}
+            resizable={window.resizable}
             zIndex={window.zIndex}
             onClose={() => onClose(window.id)}
             onFocus={() => onFocus(window.id)}

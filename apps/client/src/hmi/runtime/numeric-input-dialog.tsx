@@ -18,6 +18,17 @@ export type NumericInputDialogState = {
   borderColor?: string;
   fontFamily?: string;
   fontSize?: number;
+  dialogBackgroundColor?: string;
+  dialogTextColor?: string;
+  dialogBorderColor?: string;
+  showMeta?: boolean;
+  stepButtonUseTextColor?: boolean;
+  stepButtonTextColor?: string;
+  stepButtonBackgroundColor?: string;
+  badTextColor?: string;
+  badBackgroundColor?: string;
+  badBorderColor?: string;
+  signalBad?: boolean;
 };
 
 type NumericInputDialogProps = {
@@ -62,6 +73,20 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
   const inputBorderColor = state.borderColor ?? "#3c3c3c";
   const inputFontFamily = state.fontFamily ?? "Consolas";
   const inputFontSize = state.fontSize ?? 14;
+  const dialogBackgroundColor = state.dialogBackgroundColor ?? "#252526";
+  const dialogTextColor = state.dialogTextColor ?? "#cccccc";
+  const dialogBorderColor = state.dialogBorderColor ?? "#3c3c3c";
+  const signalBad = state.signalBad === true;
+  const badTextColor = state.badTextColor ?? "#f14c4c";
+  const badBackgroundColor = state.badBackgroundColor ?? "#2b1a1a";
+  const badBorderColor = state.badBorderColor ?? "#a03030";
+  const inputEffectiveBackground = signalBad ? badBackgroundColor : inputBg;
+  const inputEffectiveTextColor = signalBad ? badTextColor : inputTextColor;
+  const inputEffectiveBorderColor = signalBad ? badBorderColor : inputBorderColor;
+  const stepButtonColor = state.stepButtonUseTextColor === false
+    ? (state.stepButtonTextColor ?? dialogTextColor)
+    : inputEffectiveTextColor;
+  const stepButtonBackground = state.stepButtonBackgroundColor ?? inputBg;
 
   const minVal = state.min;
   const maxVal = state.max;
@@ -114,6 +139,7 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
     setCommitting(true);
     try {
       await onCommit(rounded);
+      setDraft(formatDisplay(rounded, state));
     } finally {
       setCommitting(false);
     }
@@ -157,7 +183,13 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
   }, [doCommit, onCancel, adjust, step]);
 
   return (
-    <div className="hmi-numeric-dialog">
+    <div
+      className="hmi-numeric-dialog"
+      style={{
+        background: dialogBackgroundColor,
+        color: dialogTextColor,
+      }}
+    >
       <div className="hmi-numeric-dialog__body">
         <div className="hmi-numeric-dialog__input-row">
           <button
@@ -166,6 +198,11 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
             tabIndex={-1}
             onClick={() => adjust(-step)}
             title={`-${step}`}
+            style={{
+              background: stepButtonBackground,
+              borderColor: dialogBorderColor,
+              color: stepButtonColor,
+            }}
           >
             {"\u2212"}
           </button>
@@ -178,13 +215,13 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             style={{
-              background: inputBg,
-              color: inputTextColor,
-              borderColor: inputBorderColor,
+              background: inputEffectiveBackground,
+              color: inputEffectiveTextColor,
+              borderColor: inputEffectiveBorderColor,
               fontFamily: inputFontFamily,
               fontSize: inputFontSize,
-              lineHeight: "1.2",
-              padding: "8px 12px",
+              lineHeight: "1.35",
+              padding: "10px 12px",
             }}
           />
           <button
@@ -193,14 +230,21 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
             tabIndex={-1}
             onClick={() => adjust(step)}
             title={`+${step}`}
+            style={{
+              background: stepButtonBackground,
+              borderColor: dialogBorderColor,
+              color: stepButtonColor,
+            }}
           >
             +
           </button>
         </div>
 
-        <div className="hmi-numeric-dialog__meta">
-          {metaParts.join(" \u00B7 ")}
-        </div>
+        {state.showMeta !== false ? (
+          <div className="hmi-numeric-dialog__meta">
+            {metaParts.join(" \u00B7 ")}
+          </div>
+        ) : null}
 
         {error ? (
           <div className="hmi-numeric-dialog__error">
@@ -209,21 +253,31 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
         ) : null}
       </div>
 
-      <div className="hmi-numeric-dialog__actions">
+      <div
+        className="hmi-numeric-dialog__actions"
+        style={{ borderTopColor: dialogBorderColor }}
+      >
         <button
           type="button"
           className="workbench-button"
           onClick={onCancel}
+          style={{
+            borderColor: dialogBorderColor,
+            color: dialogTextColor,
+          }}
         >
-          Cancel
+          Close
         </button>
         <button
           type="button"
           className="workbench-button workbench-button--primary"
           onClick={() => void doCommit()}
           disabled={committing}
+          style={{
+            borderColor: dialogBorderColor,
+          }}
         >
-          OK
+          Set
         </button>
       </div>
     </div>
