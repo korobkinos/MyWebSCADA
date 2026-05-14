@@ -99,6 +99,11 @@ export type ScreenEditorCenterProps = {
   canAlign: boolean;
   previewMode: boolean;
   onPreviewModeChange: (enabled: boolean) => void;
+  hasSelection: boolean;
+  onBringToFront: () => void;
+  onSendToBack: () => void;
+  onMoveForward: () => void;
+  onMoveBackward: () => void;
 };
 
 export function ScreenEditorCenter({
@@ -151,6 +156,11 @@ export function ScreenEditorCenter({
   canAlign,
   previewMode,
   onPreviewModeChange,
+  hasSelection,
+  onBringToFront,
+  onSendToBack,
+  onMoveForward,
+  onMoveBackward,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
   const [activeTool, setActiveTool] = useState<EditorTool>(() => {
@@ -317,6 +327,13 @@ export function ScreenEditorCenter({
               title="Delete"
               icon={<DeleteOutlined />}
             />
+          </div>
+
+          <div className="screen-editor-toolbar__group">
+            <WorkbenchIconButton onClick={onBringToFront} disabled={!hasSelection} title="Bring to Front" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2912;</span>} />
+            <WorkbenchIconButton onClick={onSendToBack} disabled={!hasSelection} title="Send to Back" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2913;</span>} />
+            <WorkbenchIconButton onClick={onMoveForward} disabled={!hasSelection} title="Move Forward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>↑</span>} />
+            <WorkbenchIconButton onClick={onMoveBackward} disabled={!hasSelection} title="Move Backward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>↓</span>} />
           </div>
         </div>
 

@@ -1948,37 +1948,84 @@ body {
 
 /* Custom context menu */
 .screen-editor-context-menu {
-  background: #252526 !important;
-  color: #cccccc !important;
-  border: 1px solid #3c3c3c !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55) !important;
-  border-radius: 4px;
+  background: #252526;
+  color: #cccccc;
+  border: 1px solid #3c3c3c;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  border-radius: 6px;
   padding: 4px;
-  min-width: 160px;
+  min-width: 140px;
+  max-width: 220px;
 }
 
-.screen-editor-context-menu button,
-.screen-editor-context-menu [role="menuitem"] {
-  background: transparent !important;
-  color: #cccccc !important;
-  border: none !important;
+.screen-editor-context-menu__row {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.screen-editor-context-menu__item {
+  background: transparent;
+  color: #cccccc;
+  border: none;
   width: 100%;
   text-align: left;
-  padding: 4px 12px;
+  padding: 5px 10px;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.5;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
 }
 
-.screen-editor-context-menu button:hover,
-.screen-editor-context-menu [role="menuitem"]:hover {
-  background: #2a2d2e !important;
-  color: #ffffff !important;
+.screen-editor-context-menu__item:hover {
+  background: #2a2d2e;
+  color: #ffffff;
 }
 
-.screen-editor-context-menu .danger,
-.screen-editor-context-menu button[danger] {
-  color: #f14c4c !important;
+.screen-editor-context-menu__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.screen-editor-context-menu__icon-button {
+  width: 30px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: #cccccc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+}
+
+.screen-editor-context-menu__icon-button:hover {
+  background: #2a2d2e;
+  color: #ffffff;
+}
+
+.screen-editor-context-menu__icon-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.screen-editor-context-menu__separator {
+  height: 1px;
+  margin: 4px 4px;
+  background: #3c3c3c;
+}
+
+.screen-editor-context-menu__section-title {
+  padding: 4px 8px 2px;
+  color: #969696;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 /* Screen list grid/list modes */

@@ -14,11 +14,14 @@ import {
   ApiOutlined,
   AppstoreOutlined,
   CodeOutlined,
+  CopyOutlined,
+  DeleteOutlined,
   FileImageOutlined,
   FolderOpenOutlined,
   PlayCircleOutlined,
   SettingOutlined,
   SearchOutlined,
+  SnippetsOutlined,
   TagsOutlined,
   UnorderedListOutlined,
   UserOutlined,
@@ -848,6 +851,9 @@ export function EditorPage() {
         event.preventDefault();
         deleteSelectionWithHistory();
       }
+      if (event.key === "Escape") {
+        setContextMenu({ visible: false, x: 0, y: 0 });
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -927,6 +933,11 @@ export function EditorPage() {
             canAlign={canAlign}
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
+            hasSelection={selectedObjects.length > 0}
+            onBringToFront={() => zOrderWithHistory("bringToFront")}
+            onSendToBack={() => zOrderWithHistory("sendToBack")}
+            onMoveForward={() => zOrderWithHistory("moveForward")}
+            onMoveBackward={() => zOrderWithHistory("moveBackward")}
           />
         }
         bottom={
@@ -1035,33 +1046,73 @@ export function EditorPage() {
 
       {contextMenu.visible ? (
         <div
-          className="screen-editor-context-menu"
-          style={{
-            position: "fixed",
-            top: contextMenu.y,
-            left: contextMenu.x,
-            zIndex: 2000,
-          }}
-          onMouseLeave={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
+          className="screen-editor-context-menu-backdrop"
+          style={{ position: "fixed", inset: 0, zIndex: 1999 }}
+          onClick={() => setContextMenu({ visible: false, x: 0, y: 0 })}
+          onContextMenu={(e) => { e.preventDefault(); setContextMenu({ visible: false, x: 0, y: 0 }); }}
         >
-          <Space direction="vertical" style={{ width: "100%" }}>
-            <Button type="text" size="small" block onClick={() => openDefinedWindow("objectProperties")} disabled={!activeObject}>Properties</Button>
-            <Button type="text" size="small" block onClick={() => openDefinedWindow("layers")}>Layers</Button>
-            <Button type="text" size="small" block onClick={() => openDefinedWindow("saveSelectionAsElement")} disabled={!selectedObjects.length}>Save Selection</Button>
-            <Button type="text" size="small" block onClick={copySelectionToClipboard} disabled={!canCopy}>Copy</Button>
-            <Button type="text" size="small" block onClick={pasteFromClipboard} disabled={!canPaste}>Paste</Button>
-            <Button type="text" size="small" block onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length}>Clone...</Button>
-            <Button type="text" size="small" danger block onClick={deleteSelectionWithHistory} disabled={!selectedUnlocked.length}>Delete</Button>
-            <Button type="text" size="small" block onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup}>Group</Button>
-            <Button type="text" size="small" block onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup}>Ungroup</Button>
-            <Button type="text" size="small" block onClick={() => zOrderWithHistory("bringToFront")} disabled={!selectedObjects.length}>Bring to Front</Button>
-            <Button type="text" size="small" block onClick={() => zOrderWithHistory("sendToBack")} disabled={!selectedObjects.length}>Send to Back</Button>
-            <Button type="text" size="small" block onClick={() => zOrderWithHistory("moveForward")} disabled={!selectedObjects.length}>Move Forward</Button>
-            <Button type="text" size="small" block onClick={() => zOrderWithHistory("moveBackward")} disabled={!selectedObjects.length}>Move Backward</Button>
-            <Button type="text" size="small" block onClick={() => runCommand({ type: "lockSelected" })} disabled={!canLock}>Lock</Button>
-            <Button type="text" size="small" block onClick={() => runCommand({ type: "unlockSelected" })} disabled={!canUnlock}>Unlock</Button>
-          </Space>
+          <div
+            className="screen-editor-context-menu"
+            style={{
+              position: "fixed",
+              top: contextMenu.y,
+              left: contextMenu.x,
+              zIndex: 2000,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="screen-editor-context-menu__row">
+              <button type="button" className="screen-editor-context-menu__icon-button" disabled={!activeObject} onClick={() => { openDefinedWindow("objectProperties"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Properties">
+                <SettingOutlined />
+              </button>
+              <button type="button" className="screen-editor-context-menu__icon-button" onClick={() => { openDefinedWindow("layers"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Layers">
+                <UnorderedListOutlined />
+            </button>
+            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!canCopy} onClick={() => { copySelectionToClipboard(); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Copy">
+              <CopyOutlined />
+            </button>
+            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!canPaste} onClick={() => { pasteFromClipboard(); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Paste">
+              <SnippetsOutlined />
+            </button>
+            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!canDelete} onClick={() => { deleteSelectionWithHistory(); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Delete">
+              <DeleteOutlined />
+            </button>
+          </div>
+          <div className="screen-editor-context-menu__separator" />
+          <button type="button" className="screen-editor-context-menu__item" disabled={!selectedUnlocked.length} onClick={() => { setCloneOpen(true); setContextMenu({ visible: false, x: 0, y: 0 }); }}>
+            Clone...
+          </button>
+          <button type="button" className="screen-editor-context-menu__item" disabled={!canGroup} onClick={() => { runCommand({ type: "groupSelected" }); setContextMenu({ visible: false, x: 0, y: 0 }); }}>
+            Group
+          </button>
+          <button type="button" className="screen-editor-context-menu__item" disabled={!canUngroup} onClick={() => { runCommand({ type: "ungroupSelected" }); setContextMenu({ visible: false, x: 0, y: 0 }); }}>
+            Ungroup
+          </button>
+          <div className="screen-editor-context-menu__separator" />
+          <div className="screen-editor-context-menu__section-title">Order</div>
+          <div className="screen-editor-context-menu__row">
+            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!selectedObjects.length} onClick={() => { zOrderWithHistory("bringToFront"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Bring to Front">
+              <span style={{ fontSize: 13 }}>&#x2912;</span>
+            </button>
+            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!selectedObjects.length} onClick={() => { zOrderWithHistory("sendToBack"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Send to Back">
+              <span style={{ fontSize: 13 }}>&#x2913;</span>
+            </button>
+            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!selectedObjects.length} onClick={() => { zOrderWithHistory("moveForward"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Move Forward">
+              <span style={{ fontSize: 14 }}>↑</span>
+            </button>
+            <button type="button" className="screen-editor-context-menu__icon-button" disabled={!selectedObjects.length} onClick={() => { zOrderWithHistory("moveBackward"); setContextMenu({ visible: false, x: 0, y: 0 }); }} title="Move Backward">
+              <span style={{ fontSize: 14 }}>↓</span>
+            </button>
+          </div>
+          <div className="screen-editor-context-menu__separator" />
+          <button type="button" className="screen-editor-context-menu__item" disabled={!canLock} onClick={() => { runCommand({ type: "lockSelected" }); setContextMenu({ visible: false, x: 0, y: 0 }); }}>
+            Lock
+          </button>
+          <button type="button" className="screen-editor-context-menu__item" disabled={!canUnlock} onClick={() => { runCommand({ type: "unlockSelected" }); setContextMenu({ visible: false, x: 0, y: 0 }); }}>
+            Unlock
+          </button>
         </div>
+      </div>
       ) : null}
     </div>
   );
