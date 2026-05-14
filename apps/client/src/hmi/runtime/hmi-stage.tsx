@@ -262,6 +262,7 @@ export function HmiStage({
         border: mode === "runtime" ? "none" : undefined,
         maxWidth: mode === "runtime" ? "100%" : undefined,
         maxHeight: mode === "runtime" ? "100%" : undefined,
+        position: "relative",
       }}
     >
       <Stage

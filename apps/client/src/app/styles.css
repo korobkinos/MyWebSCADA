@@ -4936,6 +4936,41 @@ body {
   -moz-appearance: textfield;
 }
 
+.hmi-numeric-input-overlay__spin-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-left: 1px solid #3c3c3c;
+  background: #252526;
+  color: #9f9f9f;
+  cursor: pointer;
+  font-size: 8px;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  min-height: 0;
+  user-select: none;
+  outline: none;
+}
+
+.hmi-numeric-input-overlay__spin-btn:hover {
+  background: #007acc;
+  color: #ffffff;
+}
+
+.hmi-numeric-input-overlay__spin-btn:active {
+  background: #0e639c;
+}
+
+.hmi-numeric-input-overlay__spin-arrow {
+  display: inline-block;
+  line-height: 1;
+  pointer-events: none;
+}
+
 
 
 

@@ -101,6 +101,180 @@ function parseNumericString(raw: string): number {
   return val;
 }
 
+function formatNumericInputValue(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+  return decimals > 0 ? value.toFixed(decimals) : String(Math.round(value));
+}
+
+const NUMERIC_INPUT_FILTER = /^-?\d*[.,]?\d*$/;
+
+function NumericInputOverlayContent({
+  initialValue,
+  min,
+  max,
+  step,
+  decimals,
+  width,
+  height,
+  backgroundColor,
+  textColor,
+  fontFamily,
+  fontSize,
+  textAlign,
+  onCommit,
+  onCancel,
+}: {
+  initialValue: number;
+  min: number;
+  max: number;
+  step?: number;
+  decimals: number;
+  width: number;
+  height: number;
+  backgroundColor: string;
+  textColor: string;
+  fontFamily: string;
+  fontSize: number;
+  textAlign: string;
+  onCommit: (value: number) => void;
+  onCancel: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [displayValue, setDisplayValue] = useState(
+    Number.isFinite(initialValue) ? formatNumericInputValue(initialValue, decimals) : "",
+  );
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  }, []);
+
+  const getCurrentNumeric = useCallback((): number => {
+    return parseNumericString(displayValue);
+  }, [displayValue]);
+
+  const commit = useCallback(() => {
+    const parsed = getCurrentNumeric();
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+    let clamped = Math.min(max, Math.max(min, parsed));
+    if (step && step > 0) {
+      clamped = Math.round(clamped / step) * step;
+    }
+    const formatted = formatNumericInputValue(clamped, decimals);
+    setDisplayValue(formatted);
+    onCommit(clamped);
+  }, [getCurrentNumeric, min, max, step, decimals, onCommit]);
+
+  const adjust = useCallback((delta: number) => {
+    const current = getCurrentNumeric();
+    const base = Number.isFinite(current) ? current : 0;
+    const next = Math.min(max, Math.max(min, base + delta));
+    setDisplayValue(formatNumericInputValue(next, decimals));
+  }, [getCurrentNumeric, min, max, decimals]);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    if (raw === "" || raw === "-" || NUMERIC_INPUT_FILTER.test(raw)) {
+      setDisplayValue(raw.replace(/,/g, "."));
+    }
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      onCancel();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      adjust(step ?? 1);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      adjust(-(step ?? 1));
+    }
+  }, [commit, onCancel, adjust, step]);
+
+  const btnHeight = Math.max(14, height / 2);
+
+  return (
+    <div
+      className="hmi-numeric-input-overlay"
+      style={{
+        display: "flex",
+        width,
+        height,
+        background: backgroundColor,
+      }}
+    >
+      <input
+        ref={inputRef}
+        className="hmi-numeric-input-overlay__input"
+        type="text"
+        inputMode="decimal"
+        value={displayValue}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onBlur={commit}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: "100%",
+          border: "none",
+          outline: "none",
+          background: "transparent",
+          color: textColor,
+          fontFamily,
+          fontSize,
+          textAlign: textAlign as React.CSSProperties["textAlign"],
+          padding: "0 6px",
+          boxSizing: "border-box",
+        }}
+      />
+      <div
+        className="hmi-numeric-input-overlay__spinners"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          width: Math.max(20, btnHeight * 0.85),
+          height: "100%",
+          flexShrink: 0,
+        }}
+      >
+        <button
+          type="button"
+          className="hmi-numeric-input-overlay__spin-btn"
+          tabIndex={-1}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            adjust(step ?? 1);
+          }}
+        >
+          <span className="hmi-numeric-input-overlay__spin-arrow">▲</span>
+        </button>
+        <button
+          type="button"
+          className="hmi-numeric-input-overlay__spin-btn"
+          tabIndex={-1}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            adjust(-(step ?? 1));
+          }}
+        >
+          <span className="hmi-numeric-input-overlay__spin-arrow">▼</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type TagMap = Record<string, TagValue>;
 type ResolvedTagValue = {
   resolvedName?: string;
@@ -1452,14 +1626,16 @@ function ObjectNode({
           const node = evt.target;
           const stage = node.getStage();
           const container = stage?.container();
-          if (!container) {
+          const canvasWrap = container?.closest(".canvas-wrap") as HTMLElement | null;
+          if (!container || !canvasWrap) {
             return;
           }
-          const rect = container.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          const wrapRect = canvasWrap.getBoundingClientRect();
           const absPos = node.getAbsolutePosition();
           const scale = stage?.scaleX() ?? 1;
-          const overlayX = rect.left + absPos.x * scale;
-          const overlayY = rect.top + (absPos.y + resolvedObject.height) * scale;
+          const overlayX = (containerRect.left - wrapRect.left) + absPos.x * scale;
+          const overlayY = (containerRect.top - wrapRect.top) + (absPos.y + resolvedObject.height) * scale;
           if (overlayState?.objectId === resolvedObject.id) {
             onHideOverlay?.();
             return;
@@ -1734,65 +1910,24 @@ function ObjectNode({
           const node = evt.target;
           const stage = node.getStage();
           const container = stage?.container();
-          if (!container) {
+          const canvasWrap = container?.closest(".canvas-wrap") as HTMLElement | null;
+          if (!container || !canvasWrap) {
             return;
           }
-          const rect = container.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          const wrapRect = canvasWrap.getBoundingClientRect();
           const absPos = node.getAbsolutePosition();
-          const scale = stage?.scaleX() ?? 1;
-          const overlayX = rect.left + absPos.x * scale;
-          const overlayY = rect.top + absPos.y * scale;
+          const stageScale = stage?.scaleX() ?? 1;
+          const overlayX = (containerRect.left - wrapRect.left) + absPos.x * stageScale;
+          const overlayY = (containerRect.top - wrapRect.top) + absPos.y * stageScale;
           if (overlayState?.objectId === resolvedObject.id) {
             return;
           }
-          onShowOverlay?.({
-            x: overlayX,
-            y: overlayY,
-            objectId: resolvedObject.id,
-            content: (
-              <input
-                className="hmi-numeric-input-overlay"
-                type="text"
-                inputMode="decimal"
-                autoFocus
-                defaultValue={Number.isFinite(rawNumValue) ? rawNumValue : ""}
-                style={{
-                  width: resolvedObject.width * scale,
-                  height: resolvedObject.height * scale,
-                  fontFamily: objFontFamily,
-                  fontSize: Math.max(8, objFontSize * scale),
-                  color: objTextColor,
-                  background: objBgColor,
-                  textAlign: objTextAlign,
-                }}
-                onFocus={(e: React.FocusEvent<HTMLInputElement>) => {
-                  e.target.select();
-                }}
-                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                  if (e.key === "Enter") {
-                    commitNumericInput(e.currentTarget.value);
-                  }
-                  if (e.key === "Escape") {
-                    onHideOverlay?.();
-                  }
-                }}
-                onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
-                  commitNumericInput(e.currentTarget.value);
-                }}
-              />
-            ),
-          });
-          function commitNumericInput(raw: string) {
-            const parsed = parseNumericString(raw);
-            if (!Number.isFinite(parsed)) {
-              onHideOverlay?.();
-              return;
-            }
-            const step = numObjStep;
-            let clamped = Math.min(numObjMax, Math.max(numObjMin, parsed));
-            if (step && step > 0) {
-              clamped = Math.round(clamped / step) * step;
-            }
+          const overlayWidth = resolvedObject.width * stageScale;
+          const overlayHeight = resolvedObject.height * stageScale;
+          const overlayFontSize = Math.max(8, objFontSize * stageScale);
+          const initialVal = Number.isFinite(rawNumValue) ? rawNumValue : NaN;
+          const commitNumericInput = (clampedValue: number) => {
             const writeTagField = runtimeMode
               ? (numObjWriteTag?.trim() || numObjTag)
               : numObjTag;
@@ -1807,13 +1942,36 @@ function ObjectNode({
                 withActionRoleLevel({
                   type: "write",
                   tag: tagName,
-                  value: clamped,
+                  value: clampedValue,
                 }, numObjRequiredActionRole),
                 withRuntimeActionContext(renderContext, numObjId, performance.now(), numObjName),
               );
             }
             onHideOverlay?.();
-          }
+          };
+          onShowOverlay?.({
+            x: overlayX,
+            y: overlayY,
+            objectId: resolvedObject.id,
+            content: (
+              <NumericInputOverlayContent
+                initialValue={initialVal}
+                min={numObjMin}
+                max={numObjMax}
+                step={numObjStep}
+                decimals={resolvedObject.decimals ?? 0}
+                width={overlayWidth}
+                height={overlayHeight}
+                backgroundColor={objBgColor}
+                textColor={objTextColor}
+                fontFamily={objFontFamily}
+                fontSize={overlayFontSize}
+                textAlign={objTextAlign}
+                onCommit={commitNumericInput}
+                onCancel={() => onHideOverlay?.()}
+              />
+            ),
+          });
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
