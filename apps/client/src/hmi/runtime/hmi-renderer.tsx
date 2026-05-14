@@ -92,149 +92,20 @@ function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   return formatted;
 }
 
-function parseNumericString(raw: string): number {
-  const trimmed = raw.trim().replace(/,/g, ".");
-  const val = Number(trimmed);
-  if (!Number.isFinite(val)) {
-    return NaN;
+function getNumericInputStep(object: HmiObject): number {
+  if ("numeric-input" !== object.type) return 1;
+  if (typeof object.step === "number" && object.step > 0) return object.step;
+  if (typeof object.decimals === "number" && object.decimals > 0) {
+    return 1 / Math.pow(10, object.decimals);
   }
-  return val;
-}
-
-function formatNumericInputValue(value: number, decimals: number): string {
-  if (!Number.isFinite(value)) {
-    return "";
+  if (object.formatMode === "pattern" && object.formatPattern) {
+    const dotIndex = object.formatPattern.indexOf(".");
+    if (dotIndex >= 0) {
+      const decimalCount = object.formatPattern.slice(dotIndex + 1).length;
+      if (decimalCount > 0) return 1 / Math.pow(10, decimalCount);
+    }
   }
-  return decimals > 0 ? value.toFixed(decimals) : String(Math.round(value));
-}
-
-const NUMERIC_INPUT_FILTER = /^-?\d*[.,]?\d*$/;
-
-function NumericInputOverlayContent({
-  initialValue,
-  min,
-  max,
-  step,
-  decimals,
-  backgroundColor,
-  textColor,
-  fontFamily,
-  fontSize,
-  textAlign,
-  onCommit,
-  onCancel,
-}: {
-  initialValue: number;
-  min: number;
-  max: number;
-  step?: number;
-  decimals: number;
-  backgroundColor: string;
-  textColor: string;
-  fontFamily: string;
-  fontSize: number;
-  textAlign: string;
-  onCommit: (value: number) => void;
-  onCancel: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [displayValue, setDisplayValue] = useState(
-    Number.isFinite(initialValue) ? formatNumericInputValue(initialValue, decimals) : "",
-  );
-
-  useEffect(() => {
-    const el = inputRef.current;
-    if (el) {
-      el.focus();
-      el.select();
-    }
-  }, []);
-
-  const getCurrentNumeric = useCallback((): number => {
-    return parseNumericString(displayValue);
-  }, [displayValue]);
-
-  const commit = useCallback(() => {
-    const parsed = getCurrentNumeric();
-    if (!Number.isFinite(parsed)) {
-      return;
-    }
-    let clamped = Math.min(max, Math.max(min, parsed));
-    if (step && step > 0) {
-      clamped = Math.round(clamped / step) * step;
-    }
-    const formatted = formatNumericInputValue(clamped, decimals);
-    setDisplayValue(formatted);
-    onCommit(clamped);
-  }, [getCurrentNumeric, min, max, step, decimals, onCommit]);
-
-  const adjust = useCallback((delta: number) => {
-    const current = getCurrentNumeric();
-    const base = Number.isFinite(current) ? current : 0;
-    const next = Math.min(max, Math.max(min, base + delta));
-    setDisplayValue(formatNumericInputValue(next, decimals));
-  }, [getCurrentNumeric, min, max, decimals]);
-
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    if (raw === "" || raw === "-" || NUMERIC_INPUT_FILTER.test(raw)) {
-      setDisplayValue(raw.replace(/,/g, "."));
-    }
-  }, []);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commit();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      onCancel();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      adjust(step ?? 1);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      adjust(-(step ?? 1));
-    }
-  }, [commit, onCancel, adjust, step]);
-
-  return (
-    <div
-      className="hmi-numeric-inline-editor"
-      style={{
-        width: "100%",
-        height: "100%",
-        boxSizing: "border-box",
-        background: backgroundColor,
-        display: "flex",
-        alignItems: "center",
-      }}
-    >
-      <input
-        ref={inputRef}
-        className="hmi-numeric-inline-editor__input"
-        type="text"
-        inputMode="decimal"
-        value={displayValue}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onBlur={commit}
-        style={{
-          width: "100%",
-          height: "100%",
-          border: "none",
-          outline: "none",
-          background: "transparent",
-          color: textColor,
-          fontFamily,
-          fontSize,
-          textAlign: textAlign as React.CSSProperties["textAlign"],
-          padding: "0 6px",
-          boxSizing: "border-box",
-        }}
-      />
-    </div>
-  );
+  return 1;
 }
 
 type TagMap = Record<string, TagValue>;
@@ -1836,9 +1707,6 @@ function ObjectNode({
     const objBorderWidth = resolvedObject.borderWidth ?? 1;
     const objCornerRadius = resolvedObject.cornerRadius ?? 4;
     const objTextAlign = resolvedObject.textAlign ?? "right";
-    const numObjMax = resolvedObject.max ?? 100;
-    const numObjMin = resolvedObject.min ?? 0;
-    const numObjStep = resolvedObject.step;
     const numObjWriteTag = resolvedObject.writeTag;
     const numObjTag = resolvedObject.tag;
     const numObjRequiredActionRole = resolvedObject.requiredActionRole;
@@ -1857,87 +1725,49 @@ function ObjectNode({
           })
         : resolvedObject.placeholder ?? "---";
 
+    // Stepper arrow helpers
+    const writeNumericValue = (nextValue: number) => {
+      const writeTagField = runtimeMode
+        ? (numObjWriteTag?.trim() || numObjTag)
+        : numObjTag;
+      const resolvedWriteTag = runtimeMode
+        ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
+        : undefined;
+      const tagName = runtimeMode
+        ? (resolvedWriteTag?.resolvedName ?? writeTagField)
+        : writeTagField;
+      if (runtimeMode && tagName?.trim()) {
+        onAction?.(
+          withActionRoleLevel({
+            type: "write",
+            tag: tagName,
+            value: nextValue,
+          }, numObjRequiredActionRole),
+          withRuntimeActionContext(renderContext, numObjId, performance.now(), numObjName),
+        );
+      }
+    };
+
+    const numericStep = getNumericInputStep(resolvedObject);
+    const currentNum = Number.isFinite(rawNumValue) ? rawNumValue : 0;
+
+    // Stepper layout
+    const stepperWidth = Math.min(24, Math.max(18, resolvedObject.height * 0.55));
+    const inputWidth = Math.max(0, resolvedObject.width - stepperWidth);
+    const halfHeight = resolvedObject.height / 2;
+    const arrowFontSize = Math.max(9, Math.min(objFontSize * 0.7, halfHeight * 0.45));
+    const arrowColor = runtimeDisabled
+      ? HMI_CONTROL_COLORS.disabled
+      : objTextColor;
+    const stepperBgColor = runtimeDisabled
+      ? HMI_CONTROL_COLORS.fieldDisabledBg
+      : "#252526";
+    const stepperDividerColor = runtimeDisabled
+      ? HMI_CONTROL_COLORS.disabled
+      : objBorderColor;
+
     return (
-      <Group
-        {...commonGroupProps}
-        onClick={(evt: KonvaEventObject<MouseEvent>) => {
-          if (interactive) {
-            onSelectObject?.({
-              objectId: resolvedObject.id,
-              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
-            });
-            return;
-          }
-          if (runtimeDisabled) {
-            return;
-          }
-          const node = evt.target;
-          const stage = node.getStage();
-          const container = stage?.container();
-          const canvasWrap = container?.closest(".canvas-wrap") as HTMLElement | null;
-          if (!container || !canvasWrap) {
-            return;
-          }
-          const containerRect = container.getBoundingClientRect();
-          const wrapRect = canvasWrap.getBoundingClientRect();
-          const absPos = node.getAbsolutePosition();
-          const stageScale = stage?.scaleX() ?? 1;
-          const overlayX = (containerRect.left - wrapRect.left) + absPos.x * stageScale;
-          const overlayY = (containerRect.top - wrapRect.top) + absPos.y * stageScale;
-          if (overlayState?.objectId === resolvedObject.id) {
-            return;
-          }
-          const overlayWidth = resolvedObject.width * stageScale;
-          const overlayHeight = resolvedObject.height * stageScale;
-          const overlayFontSize = Math.max(8, objFontSize * stageScale);
-          const initialVal = Number.isFinite(rawNumValue) ? rawNumValue : NaN;
-          const commitNumericInput = (clampedValue: number) => {
-            const writeTagField = runtimeMode
-              ? (numObjWriteTag?.trim() || numObjTag)
-              : numObjTag;
-            const resolvedWriteTag = runtimeMode
-              ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
-              : undefined;
-            const tagName = runtimeMode
-              ? (resolvedWriteTag?.resolvedName ?? writeTagField)
-              : writeTagField;
-            if (runtimeMode && tagName?.trim()) {
-              onAction?.(
-                withActionRoleLevel({
-                  type: "write",
-                  tag: tagName,
-                  value: clampedValue,
-                }, numObjRequiredActionRole),
-                withRuntimeActionContext(renderContext, numObjId, performance.now(), numObjName),
-              );
-            }
-            onHideOverlay?.();
-          };
-          onShowOverlay?.({
-            x: overlayX,
-            y: overlayY,
-            width: overlayWidth,
-            height: overlayHeight,
-            objectId: resolvedObject.id,
-            content: (
-              <NumericInputOverlayContent
-                initialValue={initialVal}
-                min={numObjMin}
-                max={numObjMax}
-                step={numObjStep}
-                decimals={resolvedObject.decimals ?? 0}
-                backgroundColor={objBgColor}
-                textColor={objTextColor}
-                fontFamily={objFontFamily}
-                fontSize={overlayFontSize}
-                textAlign={objTextAlign}
-                onCommit={commitNumericInput}
-                onCancel={() => onHideOverlay?.()}
-              />
-            ),
-          });
-        }}
-      >
+      <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect
           width={resolvedObject.width}
@@ -1948,18 +1778,97 @@ function ObjectNode({
           cornerRadius={objCornerRadius}
           opacity={runtimeDisabled ? 0.55 : 1}
         />
-        {overlayState?.objectId !== resolvedObject.id ? (
-          renderBoxText(displayNumText, {
-            fontFamily: objFontFamily,
-            fontSize: Math.max(9, objFontSize),
-            color: runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objTextColor,
-            horizontalAlign: objTextAlign,
-            verticalAlign: "middle",
-            padding: 6,
-          }, {
-            width: resolvedObject.width,
-            height: resolvedObject.height,
-          })
+        <Text
+          x={6}
+          y={0}
+          text={displayNumText}
+          width={Math.max(0, inputWidth - 12)}
+          height={resolvedObject.height}
+          align={objTextAlign}
+          verticalAlign="middle"
+          fill={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : objTextColor}
+          fontFamily={objFontFamily}
+          fontSize={Math.max(9, objFontSize)}
+          listening={false}
+        />
+        {inputWidth > 4 ? (
+          <>
+            {/* Divider line */}
+            <Line
+              points={[inputWidth, 2, inputWidth, resolvedObject.height - 2]}
+              stroke={stepperDividerColor}
+              strokeWidth={1}
+              listening={false}
+            />
+            {/* Stepper background */}
+            <Rect
+              x={inputWidth}
+              y={0}
+              width={stepperWidth}
+              height={resolvedObject.height}
+              fill={stepperBgColor}
+              cornerRadius={[0, objCornerRadius, objCornerRadius, 0]}
+              listening={false}
+            />
+            {/* Up arrow hit area + icon */}
+            <Rect
+              x={inputWidth}
+              y={0}
+              width={stepperWidth}
+              height={halfHeight}
+              fill="transparent"
+              onClick={() => {
+                if (interactive || runtimeDisabled) return;
+                const next = Math.min(numMax, Math.max(numMin, currentNum + numericStep));
+                const rounded = numericStep < 1
+                  ? Math.round(next * (1 / numericStep)) / (1 / numericStep)
+                  : next;
+                writeNumericValue(rounded);
+              }}
+            />
+            <Text
+              x={inputWidth}
+              y={1}
+              text="▲"
+              width={stepperWidth}
+              height={halfHeight}
+              align="center"
+              verticalAlign="middle"
+              fill={arrowColor}
+              fontSize={arrowFontSize}
+              fontFamily="Arial"
+              listening={false}
+            />
+            {/* Down arrow hit area + icon */}
+            <Rect
+              x={inputWidth}
+              y={halfHeight}
+              width={stepperWidth}
+              height={halfHeight}
+              fill="transparent"
+              onClick={() => {
+                if (interactive || runtimeDisabled) return;
+                const next = Math.min(numMax, Math.max(numMin, currentNum - numericStep));
+                const rounded = numericStep < 1
+                  ? Math.round(next * (1 / numericStep)) / (1 / numericStep)
+                  : next;
+                writeNumericValue(rounded);
+              }}
+            />
+            <Text
+              x={inputWidth}
+              y={halfHeight}
+              text="▼"
+              width={stepperWidth}
+              height={halfHeight}
+              align="center"
+              verticalAlign="middle"
+              fill={arrowColor}
+              fontSize={arrowFontSize}
+              fontFamily="Arial"
+              listening={false}
+            />
+          </>
         ) : null}
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>

@@ -4912,20 +4912,6 @@ body {
   color: #ffffff;
 }
 
-.hmi-numeric-inline-editor {
-  box-sizing: border-box;
-  border-radius: 2px;
-}
-.hmi-numeric-inline-editor__input {
-  font-family: inherit;
-  font-size: inherit;
-  color: inherit;
-}
-.hmi-numeric-inline-editor__input::selection {
-  background: #007acc;
-  color: #ffffff;
-}
-
 
 
 
