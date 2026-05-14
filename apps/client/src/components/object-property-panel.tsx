@@ -2785,6 +2785,7 @@ function SpecificPropertyFields({
   if (object.type === "slider") {
     return (
       <>
+        <Typography.Text strong>Value / Data</Typography.Text>
         <TagFieldWithBindingSource
           project={project}
           bindings={templateBindings}
@@ -2812,6 +2813,9 @@ function SpecificPropertyFields({
         <Form.Item label="Step">
           <InputNumber style={{ width: "100%" }} value={object.step ?? 1} onChange={(v) => onPatch({ step: Number(v ?? 1) } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Decimals">
+          <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 1} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 1)) } as Partial<HmiObject>)} />
+        </Form.Item>
         <Form.Item label="Orientation">
           <Select
             value={object.orientation ?? "horizontal"}
@@ -2826,9 +2830,61 @@ function SpecificPropertyFields({
           <span>Show Value</span>
           <Switch checked={object.showValue ?? true} onChange={(checked) => onPatch({ showValue: checked } as Partial<HmiObject>)} />
         </Space>
+        <Form.Item label="Value Position">
+          <Select
+            value={object.valuePosition ?? "bottom"}
+            options={[
+              { label: "top", value: "top" },
+              { label: "bottom", value: "bottom" },
+              { label: "left", value: "left" },
+              { label: "right", value: "right" },
+              { label: "center", value: "center" },
+              { label: "hidden", value: "hidden" },
+            ]}
+            onChange={(value) => onPatch({ valuePosition: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Space>
+          <span>Show Min/Max</span>
+          <Switch checked={object.showMinMax ?? false} onChange={(checked) => onPatch({ showMinMax: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Appearance</Typography.Text>
         <ColorField label="Fill Color" value={object.fillColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ fillColor: next } as Partial<HmiObject>)} />
-        <ColorField label="Track Color" value={object.trackColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ trackColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Track Color" value={object.trackColor ?? "#2d2d2d"} fallback="#2d2d2d" onChange={(next) => onPatch({ trackColor: next } as Partial<HmiObject>)} />
         <ColorField label="Thumb Color" value={object.thumbColor ?? "#d9d9d9"} fallback="#d9d9d9" onChange={(next) => onPatch({ thumbColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Background Color" value={object.backgroundColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ backgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Border Color" value={object.borderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Border Width">
+          <InputNumber style={{ width: "100%" }} min={0} max={6} value={object.borderWidth ?? 1} onChange={(v) => onPatch({ borderWidth: Number(v ?? 1) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Corner Radius">
+          <InputNumber style={{ width: "100%" }} min={0} max={20} value={object.cornerRadius ?? 4} onChange={(v) => onPatch({ cornerRadius: Number(v ?? 4) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Track Thickness">
+          <InputNumber style={{ width: "100%" }} min={1} max={24} value={object.trackThickness ?? 4} onChange={(v) => onPatch({ trackThickness: Number(v ?? 4) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Thumb Radius">
+          <InputNumber style={{ width: "100%" }} min={2} max={32} value={object.thumbRadius ?? 7} onChange={(v) => onPatch({ thumbRadius: Number(v ?? 7) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="Thumb Border Color" value={object.thumbBorderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ thumbBorderColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Text Color" value={object.textColor ?? "#cccccc"} fallback="#cccccc" onChange={(next) => onPatch({ textColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Font Family">
+          <Select
+            value={object.fontFamily ?? "Consolas"}
+            options={fontOptions.map((font) => ({ label: font, value: font }))}
+            onChange={(value) => onPatch({ fontFamily: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Font Size">
+          <InputNumber style={{ width: "100%" }} min={8} max={48} value={object.fontSize ?? 12} onChange={(v) => onPatch({ fontSize: Number(v ?? 12) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Bad / Disabled</Typography.Text>
+        <ColorField label="Bad Fill Color" value={object.badColor ?? "#a03030"} fallback="#a03030" onChange={(next) => onPatch({ badColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Bad Text Color" value={object.badTextColor ?? "#f14c4c"} fallback="#f14c4c" onChange={(next) => onPatch({ badTextColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Color" value={object.disabledColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
       </>
     );
   }
@@ -2836,6 +2892,7 @@ function SpecificPropertyFields({
   if (object.type === "progress-bar") {
     return (
       <>
+        <Typography.Text strong>Value / Data</Typography.Text>
         <TagFieldWithBindingSource
           project={project}
           bindings={templateBindings}
@@ -2861,13 +2918,74 @@ function SpecificPropertyFields({
         <Form.Item label="Unit">
           <Input value={object.unit ?? ""} onChange={(e) => onPatch({ unit: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Decimals">
+          <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 1} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 1)) } as Partial<HmiObject>)} />
+        </Form.Item>
         <Space>
           <span>Show Value</span>
           <Switch checked={object.showValue ?? true} onChange={(checked) => onPatch({ showValue: checked } as Partial<HmiObject>)} />
         </Space>
+        <Space>
+          <span>Show Percent</span>
+          <Switch checked={object.showPercent ?? false} onChange={(checked) => onPatch({ showPercent: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space>
+          <span>Show Unit</span>
+          <Switch checked={object.showUnit ?? false} onChange={(checked) => onPatch({ showUnit: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Form.Item label="Fill Direction">
+          <Select
+            value={object.fillDirection ?? "left-to-right"}
+            options={[
+              { label: "left-to-right", value: "left-to-right" },
+              { label: "right-to-left", value: "right-to-left" },
+              { label: "bottom-to-top", value: "bottom-to-top" },
+              { label: "top-to-bottom", value: "top-to-bottom" },
+            ]}
+            onChange={(value) => onPatch({ fillDirection: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Warning Min">
+          <InputNumber style={{ width: "100%" }} value={object.warningMin as number | null | undefined} onChange={(v) => onPatch({ warningMin: v == null ? undefined : Number(v) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Warning Max">
+          <InputNumber style={{ width: "100%" }} value={object.warningMax as number | null | undefined} onChange={(v) => onPatch({ warningMax: v == null ? undefined : Number(v) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Appearance</Typography.Text>
         <ColorField label="Fill Color" value={object.fillColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ fillColor: next } as Partial<HmiObject>)} />
-        <ColorField label="Track Color" value={object.trackColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ trackColor: next } as Partial<HmiObject>)} />
-        <ColorField label="Alarm Color (BAD)" value={object.alarmColor ?? "#d9363e"} fallback="#d9363e" onChange={(next) => onPatch({ alarmColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Track Color" value={object.trackColor ?? "#2d2d2d"} fallback="#2d2d2d" onChange={(next) => onPatch({ trackColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Background Color" value={object.backgroundColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ backgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Border Color" value={object.borderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Border Width">
+          <InputNumber style={{ width: "100%" }} min={0} max={6} value={object.borderWidth ?? 1} onChange={(v) => onPatch({ borderWidth: Number(v ?? 1) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Corner Radius">
+          <InputNumber style={{ width: "100%" }} min={0} max={20} value={object.cornerRadius ?? 4} onChange={(v) => onPatch({ cornerRadius: Number(v ?? 4) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Padding">
+          <InputNumber style={{ width: "100%" }} min={0} max={20} value={object.padding ?? 2} onChange={(v) => onPatch({ padding: Number(v ?? 2) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="Text Color" value={object.textColor ?? "#ffffff"} fallback="#ffffff" onChange={(next) => onPatch({ textColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Font Family">
+          <Select
+            value={object.fontFamily ?? "Consolas"}
+            options={fontOptions.map((font) => ({ label: font, value: font }))}
+            onChange={(value) => onPatch({ fontFamily: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Font Size">
+          <InputNumber style={{ width: "100%" }} min={8} max={48} value={object.fontSize ?? 12} onChange={(v) => onPatch({ fontSize: Number(v ?? 12) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="Warning Color" value={object.warningColor ?? "#d7ba7d"} fallback="#d7ba7d" onChange={(next) => onPatch({ warningColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Alarm Color (Legacy BAD)" value={object.alarmColor ?? "#d9363e"} fallback="#d9363e" onChange={(next) => onPatch({ alarmColor: next } as Partial<HmiObject>)} />
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Bad / Disabled</Typography.Text>
+        <ColorField label="Bad Text Color" value={object.badTextColor ?? "#f14c4c"} fallback="#f14c4c" onChange={(next) => onPatch({ badTextColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Bad Background Color" value={object.badBackgroundColor ?? "#2b1a1a"} fallback="#2b1a1a" onChange={(next) => onPatch({ badBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Bad Border Color" value={object.badBorderColor ?? "#a03030"} fallback="#a03030" onChange={(next) => onPatch({ badBorderColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Background Color" value={object.disabledBackgroundColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
       </>
     );
   }
@@ -2876,6 +2994,7 @@ function SpecificPropertyFields({
     const selectOptionsText = (object.options ?? []).map((item) => `${item.label}|${String(item.value)}`).join("\n");
     return (
       <>
+        <Typography.Text strong>Value / Data</Typography.Text>
         <TagFieldWithBindingSource
           project={project}
           bindings={templateBindings}
@@ -2896,6 +3015,9 @@ function SpecificPropertyFields({
         />
         <Form.Item label="Placeholder">
           <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Dropdown Max Height">
+          <InputNumber style={{ width: "100%" }} min={60} max={600} value={object.dropdownMaxHeight ?? 200} onChange={(v) => onPatch({ dropdownMaxHeight: Number(v ?? 200) } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Options (one per line: label|value)">
           <Input.TextArea
@@ -2920,6 +3042,45 @@ function SpecificPropertyFields({
             }}
           />
         </Form.Item>
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Appearance</Typography.Text>
+        <ColorField label="Background Color" value={object.backgroundColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ backgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Border Color" value={object.borderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Border Width">
+          <InputNumber style={{ width: "100%" }} min={0} max={6} value={object.borderWidth ?? 1} onChange={(v) => onPatch({ borderWidth: Number(v ?? 1) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Corner Radius">
+          <InputNumber style={{ width: "100%" }} min={0} max={20} value={object.cornerRadius ?? 4} onChange={(v) => onPatch({ cornerRadius: Number(v ?? 4) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="Text Color" value={object.textColor ?? "#cccccc"} fallback="#cccccc" onChange={(next) => onPatch({ textColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Placeholder Color" value={object.placeholderColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ placeholderColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Padding">
+          <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.padding ?? 8} onChange={(v) => onPatch({ padding: Number(v ?? 8) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="Arrow Color" value={object.arrowColor ?? "#cccccc"} fallback="#cccccc" onChange={(next) => onPatch({ arrowColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Font Family">
+          <Select
+            value={object.fontFamily ?? "Consolas"}
+            options={fontOptions.map((font) => ({ label: font, value: font }))}
+            onChange={(value) => onPatch({ fontFamily: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Font Size">
+          <InputNumber style={{ width: "100%" }} min={8} max={48} value={object.fontSize ?? 12} onChange={(v) => onPatch({ fontSize: Number(v ?? 12) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="Dropdown Background" value={object.dropdownBackgroundColor ?? "#252526"} fallback="#252526" onChange={(next) => onPatch({ dropdownBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Dropdown Border" value={object.dropdownBorderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ dropdownBorderColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Option Text Color" value={object.optionTextColor ?? "#cccccc"} fallback="#cccccc" onChange={(next) => onPatch({ optionTextColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Option Hover Color" value={object.optionHoverColor ?? "#2d2d2d"} fallback="#2d2d2d" onChange={(next) => onPatch({ optionHoverColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Option Selected Color" value={object.optionSelectedColor ?? "rgba(14, 99, 156, 0.3)"} fallback="rgba(14, 99, 156, 0.3)" onChange={(next) => onPatch({ optionSelectedColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Option Selected Text" value={object.optionSelectedTextColor ?? "#ffffff"} fallback="#ffffff" onChange={(next) => onPatch({ optionSelectedTextColor: next } as Partial<HmiObject>)} />
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Bad / Disabled</Typography.Text>
+        <ColorField label="Bad Text Color" value={object.badTextColor ?? "#f14c4c"} fallback="#f14c4c" onChange={(next) => onPatch({ badTextColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Bad Background Color" value={object.badBackgroundColor ?? "#2b1a1a"} fallback="#2b1a1a" onChange={(next) => onPatch({ badBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Bad Border Color" value={object.badBorderColor ?? "#a03030"} fallback="#a03030" onChange={(next) => onPatch({ badBorderColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Background Color" value={object.disabledBackgroundColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
       </>
     );
   }
@@ -2928,6 +3089,7 @@ function SpecificPropertyFields({
     const radioOptionsText = (object.options ?? []).map((item) => `${item.label}|${String(item.value)}`).join("\n");
     return (
       <>
+        <Typography.Text strong>Value / Data</Typography.Text>
         <TagFieldWithBindingSource
           project={project}
           bindings={templateBindings}
@@ -2953,6 +3115,13 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ orientation: value } as Partial<HmiObject>)}
           />
         </Form.Item>
+        <Form.Item label="Style Mode">
+          <Select
+            value={object.styleMode ?? "radio"}
+            options={[{ label: "radio", value: "radio" }, { label: "segmented", value: "segmented" }, { label: "card", value: "card" }]}
+            onChange={(value) => onPatch({ styleMode: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
         <Form.Item label="Options (one per line: label|value)">
           <Input.TextArea
             rows={5}
@@ -2976,6 +3145,48 @@ function SpecificPropertyFields({
             }}
           />
         </Form.Item>
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Appearance</Typography.Text>
+        <ColorField label="Background Color" value={object.backgroundColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ backgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Border Color" value={object.borderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Border Width">
+          <InputNumber style={{ width: "100%" }} min={0} max={6} value={object.borderWidth ?? 1} onChange={(v) => onPatch({ borderWidth: Number(v ?? 1) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Corner Radius">
+          <InputNumber style={{ width: "100%" }} min={0} max={20} value={object.cornerRadius ?? 4} onChange={(v) => onPatch({ cornerRadius: Number(v ?? 4) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Item Gap">
+          <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.itemGap ?? 4} onChange={(v) => onPatch({ itemGap: Number(v ?? 4) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Item Padding">
+          <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.itemPadding ?? 6} onChange={(v) => onPatch({ itemPadding: Number(v ?? 6) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Radio Size">
+          <InputNumber style={{ width: "100%" }} min={8} max={32} value={object.radioSize ?? 12} onChange={(v) => onPatch({ radioSize: Number(v ?? 12) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Radio Stroke Width">
+          <InputNumber style={{ width: "100%" }} min={0.5} max={6} step={0.5} value={object.radioStrokeWidth ?? 1.5} onChange={(v) => onPatch({ radioStrokeWidth: Number(v ?? 1.5) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <ColorField label="Selected Color" value={object.selectedColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ selectedColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Unselected Color" value={object.unselectedColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ unselectedColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Label Color" value={object.labelColor ?? "#cccccc"} fallback="#cccccc" onChange={(next) => onPatch({ labelColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Selected Label Color" value={object.selectedLabelColor ?? "#ffffff"} fallback="#ffffff" onChange={(next) => onPatch({ selectedLabelColor: next } as Partial<HmiObject>)} />
+        <Form.Item label="Font Family">
+          <Select
+            value={object.fontFamily ?? "Consolas"}
+            options={fontOptions.map((font) => ({ label: font, value: font }))}
+            onChange={(value) => onPatch({ fontFamily: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Font Size">
+          <InputNumber style={{ width: "100%" }} min={8} max={48} value={object.fontSize ?? 12} onChange={(v) => onPatch({ fontSize: Number(v ?? 12) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Bad / Disabled</Typography.Text>
+        <ColorField label="Bad Text Color" value={object.badTextColor ?? "#f14c4c"} fallback="#f14c4c" onChange={(next) => onPatch({ badTextColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Bad Background Color" value={object.badBackgroundColor ?? "#2b1a1a"} fallback="#2b1a1a" onChange={(next) => onPatch({ badBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Color" value={object.disabledColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
       </>
     );
   }

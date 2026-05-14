@@ -405,6 +405,23 @@ export type SliderObject = HmiObjectBase & {
   fillColor?: string;
   trackColor?: string;
   thumbColor?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  cornerRadius?: number;
+  trackThickness?: number;
+  thumbRadius?: number;
+  thumbBorderColor?: string;
+  textColor?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  decimals?: number;
+  valuePosition?: "top" | "bottom" | "left" | "right" | "center" | "hidden";
+  showMinMax?: boolean;
+  badColor?: string;
+  badTextColor?: string;
+  disabledColor?: string;
+  disabledTextColor?: string;
 };
 
 export type ProgressBarObject = HmiObjectBase & {
@@ -418,6 +435,26 @@ export type ProgressBarObject = HmiObjectBase & {
   fillColor?: string;
   trackColor?: string;
   alarmColor?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  cornerRadius?: number;
+  padding?: number;
+  textColor?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  decimals?: number;
+  showPercent?: boolean;
+  showUnit?: boolean;
+  fillDirection?: "left-to-right" | "right-to-left" | "bottom-to-top" | "top-to-bottom";
+  warningMin?: number;
+  warningMax?: number;
+  warningColor?: string;
+  badTextColor?: string;
+  badBackgroundColor?: string;
+  badBorderColor?: string;
+  disabledBackgroundColor?: string;
+  disabledTextColor?: string;
 };
 
 export type SelectObject = HmiObjectBase & {
@@ -426,6 +463,28 @@ export type SelectObject = HmiObjectBase & {
   writeTag?: string;
   options?: Array<{ label: string; value: string | number | boolean }>;
   placeholder?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  cornerRadius?: number;
+  textColor?: string;
+  placeholderColor?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  padding?: number;
+  arrowColor?: string;
+  dropdownBackgroundColor?: string;
+  dropdownBorderColor?: string;
+  optionTextColor?: string;
+  optionHoverColor?: string;
+  optionSelectedColor?: string;
+  optionSelectedTextColor?: string;
+  dropdownMaxHeight?: number;
+  badTextColor?: string;
+  badBackgroundColor?: string;
+  badBorderColor?: string;
+  disabledBackgroundColor?: string;
+  disabledTextColor?: string;
 };
 
 export type RadioGroupObject = HmiObjectBase & {
@@ -434,6 +493,25 @@ export type RadioGroupObject = HmiObjectBase & {
   writeTag?: string;
   options?: Array<{ label: string; value: string | number | boolean }>;
   orientation?: "horizontal" | "vertical";
+  backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  cornerRadius?: number;
+  itemGap?: number;
+  itemPadding?: number;
+  radioSize?: number;
+  radioStrokeWidth?: number;
+  selectedColor?: string;
+  unselectedColor?: string;
+  labelColor?: string;
+  selectedLabelColor?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  styleMode?: "radio" | "segmented" | "card";
+  badTextColor?: string;
+  badBackgroundColor?: string;
+  disabledColor?: string;
+  disabledTextColor?: string;
 };
 
 export type NumericInputObject = HmiObjectBase & {
