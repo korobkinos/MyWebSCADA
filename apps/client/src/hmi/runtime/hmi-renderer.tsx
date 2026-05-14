@@ -202,8 +202,6 @@ function NumericInputOverlayContent({
     }
   }, [commit, onCancel, adjust, step]);
 
-  const btnHeight = Math.max(14, height / 2);
-
   return (
     <div
       className="hmi-numeric-input-overlay"
@@ -238,39 +236,6 @@ function NumericInputOverlayContent({
           boxSizing: "border-box",
         }}
       />
-      <div
-        className="hmi-numeric-input-overlay__spinners"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          width: Math.max(20, btnHeight * 0.85),
-          height: "100%",
-          flexShrink: 0,
-        }}
-      >
-        <button
-          type="button"
-          className="hmi-numeric-input-overlay__spin-btn"
-          tabIndex={-1}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            adjust(step ?? 1);
-          }}
-        >
-          <span className="hmi-numeric-input-overlay__spin-arrow">▲</span>
-        </button>
-        <button
-          type="button"
-          className="hmi-numeric-input-overlay__spin-btn"
-          tabIndex={-1}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            adjust(-(step ?? 1));
-          }}
-        >
-          <span className="hmi-numeric-input-overlay__spin-arrow">▼</span>
-        </button>
-      </div>
     </div>
   );
 }

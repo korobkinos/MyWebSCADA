@@ -3020,14 +3020,20 @@ function SpecificPropertyFields({
         <Form.Item label="Placeholder">
           <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
-        <Form.Item label="Text Color">
+        <Divider style={{ margin: "8px 0" }} />
+        <Typography.Text type="secondary" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Style</Typography.Text>
+        <Form.Item label="Text Color" style={{ marginTop: 4 }}>
           <ColorPicker value={object.textColor ?? "#ffffff"} onChange={(c: any) => onPatch({ textColor: normalizePickerColor(c.toHexString?.() ?? c, "#ffffff") } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Font Size">
           <InputNumber style={{ width: "100%" }} min={8} max={48} value={object.fontSize ?? 12} onChange={(v) => onPatch({ fontSize: Number(v ?? 12) } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Font Family">
-          <Input value={object.fontFamily ?? "Consolas"} onChange={(e) => onPatch({ fontFamily: e.target.value } as Partial<HmiObject>)} />
+          <Select
+            value={object.fontFamily ?? "Consolas"}
+            options={fontOptions.map((font) => ({ label: font, value: font }))}
+            onChange={(value) => onPatch({ fontFamily: value } as Partial<HmiObject>)}
+          />
         </Form.Item>
         <Form.Item label="Text Align">
           <Select

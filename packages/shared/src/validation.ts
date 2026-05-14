@@ -572,8 +572,19 @@ const numericInputObjectSchema = hmiBaseSchema.extend({
   max: z.number().optional(),
   step: z.number().optional(),
   decimals: z.number().optional(),
+  formatMode: z.enum(["decimals", "pattern"]).optional(),
+  formatPattern: z.string().optional(),
   unit: z.string().optional(),
+  showUnit: z.boolean().optional(),
   placeholder: z.string().optional(),
+  textColor: z.string().optional(),
+  fontSize: z.number().optional(),
+  fontFamily: z.string().optional(),
+  backgroundColor: z.string().optional(),
+  borderColor: z.string().optional(),
+  borderWidth: z.number().optional(),
+  cornerRadius: z.number().optional(),
+  textAlign: z.enum(["left", "center", "right"]).optional(),
 });
 
 export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>

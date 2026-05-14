@@ -12443,7 +12443,11 @@
           "max": 100,
           "step": 1,
           "decimals": 0,
-          "placeholder": "0"
+          "placeholder": "0",
+          "textColor": "#1e0404",
+          "fontSize": 25,
+          "backgroundColor": "#eddbdb",
+          "textAlign": "center"
         }
       ]
     },
