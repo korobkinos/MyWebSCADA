@@ -98,6 +98,33 @@ function ColorField({
   );
 }
 
+function optionsToMultilineText(options: Array<{ label: string; value: string | number | boolean }> | undefined): string {
+  return (options ?? []).map((item) => `${item.label}|${String(item.value)}`).join("\n");
+}
+
+function parseOptionsMultiline(
+  rawText: string,
+): Array<{ label: string; value: string | number | boolean }> {
+  const lines = rawText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.map((line, index) => {
+    const [labelToken, valueToken] = line.split("|");
+    const label = (labelToken ?? `Option ${index + 1}`).trim();
+    const rawValue = (valueToken ?? label).trim();
+    let parsed: string | number | boolean = rawValue;
+    const asNumber = Number(rawValue);
+    if (rawValue !== "" && Number.isFinite(asNumber) && !rawValue.startsWith("0x")) {
+      parsed = asNumber;
+    }
+    if (rawValue.toLowerCase() === "true") {
+      parsed = true;
+    }
+    if (rawValue.toLowerCase() === "false") {
+      parsed = false;
+    }
+    return { label, value: parsed };
+  });
+}
+
 function extractBindingKey(tag: string | undefined): string | undefined {
   if (!tag || !tag.startsWith("$binding.")) {
     return undefined;
@@ -887,8 +914,21 @@ function SpecificPropertyFields({
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
   const [stateImagePreviewValue, setStateImagePreviewValue] = useState<string>("0");
+  const [selectOptionsDraft, setSelectOptionsDraft] = useState<string>("");
+  const [radioOptionsDraft, setRadioOptionsDraft] = useState<string>("");
   const assetOptions = assets.map((asset) => ({ label: getAssetDisplayPath(asset), value: asset.id }));
   const templateBindings = elementBindings ?? [];
+
+  useEffect(() => {
+    if (object.type === "select") {
+      setSelectOptionsDraft(optionsToMultilineText(object.options));
+      return;
+    }
+    if (object.type === "radio-group") {
+      setRadioOptionsDraft(optionsToMultilineText(object.options));
+      return;
+    }
+  }, [object.id, object.type]);
   if (object.type === "text") {
     return (
       <Form.Item label="Text">
@@ -2816,6 +2856,28 @@ function SpecificPropertyFields({
         <Form.Item label="Decimals">
           <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 1} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 1)) } as Partial<HmiObject>)} />
         </Form.Item>
+        <Space>
+          <span>Write On Release</span>
+          <Switch checked={object.writeOnRelease ?? false} onChange={(checked) => onPatch({ writeOnRelease: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Form.Item label="Drag Write Interval (ms)">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            max={1000}
+            value={object.dragWriteIntervalMs ?? 50}
+            onChange={(v) => onPatch({ dragWriteIntervalMs: Math.max(0, Number(v ?? 50)) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Release Sync Hold (ms)">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            max={10000}
+            value={object.releaseSyncHoldMs ?? 2500}
+            onChange={(v) => onPatch({ releaseSyncHoldMs: Math.max(0, Number(v ?? 2500)) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
         <Form.Item label="Orientation">
           <Select
             value={object.orientation ?? "horizontal"}
@@ -2848,12 +2910,25 @@ function SpecificPropertyFields({
           <span>Show Min/Max</span>
           <Switch checked={object.showMinMax ?? false} onChange={(checked) => onPatch({ showMinMax: checked } as Partial<HmiObject>)} />
         </Space>
+        <Form.Item label="Min/Max Font Size">
+          <InputNumber style={{ width: "100%" }} min={6} max={48} value={object.minMaxFontSize ?? 10} onChange={(v) => onPatch({ minMaxFontSize: Number(v ?? 10) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Min Label Offset">
+          <InputNumber style={{ width: "100%" }} min={0} max={40} value={object.minLabelOffset ?? 2} onChange={(v) => onPatch({ minLabelOffset: Number(v ?? 2) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Max Label Offset">
+          <InputNumber style={{ width: "100%" }} min={0} max={40} value={object.maxLabelOffset ?? 2} onChange={(v) => onPatch({ maxLabelOffset: Number(v ?? 2) } as Partial<HmiObject>)} />
+        </Form.Item>
         <Divider style={{ margin: "10px 0" }} />
         <Typography.Text strong>Appearance</Typography.Text>
         <ColorField label="Fill Color" value={object.fillColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ fillColor: next } as Partial<HmiObject>)} />
         <ColorField label="Track Color" value={object.trackColor ?? "#2d2d2d"} fallback="#2d2d2d" onChange={(next) => onPatch({ trackColor: next } as Partial<HmiObject>)} />
         <ColorField label="Thumb Color" value={object.thumbColor ?? "#d9d9d9"} fallback="#d9d9d9" onChange={(next) => onPatch({ thumbColor: next } as Partial<HmiObject>)} />
         <ColorField label="Background Color" value={object.backgroundColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ backgroundColor: next } as Partial<HmiObject>)} />
+        <Space style={{ marginBottom: 8 }}>
+          <span>Transparent Background</span>
+          <Switch checked={object.transparentBackground ?? false} onChange={(checked) => onPatch({ transparentBackground: checked } as Partial<HmiObject>)} />
+        </Space>
         <ColorField label="Border Color" value={object.borderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
         <Form.Item label="Border Width">
           <InputNumber style={{ width: "100%" }} min={0} max={6} value={object.borderWidth ?? 1} onChange={(v) => onPatch({ borderWidth: Number(v ?? 1) } as Partial<HmiObject>)} />
@@ -2991,7 +3066,6 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "select") {
-    const selectOptionsText = (object.options ?? []).map((item) => `${item.label}|${String(item.value)}`).join("\n");
     return (
       <>
         <Typography.Text strong>Value / Data</Typography.Text>
@@ -3027,24 +3101,13 @@ function SpecificPropertyFields({
         </Form.Item>
         <Form.Item label="Options (one per line: label|value)">
           <Input.TextArea
-            rows={5}
-            value={selectOptionsText}
+            rows={8}
+            value={selectOptionsDraft}
+            placeholder={"A|0\nB|1\nC|2\nD|3"}
             onChange={(event) => {
-              const lines = event.target.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-              const options = lines.map((line, index) => {
-                const [labelToken, valueToken] = line.split("|");
-                const label = (labelToken ?? `Option ${index + 1}`).trim();
-                const rawValue = (valueToken ?? label).trim();
-                let parsed: string | number | boolean = rawValue;
-                const asNumber = Number(rawValue);
-                if (rawValue !== "" && Number.isFinite(asNumber) && !rawValue.startsWith("0x")) {
-                  parsed = asNumber;
-                }
-                if (rawValue.toLowerCase() === "true") { parsed = true; }
-                if (rawValue.toLowerCase() === "false") { parsed = false; }
-                return { label, value: parsed };
-              });
-              onPatch({ options } as Partial<HmiObject>);
+              const rawText = event.target.value;
+              setSelectOptionsDraft(rawText);
+              onPatch({ options: parseOptionsMultiline(rawText) } as Partial<HmiObject>);
             }}
           />
         </Form.Item>
@@ -3095,7 +3158,6 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "radio-group") {
-    const radioOptionsText = (object.options ?? []).map((item) => `${item.label}|${String(item.value)}`).join("\n");
     return (
       <>
         <Typography.Text strong>Value / Data</Typography.Text>
@@ -3126,31 +3188,20 @@ function SpecificPropertyFields({
         </Form.Item>
         <Form.Item label="Style Mode">
           <Select
-            value={object.styleMode ?? "radio"}
-            options={[{ label: "radio", value: "radio" }, { label: "segmented", value: "segmented" }, { label: "card", value: "card" }]}
+            value={object.styleMode === "card" ? "card" : "segmented"}
+            options={[{ label: "segmented", value: "segmented" }, { label: "card", value: "card" }]}
             onChange={(value) => onPatch({ styleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
         <Form.Item label="Options (one per line: label|value)">
           <Input.TextArea
-            rows={5}
-            value={radioOptionsText}
+            rows={8}
+            value={radioOptionsDraft}
+            placeholder={"A|0\nB|1\nC|2\nD|3"}
             onChange={(event) => {
-              const lines = event.target.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-              const options = lines.map((line, index) => {
-                const [labelToken, valueToken] = line.split("|");
-                const label = (labelToken ?? `Option ${index + 1}`).trim();
-                const rawValue = (valueToken ?? label).trim();
-                let parsed: string | number | boolean = rawValue;
-                const asNumber = Number(rawValue);
-                if (rawValue !== "" && Number.isFinite(asNumber) && !rawValue.startsWith("0x")) {
-                  parsed = asNumber;
-                }
-                if (rawValue.toLowerCase() === "true") { parsed = true; }
-                if (rawValue.toLowerCase() === "false") { parsed = false; }
-                return { label, value: parsed };
-              });
-              onPatch({ options } as Partial<HmiObject>);
+              const rawText = event.target.value;
+              setRadioOptionsDraft(rawText);
+              onPatch({ options: parseOptionsMultiline(rawText) } as Partial<HmiObject>);
             }}
           />
         </Form.Item>
@@ -3164,23 +3215,15 @@ function SpecificPropertyFields({
         <Form.Item label="Corner Radius">
           <InputNumber style={{ width: "100%" }} min={0} max={20} value={object.cornerRadius ?? 4} onChange={(v) => onPatch({ cornerRadius: Number(v ?? 4) } as Partial<HmiObject>)} />
         </Form.Item>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Transparent Background</span>
+          <Switch checked={object.transparentBackground ?? true} onChange={(checked) => onPatch({ transparentBackground: checked } as Partial<HmiObject>)} />
+        </Space>
         <Form.Item label="Item Gap">
           <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.itemGap ?? 4} onChange={(v) => onPatch({ itemGap: Number(v ?? 4) } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Item Padding">
           <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.itemPadding ?? 6} onChange={(v) => onPatch({ itemPadding: Number(v ?? 6) } as Partial<HmiObject>)} />
-        </Form.Item>
-        <Form.Item label="Radio Size">
-          <InputNumber style={{ width: "100%" }} min={8} max={32} value={object.radioSize ?? 12} onChange={(v) => onPatch({ radioSize: Number(v ?? 12) } as Partial<HmiObject>)} />
-        </Form.Item>
-        <Form.Item label="Radio Stroke Width">
-          <InputNumber style={{ width: "100%" }} min={0.5} max={6} step={0.5} value={object.radioStrokeWidth ?? 1.5} onChange={(v) => onPatch({ radioStrokeWidth: Number(v ?? 1.5) } as Partial<HmiObject>)} />
-        </Form.Item>
-        <Form.Item label="Indicator Gap">
-          <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.indicatorGap ?? 6} onChange={(v) => onPatch({ indicatorGap: Number(v ?? 6) } as Partial<HmiObject>)} />
-        </Form.Item>
-        <Form.Item label="Item Inset">
-          <InputNumber style={{ width: "100%" }} min={0} max={24} value={object.itemInset ?? 4} onChange={(v) => onPatch({ itemInset: Number(v ?? 4) } as Partial<HmiObject>)} />
         </Form.Item>
         <ColorField label="Selected Color" value={object.selectedColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ selectedColor: next } as Partial<HmiObject>)} />
         <ColorField label="Unselected Color" value={object.unselectedColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ unselectedColor: next } as Partial<HmiObject>)} />

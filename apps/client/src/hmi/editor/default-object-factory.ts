@@ -312,10 +312,17 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         decimals: 1,
         valuePosition: "bottom",
         showMinMax: false,
+        minMaxFontSize: 10,
+        minLabelOffset: 2,
+        maxLabelOffset: 2,
+        writeOnRelease: false,
+        dragWriteIntervalMs: 50,
+        releaseSyncHoldMs: 2500,
         badColor: "#a03030",
         badTextColor: "#f14c4c",
         disabledColor: "#3d3d3d",
         disabledTextColor: "#8c8c8c",
+        transparentBackground: false,
       };
     case "progress-bar":
       return {
@@ -429,6 +436,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         badBackgroundColor: "#2b1a1a",
         disabledColor: "#3d3d3d",
         disabledTextColor: "#8c8c8c",
+        transparentBackground: true,
       };
     case "numeric-input":
       return {

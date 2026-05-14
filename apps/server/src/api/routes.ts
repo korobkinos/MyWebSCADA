@@ -1234,7 +1234,20 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const payload = opcUaDisconnectSchema.parse(request.body ?? {});
     try {
-      const status = await deps.driverManager.disconnectDriver(payload.driverId);
+      const project = deps.projectService.getProject();
+      const existing = project.drivers.find((driver) => driver.id === payload.driverId && driver.type === "opcua");
+      if (!existing || existing.type !== "opcua") {
+        return reply.code(404).send({ ok: false, message: `OPC UA driver ${payload.driverId} not found` });
+      }
+      const nextProject = withUpdatedDriver(project, { ...existing, enabled: false }, existing.id);
+      await persistProjectUpdate(deps, nextProject);
+      const status = deps.driverManager.getStatus(payload.driverId) ?? {
+        id: payload.driverId,
+        type: "opcua",
+        health: "disabled" as const,
+        updatedAt: Date.now(),
+        message: "Disconnected by user",
+      };
       return reply.send({ ok: true, status });
     } catch (error) {
       return reply.code(400).send({

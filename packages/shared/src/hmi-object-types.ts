@@ -418,10 +418,17 @@ export type SliderObject = HmiObjectBase & {
   decimals?: number;
   valuePosition?: "top" | "bottom" | "left" | "right" | "center" | "hidden";
   showMinMax?: boolean;
+  minMaxFontSize?: number;
+  minLabelOffset?: number;
+  maxLabelOffset?: number;
+  writeOnRelease?: boolean;
+  dragWriteIntervalMs?: number;
+  releaseSyncHoldMs?: number;
   badColor?: string;
   badTextColor?: string;
   disabledColor?: string;
   disabledTextColor?: string;
+  transparentBackground?: boolean;
 };
 
 export type ProgressBarObject = HmiObjectBase & {
@@ -517,6 +524,7 @@ export type RadioGroupObject = HmiObjectBase & {
   badBackgroundColor?: string;
   disabledColor?: string;
   disabledTextColor?: string;
+  transparentBackground?: boolean;
 };
 
 export type NumericInputObject = HmiObjectBase & {

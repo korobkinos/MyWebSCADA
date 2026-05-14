@@ -121,7 +121,7 @@
       "id": "sim_1",
       "type": "simulated",
       "enabled": true,
-      "updateIntervalMs": 200,
+      "updateIntervalMs": 1000,
       "defaultMin": 0,
       "defaultMax": 10,
       "defaultStep": 1
@@ -129,7 +129,7 @@
     {
       "id": "opcua_f6g773",
       "type": "opcua",
-      "enabled": true,
+      "enabled": false,
       "name": "OPC UA Driver",
       "endpointUrl": "opc.tcp://192.168.56.11:4840",
       "securityPolicy": "None",
@@ -9802,8 +9802,8 @@
         {
           "id": "group_wl9zp1",
           "type": "group",
-          "x": 868.089664732138,
-          "y": 457.08970405912123,
+          "x": 971.089664732138,
+          "y": 368.08970405912123,
           "width": 304.0813928810428,
           "height": 122.73830767198461,
           "rotation": 0,
@@ -9963,8 +9963,8 @@
         {
           "id": "val_27zk4t",
           "type": "value-display",
-          "x": 1195.7889930212377,
-          "y": 647.2154963680388,
+          "x": 1449.7889930212377,
+          "y": 738.2154963680388,
           "width": 180,
           "height": 40,
           "minWidth": 80,
@@ -10047,8 +10047,8 @@
         {
           "id": "value-display_ddvf3n",
           "type": "value-display",
-          "x": 884.2405201634223,
-          "y": 708.9588377723973,
+          "x": 1229.2405201634224,
+          "y": 729.9588377723973,
           "width": 180,
           "height": 40,
           "minWidth": 80,
@@ -10119,10 +10119,11 @@
         {
           "id": "sel_88zyo1",
           "type": "select",
-          "x": 1408.8927087911136,
-          "y": 175.06053268765135,
-          "width": 180,
-          "height": 32,
+          "x": 899.2694221379187,
+          "y": 536.4372460344568,
+          "width": 315.61680484995225,
+          "height": 56.1096541955471,
+          "rotation": 0,
           "minWidth": 80,
           "minHeight": 24,
           "options": [
@@ -10135,29 +10136,50 @@
               "value": 2
             }
           ],
-          "placeholder": "Select..."
+          "placeholder": "Горелка"
         },
         {
           "id": "rgrp_3gd6at",
           "type": "radio-group",
-          "x": 1195.677240060533,
-          "y": 500.0253736128468,
-          "width": 193.5101994165978,
-          "height": 67.24689092973489,
+          "x": 119.17836593155917,
+          "y": 749.1768295534177,
+          "width": 100,
+          "height": 174.9439790485929,
           "rotation": 0,
           "minWidth": 100,
           "minHeight": 36,
+          "tag": "Counter2",
+          "writeTag": "Counter2",
           "options": [
             {
               "label": "A",
-              "value": "A"
+              "value": 0
             },
             {
               "label": "B",
-              "value": "B"
+              "value": 1
+            },
+            {
+              "label": "C",
+              "value": 2
+            },
+            {
+              "label": "D",
+              "value": 3
             }
           ],
-          "orientation": "vertical"
+          "orientation": "vertical",
+          "borderWidth": 3,
+          "cornerRadius": 4,
+          "itemGap": 2,
+          "itemPadding": 4,
+          "radioSize": 13,
+          "radioStrokeWidth": 0.5,
+          "indicatorGap": 12,
+          "itemInset": 4,
+          "fontSize": 12,
+          "styleMode": "card",
+          "transparentBackground": false
         },
         {
           "id": "nmin_8x7e1y",
@@ -10217,6 +10239,35 @@
           "dialogTitle": "Давление газа (кПа)",
           "dialogBackgroundColor": "#0c0c23",
           "dialogTextColor": "#1f2a9f"
+        },
+        {
+          "id": "sldr_epccdm",
+          "type": "slider",
+          "x": 1364.2694387159247,
+          "y": 172.26943871592303,
+          "width": 338.5530350061761,
+          "height": 67.71060700123522,
+          "rotation": 0,
+          "minWidth": 100,
+          "minHeight": 32,
+          "tag": "Counter2",
+          "writeTag": "Counter2",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "orientation": "horizontal",
+          "showValue": false,
+          "fillColor": "#0e639c",
+          "trackColor": "#2d2d2d",
+          "thumbColor": "#cccccc",
+          "borderColor": "#994343",
+          "borderWidth": 0,
+          "cornerRadius": 5,
+          "trackThickness": 24,
+          "thumbRadius": 15,
+          "decimals": 0,
+          "showMinMax": true,
+          "transparentBackground": true
         }
       ]
     },

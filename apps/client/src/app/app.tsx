@@ -283,7 +283,7 @@ export function App() {
         icon: <EditOutlined />,
         onClick: () => {
           if (!authUser) {
-            navigate("/login");
+            navigate("/login", { state: { from: "/editor" } });
             return;
           }
           if (!hasPermission("editor.view")) {

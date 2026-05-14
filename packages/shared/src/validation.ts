@@ -520,6 +520,30 @@ const sliderObjectSchema = hmiBaseSchema.extend({
   fillColor: z.string().optional(),
   trackColor: z.string().optional(),
   thumbColor: z.string().optional(),
+  backgroundColor: z.string().optional(),
+  borderColor: z.string().optional(),
+  borderWidth: z.number().optional(),
+  cornerRadius: z.number().optional(),
+  trackThickness: z.number().optional(),
+  thumbRadius: z.number().optional(),
+  thumbBorderColor: z.string().optional(),
+  textColor: z.string().optional(),
+  fontFamily: z.string().optional(),
+  fontSize: z.number().optional(),
+  decimals: z.number().optional(),
+  valuePosition: z.enum(["top", "bottom", "left", "right", "center", "hidden"]).optional(),
+  showMinMax: z.boolean().optional(),
+  minMaxFontSize: z.number().optional(),
+  minLabelOffset: z.number().optional(),
+  maxLabelOffset: z.number().optional(),
+  writeOnRelease: z.boolean().optional(),
+  dragWriteIntervalMs: z.number().optional(),
+  releaseSyncHoldMs: z.number().optional(),
+  badColor: z.string().optional(),
+  badTextColor: z.string().optional(),
+  disabledColor: z.string().optional(),
+  disabledTextColor: z.string().optional(),
+  transparentBackground: z.boolean().optional(),
 });
 
 const progressBarObjectSchema = hmiBaseSchema.extend({
@@ -609,6 +633,7 @@ const radioGroupObjectSchema = hmiBaseSchema.extend({
   badBackgroundColor: z.string().optional(),
   disabledColor: z.string().optional(),
   disabledTextColor: z.string().optional(),
+  transparentBackground: z.boolean().optional(),
 });
 
 const numericInputObjectSchema = hmiBaseSchema.extend({

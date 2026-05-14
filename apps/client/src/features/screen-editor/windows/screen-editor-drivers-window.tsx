@@ -506,6 +506,8 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
       if (response.status) {
         setStatusOverride(response.status);
       }
+      setOpcUaDraft((prev) => (prev ? { ...prev, enabled: false } : prev));
+      await loadProject();
       await refreshStatus(selectedOpcUaDriver.id, false);
       void message.success("OPC UA disconnected");
     } catch (error) {

@@ -1354,7 +1354,6 @@ function ObjectNode({
     const sliderMin = resolvedObject.min ?? 0;
     const sliderMax = resolvedObject.max ?? 100;
     const sliderValue = Number.isFinite(rawSliderValue) ? Math.min(sliderMax, Math.max(sliderMin, rawSliderValue)) : sliderMin;
-    const sliderRatio = sliderMax > sliderMin ? (sliderValue - sliderMin) / (sliderMax - sliderMin) : 0;
     const isSliderVertical = resolvedObject.orientation === "vertical";
     const decimals = Math.max(0, Math.min(10, resolvedObject.decimals ?? 1));
     const sliderTrackColor = resolvedObject.trackColor ?? HMI_CONTROL_COLORS.track;
@@ -1365,6 +1364,7 @@ function ObjectNode({
     const sliderDisabledColor = resolvedObject.disabledColor ?? HMI_CONTROL_COLORS.disabled;
     const sliderDisabledTextColor = resolvedObject.disabledTextColor ?? "#8c8c8c";
     const sliderBackgroundColor = resolvedObject.backgroundColor ?? HMI_CONTROL_COLORS.fieldBg;
+    const sliderTransparentBackground = resolvedObject.transparentBackground ?? false;
     const sliderBorderColor = resolvedObject.borderColor ?? HMI_CONTROL_COLORS.border;
     const sliderBorderWidth = Math.max(0, resolvedObject.borderWidth ?? 1);
     const sliderCornerRadius = Math.max(0, resolvedObject.cornerRadius ?? 4);
@@ -1376,8 +1376,19 @@ function ObjectNode({
     const sliderFontSize = Math.max(8, resolvedObject.fontSize ?? Math.max(9, resolvedObject.height * 0.3));
     const sliderShowValue = resolvedObject.showValue ?? true;
     const sliderShowMinMax = resolvedObject.showMinMax ?? false;
+    const sliderMinMaxFontSize = Math.max(6, resolvedObject.minMaxFontSize ?? Math.max(8, sliderFontSize - 2));
+    const sliderMinLabelOffset = Math.max(0, resolvedObject.minLabelOffset ?? 2);
+    const sliderMaxLabelOffset = Math.max(0, resolvedObject.maxLabelOffset ?? 2);
+    const sliderWriteOnRelease = resolvedObject.writeOnRelease ?? false;
+    const sliderDragWriteIntervalMs = Math.max(0, Math.min(1000, resolvedObject.dragWriteIntervalMs ?? 50));
+    const sliderReleaseSyncHoldMs = Math.max(0, Math.min(10000, resolvedObject.releaseSyncHoldMs ?? 2500));
     const sliderValuePosition = resolvedObject.valuePosition ?? "bottom";
     const sliderDragRef = useRef(false);
+    const [sliderDragValue, setSliderDragValue] = useState<number | null>(null);
+    const sliderReleaseAtRef = useRef<number | null>(null);
+    const sliderReleaseSourceValueRef = useRef<number | null>(null);
+    const lastWrittenValueRef = useRef<number | null>(null);
+    const lastWriteAtRef = useRef(0);
     const renderTrackColor = runtimeDisabled ? sliderDisabledColor : sliderTrackColor;
     const renderFillColor = runtimeDisabled
       ? sliderDisabledColor
@@ -1388,23 +1399,42 @@ function ObjectNode({
     const renderTextColor = runtimeDisabled
       ? sliderDisabledTextColor
       : (sliderBad ? sliderBadTextColor : sliderTextColor);
-    const renderBackgroundColor = runtimeDisabled
-      ? sliderDisabledColor
-      : sliderBackgroundColor;
+    const renderBackgroundColor = sliderTransparentBackground
+      ? "transparent"
+      : (runtimeDisabled ? sliderDisabledColor : sliderBackgroundColor);
     const renderBorderColor = sliderBad ? sliderBadColor : sliderBorderColor;
 
     const getSliderFraction = useCallback((pointerX: number, pointerY: number): number => {
       if (isSliderVertical) {
-        return 1 - Math.max(0, Math.min(1, pointerY / resolvedObject.height));
+        const start = sliderThumbRadius;
+        const end = Math.max(start + 1, resolvedObject.height - sliderThumbRadius);
+        const clampedY = Math.max(start, Math.min(end, pointerY));
+        return 1 - ((clampedY - start) / Math.max(1, end - start));
       }
-      return Math.max(0, Math.min(1, pointerX / resolvedObject.width));
-    }, [isSliderVertical, resolvedObject.height, resolvedObject.width]);
+      const start = sliderThumbRadius;
+      const end = Math.max(start + 1, resolvedObject.width - sliderThumbRadius);
+      const clampedX = Math.max(start, Math.min(end, pointerX));
+      return (clampedX - start) / Math.max(1, end - start);
+    }, [isSliderVertical, resolvedObject.height, resolvedObject.width, sliderThumbRadius]);
 
-    const commitSliderValue = useCallback((fraction: number) => {
+    const commitSliderValue = useCallback((fraction: number, force = false, allowWrite = true) => {
       const val = sliderMin + fraction * (sliderMax - sliderMin);
       const step = resolvedObject.step ?? 1;
       const stepped = step > 0 ? Math.round(val / step) * step : val;
       const clamped = Math.min(sliderMax, Math.max(sliderMin, stepped));
+      setSliderDragValue(clamped);
+      if (!allowWrite) {
+        return;
+      }
+      if (lastWrittenValueRef.current !== null && Math.abs(lastWrittenValueRef.current - clamped) < 1e-9) {
+        return;
+      }
+      const now = Date.now();
+      if (!force && now - lastWriteAtRef.current < sliderDragWriteIntervalMs) {
+        return;
+      }
+      lastWrittenValueRef.current = clamped;
+      lastWriteAtRef.current = now;
       const writeTagField = runtimeMode
         ? (resolvedObject.writeTag?.trim() || resolvedObject.tag)
         : resolvedObject.tag;
@@ -1425,12 +1455,52 @@ function ObjectNode({
         }, resolvedObject.requiredActionRole),
         withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
       );
-    }, [resolvedObject, sliderMin, sliderMax, runtimeMode, onAction, renderContext]);
+    }, [resolvedObject, sliderMin, sliderMax, runtimeMode, onAction, renderContext, sliderDragWriteIntervalMs]);
+
+    useEffect(() => {
+      if (sliderDragRef.current || sliderDragValue === null) {
+        return;
+      }
+      const step = Math.max(0, resolvedObject.step ?? 1);
+      const tolerance = Math.max(1e-6, step > 0 ? step * 0.25 : 0.0005);
+      const sourceValue = sliderReleaseSourceValueRef.current;
+      if (Math.abs(sliderValue - sliderDragValue) <= tolerance) {
+        setSliderDragValue(null);
+        sliderReleaseAtRef.current = null;
+        sliderReleaseSourceValueRef.current = null;
+        return;
+      }
+      if (sourceValue !== null && Math.abs(sliderValue - sourceValue) > tolerance) {
+        setSliderDragValue(null);
+        sliderReleaseAtRef.current = null;
+        sliderReleaseSourceValueRef.current = null;
+        return;
+      }
+      if (sliderReleaseSyncHoldMs <= 0) {
+        setSliderDragValue(null);
+        sliderReleaseAtRef.current = null;
+        sliderReleaseSourceValueRef.current = null;
+        return;
+      }
+      const now = Date.now();
+      const releasedAt = sliderReleaseAtRef.current ?? now;
+      const elapsed = now - releasedAt;
+      const remaining = Math.max(0, sliderReleaseSyncHoldMs - elapsed);
+      const timer = window.setTimeout(() => {
+        setSliderDragValue(null);
+        sliderReleaseAtRef.current = null;
+        sliderReleaseSourceValueRef.current = null;
+      }, remaining);
+      return () => window.clearTimeout(timer);
+    }, [resolvedObject.step, sliderDragValue, sliderValue, sliderReleaseSyncHoldMs]);
+
+    const sliderRenderValue = sliderDragValue !== null ? sliderDragValue : sliderValue;
+    const sliderRenderRatio = sliderMax > sliderMin ? (sliderRenderValue - sliderMin) / (sliderMax - sliderMin) : 0;
 
     const sliderValueText = sliderShowValue
       ? (sliderBad
         ? "BAD"
-        : formatNumericValue(sliderValue, {
+        : formatNumericValue(sliderRenderValue, {
             formatMode: "decimals",
             decimals,
             unit: resolvedObject.unit,
@@ -1479,8 +1549,8 @@ function ObjectNode({
           if (runtimeDisabled) {
             return;
           }
-          const node = evt.target;
-          const pointer = node.getRelativePointerPosition();
+          const groupNode = evt.currentTarget;
+          const pointer = groupNode.getRelativePointerPosition();
           if (pointer) {
             const fraction = getSliderFraction(pointer.x, pointer.y);
             commitSliderValue(fraction);
@@ -1491,23 +1561,41 @@ function ObjectNode({
             return;
           }
           sliderDragRef.current = true;
+          sliderReleaseAtRef.current = null;
+          sliderReleaseSourceValueRef.current = null;
+          const groupNode = evt.currentTarget;
+          const pointer = groupNode.getRelativePointerPosition();
+          if (pointer) {
+            const fraction = getSliderFraction(pointer.x, pointer.y);
+            commitSliderValue(fraction, true, !sliderWriteOnRelease);
+          }
         }}
         onMouseMove={(evt: KonvaEventObject<MouseEvent>) => {
           if (interactive || runtimeDisabled || !sliderDragRef.current) {
             return;
           }
-          const node = evt.target;
-          const pointer = node.getRelativePointerPosition();
+          const groupNode = evt.currentTarget;
+          const pointer = groupNode.getRelativePointerPosition();
           if (pointer) {
             const fraction = getSliderFraction(pointer.x, pointer.y);
-            commitSliderValue(fraction);
+            commitSliderValue(fraction, false, !sliderWriteOnRelease);
           }
         }}
-        onMouseUp={() => {
+        onMouseUp={(evt: KonvaEventObject<MouseEvent>) => {
+          const groupNode = evt.currentTarget;
+          const pointer = groupNode.getRelativePointerPosition();
+          if (pointer) {
+            const fraction = getSliderFraction(pointer.x, pointer.y);
+            commitSliderValue(fraction, true);
+          }
           sliderDragRef.current = false;
+          sliderReleaseAtRef.current = Date.now();
+          sliderReleaseSourceValueRef.current = sliderValue;
         }}
         onMouseLeave={() => {
           sliderDragRef.current = false;
+          sliderReleaseAtRef.current = Date.now();
+          sliderReleaseSourceValueRef.current = sliderValue;
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -1532,15 +1620,15 @@ function ObjectNode({
             />
             <Rect
               x={resolvedObject.width * 0.5 - sliderTrackThickness / 2}
-              y={sliderThumbRadius + resolvedObject.height * (1 - sliderRatio) - sliderThumbRadius * 2 * (1 - sliderRatio)}
+              y={sliderThumbRadius + resolvedObject.height * (1 - sliderRenderRatio) - sliderThumbRadius * 2 * (1 - sliderRenderRatio)}
               width={sliderTrackThickness}
-              height={Math.max(0, (resolvedObject.height - sliderThumbRadius * 2) * sliderRatio)}
+              height={Math.max(0, (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio)}
               fill={renderFillColor}
               cornerRadius={sliderTrackThickness / 2}
             />
             <Circle
               x={resolvedObject.width * 0.5}
-              y={resolvedObject.height - sliderThumbRadius - (resolvedObject.height - sliderThumbRadius * 2) * sliderRatio}
+              y={resolvedObject.height - sliderThumbRadius - (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio}
               radius={sliderThumbRadius}
               fill={renderThumbColor}
               stroke={sliderThumbBorderColor}
@@ -1560,13 +1648,13 @@ function ObjectNode({
             <Rect
               x={sliderThumbRadius}
               y={resolvedObject.height * 0.5 - sliderTrackThickness / 2}
-              width={Math.max(0, (resolvedObject.width - sliderThumbRadius * 2) * sliderRatio)}
+              width={Math.max(0, (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio)}
               height={sliderTrackThickness}
               fill={renderFillColor}
               cornerRadius={sliderTrackThickness / 2}
             />
             <Circle
-              x={sliderThumbRadius + (resolvedObject.width - sliderThumbRadius * 2) * sliderRatio}
+              x={sliderThumbRadius + (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio}
               y={resolvedObject.height * 0.5}
               radius={sliderThumbRadius}
               fill={renderThumbColor}
@@ -1579,22 +1667,22 @@ function ObjectNode({
           <>
             {renderBoxText(sliderMinText, {
               fontFamily: sliderFontFamily,
-              fontSize: Math.max(8, sliderFontSize - 2),
+              fontSize: sliderMinMaxFontSize,
               color: renderTextColor,
               horizontalAlign: isSliderVertical ? "center" : "left",
               verticalAlign: isSliderVertical ? "bottom" : "middle",
-              padding: 2,
+              padding: sliderMinLabelOffset,
             }, {
               width: resolvedObject.width,
               height: resolvedObject.height,
             })}
             {renderBoxText(sliderMaxText, {
               fontFamily: sliderFontFamily,
-              fontSize: Math.max(8, sliderFontSize - 2),
+              fontSize: sliderMinMaxFontSize,
               color: renderTextColor,
               horizontalAlign: isSliderVertical ? "center" : "right",
               verticalAlign: isSliderVertical ? "top" : "middle",
-              padding: 2,
+              padding: sliderMaxLabelOffset,
             }, {
               width: resolvedObject.width,
               height: resolvedObject.height,
@@ -1691,6 +1779,9 @@ function ObjectNode({
           }
           const groupNode = evt.currentTarget;
           const stage = groupNode.getStage();
+          if (!stage) {
+            return;
+          }
           const container = stage?.container();
           const canvasWrap = container?.closest(".canvas-wrap") as HTMLElement | null;
           if (!container || !canvasWrap) {
@@ -1698,11 +1789,11 @@ function ObjectNode({
           }
           const containerRect = container.getBoundingClientRect();
           const wrapRect = canvasWrap.getBoundingClientRect();
-          const absPos = groupNode.getAbsolutePosition();
+          const absPos = groupNode.getAbsolutePosition(stage);
           const scaleX = stage?.scaleX() ?? 1;
           const scaleY = stage?.scaleY() ?? 1;
-          const overlayX = (containerRect.left - wrapRect.left) + absPos.x * scaleX;
-          const overlayY = (containerRect.top - wrapRect.top) + (absPos.y + resolvedObject.height + selectDropdownOffsetY) * scaleY;
+          const overlayX = (containerRect.left - wrapRect.left) + canvasWrap.scrollLeft + absPos.x * scaleX;
+          const overlayY = (containerRect.top - wrapRect.top) + canvasWrap.scrollTop + (absPos.y + resolvedObject.height + selectDropdownOffsetY) * scaleY;
           if (overlayState?.objectId === resolvedObject.id) {
             onHideOverlay?.();
             return;
@@ -1840,17 +1931,20 @@ function ObjectNode({
     const radioValue = runtimeMode ? radioTag?.value?.value : undefined;
     const radioOptions = resolvedObject.options ?? [];
     const isRadioVertical = resolvedObject.orientation === "vertical";
-    const styleMode = resolvedObject.styleMode ?? "radio";
-    const radioSize = Math.max(8, resolvedObject.radioSize ?? Math.min(14, Math.max(10, resolvedObject.height * 0.28)));
-    const radioStrokeWidth = Math.max(0.5, resolvedObject.radioStrokeWidth ?? 1.5);
+    const styleMode = resolvedObject.styleMode === "card" ? "card" : "segmented";
     const itemGap = Math.max(0, resolvedObject.itemGap ?? 4);
     const itemPadding = Math.max(0, resolvedObject.itemPadding ?? 6);
-    const indicatorGap = Math.max(0, resolvedObject.indicatorGap ?? 6);
-    const itemInset = Math.max(0, resolvedObject.itemInset ?? 4);
-    const borderWidth = Math.max(0, resolvedObject.borderWidth ?? 1);
+    const hasExplicitContainerStyle =
+      resolvedObject.backgroundColor !== undefined
+      || resolvedObject.borderColor !== undefined
+      || resolvedObject.borderWidth !== undefined;
+    const transparentBackground = resolvedObject.transparentBackground ?? true;
+    const borderWidth = hasExplicitContainerStyle ? Math.max(0, resolvedObject.borderWidth ?? 1) : 0;
     const cornerRadius = Math.max(0, resolvedObject.cornerRadius ?? 4);
-    const backgroundColor = resolvedObject.backgroundColor ?? HMI_CONTROL_COLORS.fieldBg;
-    const borderColor = resolvedObject.borderColor ?? HMI_CONTROL_COLORS.border;
+    const backgroundColor = transparentBackground
+      ? "transparent"
+      : (hasExplicitContainerStyle ? (resolvedObject.backgroundColor ?? HMI_CONTROL_COLORS.fieldBg) : HMI_CONTROL_COLORS.fieldBg);
+    const borderColor = hasExplicitContainerStyle ? (resolvedObject.borderColor ?? HMI_CONTROL_COLORS.border) : "transparent";
     const selectedColor = resolvedObject.selectedColor ?? HMI_CONTROL_COLORS.accentDark;
     const unselectedColor = resolvedObject.unselectedColor ?? HMI_CONTROL_COLORS.track;
     const labelColor = resolvedObject.labelColor ?? HMI_CONTROL_COLORS.text;
@@ -1961,57 +2055,27 @@ function ObjectNode({
           const optY = rect.y;
           const optW = rect.width;
           const optH = rect.height;
-          const contentStartX = styleMode === "radio" ? itemInset : 0;
-          const cx = contentStartX + itemPadding + radioSize / 2;
-          const cy = Math.round(optH / 2);
-          const outerRadius = radioSize / 2;
-          const innerRadius = radioSize * 0.28;
-          const circleStroke = isSelected ? renderSelected : renderBorder;
           const fillColor = isSelected ? renderSelected : renderUnselected;
-          const textPadding = styleMode === "radio"
-            ? Math.max(itemPadding, Math.round(cx + outerRadius + indicatorGap))
-            : itemPadding;
+          const optionFontSize = Math.min(fontSize, Math.max(8, optH * 0.42));
           return (
             <Group key={idx} x={optX} y={optY}>
-              {styleMode === "segmented" || styleMode === "card" ? (
-                <Rect
-                  x={0}
-                  y={0}
-                  width={optW}
-                  height={optH}
-                  fill={styleMode === "segmented" ? fillColor : (isSelected ? renderSelected : backgroundColor)}
-                  stroke={styleMode === "card" ? renderBorder : "transparent"}
-                  strokeWidth={styleMode === "card" ? borderWidth : 0}
-                  cornerRadius={Math.max(0, cornerRadius - 1)}
-                />
-              ) : null}
-              {styleMode === "radio" ? (
-                <>
-                  <Circle
-                    x={cx}
-                    y={cy}
-                    radius={outerRadius}
-                    fill="transparent"
-                    stroke={circleStroke}
-                    strokeWidth={radioStrokeWidth}
-                  />
-                  {isSelected ? (
-                    <Circle
-                      x={cx}
-                      y={cy}
-                      radius={innerRadius}
-                      fill={renderSelected}
-                    />
-                  ) : null}
-                </>
-              ) : null}
+              <Rect
+                x={0}
+                y={0}
+                width={optW}
+                height={optH}
+                fill={styleMode === "segmented" ? fillColor : (isSelected ? renderSelected : backgroundColor)}
+                stroke={styleMode === "card" ? renderBorder : "transparent"}
+                strokeWidth={styleMode === "card" ? borderWidth : 0}
+                cornerRadius={Math.max(0, cornerRadius - 1)}
+              />
               {renderBoxText(opt.label, {
                 fontFamily,
-                fontSize: Math.min(fontSize, Math.max(8, optH * 0.42)),
+                fontSize: optionFontSize,
                 color: isSelected ? renderSelectedLabel : renderLabel,
-                horizontalAlign: styleMode === "radio" ? "left" : "center",
+                horizontalAlign: "center",
                 verticalAlign: "middle",
-                padding: textPadding,
+                padding: itemPadding,
               }, {
                 width: optW,
                 height: optH,
