@@ -4890,31 +4890,42 @@ body {
   background: #252526;
   border: 1px solid #3c3c3c;
   border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   max-height: 200px;
   overflow-y: auto;
 }
 
 .hmi-select-overlay__option {
-  padding: 4px 8px;
+  height: 26px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
   cursor: pointer;
-  color: #d9d9d9;
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .hmi-select-overlay__option:hover {
-  background: #2a2a2a;
+  background: #2a2d2e;
+  color: #ffffff;
 }
 
 .hmi-numeric-input-overlay {
-  background: #252526;
-  border: 1px solid #3c3c3c;
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  padding: 4px;
+  position: absolute;
+  background: #1e1e1e;
+  border: 1px solid #007acc;
+  color: #ffffff;
+  font-size: 12px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  outline: none;
+  border-radius: 2px;
+}
+
+.hmi-numeric-input-overlay:focus {
+  border-color: #007acc;
 }
 
 

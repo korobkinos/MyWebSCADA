@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { InputNumber, message } from "antd";
+import { message } from "antd";
 import {
   clampAccessRoleLevel,
   combineTagPrefix,
@@ -33,6 +33,64 @@ import {
 import { applyElementStateRules } from "./element-state-rules";
 import { getObjectIndexedConfigForField, resolveObjectTagField } from "../tags/indexed-address";
 import { sortObjectsByZIndex } from "../editor/z-order";
+
+const HMI_CONTROL_COLORS = {
+  text: "#cccccc",
+  textStrong: "#ffffff",
+  border: "#3c3c3c",
+  borderHover: "#5a5a5a",
+  accent: "#007acc",
+  accentDark: "#0e639c",
+  track: "#2d2d2d",
+  thumb: "#e0e0e0",
+  disabled: "#6f6f6f",
+  bad: "#f14c4c",
+  fieldBg: "#1e1e1e",
+  fieldDisabledBg: "#3d3d3d",
+  overlayBg: "#252526",
+} as const;
+
+type FormatNumericOptions = {
+  formatMode?: "decimals" | "pattern";
+  decimals?: number;
+  formatPattern?: string;
+  unit?: string;
+  showUnit?: boolean;
+};
+
+function formatNumericValue(value: number, opts: FormatNumericOptions): string {
+  const formatMode = opts.formatMode ?? "decimals";
+  const decimals = opts.decimals ?? 2;
+  const pattern = opts.formatPattern;
+  const unit = opts.unit ?? "";
+  const showUnit = opts.showUnit ?? false;
+
+  let formatted: string;
+  if (formatMode === "pattern" && pattern) {
+    const dotIndex = pattern.indexOf(".");
+    if (dotIndex >= 0) {
+      const decimalPart = pattern.slice(dotIndex + 1);
+      const hasZeros = decimalPart.includes("0");
+      if (hasZeros) {
+        formatted = value.toFixed(decimalPart.length);
+      } else {
+        formatted = String(Math.round(value * Math.pow(10, decimalPart.length)) / Math.pow(10, decimalPart.length));
+        if (!formatted.includes(".")) {
+          formatted += ".";
+        }
+      }
+    } else {
+      formatted = String(Math.round(value));
+    }
+  } else {
+    formatted = value.toFixed(Math.max(0, Math.min(10, decimals)));
+  }
+
+  if (showUnit && unit) {
+    return `${formatted} ${unit}`;
+  }
+  return formatted;
+}
 
 type TagMap = Record<string, TagValue>;
 type ResolvedTagValue = {
@@ -1008,9 +1066,12 @@ function ObjectNode({
       || (resolvedObject.tag?.trim() && !checkboxTag?.value)
     );
     const isChecked = runtimeMode && !checkboxBad ? Boolean(checkboxTag?.value?.value) : false;
-    const fillColor = isChecked ? (resolvedObject.checkedColor ?? "#0e639c") : (resolvedObject.uncheckedColor ?? "#3c3c3c");
+    const fillColor = isChecked ? (resolvedObject.checkedColor ?? HMI_CONTROL_COLORS.accentDark) : (resolvedObject.uncheckedColor ?? HMI_CONTROL_COLORS.track);
     const displayText = checkboxBad ? "BAD" : (isChecked ? (resolvedObject.checkedText ?? "On") : (resolvedObject.uncheckedText ?? "Off"));
-    const checkBoxSize = Math.min(18, resolvedObject.height * 0.55);
+    const checkBoxSize = Math.min(16, Math.max(12, resolvedObject.height * 0.55));
+    const checkY = (resolvedObject.height - checkBoxSize) / 2;
+    const checkX = 2;
+    const labelPadding = checkX + checkBoxSize + 6;
     return (
       <Group
         {...commonGroupProps}
@@ -1055,34 +1116,36 @@ function ObjectNode({
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect
-          width={resolvedObject.width}
-          height={resolvedObject.height}
-          fill={runtimeDisabled ? "#3d3d3d" : "#141414"}
-          stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
-          cornerRadius={4}
-          opacity={runtimeDisabled ? 0.7 : 1}
-        />
-        <Rect
-          x={6}
-          y={(resolvedObject.height - checkBoxSize) / 2}
+          x={checkX}
+          y={checkY}
           width={checkBoxSize}
           height={checkBoxSize}
-          fill={runtimeDisabled ? "#4a4a4a" : fillColor}
-          stroke={isChecked ? "#ffffff" : "#595959"}
-          strokeWidth={1}
+          fill={isChecked ? (runtimeDisabled ? HMI_CONTROL_COLORS.disabled : fillColor) : HMI_CONTROL_COLORS.track}
+          stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : isChecked ? fillColor : HMI_CONTROL_COLORS.border}
+          strokeWidth={1.5}
           cornerRadius={3}
         />
         {isChecked ? (
           <>
             <Line
-              points={[8, (resolvedObject.height) / 2, 6 + checkBoxSize * 0.4, (resolvedObject.height) / 2 + checkBoxSize * 0.4]}
-              stroke="#ffffff"
+              points={[
+                checkX + checkBoxSize * 0.22,
+                checkY + checkBoxSize * 0.55,
+                checkX + checkBoxSize * 0.45,
+                checkY + checkBoxSize * 0.78,
+              ]}
+              stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : HMI_CONTROL_COLORS.textStrong}
               strokeWidth={2}
               lineCap="round"
             />
             <Line
-              points={[6 + checkBoxSize * 0.4, (resolvedObject.height) / 2 + checkBoxSize * 0.4, 6 + checkBoxSize, (resolvedObject.height) / 2 - checkBoxSize * 0.1]}
-              stroke="#ffffff"
+              points={[
+                checkX + checkBoxSize * 0.45,
+                checkY + checkBoxSize * 0.78,
+                checkX + checkBoxSize * 0.82,
+                checkY + checkBoxSize * 0.22,
+              ]}
+              stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : HMI_CONTROL_COLORS.textStrong}
               strokeWidth={2}
               lineCap="round"
             />
@@ -1090,11 +1153,11 @@ function ObjectNode({
         ) : null}
         {renderBoxText(resolvedObject.label ?? displayText, {
           fontFamily: "Arial",
-          fontSize: 14,
-          color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+          fontSize: Math.max(11, resolvedObject.height * 0.42),
+          color: runtimeDisabled ? "#8c8c8c" : HMI_CONTROL_COLORS.text,
           horizontalAlign: "left",
           verticalAlign: "middle",
-          padding: 6 + checkBoxSize + 8,
+          padding: labelPadding,
         }, {
           width: resolvedObject.width,
           height: resolvedObject.height,
@@ -1117,10 +1180,11 @@ function ObjectNode({
     const clampedValue = Number.isFinite(rawValue) ? Math.min(maxVal, Math.max(minVal, rawValue)) : minVal;
     const ratio = maxVal > minVal ? (clampedValue - minVal) / (maxVal - minVal) : 0;
     const isVertical = resolvedObject.orientation === "vertical";
-    const fillColor = progressBad ? (resolvedObject.alarmColor ?? "#d9363e") : (resolvedObject.fillColor ?? "#0e639c");
-    const trackColor = resolvedObject.trackColor ?? "#1e1e1e";
+    const fillColor = progressBad ? (resolvedObject.alarmColor ?? "#d9363e") : (resolvedObject.fillColor ?? HMI_CONTROL_COLORS.accentDark);
+    const trackColor = resolvedObject.trackColor ?? HMI_CONTROL_COLORS.track;
     const showValue = resolvedObject.showValue ?? true;
     const valueText = showValue ? `${progressBad ? "BAD" : `${Math.round(clampedValue * 100) / 100}${resolvedObject.unit ?? ""}`}` : "";
+    const padding = 2;
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -1132,19 +1196,19 @@ function ObjectNode({
         />
         {isVertical ? (
           <Rect
-            x={2}
-            y={2 + resolvedObject.height * (1 - ratio)}
-            width={resolvedObject.width - 4}
-            height={Math.max(0, resolvedObject.height * ratio - 4)}
+            x={padding}
+            y={padding + resolvedObject.height * (1 - ratio)}
+            width={resolvedObject.width - padding * 2}
+            height={Math.max(0, resolvedObject.height * ratio - padding * 2)}
             fill={fillColor}
             cornerRadius={3}
           />
         ) : (
           <Rect
-            x={2}
-            y={2}
-            width={Math.max(0, (resolvedObject.width - 4) * ratio)}
-            height={resolvedObject.height - 4}
+            x={padding}
+            y={padding}
+            width={Math.max(0, (resolvedObject.width - padding * 2) * ratio)}
+            height={resolvedObject.height - padding * 2}
             fill={fillColor}
             cornerRadius={3}
           />
@@ -1153,7 +1217,7 @@ function ObjectNode({
           renderBoxText(valueText, {
             fontFamily: "Arial",
             fontSize: Math.max(10, resolvedObject.height * 0.35),
-            color: "#ffffff",
+            color: HMI_CONTROL_COLORS.textStrong,
             horizontalAlign: "center",
             verticalAlign: "middle",
           }, {
@@ -1179,11 +1243,13 @@ function ObjectNode({
     const sliderValue = Number.isFinite(rawSliderValue) ? Math.min(sliderMax, Math.max(sliderMin, rawSliderValue)) : sliderMin;
     const sliderRatio = sliderMax > sliderMin ? (sliderValue - sliderMin) / (sliderMax - sliderMin) : 0;
     const isSliderVertical = resolvedObject.orientation === "vertical";
-    const sliderTrackColor = resolvedObject.trackColor ?? "#1e1e1e";
-    const sliderFillColor = resolvedObject.fillColor ?? "#0e639c";
-    const sliderThumbColor = resolvedObject.thumbColor ?? "#d9d9d9";
+    const sliderTrackColor = resolvedObject.trackColor ?? HMI_CONTROL_COLORS.track;
+    const sliderFillColor = resolvedObject.fillColor ?? HMI_CONTROL_COLORS.accentDark;
+    const sliderThumbColor = resolvedObject.thumbColor ?? HMI_CONTROL_COLORS.thumb;
     const sliderShowValue = resolvedObject.showValue ?? true;
     const sliderDragRef = useRef(false);
+    const trackThickness = 4;
+    const thumbRadius = Math.min(7, resolvedObject.width * 0.04, resolvedObject.height * 0.16);
 
     const getSliderFraction = useCallback((pointerX: number, pointerY: number): number => {
       if (isSliderVertical) {
@@ -1270,54 +1336,54 @@ function ObjectNode({
         {isSliderVertical ? (
           <>
             <Rect
-              x={resolvedObject.width * 0.35}
-              y={0}
-              width={resolvedObject.width * 0.3}
-              height={resolvedObject.height}
+              x={resolvedObject.width * 0.5 - trackThickness / 2}
+              y={thumbRadius}
+              width={trackThickness}
+              height={Math.max(0, resolvedObject.height - thumbRadius * 2)}
               fill={sliderTrackColor}
-              cornerRadius={4}
+              cornerRadius={trackThickness / 2}
             />
             <Rect
-              x={resolvedObject.width * 0.35}
-              y={resolvedObject.height * (1 - sliderRatio)}
-              width={resolvedObject.width * 0.3}
-              height={resolvedObject.height * sliderRatio}
-              fill={runtimeDisabled ? "#4a4a4a" : sliderFillColor}
-              cornerRadius={4}
+              x={resolvedObject.width * 0.5 - trackThickness / 2}
+              y={thumbRadius + resolvedObject.height * (1 - sliderRatio) - thumbRadius * 2 * (1 - sliderRatio)}
+              width={trackThickness}
+              height={Math.max(0, (resolvedObject.height - thumbRadius * 2) * sliderRatio)}
+              fill={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : sliderFillColor}
+              cornerRadius={trackThickness / 2}
             />
             <Circle
               x={resolvedObject.width * 0.5}
-              y={resolvedObject.height * (1 - sliderRatio)}
-              radius={Math.min(8, resolvedObject.width * 0.18, resolvedObject.height * 0.1)}
-              fill={runtimeDisabled ? "#6f6f6f" : sliderThumbColor}
-              stroke="#595959"
+              y={resolvedObject.height - thumbRadius - (resolvedObject.height - thumbRadius * 2) * sliderRatio}
+              radius={thumbRadius}
+              fill={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : sliderThumbColor}
+              stroke={HMI_CONTROL_COLORS.border}
               strokeWidth={1}
             />
           </>
         ) : (
           <>
             <Rect
-              x={0}
-              y={resolvedObject.height * 0.35}
-              width={resolvedObject.width}
-              height={resolvedObject.height * 0.3}
+              x={thumbRadius}
+              y={resolvedObject.height * 0.5 - trackThickness / 2}
+              width={Math.max(0, resolvedObject.width - thumbRadius * 2)}
+              height={trackThickness}
               fill={sliderTrackColor}
-              cornerRadius={4}
+              cornerRadius={trackThickness / 2}
             />
             <Rect
-              x={0}
-              y={resolvedObject.height * 0.35}
-              width={resolvedObject.width * sliderRatio}
-              height={resolvedObject.height * 0.3}
-              fill={runtimeDisabled ? "#4a4a4a" : sliderFillColor}
-              cornerRadius={4}
+              x={thumbRadius}
+              y={resolvedObject.height * 0.5 - trackThickness / 2}
+              width={Math.max(0, (resolvedObject.width - thumbRadius * 2) * sliderRatio)}
+              height={trackThickness}
+              fill={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : sliderFillColor}
+              cornerRadius={trackThickness / 2}
             />
             <Circle
-              x={resolvedObject.width * sliderRatio}
+              x={thumbRadius + (resolvedObject.width - thumbRadius * 2) * sliderRatio}
               y={resolvedObject.height * 0.5}
-              radius={Math.min(8, resolvedObject.width * 0.05, resolvedObject.height * 0.18)}
-              fill={runtimeDisabled ? "#6f6f6f" : sliderThumbColor}
-              stroke="#595959"
+              radius={thumbRadius}
+              fill={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : sliderThumbColor}
+              stroke={HMI_CONTROL_COLORS.border}
               strokeWidth={1}
             />
           </>
@@ -1325,10 +1391,10 @@ function ObjectNode({
         {sliderValueText ? (
           renderBoxText(sliderValueText, {
             fontFamily: "Arial",
-            fontSize: Math.max(9, resolvedObject.height * 0.32),
-            color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+            fontSize: Math.max(9, resolvedObject.height * 0.3),
+            color: runtimeDisabled ? "#8c8c8c" : HMI_CONTROL_COLORS.text,
             horizontalAlign: "center",
-            verticalAlign: isSliderVertical ? "top" : "middle",
+            verticalAlign: isSliderVertical ? "top" : "bottom",
             padding: isSliderVertical ? 2 : 0,
           }, {
             width: resolvedObject.width,
@@ -1395,29 +1461,15 @@ function ObjectNode({
             objectId: resolvedObject.id,
             content: (
               <div className="hmi-select-overlay" style={{
-                background: "#252526",
-                border: "1px solid #3c3c3c",
-                borderRadius: 4,
-                minWidth: resolvedObject.width * scale,
-                maxHeight: 200,
-                overflowY: "auto",
+                minWidth: Math.max(resolvedObject.width * scale, 100),
               }}>
                 {options.map((opt, idx) => (
                   <div
                     key={idx}
                     className="hmi-select-overlay__option"
                     style={{
-                      padding: "4px 8px",
-                      cursor: "pointer",
-                      color: selectedOption?.value === opt.value ? "#69c0ff" : "#d9d9d9",
-                      background: selectedOption?.value === opt.value ? "#1a3a5c" : "transparent",
-                      fontSize: 13,
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.target as HTMLElement).style.background = "#2a2a2a";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.target as HTMLElement).style.background = selectedOption?.value === opt.value ? "#1a3a5c" : "transparent";
+                      color: selectedOption?.value === opt.value ? "#69c0ff" : HMI_CONTROL_COLORS.text,
+                      background: selectedOption?.value === opt.value ? "rgba(14, 99, 156, 0.3)" : "transparent",
                     }}
                     onClick={() => {
                       const writeTagField = runtimeMode
@@ -1454,15 +1506,16 @@ function ObjectNode({
         <Rect
           width={resolvedObject.width}
           height={resolvedObject.height}
-          fill={runtimeDisabled ? "#3d3d3d" : "#1f2a38"}
-          stroke={runtimeDisabled ? "#707070" : "#5b6b7c"}
+          fill={runtimeDisabled ? HMI_CONTROL_COLORS.fieldDisabledBg : HMI_CONTROL_COLORS.fieldBg}
+          stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : HMI_CONTROL_COLORS.border}
+          strokeWidth={1}
           cornerRadius={4}
           opacity={runtimeDisabled ? 0.65 : 1}
         />
         {renderBoxText(displayText, {
           fontFamily: "Arial",
-          fontSize: 14,
-          color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+          fontSize: Math.max(11, resolvedObject.height * 0.42),
+          color: runtimeDisabled ? "#8c8c8c" : HMI_CONTROL_COLORS.text,
           horizontalAlign: "left",
           verticalAlign: "middle",
           padding: 8,
@@ -1470,12 +1523,17 @@ function ObjectNode({
           width: resolvedObject.width,
           height: resolvedObject.height,
         })}
-        <Line
-          points={[resolvedObject.width - 18, resolvedObject.height * 0.4, resolvedObject.width - 10, resolvedObject.height * 0.6, resolvedObject.width - 2, resolvedObject.height * 0.4]}
-          stroke="#8c8c8c"
-          strokeWidth={1.5}
-          closed
-          fill="#8c8c8c"
+        <Text
+          text="▾"
+          x={resolvedObject.width - 22}
+          y={0}
+          width={20}
+          height={resolvedObject.height}
+          align="center"
+          verticalAlign="middle"
+          fill={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : HMI_CONTROL_COLORS.text}
+          fontSize={Math.max(10, resolvedObject.height * 0.5)}
+          fontFamily="Arial"
         />
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
@@ -1492,7 +1550,8 @@ function ObjectNode({
     const radioValue = runtimeMode ? radioTag?.value?.value : undefined;
     const radioOptions = resolvedObject.options ?? [];
     const isRadioVertical = resolvedObject.orientation === "vertical";
-    const radioSize = Math.min(14, resolvedObject.height * 0.28);
+    const radioSize = Math.min(14, Math.max(10, resolvedObject.height * 0.28));
+    const accent = HMI_CONTROL_COLORS.accentDark;
     return (
       <Group
         {...commonGroupProps}
@@ -1553,14 +1612,6 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
-          width={resolvedObject.width}
-          height={resolvedObject.height}
-          fill={runtimeDisabled ? "#3d3d3d" : "#141414"}
-          stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
-          cornerRadius={4}
-          opacity={runtimeDisabled ? 0.7 : 1}
-        />
         {radioOptions.map((opt, idx) => {
           const isSelected = runtimeMode && String(radioValue) === String(opt.value);
           let optX = 0;
@@ -1574,31 +1625,36 @@ function ObjectNode({
             optX = (resolvedObject.width / radioOptions.length) * idx;
             optW = resolvedObject.width / radioOptions.length;
           }
+          const cx = radioSize;
+          const cy = optH / 2;
+          const outerRadius = radioSize / 2;
+          const innerRadius = radioSize * 0.28;
+          const circleStroke = runtimeDisabled ? HMI_CONTROL_COLORS.disabled : isSelected ? accent : HMI_CONTROL_COLORS.border;
           return (
             <Group key={idx} x={optX} y={optY}>
               <Circle
-                x={14}
-                y={optH / 2}
-                radius={radioSize / 2}
-                fill={isSelected ? "#0e639c" : "transparent"}
-                stroke={isSelected ? "#0e639c" : "#595959"}
+                x={cx}
+                y={cy}
+                radius={outerRadius}
+                fill="transparent"
+                stroke={circleStroke}
                 strokeWidth={1.5}
               />
               {isSelected ? (
                 <Circle
-                  x={14}
-                  y={optH / 2}
-                  radius={radioSize / 4}
-                  fill="#ffffff"
+                  x={cx}
+                  y={cy}
+                  radius={innerRadius}
+                  fill={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : accent}
                 />
               ) : null}
               {renderBoxText(opt.label, {
                 fontFamily: "Arial",
                 fontSize: Math.max(10, optH * 0.38),
-                color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+                color: runtimeDisabled ? "#8c8c8c" : isSelected ? HMI_CONTROL_COLORS.textStrong : HMI_CONTROL_COLORS.text,
                 horizontalAlign: "left",
                 verticalAlign: "middle",
-                padding: 22,
+                padding: radioSize * 2.2,
               }, {
                 width: optW,
                 height: optH,
@@ -1622,8 +1678,14 @@ function ObjectNode({
     const numMin = resolvedObject.min ?? 0;
     const numMax = resolvedObject.max ?? 100;
     const numValue = Number.isFinite(rawNumValue) ? Math.min(numMax, Math.max(numMin, rawNumValue)) : numMin;
-    const decimals = resolvedObject.decimals ?? 0;
-    const displayNumText = numInputBad ? "BAD" : `${numValue.toFixed(decimals)}${resolvedObject.unit ?? ""}`;
+    const decimals = resolvedObject.decimals ?? 2;
+    const displayNumText = numInputBad ? "BAD" : formatNumericValue(numValue, {
+      formatMode: resolvedObject.formatMode ?? "decimals",
+      decimals,
+      formatPattern: resolvedObject.formatPattern,
+      unit: resolvedObject.unit,
+      showUnit: resolvedObject.showUnit,
+    });
     return (
       <Group
         {...commonGroupProps}
@@ -1648,13 +1710,12 @@ function ObjectNode({
           const absPos = node.getAbsolutePosition();
           const scale = stage?.scaleX() ?? 1;
           const overlayX = rect.left + absPos.x * scale;
-          const overlayY = rect.top + (absPos.y + resolvedObject.height) * scale;
+          const overlayY = rect.top + absPos.y * scale;
           if (overlayState?.objectId === resolvedObject.id) {
             return;
           }
           const numObjMax = resolvedObject.max ?? 100;
           const numObjMin = resolvedObject.min ?? 0;
-          const numObjStep = resolvedObject.step;
           const numObjWriteTag = resolvedObject.writeTag;
           const numObjTag = resolvedObject.tag;
           const numObjRequiredActionRole = resolvedObject.requiredActionRole;
@@ -1665,39 +1726,35 @@ function ObjectNode({
             y: overlayY,
             objectId: resolvedObject.id,
             content: (
-              <div className="hmi-numeric-input-overlay" style={{
-                background: "#252526",
-                border: "1px solid #3c3c3c",
-                borderRadius: 4,
-                padding: 4,
-              }}>
-                <InputNumber
-                  style={{ width: 120 }}
-                  autoFocus
-                  defaultValue={numValue}
-                  min={numObjMin}
-                  max={numObjMax}
-                  step={numObjStep}
-                  precision={decimals}
-                  onPressEnter={(e: any) => {
-                    const val = Number(e?.target?.value ?? e);
-                    commitNumericValue(val);
-                  }}
-                  onBlur={(e: any) => {
-                    const val = Number(e?.target?.value ?? e);
-                    commitNumericValue(val);
-                  }}
-                  onKeyDown={(e: any) => {
-                    if (e.key === "Escape") {
-                      onHideOverlay?.();
-                    }
-                  }}
-                />
-              </div>
+              <input
+                className="hmi-numeric-input-overlay"
+                type="number"
+                autoFocus
+                defaultValue={rawNumValue}
+                min={numObjMin}
+                max={numObjMax}
+                step={resolvedObject.step}
+                style={{
+                  width: resolvedObject.width * scale,
+                  height: resolvedObject.height * scale,
+                }}
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                  if (e.key === "Enter") {
+                    commitNumericValue(Number((e.target as HTMLInputElement).value));
+                  }
+                  if (e.key === "Escape") {
+                    onHideOverlay?.();
+                  }
+                }}
+                onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+                  commitNumericValue(Number((e.target as HTMLInputElement).value));
+                }}
+              />
             ),
           });
           function commitNumericValue(val: number) {
             if (!Number.isFinite(val)) {
+              onHideOverlay?.();
               return;
             }
             const clamped = Math.min(numObjMax, Math.max(numObjMin, val));
@@ -1728,15 +1785,16 @@ function ObjectNode({
         <Rect
           width={resolvedObject.width}
           height={resolvedObject.height}
-          fill={runtimeDisabled ? "#3d3d3d" : "#141414"}
-          stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
+          fill={runtimeDisabled ? HMI_CONTROL_COLORS.fieldDisabledBg : HMI_CONTROL_COLORS.fieldBg}
+          stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : HMI_CONTROL_COLORS.border}
+          strokeWidth={1}
           cornerRadius={4}
           opacity={runtimeDisabled ? 0.7 : 1}
         />
         {renderBoxText(displayNumText, {
           fontFamily: "Arial",
-          fontSize: 14,
-          color: runtimeDisabled ? "#8c8c8c" : "#d9d9d9",
+          fontSize: Math.max(11, resolvedObject.height * 0.42),
+          color: runtimeDisabled ? "#8c8c8c" : HMI_CONTROL_COLORS.text,
           horizontalAlign: "right",
           verticalAlign: "middle",
           padding: 8,

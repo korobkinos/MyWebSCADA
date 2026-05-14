@@ -279,7 +279,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         checkedText: "On",
         uncheckedText: "Off",
         checkedColor: "#0e639c",
-        uncheckedColor: "#3c3c3c",
+        uncheckedColor: "#2d2d2d",
       };
     case "slider":
       return {
@@ -296,6 +296,9 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         step: 1,
         orientation: "horizontal",
         showValue: true,
+        trackColor: "#2d2d2d",
+        fillColor: "#0e639c",
+        thumbColor: "#e0e0e0",
       };
     case "progress-bar":
       return {
@@ -311,7 +314,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         max: 100,
         showValue: true,
         fillColor: "#0e639c",
-        trackColor: "#1e1e1e",
+        trackColor: "#2d2d2d",
       };
     case "select":
       return {
@@ -358,7 +361,9 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         min: 0,
         max: 100,
         step: 1,
-        decimals: 0,
+        decimals: 2,
+        formatMode: "decimals",
+        showUnit: false,
         placeholder: "0",
       };
     default:

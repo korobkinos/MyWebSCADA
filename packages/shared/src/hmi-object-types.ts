@@ -444,7 +444,10 @@ export type NumericInputObject = HmiObjectBase & {
   max?: number;
   step?: number;
   decimals?: number;
+  formatMode?: "decimals" | "pattern";
+  formatPattern?: string;
   unit?: string;
+  showUnit?: boolean;
   placeholder?: string;
 };
 

@@ -2991,11 +2991,31 @@ function SpecificPropertyFields({
         <Form.Item label="Step">
           <InputNumber style={{ width: "100%" }} value={object.step ?? 1} onChange={(v) => onPatch({ step: Number(v ?? 1) } as Partial<HmiObject>)} />
         </Form.Item>
-        <Form.Item label="Decimals">
-          <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 0} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)} />
+        <Form.Item label="Format Mode">
+          <Select
+            value={object.formatMode ?? "decimals"}
+            onChange={(v) => onPatch({ formatMode: v } as Partial<HmiObject>)}
+            options={[
+              { value: "decimals", label: "Fixed Decimals" },
+              { value: "pattern", label: "Pattern" },
+            ]}
+          />
         </Form.Item>
+        {object.formatMode !== "pattern" ? (
+          <Form.Item label="Decimals">
+            <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 2} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)} />
+          </Form.Item>
+        ) : null}
+        {object.formatMode === "pattern" ? (
+          <Form.Item label="Pattern" help="e.g. #.##, 0.00, ###.#">
+            <Input value={object.formatPattern ?? ""} onChange={(e) => onPatch({ formatPattern: e.target.value } as Partial<HmiObject>)} />
+          </Form.Item>
+        ) : null}
         <Form.Item label="Unit">
           <Input value={object.unit ?? ""} onChange={(e) => onPatch({ unit: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Show Unit">
+          <Switch checked={object.showUnit ?? false} onChange={(v) => onPatch({ showUnit: v } as Partial<HmiObject>)} />
         </Form.Item>
         <Form.Item label="Placeholder">
           <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />

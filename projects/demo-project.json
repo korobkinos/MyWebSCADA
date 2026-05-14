@@ -11589,7 +11589,7 @@
       "kind": "screen",
       "width": 1800,
       "height": 1000,
-      "background": "#3e3e3e",
+      "background": "#757575",
       "backgroundFillMode": "screen",
       "objects": [
         {
@@ -12367,12 +12367,12 @@
           "preserveAspectRatio": true
         },
         {
-          "id": "chk_ewz4qa",
+          "id": "chk_fhcjyg",
           "type": "checkbox",
-          "x": 1409.730455597779,
-          "y": 204.95396956695933,
-          "width": 260.38600224427296,
-          "height": 52.07720044885484,
+          "x": 1439.239365284004,
+          "y": 83.30192974432835,
+          "width": 153.79343252357168,
+          "height": 49.65764172199869,
           "rotation": 0,
           "minWidth": 60,
           "minHeight": 24,
@@ -12380,47 +12380,15 @@
           "checkedText": "On",
           "uncheckedText": "Off",
           "checkedColor": "#0e639c",
-          "uncheckedColor": "#3c3c3c"
+          "uncheckedColor": "#2d2d2d"
         },
         {
-          "id": "sldr_ggxvtf",
-          "type": "slider",
-          "x": 1452.6774494941678,
-          "y": 140.21614228186766,
-          "width": 157.8367117174253,
-          "height": 60.14391884675734,
-          "rotation": 0,
-          "minWidth": 100,
-          "minHeight": 32,
-          "min": 0,
-          "max": 100,
-          "step": 1,
-          "orientation": "horizontal",
-          "showValue": true
-        },
-        {
-          "id": "pgbar_v9hoq1",
-          "type": "progress-bar",
-          "x": 1132.826531543774,
-          "y": 547.9418886198548,
-          "width": 220,
-          "height": 32,
-          "minWidth": 80,
-          "minHeight": 20,
-          "min": 0,
-          "max": 100,
-          "showValue": true,
-          "fillColor": "#0e639c",
-          "trackColor": "#1e1e1e"
-        },
-        {
-          "id": "sel_kgqinp",
+          "id": "sel_88zyo1",
           "type": "select",
-          "x": 1406.8450292405166,
-          "y": 91.89937731196463,
-          "width": 247.31164496717756,
-          "height": 43.96651466083151,
-          "rotation": 0,
+          "x": 1408.8927087911136,
+          "y": 175.06053268765135,
+          "width": 180,
+          "height": 32,
           "minWidth": 80,
           "minHeight": 24,
           "options": [
@@ -12436,12 +12404,13 @@
           "placeholder": "Select..."
         },
         {
-          "id": "rgrp_7hku7s",
+          "id": "rgrp_3gd6at",
           "type": "radio-group",
-          "x": 1434.319856695474,
-          "y": 16.464891041162222,
-          "width": 220,
-          "height": 60,
+          "x": 1629.0175170064663,
+          "y": 20.63996776856575,
+          "width": 112.72493945973265,
+          "height": 125.17385619882361,
+          "rotation": 0,
           "minWidth": 100,
           "minHeight": 36,
           "options": [
@@ -12454,13 +12423,13 @@
               "value": "B"
             }
           ],
-          "orientation": "horizontal"
+          "orientation": "vertical"
         },
         {
-          "id": "nmin_k7kv2s",
+          "id": "nmin_gkfrtz",
           "type": "numeric-input",
-          "x": 1615.9423417266185,
-          "y": 284.01937046004844,
+          "x": 543.1588634759921,
+          "y": 762.227602905569,
           "width": 140,
           "height": 32,
           "minWidth": 80,
