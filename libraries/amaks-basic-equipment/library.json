@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-15T11:49:30.330Z",
+  "updatedAt": "2026-05-15T12:15:19.889Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -566,85 +566,6 @@
       "stateRules": [],
       "createdAt": "2026-01-01T00:00:00.000Z",
       "updatedAt": "2026-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "element_89guge",
-      "libraryId": "amaks-basic-equipment",
-      "elementKey": "New Element",
-      "name": "New Element",
-      "description": "ТЕСТ ТЕСТ ТЕСТ",
-      "category": "General",
-      "width": 156.88062310601777,
-      "height": 90,
-      "objects": [
-        {
-          "id": "group_yuly46",
-          "type": "group",
-          "x": 0,
-          "y": 0,
-          "width": 156.88062310601777,
-          "height": 90,
-          "visible": true,
-          "locked": false,
-          "minWidth": 8,
-          "minHeight": 8,
-          "objects": [
-            {
-              "id": "tri_mmzejl",
-              "type": "line",
-              "x": 80.00000000000055,
-              "y": 0,
-              "width": 90.00000000000001,
-              "height": 80.00000000000055,
-              "rotation": 90,
-              "opacity": 1,
-              "minWidth": 20,
-              "minHeight": 20,
-              "points": [
-                45.00000000000001,
-                0,
-                90.00000000000001,
-                80.00000000000055,
-                0,
-                80.00000000000055
-              ],
-              "stroke": "#8c8c8c",
-              "strokeWidth": 2,
-              "closed": true,
-              "fill": "#262626"
-            },
-            {
-              "id": "line_mjhned",
-              "type": "line",
-              "x": 76.88062310601721,
-              "y": 90,
-              "width": 90.00000000000001,
-              "height": 80.00000000000055,
-              "rotation": 270,
-              "opacity": 1,
-              "minWidth": 20,
-              "minHeight": 20,
-              "points": [
-                45.00000000000001,
-                0,
-                90.00000000000001,
-                80.00000000000055,
-                0,
-                80.00000000000055
-              ],
-              "stroke": "#8c8c8c",
-              "strokeWidth": 2,
-              "closed": true,
-              "fill": "#262626"
-            }
-          ]
-        }
-      ],
-      "bindings": [],
-      "parameters": [],
-      "stateRules": [],
-      "createdAt": "2026-05-15T11:49:30.324Z",
-      "updatedAt": "2026-05-15T11:49:30.330Z"
     }
   ],
   "macros": []

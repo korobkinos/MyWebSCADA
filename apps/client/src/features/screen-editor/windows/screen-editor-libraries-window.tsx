@@ -19,6 +19,7 @@ type ScreenEditorLibrariesWindowProps = {
 };
 
 type TabId = "elements" | "assets" | "macros" | "metadata";
+type ApiErrorWithDetails = Error & { status?: number; details?: unknown };
 
 function formatOneDecimal(value: number | undefined): string {
   if (!Number.isFinite(value)) {
@@ -223,6 +224,46 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     await refresh();
   };
 
+  const deleteElementFromLibrary = async (element: LibraryElement): Promise<void> => {
+    if (!selectedLibrary) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete element "${element.name}" from library "${selectedLibrary.name}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await api.deleteLibraryElement(selectedLibrary.id, element.id);
+      await refresh();
+      return;
+    } catch (error) {
+      const apiError = error as ApiErrorWithDetails;
+      if (apiError.status === 409) {
+        const usage =
+          (apiError.details && typeof apiError.details === "object" && "usage" in apiError.details
+            ? (apiError.details as { usage?: Array<{ screenName?: string; path?: string }> }).usage
+            : undefined) ?? [];
+        const usagePreview = usage
+          .slice(0, 3)
+          .map((item) => `${item.screenName ?? "Screen"}: ${item.path ?? "unknown path"}`)
+          .join("\n");
+        const force = window.confirm(
+          usage.length > 0
+            ? `Element is used on ${usage.length} screen object(s):\n${usagePreview}\n\nForce delete and remove these instances from project?`
+            : "Element is used in project. Force delete and remove instances?",
+        );
+        if (!force) {
+          return;
+        }
+        await api.deleteLibraryElement(selectedLibrary.id, element.id, { force: true });
+        await refresh();
+        return;
+      }
+      window.alert(apiError.message || "Failed to delete element");
+    }
+  };
+
   return (
     <div className="screen-editor-window-content screen-editor-libraries-window">
       <input
@@ -360,6 +401,9 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                         onClick={() => onAddLibraryElementToScreen(selectedLibrary.id, element)}
                       >
                         Add to screen
+                      </WorkbenchButton>
+                      <WorkbenchButton onClick={() => void deleteElementFromLibrary(element)}>
+                        Delete
                       </WorkbenchButton>
                     </div>
                   </div>
