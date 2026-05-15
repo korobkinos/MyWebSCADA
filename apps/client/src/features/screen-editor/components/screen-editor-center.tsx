@@ -97,6 +97,7 @@ export type ScreenEditorCenterProps = {
   onOpenLayers: () => void;
   onOpenSaveSelection: () => void;
   onOpenScreenSettings: () => void;
+  onLogout: () => void;
   canSaveSelection: boolean;
   setContextMenu: (v: any) => void;
   handleDrop: (event: DragEvent<HTMLDivElement>, position?: DropPosition) => void;
@@ -154,6 +155,7 @@ export function ScreenEditorCenter({
   onOpenLayers,
   onOpenSaveSelection,
   onOpenScreenSettings,
+  onLogout,
   canSaveSelection,
   setContextMenu,
   handleDrop,
@@ -358,6 +360,9 @@ export function ScreenEditorCenter({
                         title={previewMode ? "Exit Preview" : "Preview"}
                       >
                         {previewMode ? "Exit Preview" : "Preview"}
+                      </WorkbenchButton>
+                      <WorkbenchButton onClick={onLogout} title="Logout and open Runtime">
+                        Logout
                       </WorkbenchButton>
                     </div>
                   ),
