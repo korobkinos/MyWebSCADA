@@ -1,5 +1,6 @@
 import "dotenv/config";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
@@ -18,10 +19,21 @@ import { TagStore } from "./tags/tag-store.js";
 import { WebSocketGateway } from "./websocket/websocket-gateway.js";
 
 const port = Number(process.env.PORT ?? 3001);
-const projectFile = path.resolve(process.cwd(), process.env.PROJECT_FILE ?? "../../projects/demo-project.json");
-const librariesRoot = path.resolve(process.cwd(), process.env.LIBRARIES_DIR ?? "../../libraries");
-const authDbFile = path.resolve(process.cwd(), process.env.AUTH_DB_FILE ?? "../../data/auth-db.json");
-const legacyUsersFile = path.resolve(process.cwd(), process.env.USERS_FILE ?? "../../data/users.json");
+const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
+const serverRoot = path.resolve(runtimeDir, "..");
+
+function resolveServerPath(value: string | undefined, fallbackRelativeToServerRoot: string): string {
+  const target = value ?? fallbackRelativeToServerRoot;
+  if (path.isAbsolute(target)) {
+    return target;
+  }
+  return path.resolve(serverRoot, target);
+}
+
+const projectFile = resolveServerPath(process.env.PROJECT_FILE, "../../projects/demo-project.json");
+const librariesRoot = resolveServerPath(process.env.LIBRARIES_DIR, "../../libraries");
+const authDbFile = resolveServerPath(process.env.AUTH_DB_FILE, "../../data/auth-db.json");
+const legacyUsersFile = resolveServerPath(process.env.USERS_FILE, "../../data/users.json");
 const defaultAdminUsername = process.env.DEFAULT_ADMIN_USERNAME ?? "admin";
 const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD ?? process.env.ENGINEER_PASSWORD ?? "1234";
 

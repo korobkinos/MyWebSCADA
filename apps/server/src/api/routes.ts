@@ -61,7 +61,7 @@ type LibraryElementUsage = {
   path: string;
 };
 
-const GUEST_RUNTIME_PERMISSIONS = new Set<AppPermission>(["tags.write", "macros.run"]);
+const GUEST_RUNTIME_PERMISSIONS = new Set<AppPermission>(["tags.write", "macros.run", "libraries.view"]);
 type AuthUser = NonNullable<Awaited<ReturnType<AuthService["getUserByToken"]>>>;
 
 function removeLibraryElementInstances(project: ScadaProject, libraryId: string, elementId: string): { project: ScadaProject; removed: number } {
