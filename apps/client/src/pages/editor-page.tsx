@@ -1143,6 +1143,17 @@ export function EditorPage() {
           <button type="button" className="screen-editor-context-menu__item" disabled={!selectedUnlocked.length} onClick={() => { setCloneOpen(true); setContextMenu({ visible: false, x: 0, y: 0 }); }}>
             Clone...
           </button>
+          <button
+            type="button"
+            className="screen-editor-context-menu__item"
+            disabled={!selectedObjects.length}
+            onClick={() => {
+              openDefinedWindow("saveSelectionAsElement");
+              setContextMenu({ visible: false, x: 0, y: 0 });
+            }}
+          >
+            Save as Library Element...
+          </button>
           <button type="button" className="screen-editor-context-menu__item" disabled={!canGroup} onClick={() => { runCommand({ type: "groupSelected" }); setContextMenu({ visible: false, x: 0, y: 0 }); }}>
             Group
           </button>

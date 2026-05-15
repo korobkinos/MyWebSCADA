@@ -20,6 +20,14 @@ type ScreenEditorLibrariesWindowProps = {
 
 type TabId = "elements" | "assets" | "macros" | "metadata";
 
+function formatOneDecimal(value: number | undefined): string {
+  if (!Number.isFinite(value)) {
+    return "0.0";
+  }
+  const normalized = Math.trunc((value ?? 0) * 10) / 10;
+  return normalized.toFixed(1);
+}
+
 export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowProps) {
   const {
     libraries,
@@ -339,7 +347,12 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 {(selectedLibrary.elements ?? []).map((element) => (
                   <div key={element.id} className="screen-editor-library-element-item">
                     <div className="screen-editor-item-title">{element.name}</div>
-                    <div className="screen-editor-item-meta">{element.category ?? "General"} · {element.width}x{element.height}</div>
+                    <div className="screen-editor-item-meta">
+                      {element.category ?? "General"} · {formatOneDecimal(element.width)}x{formatOneDecimal(element.height)}
+                    </div>
+                    {element.description?.trim() ? (
+                      <div className="screen-editor-item-meta">{element.description.trim()}</div>
+                    ) : null}
                     <div className="screen-editor-item-actions">
                       <WorkbenchButton
                         variant="primary"
