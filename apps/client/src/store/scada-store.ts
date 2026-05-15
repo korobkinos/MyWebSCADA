@@ -144,18 +144,7 @@ function applyResize(obj: HmiObject, patch: Partial<HmiObject>): HmiObject {
 
   const sx = obj.width === 0 ? 1 : nextWidth / obj.width;
   const sy = obj.height === 0 ? 1 : nextHeight / obj.height;
-  const children = obj.objects.map((child) => {
-    if (child.locked) {
-      return child;
-    }
-    return {
-      ...child,
-      x: child.x * sx,
-      y: child.y * sy,
-      width: child.width * sx,
-      height: child.height * sy,
-    };
-  });
+  const children = obj.objects.map((child) => scaleObjectProportionally(child, sx, sy));
 
   return {
     ...obj,
@@ -164,6 +153,63 @@ function applyResize(obj: HmiObject, patch: Partial<HmiObject>): HmiObject {
     height: nextHeight,
     objects: children,
   } satisfies GroupObject;
+}
+
+function scaleObjectProportionally(object: HmiObject, sx: number, sy: number): HmiObject {
+  if (object.locked) {
+    return object;
+  }
+
+  const strokeScale = (Math.abs(sx) + Math.abs(sy)) / 2;
+  const scaleByKey = (key: string, value: unknown): unknown => {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return value;
+    }
+    if (key === "x" || key === "width" || key === "minWidth") {
+      return value * sx;
+    }
+    if (key === "y" || key === "height" || key === "minHeight") {
+      return value * sy;
+    }
+    if (key === "fontSize" || key === "strokeWidth" || key === "borderWidth") {
+      return value * strokeScale;
+    }
+    return value;
+  };
+
+  const scaleRecord = (input: Record<string, unknown>): Record<string, unknown> => {
+    const next: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (Array.isArray(value)) {
+        if (key === "points" && value.every((item) => typeof item === "number")) {
+          next[key] = value.map((item, index) => (Number(item) * (index % 2 === 0 ? sx : sy)));
+        } else if (key === "objects") {
+          next[key] = value.map((item) => {
+            if (item && typeof item === "object") {
+              return scaleObjectProportionally(item as HmiObject, sx, sy);
+            }
+            return item;
+          });
+        } else {
+          next[key] = value.map((item) => {
+            if (item && typeof item === "object") {
+              return scaleRecord(item as Record<string, unknown>);
+            }
+            return item;
+          });
+        }
+        continue;
+      }
+      if (value && typeof value === "object") {
+        next[key] = scaleRecord(value as Record<string, unknown>);
+        continue;
+      }
+      next[key] = scaleByKey(key, value);
+    }
+    return next;
+  };
+
+  return scaleRecord(object as unknown as Record<string, unknown>) as HmiObject;
 }
 
 export const useScadaStore = create<ScadaState>((set, get) => ({
