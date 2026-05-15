@@ -94,6 +94,25 @@ export function HmiStage({
   }, []);
 
   useEffect(() => {
+    if (mode !== "runtime" || !runtimeOverlay) {
+      return;
+    }
+    const onWindowMouseDown = (event: MouseEvent) => {
+      const wrapElement = wrapRef.current;
+      const target = event.target as Node | null;
+      if (!wrapElement || !target) {
+        return;
+      }
+      if (wrapElement.contains(target)) {
+        return;
+      }
+      setRuntimeOverlay(null);
+    };
+    window.addEventListener("mousedown", onWindowMouseDown);
+    return () => window.removeEventListener("mousedown", onWindowMouseDown);
+  }, [mode, runtimeOverlay]);
+
+  useEffect(() => {
     if (mode !== "editor") {
       return;
     }
@@ -158,6 +177,22 @@ export function HmiStage({
   };
 
   const onStageMouseDown = (evt: KonvaEventObject<MouseEvent>): void => {
+    if (mode === "runtime" && runtimeOverlay) {
+      const openedObjectId = `hmi-${runtimeOverlay.objectId}`;
+      let node: Konva.Node | null = evt.target;
+      let clickedInsideOpenedObject = false;
+      while (node) {
+        if (node.id() === openedObjectId) {
+          clickedInsideOpenedObject = true;
+          break;
+        }
+        node = node.getParent();
+      }
+      if (!clickedInsideOpenedObject) {
+        setRuntimeOverlay(null);
+      }
+    }
+
     if (mode !== "editor") {
       return;
     }
