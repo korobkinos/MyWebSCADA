@@ -850,6 +850,59 @@ export const elementLibrarySchema = z.object({
   updatedAt: z.string().min(1),
   assets: z.array(assetSchema),
   elements: z.array(libraryElementSchema),
+  macros: z.array(z.lazy(() => macroSchema)).optional(),
+});
+
+export const libraryArchiveManifestSchema = z.object({
+  format: z.literal("mywebscada-library"),
+  formatVersion: z.number().int().positive(),
+  exportedAt: z.string().min(1),
+  appName: z.string().optional(),
+  appVersion: z.string().optional(),
+  libraryId: z.string().min(1),
+  libraryName: z.string().min(1),
+  libraryVersion: z.string().min(1),
+  counts: z.object({
+    elements: z.number().int().nonnegative(),
+    assets: z.number().int().nonnegative(),
+    macros: z.number().int().nonnegative(),
+  }),
+  files: z.array(
+    z.object({
+      path: z.string().min(1),
+      type: z.enum(["library", "asset", "preview", "macro", "metadata"]),
+      size: z.number().int().nonnegative(),
+      sha256: z.string().min(1).optional(),
+    }),
+  ),
+});
+
+export const libraryImportIssueSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  path: z.string().min(1).optional(),
+});
+
+export const libraryImportValidationResultSchema = z.object({
+  valid: z.boolean(),
+  summary: z
+    .object({
+      libraryId: z.string().min(1),
+      name: z.string().min(1),
+      version: z.string().min(1),
+      elements: z.number().int().nonnegative(),
+      assets: z.number().int().nonnegative(),
+      macros: z.number().int().nonnegative(),
+    })
+    .optional(),
+  conflicts: z.object({
+    libraryExists: z.boolean(),
+    elementConflicts: z.array(z.string().min(1)),
+    assetConflicts: z.array(z.string().min(1)),
+    projectMacroConflicts: z.array(z.string().min(1)),
+  }),
+  warnings: z.array(libraryImportIssueSchema),
+  errors: z.array(libraryImportIssueSchema),
 });
 
 const modbusAddressSchema = z.object({
@@ -929,7 +982,7 @@ const variableSchema = z.object({
   updatedAt: z.string().optional(),
 });
 
-const macroSchema = z.object({
+export const macroSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),

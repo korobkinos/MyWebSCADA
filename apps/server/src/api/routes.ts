@@ -168,7 +168,34 @@ const createLibrarySchema = z.object({
   description: z.string().optional(),
   version: z.string().optional(),
 });
+const updateLibrarySchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  version: z.string().min(1).optional(),
+});
 const attachLibrarySchema = z.object({ libraryId: z.string().min(1) });
+const libraryImportOptionsSchema = z.object({
+  replace: z.boolean().optional(),
+  importAsCopy: z.boolean().optional(),
+  importMacrosToProject: z.boolean().optional(),
+  macroConflictMode: z.enum(["skip", "overwrite", "copy"]).optional(),
+});
+const libraryMacroSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  language: z.literal("javascript-lite"),
+  code: z.string().min(1),
+  enabled: z.boolean().optional(),
+  validation: z
+    .object({
+      status: z.enum(["ok", "error"]),
+      errors: z.array(z.string().min(1)).optional(),
+      updatedAt: z.string().optional(),
+    })
+    .optional(),
+  triggers: z.array(z.record(z.unknown())).optional(),
+});
 const updateAssetSchema = z.object({
   name: z.string().optional(),
   folderPath: z.string().optional(),
@@ -571,6 +598,7 @@ async function parseUpload(request: FastifyRequest): Promise<{
   size: number;
   content: Buffer;
   name?: string;
+  options?: string;
 }> {
   const part = await request.file();
   if (!part) {
@@ -593,13 +621,16 @@ async function parseUpload(request: FastifyRequest): Promise<{
   }
 
   const namePart = (part.fields as Record<string, { value?: unknown }> | undefined)?.name;
+  const optionsPart = (part.fields as Record<string, { value?: unknown }> | undefined)?.options;
   const name = typeof namePart?.value === "string" ? namePart.value : undefined;
+  const options = typeof optionsPart?.value === "string" ? optionsPart.value : undefined;
   return {
     fileName: part.filename,
     mimeType: part.mimetype,
     size: content.byteLength,
     content,
     name,
+    options,
   };
 }
 
@@ -1663,9 +1694,19 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
   });
 
-  app.get("/api/libraries", async () => deps.libraryService.listLibraries());
+  app.get("/api/libraries", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.view");
+    if (!auth) {
+      return;
+    }
+    return deps.libraryService.listLibraries();
+  });
 
   app.get("/api/libraries/:libraryId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.view");
+    if (!auth) {
+      return;
+    }
     const { libraryId } = request.params as { libraryId: string };
     const library = await deps.libraryService.getLibrary(libraryId);
     if (!library) {
@@ -1675,6 +1716,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.get("/api/libraries/:libraryId/elements", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.view");
+    if (!auth) {
+      return;
+    }
     const { libraryId } = request.params as { libraryId: string };
     const library = await deps.libraryService.getLibrary(libraryId);
     if (!library) {
@@ -1684,6 +1729,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.get("/api/libraries/:libraryId/elements/:elementId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.view");
+    if (!auth) {
+      return;
+    }
     const { libraryId, elementId } = request.params as { libraryId: string; elementId: string };
     const library = await deps.libraryService.getLibrary(libraryId);
     if (!library) {
@@ -1717,6 +1766,48 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     return reply.send(library);
   });
 
+  app.post("/api/libraries/import/validate", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request);
+    const result = await deps.libraryService.validateLibraryArchive(uploaded);
+    return reply.send({ ok: true, ...result });
+  });
+
+  app.post("/api/libraries/import", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request);
+    const optionsRaw = (uploaded as unknown as { options?: string }).options;
+    let options: z.infer<typeof libraryImportOptionsSchema> = {};
+    if (typeof optionsRaw === "string" && optionsRaw.trim()) {
+      try {
+        options = libraryImportOptionsSchema.parse(JSON.parse(optionsRaw));
+      } catch {
+        return reply.code(400).send({ error: "Bad Request", message: "Invalid import options" });
+      }
+    } else {
+      const body = request.body as Record<string, unknown> | undefined;
+      if (body) {
+        options = libraryImportOptionsSchema.parse(body);
+      }
+    }
+    try {
+      const library = await deps.libraryService.importLibraryArchive(uploaded, options);
+      return reply.send({ ok: true, library });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("already exists") || message.toLowerCase().includes("conflict")) {
+        return reply.code(409).send({ error: "Conflict", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
   app.post("/api/libraries/:libraryId/assets/upload", async (request, reply) => {
     const auth = await requirePermission(request, reply, deps, "assets.write");
     if (!auth) {
@@ -1728,7 +1819,77 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     return reply.send(asset);
   });
 
+  app.get("/api/libraries/:libraryId/export", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.view");
+    if (!auth) {
+      return;
+    }
+    const { libraryId } = request.params as { libraryId: string };
+    try {
+      const exported = await deps.libraryService.exportLibraryArchive(libraryId);
+      reply.header("Content-Type", "application/zip");
+      reply.header("Content-Disposition", `attachment; filename=\"${exported.fileName}\"`);
+      return reply.send(exported.buffer);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.patch("/api/libraries/:libraryId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.write");
+    if (!auth) {
+      return;
+    }
+    const { libraryId } = request.params as { libraryId: string };
+    const payload = updateLibrarySchema.parse(request.body ?? {});
+    if (payload.name === undefined && payload.description === undefined && payload.version === undefined) {
+      return reply.code(400).send({ error: "Bad Request", message: "Library patch is empty" });
+    }
+    try {
+      const updated = await deps.libraryService.updateLibrary(libraryId, payload);
+      return reply.send(updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.delete("/api/libraries/:libraryId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.delete");
+    if (!auth) {
+      return;
+    }
+    const { libraryId } = request.params as { libraryId: string };
+    const { force } = (request.query ?? {}) as { force?: string };
+    try {
+      const result = await deps.libraryService.deleteLibrary(libraryId, {
+        force: String(force).toLowerCase() === "true",
+      });
+      return reply.send({ ok: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      if (message.toLowerCase().includes("used") || message.toLowerCase().includes("attached")) {
+        return reply.code(409).send({ error: "Conflict", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
   app.get("/api/libraries/:libraryId/assets/:assetId/file", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "libraries.view");
+    if (!auth) {
+      return;
+    }
     const { libraryId, assetId } = request.params as { libraryId: string; assetId: string };
     const asset = await deps.libraryService.getLibraryAsset(libraryId, assetId);
     if (!asset) {
@@ -1832,6 +1993,112 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     app.log.info({ elementId }, "[API] DELETE library element deleted");
     return reply.send({ ok: true, deletedId: elementId, removedUsages: usage.length && forceDelete ? usage.length : 0 });
+  });
+
+  app.post("/api/libraries/:libraryId/macros", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "macros.write");
+    if (!auth) {
+      return;
+    }
+    const { libraryId } = request.params as { libraryId: string };
+    const payload = libraryMacroSchema.parse(request.body);
+    try {
+      const created = await deps.libraryService.createLibraryMacro(libraryId, payload as MacroDefinition);
+      return reply.send(created);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      if (message.toLowerCase().includes("already exists")) {
+        return reply.code(409).send({ error: "Conflict", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.put("/api/libraries/:libraryId/macros/:macroId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "macros.write");
+    if (!auth) {
+      return;
+    }
+    const { libraryId, macroId } = request.params as { libraryId: string; macroId: string };
+    const payload = request.body as Partial<MacroDefinition>;
+    try {
+      const updated = await deps.libraryService.updateLibraryMacro(libraryId, macroId, payload);
+      return reply.send(updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.delete("/api/libraries/:libraryId/macros/:macroId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "macros.write");
+    if (!auth) {
+      return;
+    }
+    const { libraryId, macroId } = request.params as { libraryId: string; macroId: string };
+    const { force } = (request.query ?? {}) as { force?: string };
+    try {
+      await deps.libraryService.deleteLibraryMacro(libraryId, macroId, {
+        force: String(force).toLowerCase() === "true",
+      });
+      return reply.send({ ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      if (message.toLowerCase().includes("referenced")) {
+        return reply.code(409).send({ error: "Conflict", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.post("/api/libraries/:libraryId/macros/:macroId/import-to-project", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "macros.write");
+    if (!auth) {
+      return;
+    }
+    const { libraryId, macroId } = request.params as { libraryId: string; macroId: string };
+    const payload = z.object({ overwrite: z.boolean().optional(), importAsCopy: z.boolean().optional() }).parse(request.body ?? {});
+    try {
+      const macro = await deps.libraryService.importLibraryMacroToProject(libraryId, macroId, payload);
+      return reply.send({ ok: true, macro });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      if (message.toLowerCase().includes("already exists")) {
+        return reply.code(409).send({ error: "Conflict", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.post("/api/libraries/:libraryId/import-macros-to-project", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "macros.write");
+    if (!auth) {
+      return;
+    }
+    const { libraryId } = request.params as { libraryId: string };
+    const payload = z.object({ overwrite: z.boolean().optional(), importAsCopy: z.boolean().optional() }).parse(request.body ?? {});
+    try {
+      const result = await deps.libraryService.importLibraryMacrosToProject(libraryId, payload);
+      return reply.send({ ok: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
   });
 
   app.post("/api/project/libraries/attach", async (request, reply) => {

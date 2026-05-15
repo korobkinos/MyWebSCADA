@@ -5,6 +5,7 @@ import type {
   EditorCommand,
   HmiScreen,
   HmiObject,
+  ElementLibrary,
   LibraryElement,
   RuntimeAction,
   ScadaProject,
@@ -133,6 +134,7 @@ export function EditorPage() {
   const drivers = useScadaStore((s) => s.drivers);
   const assets = useScadaStore((s) => s.assets);
   const libraries = useScadaStore((s) => s.libraries);
+  const macros = useScadaStore((s) => s.macros);
   const runtime = useScadaStore((s) => s.runtime);
   const currentScreenId = useScadaStore((s) => s.currentScreenId);
   const selection = useScadaStore((s) => s.selection);
@@ -473,6 +475,19 @@ export function EditorPage() {
     [updateProjectJson],
   );
 
+  const detachLibrary = useCallback(
+    async (libraryId: string) => {
+      try {
+        const next = await api.detachLibrary(libraryId);
+        updateProjectJson(next);
+        void message.success("Library detached");
+      } catch (error) {
+        void message.error(error instanceof Error ? error.message : "Failed to detach library");
+      }
+    },
+    [updateProjectJson],
+  );
+
   const onSaveSelectionAsLibraryElement = useCallback(async () => {
     if (!selectedObjects.length) {
       void message.warning("Select one or more objects on canvas");
@@ -484,6 +499,13 @@ export function EditorPage() {
     }
     if (!saveElementName.trim()) {
       void message.warning("Element name is required");
+      return;
+    }
+    const hasBrokenLibraryInstance = selectedObjects.some(
+      (item) => item.type === "libraryElementInstance" && !libraries.some((lib) => lib.id === item.libraryId),
+    );
+    if (hasBrokenLibraryInstance) {
+      void message.warning("Selection contains library element instances with missing source library");
       return;
     }
     const normalizedObjects = normalizeObjects(selectedObjects);
@@ -505,7 +527,7 @@ export function EditorPage() {
       updatedAt: now,
     };
     try {
-      const copiedObjects = await copySelectionAssetsToLibrary(element.objects, assets, saveTargetLibraryId);
+      const copiedObjects = await copySelectionAssetsToLibrary(element.objects, assets, saveTargetLibraryId, libraries);
       element.objects = copiedObjects;
       await api.createLibraryElement(saveTargetLibraryId, element);
       await loadLibraries();
@@ -522,6 +544,7 @@ export function EditorPage() {
     assets,
     closeWindow,
     loadLibraries,
+    libraries,
     saveElementCategory,
     saveElementDescription,
     saveElementName,
@@ -735,8 +758,10 @@ export function EditorPage() {
     setNewLibraryName,
     createLibrary,
     attachLibrary,
+    detachLibrary,
     addLibraryElementInstance,
     loadLibraries,
+    projectMacros: macros,
     onUploadProjectAsset,
     addAssetAsImage,
     moveAssetToFolder,
@@ -1238,16 +1263,30 @@ async function copySelectionAssetsToLibrary(
   objects: HmiObject[],
   projectAssets: Asset[],
   libraryId: string,
+  libraries: ElementLibrary[],
 ): Promise<HmiObject[]> {
   const assetIds = [...new Set(objects.flatMap((obj) => collectAssetIds(obj)))];
   if (!assetIds.length) {
     return objects;
   }
 
+  const targetLibrary = libraries.find((item) => item.id === libraryId);
   const mappedIds = new Map<string, string>();
   for (const assetId of assetIds) {
     const asset = projectAssets.find((item) => item.id === assetId);
     if (!asset) {
+      continue;
+    }
+    const existingById = targetLibrary?.assets.find((item) => item.id === asset.id);
+    if (existingById) {
+      mappedIds.set(assetId, existingById.id);
+      continue;
+    }
+    const existingBySignature = targetLibrary?.assets.find(
+      (item) => item.fileName === asset.fileName && item.mimeType === asset.mimeType && item.size === asset.size,
+    );
+    if (existingBySignature) {
+      mappedIds.set(assetId, existingBySignature.id);
       continue;
     }
     const fileResponse = await fetch(asset.previewUrl);
@@ -1261,80 +1300,71 @@ async function copySelectionAssetsToLibrary(
 }
 
 function replaceAssetIds(object: HmiObject, mappedIds: Map<string, string>): HmiObject {
-  if (object.type === "image") {
-    return {
-      ...object,
-      assetId: object.assetId ? mappedIds.get(object.assetId) ?? object.assetId : undefined,
-      stateImages: object.stateImages?.map((state) => ({
-        ...state,
-        assetId: state.assetId ? mappedIds.get(state.assetId) ?? state.assetId : undefined,
-      })),
-    };
-  }
-  if (object.type === "stateImage") {
-    return {
-      ...object,
-      defaultAssetId: object.defaultAssetId ? mappedIds.get(object.defaultAssetId) ?? object.defaultAssetId : undefined,
-      badQualityAssetId: object.badQualityAssetId
-        ? mappedIds.get(object.badQualityAssetId) ?? object.badQualityAssetId
-        : undefined,
-      states: object.states.map((state) => ({
-        ...state,
-        assetId: mappedIds.get(state.assetId) ?? state.assetId,
-      })),
-    };
-  }
-  if (object.type === "button") {
-    return {
-      ...object,
-      backgroundAssetId: object.backgroundAssetId
-        ? mappedIds.get(object.backgroundAssetId) ?? object.backgroundAssetId
-        : undefined,
-      pressedBackgroundAssetId: object.pressedBackgroundAssetId
-        ? mappedIds.get(object.pressedBackgroundAssetId) ?? object.pressedBackgroundAssetId
-        : undefined,
-      disabledBackgroundAssetId: object.disabledBackgroundAssetId
-        ? mappedIds.get(object.disabledBackgroundAssetId) ?? object.disabledBackgroundAssetId
-        : undefined,
-    };
-  }
-  return {
-    ...object,
+  const ASSET_ID_KEYS = new Set([
+    "assetId",
+    "previewAssetId",
+    "backgroundAssetId",
+    "pressedBackgroundAssetId",
+    "disabledBackgroundAssetId",
+    "defaultAssetId",
+    "badQualityAssetId",
+  ]);
+
+  const walk = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map((item) => walk(item));
+    }
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+    const record = value as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+    for (const [key, current] of Object.entries(record)) {
+      if (ASSET_ID_KEYS.has(key) && typeof current === "string") {
+        next[key] = mappedIds.get(current) ?? current;
+        continue;
+      }
+      next[key] = walk(current);
+    }
+    return next;
   };
+
+  return walk(object) as HmiObject;
 }
 
 function collectAssetIds(object: HmiObject): string[] {
-  if (object.type === "image") {
-    const ids: string[] = [];
-    if (object.assetId) {
-      ids.push(object.assetId);
-    }
-    for (const state of object.stateImages ?? []) {
-      if (state.assetId) {
-        ids.push(state.assetId);
+  const ASSET_ID_KEYS = new Set([
+    "assetId",
+    "previewAssetId",
+    "backgroundAssetId",
+    "pressedBackgroundAssetId",
+    "disabledBackgroundAssetId",
+    "defaultAssetId",
+    "badQualityAssetId",
+  ]);
+  const collected: string[] = [];
+
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        walk(item);
       }
+      return;
     }
-    return ids;
-  }
-  if (object.type === "stateImage") {
-    const ids: string[] = [];
-    if (object.defaultAssetId) {
-      ids.push(object.defaultAssetId);
+    if (!value || typeof value !== "object") {
+      return;
     }
-    if (object.badQualityAssetId) {
-      ids.push(object.badQualityAssetId);
+    const record = value as Record<string, unknown>;
+    for (const [key, current] of Object.entries(record)) {
+      if (ASSET_ID_KEYS.has(key) && typeof current === "string" && current.trim()) {
+        collected.push(current);
+      }
+      walk(current);
     }
-    for (const state of object.states) {
-      ids.push(state.assetId);
-    }
-    return ids;
-  }
-  if (object.type === "button") {
-    return [object.backgroundAssetId, object.pressedBackgroundAssetId, object.disabledBackgroundAssetId].filter(
-      (v): v is string => Boolean(v),
-    );
-  }
-  return [];
+  };
+
+  walk(object);
+  return collected;
 }
 
 function computeBounds(objects: HmiObject[]): { minX: number; minY: number; width: number; height: number } {

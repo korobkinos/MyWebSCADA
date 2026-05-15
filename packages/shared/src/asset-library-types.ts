@@ -1,4 +1,5 @@
 import type { HmiObject } from "./hmi-object-types";
+import type { MacroDefinition } from "./project-types";
 import type { ExtendedTagDataType } from "./tag-types";
 
 export type AssetType = "png" | "jpg" | "jpeg" | "svg";
@@ -191,4 +192,60 @@ export type ElementLibrary = {
   updatedAt: string;
   assets: Asset[];
   elements: LibraryElement[];
+  macros?: MacroDefinition[];
+};
+
+export type LibraryArchiveManifest = {
+  format: "mywebscada-library";
+  formatVersion: number;
+  exportedAt: string;
+  appName?: string;
+  appVersion?: string;
+  libraryId: string;
+  libraryName: string;
+  libraryVersion: string;
+  counts: {
+    elements: number;
+    assets: number;
+    macros: number;
+  };
+  files: Array<{
+    path: string;
+    type: "library" | "asset" | "preview" | "macro" | "metadata";
+    size: number;
+    sha256?: string;
+  }>;
+};
+
+export type LibraryImportIssue = {
+  code: string;
+  message: string;
+  path?: string;
+};
+
+export type LibraryImportValidationResult = {
+  valid: boolean;
+  summary?: {
+    libraryId: string;
+    name: string;
+    version: string;
+    elements: number;
+    assets: number;
+    macros: number;
+  };
+  conflicts: {
+    libraryExists: boolean;
+    elementConflicts: string[];
+    assetConflicts: string[];
+    projectMacroConflicts: string[];
+  };
+  warnings: LibraryImportIssue[];
+  errors: LibraryImportIssue[];
+};
+
+export type LibraryImportOptions = {
+  replace?: boolean;
+  importAsCopy?: boolean;
+  importMacrosToProject?: boolean;
+  macroConflictMode?: "skip" | "overwrite" | "copy";
 };

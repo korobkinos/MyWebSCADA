@@ -10,6 +10,7 @@ import type {
   RuntimeState,
   ScadaProject,
   ScreenKind,
+  MacroDefinition,
 } from "@web-scada/shared";
 import { WorkbenchButton, type WorkbenchWindowDefinition } from "../../../components/workbench";
 import { ObjectPropertyPanel } from "../../../components/object-property-panel";
@@ -91,8 +92,10 @@ type UseEditorWindowDefinitionsParams = {
   setNewLibraryName: (value: string) => void;
   createLibrary: () => Promise<void>;
   attachLibrary: (libraryId: string) => Promise<void>;
+  detachLibrary: (libraryId: string) => Promise<void>;
   addLibraryElementInstance: (libraryId: string, elementOrId: LibraryElement | string) => void;
   loadLibraries: () => Promise<void>;
+  projectMacros: MacroDefinition[];
   onUploadProjectAsset: (file: File) => Promise<void>;
   addAssetAsImage: (asset: Asset, position?: { x: number; y: number }) => void;
   moveAssetToFolder: (assetId: string, folderPath: string) => Promise<void>;
@@ -363,8 +366,10 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
             onLibraryNameChange={params.setNewLibraryName}
             onCreateLibrary={params.createLibrary}
             onAttachLibrary={params.attachLibrary}
+            onDetachLibrary={params.detachLibrary}
             onAddLibraryElementToScreen={params.addLibraryElementInstance}
             onRefreshLibraries={params.loadLibraries}
+            projectMacros={params.projectMacros}
           />
         ),
       },

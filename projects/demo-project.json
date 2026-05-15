@@ -107,13 +107,6 @@
       "version": "1.0.0",
       "path": "libraries/amaks-basic-equipment",
       "enabled": true
-    },
-    {
-      "libraryId": "custom-equipment",
-      "name": "Пользовательская библиотека",
-      "version": "1.0.0",
-      "path": "D:\\Work\\MyWebSCADA\\libraries\\custom-equipment",
-      "enabled": true
     }
   ],
   "drivers": [

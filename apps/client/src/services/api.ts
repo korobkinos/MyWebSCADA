@@ -7,6 +7,8 @@ import type {
   CreateUserRequest,
   DriverStatus,
   ElementLibrary,
+  LibraryImportOptions,
+  LibraryImportValidationResult,
   LibraryElement,
   MacroDefinition,
   MacroRunResult,
@@ -454,6 +456,49 @@ export const api = {
   getLibrary: (libraryId: string) => request<ElementLibrary>(`/api/libraries/${encodeURIComponent(libraryId)}`),
   createLibrary: (payload: { id: string; name: string; description?: string; version?: string }) =>
     request<ElementLibrary>("/api/libraries", { method: "POST", body: JSON.stringify(payload) }),
+  updateLibrary: (libraryId: string, patch: { name?: string; description?: string; version?: string }) =>
+    request<ElementLibrary>(`/api/libraries/${encodeURIComponent(libraryId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  deleteLibrary: (libraryId: string, options?: { force?: boolean }) =>
+    request<{ ok: boolean; deleted?: boolean; detached?: boolean }>(
+      `/api/libraries/${encodeURIComponent(libraryId)}${options?.force ? "?force=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  validateLibraryImport: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ ok: boolean } & LibraryImportValidationResult>("/api/libraries/import/validate", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importLibrary: (file: File, options?: LibraryImportOptions) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("options", JSON.stringify(options ?? {}));
+    return request<{ ok: boolean; library: ElementLibrary }>("/api/libraries/import", {
+      method: "POST",
+      body: form,
+    });
+  },
+  exportLibrary: async (libraryId: string) => {
+    const token = getEngineerToken();
+    const response = await fetch(resolveRequestUrl(`/api/libraries/${encodeURIComponent(libraryId)}/export`), {
+      method: "GET",
+      headers: token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `${response.status} ${response.statusText}`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const nameMatch = /filename=\"?([^\";]+)\"?/i.exec(disposition);
+    const fileName = (nameMatch?.[1] ?? `${libraryId}.webscada-library.zip`).trim();
+    return { blob, fileName };
+  },
   uploadLibraryAsset: (libraryId: string, file: File, name?: string) => {
     const form = new FormData();
     form.append("file", file);
@@ -482,6 +527,41 @@ export const api = {
     request<{ ok: boolean; deletedId?: string; removedUsages?: number }>(
       `/api/libraries/${encodeURIComponent(libraryId)}/elements/${encodeURIComponent(elementId)}${options?.force ? "?force=true" : ""}`,
       { method: "DELETE" },
+    ),
+  createLibraryMacro: (libraryId: string, macro: MacroDefinition) =>
+    request<MacroDefinition>(`/api/libraries/${encodeURIComponent(libraryId)}/macros`, {
+      method: "POST",
+      body: JSON.stringify(macro),
+    }),
+  updateLibraryMacro: (libraryId: string, macroId: string, patch: Partial<MacroDefinition>) =>
+    request<MacroDefinition>(`/api/libraries/${encodeURIComponent(libraryId)}/macros/${encodeURIComponent(macroId)}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
+  deleteLibraryMacro: (libraryId: string, macroId: string, options?: { force?: boolean }) =>
+    request<{ ok: boolean }>(
+      `/api/libraries/${encodeURIComponent(libraryId)}/macros/${encodeURIComponent(macroId)}${options?.force ? "?force=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  importLibraryMacroToProject: (
+    libraryId: string,
+    macroId: string,
+    options?: { overwrite?: boolean; importAsCopy?: boolean },
+  ) =>
+    request<{ ok: boolean; macro: MacroDefinition }>(
+      `/api/libraries/${encodeURIComponent(libraryId)}/macros/${encodeURIComponent(macroId)}/import-to-project`,
+      {
+        method: "POST",
+        body: JSON.stringify(options ?? {}),
+      },
+    ),
+  importAllLibraryMacrosToProject: (libraryId: string, options?: { overwrite?: boolean; importAsCopy?: boolean }) =>
+    request<{ ok: boolean; imported: number; updated: number; skipped: number }>(
+      `/api/libraries/${encodeURIComponent(libraryId)}/import-macros-to-project`,
+      {
+        method: "POST",
+        body: JSON.stringify(options ?? {}),
+      },
     ),
   attachLibrary: (libraryId: string) =>
     request<ScadaProject>("/api/project/libraries/attach", {
