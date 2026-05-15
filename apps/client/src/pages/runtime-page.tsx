@@ -121,6 +121,14 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     [currentScreenId, project],
   );
   const runtimeUserRoles = useMemo(() => authUser?.roles ?? [], [authUser?.roles]);
+  const enabledLibraryIds = useMemo(
+    () => new Set((project?.libraries ?? []).filter((item) => item.enabled).map((item) => item.libraryId)),
+    [project?.libraries],
+  );
+  const activeLibraries = useMemo(
+    () => libraries.filter((library) => enabledLibraryIds.has(library.id)),
+    [enabledLibraryIds, libraries],
+  );
   const mainRenderContext = useMemo(
     () => ({
       screenId: screen?.id,
@@ -186,7 +194,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
     const subscriptionTags = collectRuntimeTagSubscriptions({
       project,
-      libraries,
+      libraries: activeLibraries,
       screen,
       tags,
       popups: popupScreens.map(({ item, screen: popupScreen }) => ({
@@ -196,7 +204,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       })),
     });
     updateRuntimeTagSubscriptions(subscriptionTags);
-  }, [libraries, popupScreens, project, screen, tags]);
+  }, [activeLibraries, popupScreens, project, screen, tags]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1320,7 +1328,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       mode="runtime"
       screen={screen}
       tags={tags}
-      libraries={libraries}
+      libraries={activeLibraries}
       fullscreenRuntime={fullscreen}
       currentUserRoleLevel={userRoleLevel}
       renderContext={mainRenderContext}
@@ -1406,7 +1414,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             mode="runtime"
             screen={popupScreen}
             tags={tags}
-            libraries={libraries}
+            libraries={activeLibraries}
             fullscreenRuntime={false}
             currentUserRoleLevel={userRoleLevel}
             renderContext={{

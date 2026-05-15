@@ -388,17 +388,43 @@ export class LibraryService {
   }
 
   public async deleteLibrary(libraryId: string, options?: DeleteLibraryOptions): Promise<{ deleted: boolean; detached: boolean }> {
-    const library = await this.requireLibrary(libraryId);
+    const normalizedId = safeId(libraryId);
+    if (!normalizedId) {
+      throw new Error("Library id is required");
+    }
+    const library = await this.getLibrary(libraryId);
+    const libraryDir = this.libraryDir(libraryId);
+    const dirExists = await this.existsPath(libraryDir);
+    if (!library && !dirExists) {
+      throw new Error(`Library \"${libraryId}\" not found`);
+    }
     const project = this.projectService.getProject();
-    const attached = (project.libraries ?? []).some((ref) => ref.libraryId === library.id && ref.enabled);
-    const usageCount = findLibraryScreenUsage(project, library.id);
+    const sameLibrary = (value: string): boolean => value === libraryId || safeId(value) === normalizedId;
+    const attached = (project.libraries ?? []).some((ref) => ref.enabled && sameLibrary(ref.libraryId));
+    const usageCount = (() => {
+      let used = 0;
+      const scan = (objects: HmiObject[]): void => {
+        for (const object of objects) {
+          if (object.type === "libraryElementInstance" && sameLibrary(object.libraryId)) {
+            used += 1;
+          }
+          if (object.type === "group") {
+            scan(object.objects);
+          }
+        }
+      };
+      for (const screen of project.screens) {
+        scan(screen.objects);
+      }
+      return used;
+    })();
 
     if (usageCount > 0) {
-      throw new Error(`Library \"${library.id}\" is used on screens (${usageCount} instance(s))`);
+      throw new Error(`Library \"${normalizedId}\" is used on screens (${usageCount} instance(s))`);
     }
 
     if (attached && !options?.force) {
-      throw new Error(`Library \"${library.id}\" is attached to project`);
+      throw new Error(`Library \"${normalizedId}\" is attached to project`);
     }
 
     let detached = false;
@@ -406,13 +432,13 @@ export class LibraryService {
       const refs = project.libraries ?? [];
       const next: ScadaProject = {
         ...project,
-        libraries: refs.filter((ref) => ref.libraryId !== library.id),
+        libraries: refs.filter((ref) => !sameLibrary(ref.libraryId)),
       };
       await this.projectService.saveProject(next);
       detached = true;
     }
 
-    await rm(this.libraryDir(library.id), { recursive: true, force: true });
+    await rm(libraryDir, { recursive: true, force: true });
     return { deleted: true, detached };
   }
 

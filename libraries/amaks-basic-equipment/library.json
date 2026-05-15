@@ -45,6 +45,42 @@
       "updatedAt": "2026-05-08T06:24:15.798Z",
       "storagePath": "assets/f908f864-26b3-48e3-bcb4-732b013f28f2.png",
       "previewUrl": "/api/libraries/amaks-basic-equipment/assets/f908f864-26b3-48e3-bcb4-732b013f28f2/file"
+    },
+    {
+      "id": "edd18c1b-b49b-4269-85bc-a51c9786d8f8",
+      "name": "white.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "edd18c1b-b49b-4269-85bc-a51c9786d8f8.png",
+      "size": 3592,
+      "createdAt": "2026-05-08T06:23:47.938Z",
+      "updatedAt": "2026-05-08T06:23:47.938Z",
+      "storagePath": "assets/edd18c1b-b49b-4269-85bc-a51c9786d8f8.png",
+      "previewUrl": "/api/libraries/amaks-basic-equipment/assets/edd18c1b-b49b-4269-85bc-a51c9786d8f8/file"
+    },
+    {
+      "id": "2fdfe33c-47d0-403c-b846-9bd699dea9f0",
+      "name": "yellow.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "2fdfe33c-47d0-403c-b846-9bd699dea9f0.png",
+      "size": 3570,
+      "createdAt": "2026-05-08T06:23:51.115Z",
+      "updatedAt": "2026-05-08T06:23:51.115Z",
+      "storagePath": "assets/2fdfe33c-47d0-403c-b846-9bd699dea9f0.png",
+      "previewUrl": "/api/libraries/amaks-basic-equipment/assets/2fdfe33c-47d0-403c-b846-9bd699dea9f0/file"
+    },
+    {
+      "id": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1",
+      "name": "square_0.PNG",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1.png",
+      "size": 2846,
+      "createdAt": "2026-05-08T09:13:57.558Z",
+      "updatedAt": "2026-05-08T09:13:57.558Z",
+      "storagePath": "assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1.png",
+      "previewUrl": "/api/libraries/amaks-basic-equipment/assets/3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1/file"
     }
   ],
   "elements": [
@@ -131,7 +167,7 @@
                 "type": "equals",
                 "value": 1
               },
-              "assetId": "766367c9-dc43-437f-9eeb-c5b7140db82d"
+              "assetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0"
             }
           ],
           "defaultAssetId": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1",
@@ -396,13 +432,19 @@
             {
               "id": "valve-state-closed",
               "name": "Closed",
-              "condition": { "type": "equals", "value": 0 },
+              "condition": {
+                "type": "equals",
+                "value": 0
+              },
               "assetId": "valve_closed_svg"
             },
             {
               "id": "valve-state-open",
               "name": "Open",
-              "condition": { "type": "equals", "value": 1 },
+              "condition": {
+                "type": "equals",
+                "value": 1
+              },
               "assetId": "valve_open_svg"
             }
           ],

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+ï»¿import { useEffect, useMemo, useRef, useState } from "react";
 import type { ElementLibrary, LibraryElement, MacroDefinition, ProjectLibraryRef } from "@web-scada/shared";
 import { api } from "../../../services/api";
 import { WorkbenchButton, WorkbenchSection } from "../../../components/workbench";
@@ -270,7 +270,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
               >
                 <div className="screen-editor-item-title">{library.name}</div>
                 <div className="screen-editor-item-meta">
-                  {library.id} · v{library.version} · {library.elements.length} elements · {library.assets.length} assets · {(library.macros ?? []).length} macros
+                  {library.id} | v{library.version} | {library.elements.length} elements | {library.assets.length} assets | {(library.macros ?? []).length} macros
                 </div>
                 <div className="screen-editor-item-actions">
                   {isAttached ? (
@@ -333,12 +333,21 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
 
             {activeTab === "elements" ? (
               <div className="screen-editor-library-element-list">
+                {!attachedIds.has(selectedLibrary.id) ? (
+                  <div className="screen-editor-item-meta">Attach library to add elements to screen.</div>
+                ) : null}
                 {(selectedLibrary.elements ?? []).map((element) => (
                   <div key={element.id} className="screen-editor-library-element-item">
                     <div className="screen-editor-item-title">{element.name}</div>
-                    <div className="screen-editor-item-meta">{element.category ?? "General"} · {element.width}x{element.height}</div>
+                    <div className="screen-editor-item-meta">{element.category ?? "General"} Â· {element.width}x{element.height}</div>
                     <div className="screen-editor-item-actions">
-                      <WorkbenchButton variant="primary" onClick={() => onAddLibraryElementToScreen(selectedLibrary.id, element)}>Add to screen</WorkbenchButton>
+                      <WorkbenchButton
+                        variant="primary"
+                        disabled={!attachedIds.has(selectedLibrary.id)}
+                        onClick={() => onAddLibraryElementToScreen(selectedLibrary.id, element)}
+                      >
+                        Add to screen
+                      </WorkbenchButton>
                     </div>
                   </div>
                 ))}
@@ -350,7 +359,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 {(selectedLibrary.assets ?? []).map((asset) => (
                   <div key={asset.id} className="screen-editor-library-element-item">
                     <div className="screen-editor-item-title">{asset.name}</div>
-                    <div className="screen-editor-item-meta">{asset.fileName} · {asset.mimeType}</div>
+                    <div className="screen-editor-item-meta">{asset.fileName} Â· {asset.mimeType}</div>
                   </div>
                 ))}
               </div>
@@ -371,7 +380,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 {(selectedLibrary.macros ?? []).map((macro) => (
                   <div key={macro.id} className="screen-editor-library-element-item">
                     <div className="screen-editor-item-title">{macro.name}</div>
-                    <div className="screen-editor-item-meta">{macro.id} · {macro.enabled === false ? "disabled" : "enabled"}</div>
+                    <div className="screen-editor-item-meta">{macro.id} Â· {macro.enabled === false ? "disabled" : "enabled"}</div>
                     <div className="screen-editor-item-actions">
                       <WorkbenchButton onClick={() => void importMacroToProject(macro.id)}>Import To Project</WorkbenchButton>
                       <WorkbenchButton onClick={() => void deleteMacroFromLibrary(macro.id)}>Delete</WorkbenchButton>

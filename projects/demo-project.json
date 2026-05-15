@@ -105,7 +105,7 @@
       "libraryId": "amaks-basic-equipment",
       "name": "АМАКС. Базовое оборудование",
       "version": "1.0.0",
-      "path": "libraries/amaks-basic-equipment",
+      "path": "D:\\Work\\MyWebSCADA\\libraries\\amaks-basic-equipment",
       "enabled": true
     }
   ],
@@ -10017,8 +10017,8 @@
         {
           "id": "value-display_92ahtl",
           "type": "value-display",
-          "x": 927.7543516733431,
-          "y": 771.2921125332361,
+          "x": 978.3859890738607,
+          "y": 771.2921125332359,
           "width": 855.6969195579992,
           "height": 190.15487101288852,
           "rotation": 0,
@@ -10360,6 +10360,54 @@
           "gradientStartColor": "#937070",
           "gradientEndColor": "#735d5d",
           "gradientDirection": "outside-inward"
+        },
+        {
+          "id": "tri_mmzejl",
+          "type": "line",
+          "x": 201.05244682297106,
+          "y": 834.6121920754587,
+          "width": 90.00000000000001,
+          "height": 80.00000000000055,
+          "rotation": 90,
+          "opacity": 1,
+          "minWidth": 20,
+          "minHeight": 20,
+          "points": [
+            45.00000000000001,
+            0,
+            90.00000000000001,
+            80.00000000000055,
+            0,
+            80.00000000000055
+          ],
+          "stroke": "#8c8c8c",
+          "strokeWidth": 2,
+          "closed": true,
+          "fill": "#262626"
+        },
+        {
+          "id": "line_mjhned",
+          "type": "line",
+          "x": 197.93306992898772,
+          "y": 926.9116954508659,
+          "width": 90.00000000000001,
+          "height": 80.00000000000055,
+          "rotation": 270,
+          "opacity": 1,
+          "minWidth": 20,
+          "minHeight": 20,
+          "points": [
+            45.00000000000001,
+            0,
+            90.00000000000001,
+            80.00000000000055,
+            0,
+            80.00000000000055
+          ],
+          "stroke": "#8c8c8c",
+          "strokeWidth": 2,
+          "closed": true,
+          "fill": "#262626"
         }
       ]
     },

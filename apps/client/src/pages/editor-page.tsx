@@ -166,6 +166,14 @@ export function EditorPage() {
   const canUsersWrite = hasPermission("users.write");
   const canUsersDelete = hasPermission("users.delete");
   const canUsersChangePassword = hasPermission("users.changePassword");
+  const enabledLibraryIds = useMemo(
+    () => new Set((project?.libraries ?? []).filter((item) => item.enabled).map((item) => item.libraryId)),
+    [project?.libraries],
+  );
+  const activeLibraries = useMemo(
+    () => libraries.filter((library) => enabledLibraryIds.has(library.id)),
+    [enabledLibraryIds, libraries],
+  );
 
   const [newLibraryId, setNewLibraryId] = useState("custom-equipment");
   const [newLibraryName, setNewLibraryName] = useState("Custom Library");
@@ -333,7 +341,7 @@ export function EditorPage() {
   const { previewMode, setPreviewMode } = useEditorRuntimePreview({
     project,
     screen,
-    libraries,
+    libraries: activeLibraries,
     tags,
     setTagValues,
   });
@@ -912,7 +920,7 @@ export function EditorPage() {
             screen={screen}
             project={project}
             tags={tags}
-            libraries={libraries}
+            libraries={activeLibraries}
             selection={selection}
             selectionRect={selection.selectionRect}
             showObjectFrames={showObjectFrames}

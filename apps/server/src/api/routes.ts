@@ -1886,10 +1886,6 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.get("/api/libraries/:libraryId/assets/:assetId/file", async (request, reply) => {
-    const auth = await requirePermission(request, reply, deps, "libraries.view");
-    if (!auth) {
-      return;
-    }
     const { libraryId, assetId } = request.params as { libraryId: string; assetId: string };
     const asset = await deps.libraryService.getLibraryAsset(libraryId, assetId);
     if (!asset) {
