@@ -686,19 +686,44 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
         <Input value={object.name ?? ""} onChange={(e) => onPatch({ name: e.target.value })} />
       </Form.Item>
       <Form.Item label="X">
-        <InputNumber style={{ width: "100%" }} value={object.x} onChange={(v) => onPatch({ x: Number(v ?? 0) })} />
+        <InputNumber
+          style={{ width: "100%" }}
+          precision={1}
+          value={toFixedPrecisionNumber(object.x, 1)}
+          onChange={(v) => onPatch({ x: toFixedPrecisionNumber(v ?? 0, 1) })}
+        />
       </Form.Item>
       <Form.Item label="Y">
-        <InputNumber style={{ width: "100%" }} value={object.y} onChange={(v) => onPatch({ y: Number(v ?? 0) })} />
+        <InputNumber
+          style={{ width: "100%" }}
+          precision={1}
+          value={toFixedPrecisionNumber(object.y, 1)}
+          onChange={(v) => onPatch({ y: toFixedPrecisionNumber(v ?? 0, 1) })}
+        />
       </Form.Item>
       <Form.Item label="Width">
-        <InputNumber style={{ width: "100%" }} value={object.width} onChange={(v) => onPatch({ width: Number(v ?? 10) })} />
+        <InputNumber
+          style={{ width: "100%" }}
+          precision={1}
+          value={toFixedPrecisionNumber(object.width, 1)}
+          onChange={(v) => onPatch({ width: toFixedPrecisionNumber(v ?? 10, 1) })}
+        />
       </Form.Item>
       <Form.Item label="Height">
-        <InputNumber style={{ width: "100%" }} value={object.height} onChange={(v) => onPatch({ height: Number(v ?? 10) })} />
+        <InputNumber
+          style={{ width: "100%" }}
+          precision={1}
+          value={toFixedPrecisionNumber(object.height, 1)}
+          onChange={(v) => onPatch({ height: toFixedPrecisionNumber(v ?? 10, 1) })}
+        />
       </Form.Item>
       <Form.Item label="Rotation">
-        <InputNumber style={{ width: "100%" }} value={object.rotation ?? 0} onChange={(v) => onPatch({ rotation: Number(v ?? 0) })} />
+        <InputNumber
+          style={{ width: "100%" }}
+          precision={1}
+          value={toFixedPrecisionNumber(object.rotation ?? 0, 1)}
+          onChange={(v) => onPatch({ rotation: toFixedPrecisionNumber(v ?? 0, 1) })}
+        />
       </Form.Item>
       <Space>
         <span>Visible</span>
@@ -3897,6 +3922,15 @@ function clampOpacity(value: number | string | null | undefined): number {
     return 1;
   }
   return numeric;
+}
+
+function toFixedPrecisionNumber(value: number | string | null | undefined, precision: number): number {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  const multiplier = 10 ** Math.max(0, precision);
+  return Math.round(numeric * multiplier) / multiplier;
 }
 
 function normalizePickerColor(value: string | undefined, fallback: string): string {

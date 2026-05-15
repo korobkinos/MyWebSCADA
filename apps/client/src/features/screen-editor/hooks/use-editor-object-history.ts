@@ -108,9 +108,46 @@ export function useEditorObjectHistory({
 
   const moveObjectWithHistory = useCallback(
     (objectId: string, x: number, y: number) => {
-      runWithHistory("Move object", () => moveObject(screen?.id ?? "", objectId, x, y));
+      if (!screen) {
+        return;
+      }
+      const dragged = screen.objects.find((item) => item.id === objectId);
+      if (!dragged || dragged.locked) {
+        return;
+      }
+
+      const selectedIdSet = new Set(selection.selectedObjectIds);
+      const selectedUnlockedIds = screen.objects
+        .filter((item) => selectedIdSet.has(item.id) && !item.locked)
+        .map((item) => item.id);
+      const isGroupMove = selectedUnlockedIds.length > 1 && selectedIdSet.has(objectId);
+
+      if (!isGroupMove) {
+        runWithHistory("Move object", () => moveObject(screen.id, objectId, x, y));
+        return;
+      }
+
+      const dx = x - dragged.x;
+      const dy = y - dragged.y;
+      if (dx === 0 && dy === 0) {
+        return;
+      }
+      const movingIdSet = new Set(selectedUnlockedIds);
+      runWithHistory("Move objects", () => {
+        const next = screen.objects.map((item) => {
+          if (!movingIdSet.has(item.id)) {
+            return item;
+          }
+          return {
+            ...item,
+            x: item.x + dx,
+            y: item.y + dy,
+          };
+        });
+        setScreenObjects(screen.id, next);
+      });
     },
-    [moveObject, runWithHistory, screen?.id],
+    [moveObject, runWithHistory, screen, selection.selectedObjectIds, setScreenObjects],
   );
 
   const resizeObjectWithHistory = useCallback(

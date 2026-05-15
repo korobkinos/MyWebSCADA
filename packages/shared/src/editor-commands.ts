@@ -44,12 +44,36 @@ export type EditorCommandResult = {
 };
 
 export function getObjectBounds(object: HmiObject): Rect {
-  // TODO: rotation-aware bounds can be added later.
+  const rotation = object.rotation ?? 0;
+  if (rotation === 0) {
+    return {
+      x: object.x,
+      y: object.y,
+      width: object.width,
+      height: object.height,
+    };
+  }
+
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const points = [
+    rotatePoint(0, 0, cos, sin),
+    rotatePoint(object.width, 0, cos, sin),
+    rotatePoint(object.width, object.height, cos, sin),
+    rotatePoint(0, object.height, cos, sin),
+  ];
+  const xs = points.map((point) => object.x + point.x);
+  const ys = points.map((point) => object.y + point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
   return {
-    x: object.x,
-    y: object.y,
-    width: object.width,
-    height: object.height,
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
   };
 }
 
@@ -57,10 +81,11 @@ export function getObjectsBounds(objects: HmiObject[]): Rect {
   if (!objects.length) {
     return { x: 0, y: 0, width: 0, height: 0 };
   }
-  const left = Math.min(...objects.map((obj) => obj.x));
-  const top = Math.min(...objects.map((obj) => obj.y));
-  const right = Math.max(...objects.map((obj) => obj.x + obj.width));
-  const bottom = Math.max(...objects.map((obj) => obj.y + obj.height));
+  const bounds = objects.map((obj) => getObjectBounds(obj));
+  const left = Math.min(...bounds.map((obj) => obj.x));
+  const top = Math.min(...bounds.map((obj) => obj.y));
+  const right = Math.max(...bounds.map((obj) => obj.x + obj.width));
+  const bottom = Math.max(...bounds.map((obj) => obj.y + obj.height));
   return {
     x: left,
     y: top,
@@ -236,6 +261,7 @@ export function alignSelected(
   const bottom = bounds.y + bounds.height;
   const centerX = bounds.x + bounds.width / 2;
   const centerY = bounds.y + bounds.height / 2;
+  const objectBoundsById = new Map(unlocked.map((obj) => [obj.id, getObjectBounds(obj)]));
   const unlockedIds = new Set(unlocked.map((obj) => obj.id));
 
   return {
@@ -245,22 +271,26 @@ export function alignSelected(
         if (!unlockedIds.has(obj.id)) {
           return obj;
         }
+        const objBounds = objectBoundsById.get(obj.id);
+        if (!objBounds) {
+          return obj;
+        }
         if (mode === "alignLeft") {
-          return { ...obj, x: bounds.x };
+          return { ...obj, x: obj.x + (bounds.x - objBounds.x) };
         }
         if (mode === "alignRight") {
-          return { ...obj, x: right - obj.width };
+          return { ...obj, x: obj.x + (right - (objBounds.x + objBounds.width)) };
         }
         if (mode === "alignTop") {
-          return { ...obj, y: bounds.y };
+          return { ...obj, y: obj.y + (bounds.y - objBounds.y) };
         }
         if (mode === "alignBottom") {
-          return { ...obj, y: bottom - obj.height };
+          return { ...obj, y: obj.y + (bottom - (objBounds.y + objBounds.height)) };
         }
         if (mode === "alignHorizontalCenter") {
-          return { ...obj, x: centerX - obj.width / 2 };
+          return { ...obj, x: obj.x + (centerX - (objBounds.x + objBounds.width / 2)) };
         }
-        return { ...obj, y: centerY - obj.height / 2 };
+        return { ...obj, y: obj.y + (centerY - (objBounds.y + objBounds.height / 2)) };
       }),
     },
     selection,
@@ -426,4 +456,11 @@ function selectedUnlocked(objects: HmiObject[], selectedIds: string[]): HmiObjec
 
 function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function rotatePoint(x: number, y: number, cos: number, sin: number): { x: number; y: number } {
+  return {
+    x: x * cos - y * sin,
+    y: x * sin + y * cos,
+  };
 }
