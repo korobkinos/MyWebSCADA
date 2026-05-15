@@ -44,12 +44,12 @@ import {
   DotFilledIcon,
   InputIcon,
 } from "@radix-ui/react-icons";
+import { Tabs } from "antd";
 import { HmiStage } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
   WorkbenchButton,
   WorkbenchIconButton,
-  WorkbenchTabs,
 } from "../../../components/workbench";
 import { isTextEditingTarget } from "../../../utils/keyboard";
 import type { EditorCommand, HmiObject, HmiScreen, ScadaProject } from "@web-scada/shared";
@@ -57,6 +57,7 @@ import type { EditorCommand, HmiObject, HmiScreen, ScadaProject } from "@web-sca
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
 type DropPosition = { x: number; y: number };
 type EditorTool = "select" | "pan";
+type ToolbarTab = "main" | "insert" | "arrange" | "align" | "edit" | "view";
 const MIN_EDITOR_ZOOM = 0.1;
 const MAX_EDITOR_ZOOM = 3;
 const ZOOM_STEP = 1.1;
@@ -202,6 +203,7 @@ export function ScreenEditorCenter({
     return parseEditorTool(window.localStorage.getItem(ACTIVE_TOOL_STORAGE_KEY));
   });
   const [isPanning, setIsPanning] = useState(false);
+  const [toolbarTab, setToolbarTab] = useState<ToolbarTab>("main");
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const [editorZoom, setEditorZoom] = useState<number>(() => {
     if (typeof window === "undefined") {
@@ -328,140 +330,157 @@ export function ScreenEditorCenter({
 
   return (
     <div className="screen-editor-center">
-      <WorkbenchTabs
-        items={[
-          {
-            id: screen?.id ?? "screen",
-            title: screen?.name ?? "Screen",
-            active: true,
-          },
-        ]}
-      />
-
       <div className="screen-editor-toolbar">
         <div className="screen-editor-toolbar__row">
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton
-              onClick={() => void handleSaveProject()}
-              disabled={!isProjectDirty || isSavingProject}
-              title="Save Project"
-              icon={<SaveOutlined />}
+          <div className="screen-editor-toolbar__group screen-editor-toolbar__group--tabs">
+            <Tabs
+              size="small"
+              activeKey={toolbarTab}
+              onChange={(key) => setToolbarTab(key as ToolbarTab)}
+              className="object-property-tabs object-property-tabs--main screen-editor-toolbar-tabs"
+              items={[
+                {
+                  key: "main",
+                  label: "Main",
+                  children: (
+                    <div className="screen-editor-toolbar-tabs__actions">
+                      <WorkbenchIconButton
+                        onClick={() => void handleSaveProject()}
+                        disabled={!isProjectDirty || isSavingProject}
+                        title="Save Project"
+                        icon={<SaveOutlined />}
+                      />
+                      <WorkbenchIconButton onClick={undo} disabled={!canUndo} title="Undo" icon={<UndoOutlined />} />
+                      <WorkbenchIconButton onClick={redo} disabled={!canRedo} title="Redo" icon={<RedoOutlined />} />
+                      <WorkbenchButton
+                        variant={previewMode ? "primary" : "default"}
+                        onClick={() => onPreviewModeChange(!previewMode)}
+                        title={previewMode ? "Exit Preview" : "Preview"}
+                      >
+                        {previewMode ? "Exit Preview" : "Preview"}
+                      </WorkbenchButton>
+                    </div>
+                  ),
+                },
+                {
+                  key: "insert",
+                  label: "Insert",
+                  children: (
+                    <div className="screen-editor-toolbar-tabs__actions">
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("text"))} title="Add Text" icon={<FontSizeOutlined />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("line"))} title="Add Line" icon={<MinusOutlined />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))} title="Add Rectangle" icon={<BoxIcon />} />
+                      <WorkbenchIconButton onClick={() => addPrimitiveShape("square")} title="Add Square" icon={<SquareIcon />} />
+                      <WorkbenchIconButton onClick={() => addPrimitiveShape("circle")} title="Add Circle" icon={<CircleIcon />} />
+                      <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle")} title="Add Triangle" icon={<TriangleUpIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("button"))} title="Add Button" icon={<ButtonIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("switch"))} title="Add Switch" icon={<SwitchIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))} title="Add Value Display" icon={<ValueIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<ActivityLogIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("checkbox"))} title="Add Checkbox" icon={<CheckIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("slider"))} title="Add Slider" icon={<SliderIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("progress-bar"))} title="Add Progress Bar" icon={<BarChartIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("select"))} title="Add Select" icon={<ChevronDownIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("radio-group"))} title="Add Radio Group" icon={<DotFilledIcon />} />
+                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("numeric-input"))} title="Add Numeric Input" icon={<InputIcon />} />
+                    </div>
+                  ),
+                },
+                {
+                  key: "arrange",
+                  label: "Arrange",
+                  children: (
+                    <div className="screen-editor-toolbar-tabs__actions">
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize} title="Make same width" icon={<WidthIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize} title="Make same height" icon={<HeightIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size" icon={<SizeIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute} title="Distribute horizontally" icon={<SpaceBetweenHorizontallyIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
+                      <input
+                        className="workbench-input screen-editor-toolbar__gap-input"
+                        type="number"
+                        value={spacingGap ?? ""}
+                        onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
+                        placeholder="Gap"
+                        title="Distribution gap"
+                      />
+                    </div>
+                  ),
+                },
+                {
+                  key: "align",
+                  label: "Align",
+                  children: (
+                    <div className="screen-editor-toolbar-tabs__actions">
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign} title="Align left" icon={<AlignLeftIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign} title="Align horizontal center" icon={<AlignCenterHorizontallyIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign} title="Align right" icon={<AlignRightIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign} title="Align top" icon={<AlignTopIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign} title="Align vertical center" icon={<AlignCenterVerticallyIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign} title="Align bottom" icon={<AlignBottomIcon />} />
+                    </div>
+                  ),
+                },
+                {
+                  key: "edit",
+                  label: "Edit",
+                  children: (
+                    <div className="screen-editor-toolbar-tabs__actions">
+                      <WorkbenchIconButton onClick={copySelectionToClipboard} disabled={!canCopy} title="Copy" icon={<CopyOutlined />} />
+                      <WorkbenchIconButton onClick={pasteFromClipboard} disabled={!canPaste} title="Paste" icon={<SnippetsOutlined />} />
+                      <WorkbenchIconButton
+                        onClick={deleteSelectionWithHistory}
+                        disabled={!canDelete}
+                        title="Delete"
+                        icon={<DeleteOutlined />}
+                      />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup} title="Group selected objects" icon={<GroupIcon />} />
+                      <WorkbenchIconButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup} title="Ungroup selected objects" icon={<BorderSplitIcon />} />
+                      <WorkbenchIconButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length} title="Clone selected objects" icon={<CopyIcon />} />
+                      <WorkbenchIconButton onClick={onBringToFront} disabled={!hasSelection} title="Bring to Front" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2912;</span>} />
+                      <WorkbenchIconButton onClick={onSendToBack} disabled={!hasSelection} title="Send to Back" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2913;</span>} />
+                      <WorkbenchIconButton onClick={onMoveForward} disabled={!hasSelection} title="Move Forward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>&#x2191;</span>} />
+                      <WorkbenchIconButton onClick={onMoveBackward} disabled={!hasSelection} title="Move Backward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>&#x2193;</span>} />
+                    </div>
+                  ),
+                },
+                {
+                  key: "view",
+                  label: "View",
+                  children: (
+                    <div className="screen-editor-toolbar-tabs__actions">
+                      <WorkbenchIconButton onClick={onOpenScreenSettings} title="Open Screen Settings" icon={<AppstoreOutlined />} />
+                      <WorkbenchIconButton onClick={onOpenLayers} title="Open Layers Window" icon={<UnorderedListOutlined />} />
+                      <WorkbenchIconButton onClick={onOpenObjectProperties} title="Open Object Properties Window" icon={<SettingOutlined />} />
+                      <WorkbenchIconButton
+                        onClick={onOpenSaveSelection}
+                        disabled={!canSaveSelection}
+                        title="Save Selection As Element"
+                        icon={<SaveOutlined />}
+                      />
+                      <WorkbenchIconButton
+                        active={activeTool === "select"}
+                        onClick={() => setActiveTool("select")}
+                        title="Select tool"
+                        icon={<CursorArrowIcon />}
+                      />
+                      <WorkbenchIconButton
+                        active={activeTool === "pan"}
+                        onClick={() => setActiveTool("pan")}
+                        title="Pan tool"
+                        icon={<HandIcon />}
+                      />
+                    </div>
+                  ),
+                },
+              ]}
             />
-            <WorkbenchIconButton onClick={undo} disabled={!canUndo} title="Undo" icon={<UndoOutlined />} />
-            <WorkbenchIconButton onClick={redo} disabled={!canRedo} title="Redo" icon={<RedoOutlined />} />
           </div>
-
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("text"))} title="Add Text" icon={<FontSizeOutlined />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("line"))} title="Add Line" icon={<MinusOutlined />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))} title="Add Rectangle" icon={<BoxIcon />} />
-            <WorkbenchIconButton onClick={() => addPrimitiveShape("square")} title="Add Square" icon={<SquareIcon />} />
-            <WorkbenchIconButton onClick={() => addPrimitiveShape("circle")} title="Add Circle" icon={<CircleIcon />} />
-            <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle")} title="Add Triangle" icon={<TriangleUpIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("button"))} title="Add Button" icon={<ButtonIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("switch"))} title="Add Switch" icon={<SwitchIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))} title="Add Value Display" icon={<ValueIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<ActivityLogIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("checkbox"))} title="Add Checkbox" icon={<CheckIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("slider"))} title="Add Slider" icon={<SliderIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("progress-bar"))} title="Add Progress Bar" icon={<BarChartIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("select"))} title="Add Select" icon={<ChevronDownIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("radio-group"))} title="Add Radio Group" icon={<DotFilledIcon />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("numeric-input"))} title="Add Numeric Input" icon={<InputIcon />} />
-          </div>
-
-          <div className="screen-editor-toolbar__spacer" />
-
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchButton
-              variant={previewMode ? "primary" : "default"}
-              onClick={() => onPreviewModeChange(!previewMode)}
-              title={previewMode ? "Exit Preview" : "Preview"}
-            >
-              {previewMode ? "Exit Preview" : "Preview"}
-            </WorkbenchButton>
-            <WorkbenchIconButton onClick={onOpenScreenSettings} title="Open Screen Settings" icon={<AppstoreOutlined />} />
-            <WorkbenchIconButton onClick={onOpenLayers} title="Open Layers Window" icon={<UnorderedListOutlined />} />
-            <WorkbenchIconButton onClick={onOpenObjectProperties} title="Open Object Properties Window" icon={<SettingOutlined />} />
-            <WorkbenchIconButton
-              onClick={onOpenSaveSelection}
-              disabled={!canSaveSelection}
-              title="Save Selection As Element"
-              icon={<SaveOutlined />}
-            />
-          </div>
-
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton onClick={copySelectionToClipboard} disabled={!canCopy} title="Copy" icon={<CopyOutlined />} />
-            <WorkbenchIconButton onClick={pasteFromClipboard} disabled={!canPaste} title="Paste" icon={<SnippetsOutlined />} />
-            <WorkbenchIconButton
-              onClick={deleteSelectionWithHistory}
-              disabled={!canDelete}
-              title="Delete"
-              icon={<DeleteOutlined />}
-            />
-          </div>
-
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton onClick={onBringToFront} disabled={!hasSelection} title="Bring to Front" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2912;</span>} />
-            <WorkbenchIconButton onClick={onSendToBack} disabled={!hasSelection} title="Send to Back" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2913;</span>} />
-            <WorkbenchIconButton onClick={onMoveForward} disabled={!hasSelection} title="Move Forward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>↑</span>} />
-            <WorkbenchIconButton onClick={onMoveBackward} disabled={!hasSelection} title="Move Backward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>↓</span>} />
-          </div>
-        </div>
-
-        <div className="screen-editor-toolbar__row">
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize} title="Make same width" icon={<WidthIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize} title="Make same height" icon={<HeightIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size" icon={<SizeIcon />} />
-          </div>
-
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute} title="Distribute horizontally" icon={<SpaceBetweenHorizontallyIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
-            <input
-              className="workbench-input screen-editor-toolbar__gap-input"
-              type="number"
-              value={spacingGap ?? ""}
-              onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-              placeholder="Gap"
-              title="Distribution gap"
-            />
-          </div>
-
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign} title="Align left" icon={<AlignLeftIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign} title="Align horizontal center" icon={<AlignCenterHorizontallyIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign} title="Align right" icon={<AlignRightIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign} title="Align top" icon={<AlignTopIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign} title="Align vertical center" icon={<AlignCenterVerticallyIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign} title="Align bottom" icon={<AlignBottomIcon />} />
-          </div>
-
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup} title="Group selected objects" icon={<GroupIcon />} />
-            <WorkbenchIconButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup} title="Ungroup selected objects" icon={<BorderSplitIcon />} />
-            <WorkbenchIconButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length} title="Clone selected objects" icon={<CopyIcon />} />
-          </div>
-
-          <div className="screen-editor-toolbar__group">
-            <WorkbenchIconButton
-              active={activeTool === "select"}
-              onClick={() => setActiveTool("select")}
-              title="Select tool"
-              icon={<CursorArrowIcon />}
-            />
-            <WorkbenchIconButton
-              active={activeTool === "pan"}
-              onClick={() => setActiveTool("pan")}
-              title="Pan tool"
-              icon={<HandIcon />}
-            />
+          <div className="screen-editor-toolbar__screen-name" title={screen?.name ?? "Screen"}>
+            {screen?.name ?? "Screen"}
           </div>
         </div>
       </div>
-
       <div
         className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${!previewMode && activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${!previewMode && isPanning ? " screen-editor-canvas-host--panning" : ""}`}
         style={viewportBackground ? { background: viewportBackground } : undefined}

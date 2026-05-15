@@ -1681,7 +1681,7 @@ body {
 .screen-editor-toolbar__row {
   min-height: 32px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   padding: 3px 6px;
   overflow-x: auto;
@@ -1704,8 +1704,53 @@ body {
   padding-right: 0;
 }
 
-.screen-editor-toolbar__spacer {
+.screen-editor-toolbar__group--tabs {
   flex: 1 1 auto;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.screen-editor-toolbar-tabs {
+  width: 100%;
+  min-width: 0;
+}
+
+.screen-editor-toolbar-tabs > .ant-tabs-nav {
+  margin-bottom: 4px !important;
+}
+
+.screen-editor-toolbar-tabs .ant-tabs-content-holder {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.screen-editor-toolbar-tabs .ant-tabs-tab {
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+}
+
+.screen-editor-toolbar-tabs__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding-bottom: 1px;
+}
+
+.screen-editor-toolbar__screen-name {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  margin-top: 1px;
+  max-width: 220px;
+  padding: 3px 8px;
+  border: 1px solid #3c3c3c;
+  background: #1f2022;
+  color: #cfcfcf;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .screen-editor-toolbar .workbench-button {
