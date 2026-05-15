@@ -159,7 +159,6 @@ export function EditorPage() {
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
   const setTagValues = useScadaStore((s) => s.setTagValues);
   const hasPermission = useScadaStore((s) => s.hasPermission);
-  const logoutEngineer = useScadaStore((s) => s.logoutEngineer);
 
   const canUsersView = hasPermission("users.view");
   const canUsersWrite = hasPermission("users.write");
@@ -900,8 +899,7 @@ export function EditorPage() {
             onOpenSaveSelection={() => openDefinedWindow("saveSelectionAsElement")}
             onOpenScreenSettings={() => openDefinedWindow("screenSettings")}
             onLogout={() => {
-              logoutEngineer();
-              window.location.replace("/");
+              window.location.replace("/?logout=1");
             }}
             canSaveSelection={selectedObjects.length > 0}
             setContextMenu={setContextMenu}

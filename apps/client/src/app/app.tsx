@@ -89,6 +89,16 @@ export function App() {
 
   const bootstrapApp = useCallback(async () => {
     setBootError(null);
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("logout") === "1") {
+        logout();
+        params.delete("logout");
+        const nextQuery = params.toString();
+        const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`;
+        window.history.replaceState(window.history.state, "", nextUrl);
+      }
+    }
     await initializeAuth();
 
     let lastError: unknown;
@@ -105,7 +115,7 @@ export function App() {
 
     const text = lastError instanceof Error ? lastError.message : String(lastError);
     setBootError(text || "Failed to connect to backend");
-  }, [initializeAuth, loadAssets, loadDrivers, loadLibraries, loadMacros, loadProject, loadRuntimeStatus, loadTags]);
+  }, [initializeAuth, loadAssets, loadDrivers, loadLibraries, loadMacros, loadProject, loadRuntimeStatus, loadTags, logout]);
 
   useEffect(() => {
     void bootstrapApp();
