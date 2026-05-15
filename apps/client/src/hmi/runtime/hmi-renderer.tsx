@@ -222,8 +222,8 @@ function resolveShadowOffset(direction: ShadowDirection, distance: number): { x:
   }
 }
 
-function resolveShapeShadowProps(object: HmiObject): Record<string, unknown> {
-  if (!(object.shadowEnabled ?? false)) {
+function resolveShapeShadowProps(object: HmiObject, options?: { disabled?: boolean }): Record<string, unknown> {
+  if (options?.disabled || !(object.shadowEnabled ?? false)) {
     return {};
   }
   const shadowColor = object.shadowColor ?? "#000000";
@@ -357,6 +357,7 @@ type HmiRendererProps = {
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
+  shadowDisabled?: boolean;
 };
 
 type BaseNodeProps = {
@@ -383,6 +384,7 @@ type BaseNodeProps = {
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
+  shadowDisabled: boolean;
 };
 
 export function HmiRenderer({
@@ -409,6 +411,7 @@ export function HmiRenderer({
   onShowOverlay,
   onHideOverlay,
   onRequestNumericInput,
+  shadowDisabled = false,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
@@ -458,6 +461,7 @@ export function HmiRenderer({
           onShowOverlay={onShowOverlay}
           onHideOverlay={onHideOverlay}
           onRequestNumericInput={onRequestNumericInput}
+          shadowDisabled={shadowDisabled}
         />
       ))}
     </>
@@ -473,6 +477,7 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   if (prev.inheritedDisabled !== next.inheritedDisabled) return false;
   if (prev.showObjectFrames !== next.showObjectFrames) return false;
   if (prev.mode !== next.mode) return false;
+  if (prev.shadowDisabled !== next.shadowDisabled) return false;
   if (prev.renderContext.tagPrefix !== next.renderContext.tagPrefix) return false;
   if (prev.renderContext.parameters !== next.renderContext.parameters) return false;
   if (prev.renderContext.isAuthenticated !== next.renderContext.isAuthenticated) return false;
@@ -616,9 +621,12 @@ function ObjectNode({
   onShowOverlay,
   onHideOverlay,
   onRequestNumericInput,
+  shadowDisabled,
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
+  const [isDragging, setIsDragging] = useState(false);
+  const effectiveShadowDisabled = shadowDisabled || (mode === "editor" && isDragging);
   const debugPerformance =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -696,6 +704,11 @@ function ObjectNode({
     opacity: resolvedObject.opacity ?? 1,
     visible: (resolvedObject.visible ?? true) && visibleByRole,
     draggable: interactive && !resolvedObject.locked,
+    onDragStart: () => {
+      if (mode === "editor" && interactive && !resolvedObject.locked) {
+        setIsDragging(true);
+      }
+    },
     onClick: (evt: KonvaEventObject<MouseEvent>) => {
       if (!selectable) {
         return;
@@ -716,6 +729,7 @@ function ObjectNode({
       });
     },
     onDragEnd: (evt: KonvaEventObject<DragEvent>) => {
+      setIsDragging(false);
       if (interactive && !resolvedObject.locked) {
         onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
       }
@@ -800,12 +814,13 @@ function ObjectNode({
         overlayState={overlayState}
         onShowOverlay={onShowOverlay}
         onHideOverlay={onHideOverlay}
+        shadowDisabled={effectiveShadowDisabled}
       />
     );
   }
 
   if (resolvedObject.type === "text") {
-    const textShadowProps = resolveShapeShadowProps(resolvedObject);
+    const textShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     const textShadowSettings = resolveShadowSettings(resolvedObject);
     const shadowTextStyle: TextStyle = {
       ...resolvedObject.textStyle,
@@ -814,7 +829,7 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        {textShadowSettings.enabled && textShadowSettings.opacity > 0 ? (
+        {!effectiveShadowDisabled && textShadowSettings.enabled && textShadowSettings.opacity > 0 ? (
           renderBoxText(resolvedObject.text, shadowTextStyle, {
             width: resolvedObject.width,
             height: resolvedObject.height,
@@ -870,7 +885,7 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
-    const lineShadowProps = resolveShapeShadowProps(resolvedObject);
+    const lineShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -880,6 +895,7 @@ function ObjectNode({
           strokeWidth={resolvedObject.strokeWidth}
           closed={resolvedObject.closed ?? false}
           fill={resolvedObject.fill}
+          perfectDrawEnabled={false}
           {...lineGradientProps}
           {...lineShadowProps}
         />
@@ -901,7 +917,7 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
-    const rectShadowProps = resolveShapeShadowProps(resolvedObject);
+    const rectShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -912,6 +928,7 @@ function ObjectNode({
           stroke={resolvedObject.stroke}
           strokeWidth={resolvedObject.strokeWidth}
           cornerRadius={resolvedObject.cornerRadius}
+          perfectDrawEnabled={false}
           {...rectShadowProps}
         />
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
@@ -979,7 +996,7 @@ function ObjectNode({
       || !resolvedInputTag?.value
       || resolvedInputTag.value.quality === "Bad",
     );
-    const valueInputShadowProps = resolveShapeShadowProps(resolvedObject);
+    const valueInputShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     return (
       <Group
         {...commonGroupProps}
@@ -1025,6 +1042,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
           cornerRadius={4}
           opacity={runtimeDisabled ? 0.7 : 1}
+          perfectDrawEnabled={false}
           {...valueInputShadowProps}
         />
         {renderBoxText(`${inputBad ? "BAD" : (value ?? "--")}${resolvedObject.suffix ?? ""}`, resolvedObject.textStyle, {
@@ -1055,13 +1073,13 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
-    const stateIndicatorShadowProps = resolveShapeShadowProps(resolvedObject);
+    const stateIndicatorShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     const text = isBad ? "BAD" : boolValue ? resolvedObject.trueText : resolvedObject.falseText;
 
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} cornerRadius={8} {...indicatorGradientProps} {...stateIndicatorShadowProps} />
+        <Rect width={resolvedObject.width} height={resolvedObject.height} cornerRadius={8} perfectDrawEnabled={false} {...indicatorGradientProps} {...stateIndicatorShadowProps} />
         {renderBoxText(text, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
@@ -1088,6 +1106,7 @@ function ObjectNode({
         renderContext={renderContext}
         runtimeDisabled={runtimeDisabled}
         forceFrame={showObjectFrames}
+        shadowDisabled={effectiveShadowDisabled}
       />
     );
   }
@@ -1112,7 +1131,7 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
-    const switchShadowProps = resolveShapeShadowProps(resolvedObject);
+    const switchShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     return (
       <Group
         {...commonGroupProps}
@@ -1155,6 +1174,7 @@ function ObjectNode({
           strokeWidth={resolvedObject.borderWidth ?? 0}
           cornerRadius={8}
           opacity={runtimeDisabled ? 0.65 : 1}
+          perfectDrawEnabled={false}
           {...switchShadowProps}
         />
         {renderBoxText(
@@ -1181,7 +1201,7 @@ function ObjectNode({
       : (resolvedObject.options.length > 0 ? 0 : -1);
     const activeOption = currentIndex >= 0 ? resolvedObject.options[currentIndex] : undefined;
     const displayText = activeOption?.label ?? (currentValue === undefined ? "--" : String(currentValue));
-    const valueSelectShadowProps = resolveShapeShadowProps(resolvedObject);
+    const valueSelectShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
 
     return (
       <Group
@@ -1219,6 +1239,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? "#707070" : "#5b6b7c"}
           cornerRadius={6}
           opacity={runtimeDisabled ? 0.65 : 1}
+          perfectDrawEnabled={false}
           {...valueSelectShadowProps}
         />
         {renderBoxText(displayText, resolvedObject.textStyle, {
@@ -1250,6 +1271,7 @@ function ObjectNode({
         renderContext={renderContext}
         runtimeDisabled={runtimeDisabled}
         forceFrame={showObjectFrames}
+        shadowDisabled={effectiveShadowDisabled}
       />
     );
   }
@@ -1285,6 +1307,7 @@ function ObjectNode({
         renderContext={renderContext}
         runtimeDisabled={runtimeDisabled}
         forceFrame={showObjectFrames}
+        shadowDisabled={effectiveShadowDisabled}
       />
     );
   }
@@ -1309,6 +1332,7 @@ function ObjectNode({
         onAction={onAction}
         commonGroupProps={commonGroupProps}
         runtimeDisabled={runtimeDisabled}
+        shadowDisabled={effectiveShadowDisabled}
       />
     );
   }
@@ -1318,12 +1342,12 @@ function ObjectNode({
     const closed = runtimeMode ? Boolean(tagValue(resolvedObject.closedTag, { useObjectIndexing: true, fieldName: "closedTag" }).value?.value) : false;
     const fault = runtimeMode ? Boolean(tagValue(resolvedObject.errorTag, { useObjectIndexing: true, fieldName: "errorTag" }).value?.value) : false;
     const color = fault ? "#d9363e" : open ? "#73d13d" : closed ? "#1677ff" : "#faad14";
-    const valveShadowProps = resolveShapeShadowProps(resolvedObject);
+    const valveShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
 
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} {...valveShadowProps} />
+        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} perfectDrawEnabled={false} {...valveShadowProps} />
         <Line points={[20, 20, resolvedObject.width - 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
         <Line points={[resolvedObject.width - 20, 20, 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
         {renderBoxText(resolvedObject.label ?? "Valve", resolvedObject.textStyle, { width: resolvedObject.width, height: resolvedObject.height })}
@@ -1336,12 +1360,12 @@ function ObjectNode({
     const run = runtimeMode ? Boolean(tagValue(resolvedObject.runTag, { useObjectIndexing: true, fieldName: "runTag" }).value?.value) : false;
     const fault = runtimeMode ? Boolean(tagValue(resolvedObject.faultTag, { useObjectIndexing: true, fieldName: "faultTag" }).value?.value) : false;
     const color = fault ? "#ff4d4f" : run ? "#52c41a" : "#8c8c8c";
-    const pumpShadowProps = resolveShapeShadowProps(resolvedObject);
+    const pumpShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
 
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} {...pumpShadowProps} />
+        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} perfectDrawEnabled={false} {...pumpShadowProps} />
         <Circle x={resolvedObject.width * 0.35} y={resolvedObject.height * 0.45} radius={Math.min(resolvedObject.width, resolvedObject.height) * 0.2} fill={color} />
         <Line
           points={[
@@ -1379,6 +1403,7 @@ function ObjectNode({
         commonGroupProps={commonGroupProps}
         scopedAssets={scopedAssets}
         inheritedDisabled={runtimeDisabled}
+        shadowDisabled={effectiveShadowDisabled}
       />
     );
   }
@@ -1397,7 +1422,7 @@ function ObjectNode({
     const checkY = (resolvedObject.height - checkBoxSize) / 2;
     const checkX = 2;
     const labelPadding = checkX + checkBoxSize + 6;
-    const checkboxShadowProps = resolveShapeShadowProps(resolvedObject);
+    const checkboxShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     return (
       <Group
         {...commonGroupProps}
@@ -1450,6 +1475,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : isChecked ? fillColor : HMI_CONTROL_COLORS.border}
           strokeWidth={1.5}
           cornerRadius={3}
+          perfectDrawEnabled={false}
           {...checkboxShadowProps}
         />
         {isChecked ? (
@@ -1575,7 +1601,7 @@ function ObjectNode({
       }
       return { x: innerX, y: innerY, width: fillW, height: innerH };
     })();
-    const progressBarShadowProps = resolveShapeShadowProps(resolvedObject);
+    const progressBarShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -1586,6 +1612,7 @@ function ObjectNode({
           stroke={renderBorder}
           strokeWidth={borderWidth}
           cornerRadius={cornerRadius}
+          perfectDrawEnabled={false}
           {...progressBarShadowProps}
         />
         <Rect
@@ -1835,7 +1862,7 @@ function ObjectNode({
             showUnit: Boolean(resolvedObject.unit),
           }))
       : "";
-    const sliderShadowProps = resolveShapeShadowProps(resolvedObject);
+    const sliderShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     const sliderMinText = formatNumericValue(sliderMin, {
       formatMode: "decimals",
       decimals,
@@ -1950,6 +1977,7 @@ function ObjectNode({
           strokeWidth={sliderBorderWidth}
           cornerRadius={sliderCornerRadius}
           opacity={runtimeDisabled ? 0.7 : 1}
+          perfectDrawEnabled={false}
           {...sliderShadowProps}
         />
         {isSliderVertical ? (
@@ -1977,6 +2005,7 @@ function ObjectNode({
               fill={renderThumbColor}
               stroke={sliderThumbBorderColor}
               strokeWidth={1}
+              perfectDrawEnabled={false}
               {...sliderShadowProps}
             />
           </>
@@ -2005,6 +2034,7 @@ function ObjectNode({
               fill={renderThumbColor}
               stroke={sliderThumbBorderColor}
               strokeWidth={1}
+              perfectDrawEnabled={false}
               {...sliderShadowProps}
             />
           </>
@@ -2102,7 +2132,7 @@ function ObjectNode({
       ? selectDisabledTextColor
       : (selectBad ? selectBadTextColor : (isPlaceholder ? selectPlaceholderColor : selectTextColor));
     const renderArrowColor = runtimeDisabled ? selectDisabledTextColor : (selectBad ? selectBadTextColor : selectArrowColor);
-    const selectShadowProps = resolveShapeShadowProps(resolvedObject);
+    const selectShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
 
     return (
       <Group
@@ -2224,6 +2254,7 @@ function ObjectNode({
           strokeWidth={selectBorderWidth}
           cornerRadius={selectCornerRadius}
           opacity={runtimeDisabled ? 0.65 : 1}
+          perfectDrawEnabled={false}
           {...selectShadowProps}
         />
         {renderBoxText(displayText, {
@@ -2311,7 +2342,7 @@ function ObjectNode({
     const renderSelectedLabel = runtimeDisabled ? disabledTextColor : (radioBad ? badTextColor : selectedLabelColor);
     const radioCount = Math.max(1, radioOptions.length);
     const totalGap = itemGap * Math.max(0, radioCount - 1);
-    const radioShadowProps = resolveShapeShadowProps(resolvedObject);
+    const radioShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     const itemRects = radioOptions.map((_, idx) => {
       if (isRadioVertical) {
         const itemHeight = Math.max(1, (resolvedObject.height - totalGap) / radioCount);
@@ -2396,6 +2427,7 @@ function ObjectNode({
           strokeWidth={borderWidth}
           cornerRadius={cornerRadius}
           opacity={runtimeDisabled ? 0.7 : 1}
+          perfectDrawEnabled={false}
           {...radioShadowProps}
         />
         {radioOptions.map((opt, idx) => {
@@ -2490,7 +2522,7 @@ function ObjectNode({
             showUnit: resolvedObject.showUnit,
           })
         : resolvedObject.placeholder ?? "---";
-    const numericInputShadowProps = resolveShapeShadowProps(resolvedObject);
+    const numericInputShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
 
     return (
       <Group
@@ -2562,6 +2594,7 @@ function ObjectNode({
           strokeWidth={objBorderWidth}
           cornerRadius={objCornerRadius}
           opacity={runtimeDisabled ? 0.55 : 1}
+          perfectDrawEnabled={false}
           {...numericInputShadowProps}
         />
         {renderBoxText(displayNumText, {
@@ -2643,6 +2676,7 @@ function GroupNode({
   overlayState,
   onShowOverlay,
   onHideOverlay,
+  shadowDisabled,
 }: {
   object: GroupObject;
   project: ScadaProject;
@@ -2667,6 +2701,7 @@ function GroupNode({
   overlayState?: RuntimeOverlayState | null;
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
+  shadowDisabled: boolean;
 }) {
   const scopedContext = useMemo(
     () => ({
@@ -2719,6 +2754,7 @@ function GroupNode({
         overlayState={overlayState}
         onShowOverlay={onShowOverlay}
         onHideOverlay={onHideOverlay}
+        shadowDisabled={shadowDisabled}
       />
       {interactive ? <SelectionOutline object={object} selected={selected || showObjectFrames} /> : null}
     </Group>
@@ -2742,6 +2778,7 @@ function FrameNode({
   commonGroupProps,
   scopedAssets,
   inheritedDisabled,
+  shadowDisabled,
 }: {
   object: FrameObject;
   selected: boolean;
@@ -2759,6 +2796,7 @@ function FrameNode({
   commonGroupProps: Record<string, unknown>;
   scopedAssets?: Record<string, Asset>;
   inheritedDisabled: boolean;
+  shadowDisabled: boolean;
 }) {
   const screen = project.screens.find((item) => item.id === object.screenId);
   const hasCycle = frameStack.includes(object.screenId);
@@ -2812,6 +2850,7 @@ function FrameNode({
           onResizeObject={onResizeObject}
           onAction={onAction}
           scopedAssets={scopedAssets}
+          shadowDisabled={shadowDisabled}
         />
       </Group>
       <SelectionOutline object={object} selected={selected} />
@@ -2837,6 +2876,7 @@ function LibraryInstanceNode({
   onAction,
   commonGroupProps,
   runtimeDisabled,
+  shadowDisabled,
 }: {
   object: LibraryElementInstanceObject;
   selected: boolean;
@@ -2855,6 +2895,7 @@ function LibraryInstanceNode({
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
   commonGroupProps: Record<string, unknown>;
   runtimeDisabled: boolean;
+  shadowDisabled: boolean;
 }) {
   const library = libraries.find((item) => item.id === object.libraryId);
   if (!library) {
@@ -2996,6 +3037,7 @@ function LibraryInstanceNode({
           onResizeObject={onResizeObject}
           onAction={onAction}
           scopedAssets={scopedAssets}
+          shadowDisabled={shadowDisabled}
         />
       </Group>
       {interactive ? <SelectionOutline object={object} selected={selected} /> : null}
@@ -3017,6 +3059,7 @@ function ImageNode({
   renderContext,
   runtimeDisabled,
   forceFrame = false,
+  shadowDisabled,
 }: {
   object: Extract<HmiObject, { type: "image" }>;
   selected: boolean;
@@ -3031,6 +3074,7 @@ function ImageNode({
   renderContext: RenderContext;
   runtimeDisabled: boolean;
   forceFrame?: boolean;
+  shadowDisabled: boolean;
 }) {
   const stateEntry = object.stateImages?.find((item) => String(item.state) === String(stateValue));
   const stateSrc = stateEntry?.src;
@@ -3043,7 +3087,7 @@ function ImageNode({
   });
   const source = stateSrc ?? resolvedUrl ?? object.src;
   const { image, status: imageStatus } = useImage(source);
-  const imageShadowProps = resolveShapeShadowProps(object);
+  const imageShadowProps = resolveShapeShadowProps(object, { disabled: shadowDisabled });
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, object.fit),
     [image?.height, image?.width, object.fit, object.height, object.width],
@@ -3092,6 +3136,7 @@ function ImageNode({
             stroke="#f14c4c"
             strokeWidth={1}
             dash={[4, 3]}
+            perfectDrawEnabled={false}
             {...imageShadowProps}
           />
           <Text
@@ -3106,7 +3151,7 @@ function ImageNode({
         </>
       ) : source && imageStatus === "error" ? (
         <>
-          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} {...imageShadowProps} />
+          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} perfectDrawEnabled={false} {...imageShadowProps} />
           <Text
             text="Failed to load image"
             width={object.width}
@@ -3118,7 +3163,7 @@ function ImageNode({
         </>
       ) : (
         <>
-          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} {...imageShadowProps} />
+          <Rect width={object.width} height={object.height} stroke="#434343" dash={[4, 3]} perfectDrawEnabled={false} {...imageShadowProps} />
           <Text
             text="Image source is empty"
             width={object.width}
@@ -3147,6 +3192,7 @@ function ButtonNode({
   renderContext,
   runtimeDisabled,
   forceFrame = false,
+  shadowDisabled,
 }: {
   object: Extract<HmiObject, { type: "button" }>;
   selected: boolean;
@@ -3160,6 +3206,7 @@ function ButtonNode({
   renderContext: RenderContext;
   runtimeDisabled: boolean;
   forceFrame?: boolean;
+  shadowDisabled: boolean;
 }) {
   const [pressed, setPressed] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -3195,7 +3242,7 @@ function ButtonNode({
     height: object.height,
   });
   const { image } = useImage(currentSrc);
-  const buttonShadowProps = resolveShapeShadowProps(object);
+  const buttonShadowProps = resolveShapeShadowProps(object, { disabled: shadowDisabled });
   const placement = useMemo(
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, "stretch"),
     [image?.height, image?.width, object.height, object.width],
@@ -3257,6 +3304,7 @@ function ButtonNode({
         stroke={object.borderColor}
         strokeWidth={object.borderWidth ?? 0}
         cornerRadius={6}
+        perfectDrawEnabled={false}
         {...buttonShadowProps}
       />
       {currentSrc && image ? (
@@ -3884,6 +3932,7 @@ function renderBoxText(
   },
 ) {
   const padding = textStyle.padding ?? 0;
+  const hasShadowProps = Boolean(options.shadowProps && Object.keys(options.shadowProps).length > 0);
   return (
     <Text
       x={padding + (options.xOffset ?? 0)}
@@ -3901,6 +3950,7 @@ function renderBoxText(
       fontStyle={textStyle.fontStyle ?? "normal"}
       opacity={options.opacity ?? 1}
       listening={false}
+      perfectDrawEnabled={hasShadowProps ? false : undefined}
       {...(options.shadowProps ?? {})}
     />
   );
