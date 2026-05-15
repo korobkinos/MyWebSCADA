@@ -72,6 +72,8 @@ export type HmiObjectBase = {
   visibleForRoles?: AppRole[];
   requiredVisibleRole?: AccessRoleLevel;
   requiredActionRole?: AccessRoleLevel;
+  onPressMacroId?: string;
+  onReleaseMacroId?: string;
   locked?: boolean;
   opacity?: number;
   shadowEnabled?: boolean;
@@ -549,6 +551,10 @@ export type RadioGroupObject = HmiObjectBase & {
   selectedLabelColor?: string;
   fontFamily?: string;
   fontSize?: number;
+  gradientEnabled?: boolean;
+  gradientStartColor?: string;
+  gradientEndColor?: string;
+  gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
   styleMode?: "radio" | "segmented" | "card";
   badTextColor?: string;
   badBackgroundColor?: string;

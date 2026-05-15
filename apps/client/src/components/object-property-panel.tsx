@@ -956,6 +956,24 @@ export function ObjectPropertyPanel({ project, assets, libraries, object, elemen
 
   const accessContent = (
     <>
+      <Form.Item label="Macro On Press">
+        <Select
+          allowClear
+          value={object.onPressMacroId}
+          options={(project.macros ?? []).map((item) => ({ label: item.name, value: item.id }))}
+          placeholder="none"
+          onChange={(value) => onPatch({ onPressMacroId: value || undefined } as Partial<HmiObject>)}
+        />
+      </Form.Item>
+      <Form.Item label="Macro On Release">
+        <Select
+          allowClear
+          value={object.onReleaseMacroId}
+          options={(project.macros ?? []).map((item) => ({ label: item.name, value: item.id }))}
+          placeholder="none"
+          onChange={(value) => onPatch({ onReleaseMacroId: value || undefined } as Partial<HmiObject>)}
+        />
+      </Form.Item>
       <Form.Item label="Visible Role">
         <Select
           value={(object.requiredVisibleRole ?? 0) as AccessRoleLevel}
@@ -3448,7 +3466,7 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "radio-group") {
-    return (
+    const radioMainContent = (
       <>
         <Typography.Text strong>Value / Data</Typography.Text>
         <TagFieldWithBindingSource
@@ -3536,6 +3554,31 @@ function SpecificPropertyFields({
         <ColorField label="Disabled Color" value={object.disabledColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
       </>
+    );
+
+    return (
+      <Tabs
+        size="small"
+        className="object-property-tabs object-property-tabs--main"
+        items={[
+          { key: "main", label: "Main", children: radioMainContent },
+          {
+            key: "gradient",
+            label: "Gradient",
+            children: (
+              <GradientTabContent
+                enabled={object.gradientEnabled ?? false}
+                direction={object.gradientDirection}
+                startColor={object.gradientStartColor ?? object.selectedColor}
+                endColor={object.gradientEndColor ?? object.unselectedColor}
+                startFallback={object.selectedColor ?? "#0e639c"}
+                endFallback={object.unselectedColor ?? "#3c3c3c"}
+                onPatch={onPatch}
+              />
+            ),
+          },
+        ]}
+      />
     );
   }
 

@@ -10185,6 +10185,7 @@
           "width": 1798.6470363223934,
           "height": 52.20445407667777,
           "rotation": 0,
+          "onPressMacroId": "inc_counter",
           "minWidth": 100,
           "minHeight": 36,
           "tag": "Counter2",
@@ -10217,8 +10218,14 @@
           "indicatorGap": 12,
           "itemInset": 4,
           "unselectedColor": "#2d2727",
-          "fontSize": 24,
+          "labelColor": "#807e7e",
+          "fontSize": 35,
+          "gradientEnabled": true,
+          "gradientStartColor": "#243743",
+          "gradientEndColor": "#2d1717",
+          "gradientDirection": "vertical",
           "styleMode": "card",
+          "disabledTextColor": "#141416",
           "transparentBackground": false
         },
         {

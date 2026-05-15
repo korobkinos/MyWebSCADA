@@ -695,6 +695,22 @@ function ObjectNode({
   const disabledByRuntimeState = mode === "runtime" && resolveObjectDisabled(resolvedObject, tags, renderContext, project);
   const hasOwnDisabledBinding = hasRuntimeStateTag(resolvedObject.disabledTag);
   const runtimeDisabled = mode === "runtime" && (inheritedDisabled ? (hasOwnDisabledBinding ? disabledByRuntimeState : true) : disabledByRuntimeState);
+  const triggerObjectMacroEvent = (eventName: "press" | "release") => {
+    if (interactive || runtimeDisabled) {
+      return;
+    }
+    const macroId = eventName === "press" ? resolvedObject.onPressMacroId : resolvedObject.onReleaseMacroId;
+    if (!macroId?.trim()) {
+      return;
+    }
+    onAction?.(
+      withActionRoleLevel({
+        type: "runMacro",
+        macroId: macroId.trim(),
+      }, resolvedObject.requiredActionRole),
+      withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+    );
+  };
 
   const commonGroupProps = {
     id: `hmi-${resolvedObject.id}`,
@@ -727,6 +743,12 @@ function ObjectNode({
         objectId: resolvedObject.id,
         additive: Boolean(source.ctrlKey || source.metaKey || source.shiftKey),
       });
+    },
+    onMouseDown: () => {
+      triggerObjectMacroEvent("press");
+    },
+    onMouseUp: () => {
+      triggerObjectMacroEvent("release");
     },
     onDragEnd: (evt: KonvaEventObject<DragEvent>) => {
       setIsDragging(false);
@@ -1916,6 +1938,7 @@ function ObjectNode({
           if (interactive || runtimeDisabled) {
             return;
           }
+          triggerObjectMacroEvent("press");
           sliderDragRef.current = true;
           sliderReleaseAtRef.current = null;
           sliderReleaseSourceValueRef.current = null;
@@ -1947,6 +1970,7 @@ function ObjectNode({
             sliderReleaseSourceValueRef.current = null;
             return;
           }
+          triggerObjectMacroEvent("release");
           const groupNode = evt.currentTarget;
           const pointer = groupNode.getRelativePointerPosition();
           if (pointer) {
@@ -2438,7 +2462,17 @@ function ObjectNode({
           const optW = rect.width;
           const optH = rect.height;
           const fillColor = isSelected ? renderSelected : renderUnselected;
-          const optionFontSize = Math.min(fontSize, Math.max(8, optH * 0.42));
+          const gradientFill = styleMode === "segmented" ? fillColor : (isSelected ? renderSelected : backgroundColor);
+          const buttonGradientProps = resolveFillGradientProps({
+            enabled: resolvedObject.gradientEnabled ?? false,
+            direction: (resolvedObject.gradientDirection ?? "horizontal") as GradientDirection,
+            startColor: resolvedObject.gradientStartColor ?? gradientFill,
+            endColor: resolvedObject.gradientEndColor ?? gradientFill,
+            baseFill: gradientFill,
+            width: optW,
+            height: optH,
+          });
+          const optionFontSize = fontSize;
           return (
             <Group key={idx} x={optX} y={optY}>
               <Rect
@@ -2446,7 +2480,7 @@ function ObjectNode({
                 y={0}
                 width={optW}
                 height={optH}
-                fill={styleMode === "segmented" ? fillColor : (isSelected ? renderSelected : backgroundColor)}
+                {...buttonGradientProps}
                 stroke={styleMode === "card" ? renderBorder : "transparent"}
                 strokeWidth={styleMode === "card" ? borderWidth : 0}
                 cornerRadius={Math.max(0, cornerRadius - 1)}
@@ -3251,12 +3285,18 @@ function ButtonNode({
   return (
     <Group
       {...groupProps}
-      onMouseDown={() => {
+      onMouseDown={(evt: KonvaEventObject<MouseEvent>) => {
+        const baseOnMouseDown = groupProps.onMouseDown as ((event: KonvaEventObject<MouseEvent>) => void) | undefined;
+        baseOnMouseDown?.(evt);
         if (!interactive && !isDisabled) {
           setPressed(true);
         }
       }}
-      onMouseUp={() => setPressed(false)}
+      onMouseUp={(evt: KonvaEventObject<MouseEvent>) => {
+        const baseOnMouseUp = groupProps.onMouseUp as ((event: KonvaEventObject<MouseEvent>) => void) | undefined;
+        baseOnMouseUp?.(evt);
+        setPressed(false);
+      }}
       onMouseEnter={(evt: KonvaEventObject<MouseEvent>) => {
         if (interactive) {
           return;

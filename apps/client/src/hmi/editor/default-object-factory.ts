@@ -444,6 +444,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         selectedLabelColor: "#ffffff",
         fontFamily: "Consolas",
         fontSize: 12,
+        gradientEnabled: false,
+        gradientDirection: "horizontal",
         styleMode: "radio",
         badTextColor: "#f14c4c",
         badBackgroundColor: "#2b1a1a",
