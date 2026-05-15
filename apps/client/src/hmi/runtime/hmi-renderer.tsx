@@ -347,6 +347,7 @@ type HmiRendererProps = {
   selectedObjectIds?: string[];
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
+  onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
   onDoubleClickObject?: (objectId: string) => void;
@@ -374,6 +375,7 @@ type BaseNodeProps = {
   selected: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
+  onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
   onDoubleClickObject?: (objectId: string) => void;
@@ -401,6 +403,7 @@ export function HmiRenderer({
   selectedObjectIds = [],
   onSelectObject,
   onMoveObject,
+  onCommitObjectMove,
   onResizeObject,
   onAction,
   onDoubleClickObject,
@@ -450,8 +453,9 @@ export function HmiRenderer({
           inheritedDisabled={inheritedDisabled}
           selected={selectedSet.has(object.id)}
           onSelectObject={onSelectObject}
-          onMoveObject={onMoveObject}
-          onResizeObject={onResizeObject}
+            onMoveObject={onMoveObject}
+            onCommitObjectMove={onCommitObjectMove}
+            onResizeObject={onResizeObject}
           onAction={onAction}
           onDoubleClickObject={onDoubleClickObject}
           onContextMenuObject={onContextMenuObject}
@@ -611,6 +615,7 @@ function ObjectNode({
   selected,
   onSelectObject,
   onMoveObject,
+  onCommitObjectMove,
   onResizeObject,
   onAction,
   onDoubleClickObject,
@@ -753,6 +758,15 @@ function ObjectNode({
     onDragEnd: (evt: KonvaEventObject<DragEvent>) => {
       setIsDragging(false);
       if (interactive && !resolvedObject.locked) {
+        if (onCommitObjectMove) {
+          onCommitObjectMove();
+        } else {
+          onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
+        }
+      }
+    },
+    onDragMove: (evt: KonvaEventObject<DragEvent>) => {
+      if (interactive && !resolvedObject.locked) {
         onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
       }
     },
@@ -826,6 +840,7 @@ function ObjectNode({
         selected={selected}
         onSelectObject={onSelectObject}
         onMoveObject={onMoveObject}
+        onCommitObjectMove={onCommitObjectMove}
         onResizeObject={onResizeObject}
         onAction={onAction}
         onDoubleClickObject={onDoubleClickObject}
@@ -2719,6 +2734,7 @@ function GroupNode({
   selected,
   onSelectObject,
   onMoveObject,
+  onCommitObjectMove,
   onResizeObject,
   onAction,
   onDoubleClickObject,
@@ -2744,6 +2760,7 @@ function GroupNode({
   selected: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
+  onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
   onDoubleClickObject?: (objectId: string) => void;
@@ -2798,6 +2815,7 @@ function GroupNode({
         inheritedDisabled={inheritedDisabled}
         onSelectObject={onSelectObject}
         onMoveObject={onMoveObject}
+        onCommitObjectMove={onCommitObjectMove}
         onResizeObject={onResizeObject}
         onAction={onAction}
         onDoubleClickObject={onDoubleClickObject}
@@ -2826,6 +2844,7 @@ function FrameNode({
   instanceStack,
   onSelectObject,
   onMoveObject,
+  onCommitObjectMove,
   onResizeObject,
   onAction,
   commonGroupProps,
@@ -2844,6 +2863,7 @@ function FrameNode({
   instanceStack: string[];
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
+  onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
   commonGroupProps: Record<string, unknown>;
@@ -2900,6 +2920,7 @@ function FrameNode({
           inheritedDisabled={inheritedDisabled}
           onSelectObject={onSelectObject}
           onMoveObject={onMoveObject}
+          onCommitObjectMove={onCommitObjectMove}
           onResizeObject={onResizeObject}
           onAction={onAction}
           scopedAssets={scopedAssets}
@@ -2925,6 +2946,7 @@ function LibraryInstanceNode({
   inheritedDisabled,
   onSelectObject,
   onMoveObject,
+  onCommitObjectMove,
   onResizeObject,
   onAction,
   commonGroupProps,
@@ -2944,6 +2966,7 @@ function LibraryInstanceNode({
   inheritedDisabled: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
+  onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
   commonGroupProps: Record<string, unknown>;
@@ -3087,6 +3110,7 @@ function LibraryInstanceNode({
           inheritedDisabled={inheritedDisabled}
           onSelectObject={onSelectObject}
           onMoveObject={onMoveObject}
+          onCommitObjectMove={onCommitObjectMove}
           onResizeObject={onResizeObject}
           onAction={onAction}
           scopedAssets={scopedAssets}

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { HmiObject, HmiScreen } from "@web-scada/shared";
 import { message } from "antd";
 import { useSnapshotHistory } from "../../../hooks/use-snapshot-history";
@@ -42,6 +42,7 @@ export function useEditorObjectHistory({
   setSelectedObjects,
 }: UseEditorObjectHistoryParams) {
   const history = useSnapshotHistory<HmiObject[]>({ maxSteps: 50 });
+  const dragMoveSnapshotRef = useRef<HmiObject[] | null>(null);
 
   const captureObjects = useCallback((): HmiObject[] => structuredClone(screen?.objects ?? []), [screen?.objects]);
 
@@ -150,6 +151,72 @@ export function useEditorObjectHistory({
     [moveObject, runWithHistory, screen, selection.selectedObjectIds, setScreenObjects],
   );
 
+  const moveObjectLive = useCallback(
+    (objectId: string, x: number, y: number) => {
+      if (!screen) {
+        return;
+      }
+      const dragged = screen.objects.find((item) => item.id === objectId);
+      if (!dragged || dragged.locked) {
+        return;
+      }
+      if (!dragMoveSnapshotRef.current) {
+        dragMoveSnapshotRef.current = captureObjects();
+      }
+
+      const selectedIdSet = new Set(selection.selectedObjectIds);
+      const selectedUnlockedIds = screen.objects
+        .filter((item) => selectedIdSet.has(item.id) && !item.locked)
+        .map((item) => item.id);
+      const isGroupMove = selectedUnlockedIds.length > 1 && selectedIdSet.has(objectId);
+
+      if (!isGroupMove) {
+        moveObject(screen.id, objectId, x, y);
+        return;
+      }
+
+      const dx = x - dragged.x;
+      const dy = y - dragged.y;
+      if (dx === 0 && dy === 0) {
+        return;
+      }
+      const movingIdSet = new Set(selectedUnlockedIds);
+      const next = screen.objects.map((item) => {
+        if (!movingIdSet.has(item.id)) {
+          return item;
+        }
+        return {
+          ...item,
+          x: item.x + dx,
+          y: item.y + dy,
+        };
+      });
+      setScreenObjects(screen.id, next);
+    },
+    [captureObjects, moveObject, screen, selection.selectedObjectIds, setScreenObjects],
+  );
+
+  const commitLiveMoveWithHistory = useCallback(() => {
+    if (!screen) {
+      dragMoveSnapshotRef.current = null;
+      return;
+    }
+    const before = dragMoveSnapshotRef.current;
+    dragMoveSnapshotRef.current = null;
+    if (!before) {
+      return;
+    }
+    const latestProject = useScadaStore.getState().project;
+    const latestScreen = latestProject?.screens.find((item) => item.id === screen.id);
+    if (!latestScreen) {
+      return;
+    }
+    if (JSON.stringify(before) === JSON.stringify(latestScreen.objects)) {
+      return;
+    }
+    history.pushEntry("Move objects", before, latestScreen.objects);
+  }, [history, screen]);
+
   const resizeObjectWithHistory = useCallback(
     (objectId: string, patch: Partial<HmiObject>) => {
       runWithHistory("Resize object", () => resizeObject(screen?.id ?? "", objectId, patch));
@@ -240,6 +307,8 @@ export function useEditorObjectHistory({
     removeObjectWithHistory,
     addObjectWithHistory,
     moveObjectWithHistory,
+    moveObjectLive,
+    commitLiveMoveWithHistory,
     resizeObjectWithHistory,
     deleteSelectionWithHistory,
     zOrderWithHistory,

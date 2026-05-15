@@ -37,6 +37,7 @@ type HmiStageProps = {
   onSelectObjects?: (objectIds: string[], activeObjectId?: string) => void;
   onSelectionRectChange?: (rect?: SelectionRect) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
+  onMoveObjectEnd?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
   onDoubleClickObject?: (objectId: string) => void;
@@ -62,6 +63,7 @@ export function HmiStage({
   onSelectObjects,
   onSelectionRectChange,
   onMoveObject,
+  onMoveObjectEnd,
   onResizeObject,
   onAction,
   onDoubleClickObject,
@@ -324,6 +326,7 @@ export function HmiStage({
             selectedObjectIds={selectedObjectIds}
             onSelectObject={onSelectObject}
             onMoveObject={onMoveObject}
+            onCommitObjectMove={onMoveObjectEnd}
             onResizeObject={onResizeObject}
             onAction={onAction}
             onDoubleClickObject={onDoubleClickObject}

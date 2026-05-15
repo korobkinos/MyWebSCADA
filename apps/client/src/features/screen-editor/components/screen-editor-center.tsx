@@ -102,6 +102,8 @@ export type ScreenEditorCenterProps = {
   setContextMenu: (v: any) => void;
   handleDrop: (event: DragEvent<HTMLDivElement>, position?: DropPosition) => void;
   moveObjectWithHistory: (id: string, x: number, y: number) => void;
+  moveObjectLive: (id: string, x: number, y: number) => void;
+  commitLiveMoveWithHistory: () => void;
   resizeObjectWithHistory: (id: string, patch: Partial<HmiObject>) => void;
   undo: () => void;
   redo: () => void;
@@ -160,6 +162,8 @@ export function ScreenEditorCenter({
   setContextMenu,
   handleDrop,
   moveObjectWithHistory,
+  moveObjectLive,
+  commitLiveMoveWithHistory,
   resizeObjectWithHistory,
   undo,
   redo,
@@ -595,7 +599,8 @@ export function ScreenEditorCenter({
                 }
                 setSelectedObjects(objectIds, activeId ?? "");
               }}
-              onMoveObject={moveObjectWithHistory}
+              onMoveObject={moveObjectLive}
+              onMoveObjectEnd={commitLiveMoveWithHistory}
               onResizeObject={resizeObjectWithHistory}
               editorZoom={editorZoom}
             />

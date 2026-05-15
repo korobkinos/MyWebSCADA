@@ -264,6 +264,8 @@ export function EditorPage() {
     removeObjectWithHistory,
     addObjectWithHistory,
     moveObjectWithHistory,
+    moveObjectLive,
+    commitLiveMoveWithHistory,
     resizeObjectWithHistory,
     deleteSelectionWithHistory,
     zOrderWithHistory,
@@ -938,6 +940,8 @@ export function EditorPage() {
             setContextMenu={setContextMenu}
             handleDrop={handleDrop}
             moveObjectWithHistory={moveObjectWithHistory}
+            moveObjectLive={moveObjectLive}
+            commitLiveMoveWithHistory={commitLiveMoveWithHistory}
             resizeObjectWithHistory={resizeObjectWithHistory}
             undo={undo}
             redo={redo}
