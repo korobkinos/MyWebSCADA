@@ -107,6 +107,7 @@ type UseEditorWindowDefinitionsParams = {
   setViewAssetId: (assetId: string | null) => void;
   saveObjectProperties: () => Promise<void>;
   patchActiveObject: (patch: Partial<HmiObject>) => void;
+  patchObjectById: (objectId: string, patch: Partial<HmiObject>) => void;
   deleteActiveObject: () => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
@@ -442,6 +443,7 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
               libraries={params.libraries}
               object={params.activeObject}
               onPatch={params.patchActiveObject}
+              onPatchObjectById={params.patchObjectById}
               onDelete={params.deleteActiveObject}
               onBringToFront={params.onBringToFront}
               onSendToBack={params.onSendToBack}

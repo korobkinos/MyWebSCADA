@@ -43,11 +43,21 @@ type Props = {
   object: HmiObject | null;
   elementBindings?: ElementBindingDefinition[];
   onPatch: (patch: Partial<HmiObject>) => void;
+  onPatchObjectById?: (objectId: string, patch: Partial<HmiObject>) => void;
   onDelete: () => void;
   onBringToFront?: () => void;
   onSendToBack?: () => void;
   onMoveForward?: () => void;
   onMoveBackward?: () => void;
+};
+
+type GroupEditableOption = {
+  key: string;
+  value: string;
+  object: HmiObject;
+  depth: number;
+  label: string;
+  isRoot: boolean;
 };
 
 const fontOptions = ["Arial", "Tahoma", "Verdana", "Consolas", "Segoe UI", "Roboto", "Noto Sans"];
@@ -582,7 +592,119 @@ function ActionAccessFields({
   );
 }
 
-export function ObjectPropertyPanel({ project, assets, libraries, object, elementBindings, onPatch, onDelete, onBringToFront, onSendToBack, onMoveForward, onMoveBackward }: Props) {
+function objectTypeLabel(type: HmiObject["type"]): string {
+  switch (type) {
+    case "stateImage":
+      return "StateImage";
+    case "libraryElementInstance":
+      return "LibraryElementInstance";
+    case "value-display":
+      return "ValueDisplay";
+    case "value-input":
+      return "ValueInput";
+    default:
+      return type.slice(0, 1).toUpperCase() + type.slice(1);
+  }
+}
+
+function buildGroupEditableOptions(group: Extract<HmiObject, { type: "group" }>): GroupEditableOption[] {
+  const result: GroupEditableOption[] = [
+    {
+      key: group.id,
+      value: group.id,
+      object: group,
+      depth: 0,
+      label: "Group Root",
+      isRoot: true,
+    },
+  ];
+
+  const visit = (objects: HmiObject[], depth: number) => {
+    for (const object of objects) {
+      const name = object.name?.trim();
+      const title = `${objectTypeLabel(object.type)} - ${name || object.id}`;
+      result.push({
+        key: object.id,
+        value: object.id,
+        object,
+        depth,
+        label: depth > 1 ? `${"  ".repeat(depth - 1)}${title}` : title,
+        isRoot: false,
+      });
+      if (object.type === "group") {
+        visit(object.objects, depth + 1);
+      }
+    }
+  };
+
+  visit(group.objects, 1);
+  return result;
+}
+
+export function ObjectPropertyPanel(props: Props) {
+  const { object, onPatch, onPatchObjectById } = props;
+  const [activeEditableObjectId, setActiveEditableObjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveEditableObjectId(null);
+  }, [object?.id]);
+
+  if (!object) {
+    return <div>Select object</div>;
+  }
+
+  if (object.type !== "group") {
+    return <ObjectPropertyEditorContent {...props} />;
+  }
+
+  const options = buildGroupEditableOptions(object);
+  const activeOption = options.find((item) => item.value === activeEditableObjectId) ?? options[0];
+  const activeObject = activeOption?.object ?? object;
+  const isRootEditing = activeOption?.isRoot ?? true;
+  const canPatchNested = Boolean(onPatchObjectById);
+
+  const patchTarget = (patch: Partial<HmiObject>) => {
+    if (!activeOption) {
+      return;
+    }
+    if (activeOption.isRoot) {
+      onPatch(patch);
+      return;
+    }
+    if (onPatchObjectById) {
+      onPatchObjectById(activeOption.object.id, patch);
+    }
+  };
+
+  return (
+    <div className="object-property-panel-group-editor">
+      <Form layout="vertical" size="small">
+        <Form.Item label="Editing object" style={{ marginBottom: 8 }}>
+          <Select
+            size="small"
+            value={activeOption?.value}
+            options={options.map((item) => ({ value: item.value, label: item.label }))}
+            onChange={(value) => setActiveEditableObjectId(value)}
+          />
+        </Form.Item>
+      </Form>
+      {!isRootEditing ? (
+        <Typography.Text type={canPatchNested ? "secondary" : "warning"} style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+          {canPatchNested
+            ? `Editing child object inside group (${activeObject.type} / ${activeObject.id}). Group remains selected on canvas.`
+            : "Editing child object is not available in this context."}
+        </Typography.Text>
+      ) : null}
+      <ObjectPropertyEditorContent
+        {...props}
+        object={activeObject}
+        onPatch={patchTarget}
+      />
+    </div>
+  );
+}
+
+function ObjectPropertyEditorContent({ project, assets, libraries, object, elementBindings, onPatch, onDelete, onBringToFront, onSendToBack, onMoveForward, onMoveBackward }: Props) {
   if (!object) {
     return <div>Select object</div>;
   }

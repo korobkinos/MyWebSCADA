@@ -21,6 +21,7 @@ type UseEditorObjectHistoryParams = {
   selection: SelectionState;
   selectedUnlocked: HmiObject[];
   updateObject: (screenId: string, objectId: string, patch: Partial<HmiObject>) => void;
+  updateObjectDeep: (screenId: string, objectId: string, patch: Partial<HmiObject>) => void;
   removeObject: (screenId: string, objectId: string) => void;
   addObject: (screenId: string, object: HmiObject) => void;
   moveObject: (screenId: string, objectId: string, x: number, y: number) => void;
@@ -34,6 +35,7 @@ export function useEditorObjectHistory({
   selection,
   selectedUnlocked,
   updateObject,
+  updateObjectDeep,
   removeObject,
   addObject,
   moveObject,
@@ -81,6 +83,16 @@ export function useEditorObjectHistory({
       runWithHistory(label, () => updateObject(screen.id, objectId, patch));
     },
     [runWithHistory, screen, updateObject],
+  );
+
+  const updateObjectDeepWithHistory = useCallback(
+    (objectId: string, patch: Partial<HmiObject>, label: string) => {
+      if (!screen) {
+        return;
+      }
+      runWithHistory(label, () => updateObjectDeep(screen.id, objectId, patch));
+    },
+    [runWithHistory, screen, updateObjectDeep],
   );
 
   const removeObjectWithHistory = useCallback(
@@ -304,6 +316,7 @@ export function useEditorObjectHistory({
     redo,
     runWithHistory,
     updateObjectWithHistory,
+    updateObjectDeepWithHistory,
     removeObjectWithHistory,
     addObjectWithHistory,
     moveObjectWithHistory,

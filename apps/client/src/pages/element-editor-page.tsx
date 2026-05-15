@@ -2274,6 +2274,11 @@ export function ElementEditorPage() {
                         updateObjectInList(objects, activeObject.id, (item) => ({ ...item, ...patch } as HmiObject)),
                       );
                     }}
+                    onPatchObjectById={(objectId, patch) => {
+                      setObjects((objects) =>
+                        updateObjectInList(objects, objectId, (item) => ({ ...item, ...patch } as HmiObject)),
+                      );
+                    }}
                     onDelete={() => {
                       deleteSelectedElementObjects("properties");
                     }}

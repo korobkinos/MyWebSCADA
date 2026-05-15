@@ -14,3 +14,4 @@ export * from "./runtime-value-resolver";
 export * from "./password-policy";
 export * from "./runtime-command-types";
 export * from "./indexed-address";
+export * from "./hmi-object-tree";

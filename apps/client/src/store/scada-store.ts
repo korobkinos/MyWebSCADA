@@ -21,7 +21,7 @@ import type {
   TagSnapshot,
   TagValue,
 } from "@web-scada/shared";
-import { executeEditorCommand } from "@web-scada/shared";
+import { executeEditorCommand, updateObjectDeep as updateObjectDeepInList } from "@web-scada/shared";
 import { api } from "../services/api";
 
 type TagMap = Record<string, TagValue>;
@@ -90,6 +90,7 @@ type ScadaState = {
   moveObject: (screenId: string, objectId: string, x: number, y: number) => void;
   resizeObject: (screenId: string, objectId: string, patch: Partial<HmiObject>) => void;
   updateObject: (screenId: string, objectId: string, patch: Partial<HmiObject>) => void;
+  updateObjectDeep: (screenId: string, objectId: string, patch: Partial<HmiObject>) => void;
   addScreen: (kind?: ScreenKind) => void;
   updateScreen: (screenId: string, patch: Partial<HmiScreen>) => void;
   setScreenObjects: (screenId: string, objects: HmiObject[]) => void;
@@ -500,6 +501,26 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
 
     set({
       project: mutateObject(project, screenId, objectId, (obj) => ({ ...obj, ...patch } as HmiObject)),
+    });
+  },
+
+  updateObjectDeep(screenId, objectId, patch) {
+    const project = get().project;
+    if (!project) {
+      return;
+    }
+
+    set({
+      project: mutateScreen(project, screenId, (screen) => {
+        const nextObjects = updateObjectDeepInList(screen.objects, objectId, patch);
+        if (nextObjects === screen.objects) {
+          return screen;
+        }
+        return {
+          ...screen,
+          objects: nextObjects,
+        };
+      }),
     });
   },
 

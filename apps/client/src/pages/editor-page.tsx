@@ -10,6 +10,7 @@ import type {
   RuntimeAction,
   ScadaProject,
 } from "@web-scada/shared";
+import { findObjectDeep } from "@web-scada/shared";
 import { Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import {
   ApiOutlined,
@@ -146,6 +147,7 @@ export function EditorPage() {
   const moveObject = useScadaStore((s) => s.moveObject);
   const resizeObject = useScadaStore((s) => s.resizeObject);
   const updateObject = useScadaStore((s) => s.updateObject);
+  const updateObjectDeep = useScadaStore((s) => s.updateObjectDeep);
   const updateScreen = useScadaStore((s) => s.updateScreen);
   const setScreenObjects = useScadaStore((s) => s.setScreenObjects);
   const removeObject = useScadaStore((s) => s.removeObject);
@@ -261,6 +263,7 @@ export function EditorPage() {
     redo,
     runWithHistory,
     updateObjectWithHistory,
+    updateObjectDeepWithHistory,
     removeObjectWithHistory,
     addObjectWithHistory,
     moveObjectWithHistory,
@@ -274,6 +277,7 @@ export function EditorPage() {
     selection,
     selectedUnlocked,
     updateObject,
+    updateObjectDeep,
     removeObject,
     addObject,
     moveObject,
@@ -408,6 +412,22 @@ export function EditorPage() {
       updateObjectWithHistory(objectId, patch, `Patch object ${currentObject.name?.trim() || currentObject.id}`);
     },
     [screen, updateObjectWithHistory],
+  );
+
+  const patchObjectById = useCallback(
+    (objectId: string, patch: Partial<HmiObject>) => {
+      if (!screen) {
+        return;
+      }
+      const state = useScadaStore.getState();
+      const currentScreen = state.project?.screens.find((item) => item.id === screen.id);
+      const currentObject = currentScreen ? findObjectDeep(currentScreen.objects, objectId) : null;
+      if (!currentObject) {
+        return;
+      }
+      updateObjectDeepWithHistory(objectId, patch, `Patch object ${currentObject.name?.trim() || currentObject.id}`);
+    },
+    [screen, updateObjectDeepWithHistory],
   );
 
   const handleSaveProject = useCallback(async () => {
@@ -783,6 +803,7 @@ export function EditorPage() {
     setViewAssetId,
     saveObjectProperties,
     patchActiveObject,
+    patchObjectById,
     deleteActiveObject,
     onBringToFront: () => zOrderWithHistory("bringToFront"),
     onSendToBack: () => zOrderWithHistory("sendToBack"),
