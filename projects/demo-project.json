@@ -9319,10 +9319,10 @@
       "id": "main",
       "name": "Главный экран",
       "kind": "screen",
-      "width": 1800,
-      "height": 1000,
+      "width": 1920,
+      "height": 1080,
       "background": "#757575",
-      "backgroundFillMode": "viewport",
+      "backgroundFillMode": "screen",
       "objects": [
         {
           "id": "title",
@@ -10175,15 +10175,18 @@
               "value": 2
             }
           ],
-          "placeholder": "Горелка"
+          "placeholder": "Горелка",
+          "fontSize": 35,
+          "padding": 12,
+          "arrowAreaWidth": 42
         },
         {
           "id": "rgrp_3gd6at",
           "type": "radio-group",
-          "x": -2.9740726376748032,
-          "y": 948.0633995195475,
-          "width": 1798.6470363223934,
-          "height": 52.20445407667777,
+          "x": -3.2552601431791715,
+          "y": 1026.723548481622,
+          "width": 1920.7258758318198,
+          "height": 52.204454076677784,
           "rotation": 0,
           "onPressMacroId": "inc_counter",
           "minWidth": 100,

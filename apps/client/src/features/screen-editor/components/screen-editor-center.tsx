@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   AppstoreOutlined,
   CopyOutlined,
@@ -235,6 +235,41 @@ export function ScreenEditorCenter({
     screen?.backgroundFillMode === "viewport"
       ? screen.background ?? "#111111"
       : undefined;
+  const applyAutoFitZoom = useCallback(() => {
+    if (previewMode) {
+      return;
+    }
+    const viewport = canvasScrollRef.current;
+    if (!viewport) {
+      return;
+    }
+    const targetWidth = Math.max(1, screen.width);
+    const targetHeight = Math.max(1, screen.height);
+    const fitZoom = Math.min(viewport.clientWidth / targetWidth, viewport.clientHeight / targetHeight);
+    if (!Number.isFinite(fitZoom) || fitZoom <= 0) {
+      return;
+    }
+    setEditorZoom(clampZoom(fitZoom));
+  }, [previewMode, screen.height, screen.width]);
+
+  useEffect(() => {
+    applyAutoFitZoom();
+  }, [applyAutoFitZoom, screen.id]);
+
+  useEffect(() => {
+    if (previewMode) {
+      return;
+    }
+    const viewport = canvasScrollRef.current;
+    if (!viewport || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      applyAutoFitZoom();
+    });
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [applyAutoFitZoom, previewMode]);
 
   const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
     if (activeTool !== "pan" || event.button !== 0) {
@@ -500,7 +535,11 @@ export function ScreenEditorCenter({
           handleDrop(event, position);
         }}
       >
-        <div ref={canvasScrollRef} className="screen-editor-canvas-scroll">
+        <div
+          ref={canvasScrollRef}
+          className="screen-editor-canvas-scroll"
+          style={viewportBackground ? { background: viewportBackground } : undefined}
+        >
           {screen ? (
             <HmiStage
               project={project ?? undefined!}
