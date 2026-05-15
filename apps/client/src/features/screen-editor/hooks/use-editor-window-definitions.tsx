@@ -85,6 +85,7 @@ type UseEditorWindowDefinitionsParams = {
   setSaveElementCategory: (value: string) => void;
   saveElementDescription: string;
   setSaveElementDescription: (value: string) => void;
+  saveSelectionMacroWarningText: string;
   onSaveSelectionAsLibraryElement: () => Promise<void>;
   newLibraryId: string;
   setNewLibraryId: (value: string) => void;
@@ -94,6 +95,8 @@ type UseEditorWindowDefinitionsParams = {
   attachLibrary: (libraryId: string) => Promise<void>;
   detachLibrary: (libraryId: string) => Promise<void>;
   addLibraryElementInstance: (libraryId: string, elementOrId: LibraryElement | string) => void;
+  updateLibraryElementFromSelection: (libraryId: string, element: LibraryElement) => Promise<void>;
+  saveLibraryElementCopyFromSelection: (libraryId: string, element: LibraryElement) => Promise<void>;
   loadLibraries: () => Promise<void>;
   projectMacros: MacroDefinition[];
   onUploadProjectAsset: (file: File) => Promise<void>;
@@ -298,6 +301,7 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
             setDescription={params.setSaveElementDescription}
             width={params.selectedBounds?.width ?? screen.width}
             height={params.selectedBounds?.height ?? screen.height}
+            macroWarningText={params.saveSelectionMacroWarningText}
             onSave={params.onSaveSelectionAsLibraryElement}
             onCancel={() => params.closeWindow("saveSelectionAsElement")}
             onOpenLibraries={() => openDefinedWindow("libraries")}
@@ -361,6 +365,7 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
           <ScreenEditorLibrariesWindow
             libraries={params.libraries}
             attachedLibraries={project.libraries ?? []}
+            selectedObjectsCount={params.selectedObjects.length}
             libraryId={params.newLibraryId}
             libraryName={params.newLibraryName}
             onLibraryIdChange={params.setNewLibraryId}
@@ -369,6 +374,8 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
             onAttachLibrary={params.attachLibrary}
             onDetachLibrary={params.detachLibrary}
             onAddLibraryElementToScreen={params.addLibraryElementInstance}
+            onUpdateLibraryElementFromSelection={params.updateLibraryElementFromSelection}
+            onSaveLibraryElementCopyFromSelection={params.saveLibraryElementCopyFromSelection}
             onRefreshLibraries={params.loadLibraries}
             projectMacros={params.projectMacros}
           />

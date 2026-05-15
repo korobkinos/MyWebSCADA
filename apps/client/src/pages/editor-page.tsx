@@ -243,6 +243,16 @@ export function EditorPage() {
     () => (selectedObjects.length ? computeBounds(selectedObjects) : null),
     [selectedObjects],
   );
+  const selectedMacroIds = useMemo(
+    () => collectMacroReferenceIds(selectedObjects),
+    [selectedObjects],
+  );
+  const saveSelectionMacroWarningText = useMemo(
+    () => (selectedMacroIds.length > 0
+      ? `Selected objects reference project macros: ${selectedMacroIds.join(", ")}. Macros are not included in the library.`
+      : ""),
+    [selectedMacroIds],
+  );
 
   const startScreenName = useMemo(() => {
     const startId = project?.startScreenId;
@@ -538,6 +548,9 @@ export function EditorPage() {
       void message.warning("Selection contains library element instances with missing source library");
       return;
     }
+    if (selectedMacroIds.length > 0) {
+      void message.warning(saveSelectionMacroWarningText);
+    }
     const normalizedObjects = normalizeObjects(selectedObjects);
     const bounds = computeBounds(selectedObjects);
     const now = new Date().toISOString();
@@ -575,12 +588,122 @@ export function EditorPage() {
     closeWindow,
     loadLibraries,
     libraries,
+    saveSelectionMacroWarningText,
     saveElementCategory,
     saveElementDescription,
     saveElementName,
     saveTargetLibraryId,
+    selectedMacroIds.length,
     selectedObjects,
   ]);
+
+  const updateLibraryElementFromSelection = useCallback(
+    async (libraryId: string, element: LibraryElement) => {
+      if (!selectedObjects.length) {
+        void message.warning("Select one or more objects on canvas");
+        return;
+      }
+
+      const macroIds = collectMacroReferenceIds(selectedObjects);
+      let usageCount: number | null = null;
+      try {
+        const usage = await api.getLibraryElementUsage(libraryId, element.id);
+        usageCount = usage.items.length;
+      } catch {
+        usageCount = null;
+      }
+
+      const confirmationLines = [
+        `Update library element "${element.name}"?`,
+        `Selected objects: ${selectedObjects.length}`,
+        usageCount !== null ? `Linked instances in project: ${usageCount}` : "Linked instances in project: unknown",
+        "Updating this element will affect all linked instances on screens.",
+      ];
+      if (macroIds.length > 0) {
+        confirmationLines.push(
+          `Selected objects reference project macros: ${macroIds.join(", ")}. Macros are not included in the library.`,
+        );
+      }
+
+      const confirmed = window.confirm(confirmationLines.join("\n"));
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        const normalizedObjects = normalizeObjects(selectedObjects);
+        const bounds = computeBounds(selectedObjects);
+        const copiedObjects = await copySelectionAssetsToLibrary(normalizedObjects, assets, libraryId, libraries);
+        await api.updateLibraryElement(libraryId, element.id, {
+          width: bounds.width,
+          height: bounds.height,
+          objects: copiedObjects,
+        });
+        await loadLibraries();
+        if (macroIds.length > 0) {
+          void message.warning(
+            `Selected objects reference project macros: ${macroIds.join(", ")}. Macros are not included in the library.`,
+          );
+        }
+        void message.success(`Library element updated: ${element.name}`);
+      } catch (error) {
+        void message.error(error instanceof Error ? error.message : "Failed to update library element");
+      }
+    },
+    [assets, libraries, loadLibraries, selectedObjects],
+  );
+
+  const saveLibraryElementCopyFromSelection = useCallback(
+    async (libraryId: string, element: LibraryElement) => {
+      if (!selectedObjects.length) {
+        void message.warning("Select one or more objects on canvas");
+        return;
+      }
+
+      const macroIds = collectMacroReferenceIds(selectedObjects);
+      if (macroIds.length > 0) {
+        void message.warning(
+          `Selected objects reference project macros: ${macroIds.join(", ")}. Macros are not included in the library.`,
+        );
+      }
+
+      const suggestedName = `${element.name} copy`;
+      const enteredName = window.prompt("Save as Copy: element name", suggestedName)?.trim();
+      if (!enteredName) {
+        return;
+      }
+
+      const normalizedObjects = normalizeObjects(selectedObjects);
+      const bounds = computeBounds(selectedObjects);
+      const now = new Date().toISOString();
+      try {
+        const copiedObjects = await copySelectionAssetsToLibrary(normalizedObjects, assets, libraryId, libraries);
+        const copyElement: LibraryElement = {
+          ...element,
+          id: id("element"),
+          libraryId,
+          elementKey: slugify(enteredName),
+          name: enteredName,
+          width: bounds.width,
+          height: bounds.height,
+          objects: copiedObjects,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await api.createLibraryElement(libraryId, copyElement);
+        await loadLibraries();
+        if (macroIds.length > 0) {
+          void message.warning(
+            `Selected objects reference project macros: ${macroIds.join(", ")}. Macros are not included in the library.`,
+          );
+        }
+        void message.success(`Library element copy saved: ${enteredName}`);
+      } catch (error) {
+        void message.error(error instanceof Error ? error.message : "Failed to save library element copy");
+      }
+    },
+    [assets, libraries, loadLibraries, selectedObjects],
+  );
 
   const adjustPrimitiveStrokeWidth = useCallback(
     (delta: number) => {
@@ -781,6 +904,7 @@ export function EditorPage() {
     setSaveElementCategory,
     saveElementDescription,
     setSaveElementDescription,
+    saveSelectionMacroWarningText,
     onSaveSelectionAsLibraryElement,
     newLibraryId,
     setNewLibraryId,
@@ -790,6 +914,8 @@ export function EditorPage() {
     attachLibrary,
     detachLibrary,
     addLibraryElementInstance,
+    updateLibraryElementFromSelection,
+    saveLibraryElementCopyFromSelection,
     loadLibraries,
     projectMacros: macros,
     onUploadProjectAsset,
@@ -1409,6 +1535,33 @@ function collectAssetIds(object: HmiObject): string[] {
 
   walk(object);
   return collected;
+}
+
+function collectMacroReferenceIds(objects: HmiObject[]): string[] {
+  const macroIds = new Set<string>();
+
+  const visit = (object: HmiObject): void => {
+    if ("onPressMacroId" in object && typeof object.onPressMacroId === "string" && object.onPressMacroId.trim()) {
+      macroIds.add(object.onPressMacroId.trim());
+    }
+    if ("onReleaseMacroId" in object && typeof object.onReleaseMacroId === "string" && object.onReleaseMacroId.trim()) {
+      macroIds.add(object.onReleaseMacroId.trim());
+    }
+    if ("action" in object && object.action && object.action.type === "runMacro" && object.action.macroId.trim()) {
+      macroIds.add(object.action.macroId.trim());
+    }
+    if (object.type === "group") {
+      for (const child of object.objects) {
+        visit(child);
+      }
+    }
+  };
+
+  for (const object of objects) {
+    visit(object);
+  }
+
+  return [...macroIds];
 }
 
 function computeBounds(objects: HmiObject[]): { minX: number; minY: number; width: number; height: number } {

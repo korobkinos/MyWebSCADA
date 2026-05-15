@@ -17,6 +17,7 @@ type ScreenEditorSaveSelectionWindowProps = {
   setDescription: (value: string) => void;
   width: number;
   height: number;
+  macroWarningText?: string;
   onSave: () => Promise<void>;
   onCancel: () => void;
   onOpenLibraries: () => void;
@@ -35,6 +36,7 @@ export function ScreenEditorSaveSelectionWindow({
   setDescription,
   width,
   height,
+  macroWarningText,
   onSave,
   onCancel,
   onOpenLibraries,
@@ -97,6 +99,11 @@ export function ScreenEditorSaveSelectionWindow({
           />
 
           <div className="screen-editor-item-meta">Element size: {width} x {height}</div>
+          {macroWarningText ? (
+            <div className="screen-editor-item-meta" style={{ color: "#f5d283" }}>
+              {macroWarningText}
+            </div>
+          ) : null}
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <WorkbenchButton variant="primary" onClick={() => void onSave()} disabled={!canSave}>

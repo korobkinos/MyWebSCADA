@@ -6,6 +6,7 @@ import { WorkbenchButton, WorkbenchSection } from "../../../components/workbench
 type ScreenEditorLibrariesWindowProps = {
   libraries: ElementLibrary[];
   attachedLibraries: ProjectLibraryRef[];
+  selectedObjectsCount: number;
   libraryId: string;
   libraryName: string;
   onLibraryIdChange: (value: string) => void;
@@ -14,6 +15,8 @@ type ScreenEditorLibrariesWindowProps = {
   onAttachLibrary: (libraryId: string) => Promise<void>;
   onDetachLibrary: (libraryId: string) => Promise<void>;
   onAddLibraryElementToScreen: (libraryId: string, element: LibraryElement | string) => void;
+  onUpdateLibraryElementFromSelection: (libraryId: string, element: LibraryElement) => Promise<void>;
+  onSaveLibraryElementCopyFromSelection: (libraryId: string, element: LibraryElement) => Promise<void>;
   onRefreshLibraries?: () => Promise<void>;
   projectMacros: MacroDefinition[];
 };
@@ -33,6 +36,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
   const {
     libraries,
     attachedLibraries,
+    selectedObjectsCount,
     libraryId,
     libraryName,
     onLibraryIdChange,
@@ -41,11 +45,14 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     onAttachLibrary,
     onDetachLibrary,
     onAddLibraryElementToScreen,
+    onUpdateLibraryElementFromSelection,
+    onSaveLibraryElementCopyFromSelection,
     onRefreshLibraries,
     projectMacros,
   } = props;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedLibraryId, setSelectedLibraryId] = useState<string>(libraries[0]?.id ?? "");
+  const [selectedElementId, setSelectedElementId] = useState<string>("");
   const [activeTab, setActiveTab] = useState<TabId>("elements");
   const [validation, setValidation] = useState<Awaited<ReturnType<typeof api.validateLibraryImport>> | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -79,6 +86,20 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     () => libraries.find((item) => item.id === selectedLibraryId),
     [libraries, selectedLibraryId],
   );
+  const selectedElement = useMemo(
+    () => selectedLibrary?.elements.find((item) => item.id === selectedElementId) ?? null,
+    [selectedElementId, selectedLibrary],
+  );
+
+  useEffect(() => {
+    if (!selectedLibrary) {
+      setSelectedElementId("");
+      return;
+    }
+    if (!selectedElementId || !selectedLibrary.elements.some((item) => item.id === selectedElementId)) {
+      setSelectedElementId(selectedLibrary.elements[0]?.id ?? "");
+    }
+  }, [selectedElementId, selectedLibrary]);
 
   useEffect(() => {
     if (!selectedLibrary) {
@@ -386,7 +407,12 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                   <div className="screen-editor-item-meta">Attach library to add elements to screen.</div>
                 ) : null}
                 {(selectedLibrary.elements ?? []).map((element) => (
-                  <div key={element.id} className="screen-editor-library-element-item">
+                  <div
+                    key={element.id}
+                    className="screen-editor-library-element-item"
+                    style={{ outline: selectedElementId === element.id ? "1px solid #4e8ff0" : undefined, cursor: "pointer" }}
+                    onClick={() => setSelectedElementId(element.id)}
+                  >
                     <div className="screen-editor-item-title">{element.name}</div>
                     <div className="screen-editor-item-meta">
                       {element.category ?? "General"} · {formatOneDecimal(element.width)}x{formatOneDecimal(element.height)}
@@ -394,20 +420,40 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                     {element.description?.trim() ? (
                       <div className="screen-editor-item-meta">{element.description.trim()}</div>
                     ) : null}
+                  </div>
+                ))}
+                {selectedElement ? (
+                  <div className="screen-editor-library-element-item">
+                    <div className="screen-editor-item-title">Selected: {selectedElement.name}</div>
+                    <div className="screen-editor-item-meta">Canvas selection: {selectedObjectsCount} object(s)</div>
                     <div className="screen-editor-item-actions">
                       <WorkbenchButton
                         variant="primary"
                         disabled={!attachedIds.has(selectedLibrary.id)}
-                        onClick={() => onAddLibraryElementToScreen(selectedLibrary.id, element)}
+                        onClick={() => onAddLibraryElementToScreen(selectedLibrary.id, selectedElement)}
                       >
-                        Add to screen
+                        Add to Screen
                       </WorkbenchButton>
-                      <WorkbenchButton onClick={() => void deleteElementFromLibrary(element)}>
+                      <WorkbenchButton
+                        disabled={selectedObjectsCount === 0}
+                        onClick={() => void onUpdateLibraryElementFromSelection(selectedLibrary.id, selectedElement)}
+                      >
+                        Update from Selection
+                      </WorkbenchButton>
+                      <WorkbenchButton
+                        disabled={selectedObjectsCount === 0}
+                        onClick={() => void onSaveLibraryElementCopyFromSelection(selectedLibrary.id, selectedElement)}
+                      >
+                        Save as Copy
+                      </WorkbenchButton>
+                      <WorkbenchButton onClick={() => void deleteElementFromLibrary(selectedElement)}>
                         Delete
                       </WorkbenchButton>
                     </div>
                   </div>
-                ))}
+                ) : (
+                  <div className="screen-editor-item-meta">Select an element to see actions.</div>
+                )}
               </div>
             ) : null}
 
