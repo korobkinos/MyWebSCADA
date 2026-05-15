@@ -196,7 +196,9 @@ function resolveLineGradientProps(args: {
   const reversed = args.direction === "outside-inward";
   const endPoint = args.direction === "vertical"
     ? { x: 0, y: args.height }
-    : { x: args.width, y: args.height };
+    : args.direction === "diagonal"
+      ? { x: args.width, y: args.height }
+      : { x: args.width, y: 0 };
   const startColor = reversed ? args.endColor : args.startColor;
   const endColor = reversed ? args.startColor : args.endColor;
   return {
@@ -924,7 +926,7 @@ function ObjectNode({
     const lineGradientStart = resolvedObject.gradientStartColor ?? lineStroke;
     const lineGradientEnd = resolvedObject.gradientEndColor ?? lineStroke;
     const lineGradientDirection = (resolvedObject.gradientDirection ?? "horizontal") as GradientDirection;
-    const lineGradientProps = resolveLineGradientProps({
+    const lineStrokeGradientProps = resolveLineGradientProps({
       enabled: lineGradientEnabled,
       direction: lineGradientDirection,
       startColor: lineGradientStart,
@@ -932,6 +934,17 @@ function ObjectNode({
       width: resolvedObject.width,
       height: resolvedObject.height,
     });
+    const lineFillGradientProps = resolvedObject.closed
+      ? resolveFillGradientProps({
+          enabled: lineGradientEnabled,
+          direction: lineGradientDirection,
+          startColor: resolvedObject.gradientStartColor ?? (resolvedObject.fill ?? lineStroke),
+          endColor: resolvedObject.gradientEndColor ?? (resolvedObject.fill ?? lineStroke),
+          baseFill: resolvedObject.fill ?? "transparent",
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+        })
+      : {};
     const lineShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     return (
       <Group {...commonGroupProps}>
@@ -943,7 +956,8 @@ function ObjectNode({
           closed={resolvedObject.closed ?? false}
           fill={resolvedObject.fill}
           perfectDrawEnabled={false}
-          {...lineGradientProps}
+          {...lineFillGradientProps}
+          {...lineStrokeGradientProps}
           {...lineShadowProps}
         />
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />

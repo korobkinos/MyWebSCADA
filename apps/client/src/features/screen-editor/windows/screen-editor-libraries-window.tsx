@@ -72,6 +72,10 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     }
   }, [libraries, selectedLibraryId]);
 
+  useEffect(() => {
+    setSelectedElementId("");
+  }, [selectedLibraryId]);
+
   const attachedIds = useMemo(
     () =>
       new Set(
@@ -96,8 +100,8 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       setSelectedElementId("");
       return;
     }
-    if (!selectedElementId || !selectedLibrary.elements.some((item) => item.id === selectedElementId)) {
-      setSelectedElementId(selectedLibrary.elements[0]?.id ?? "");
+    if (selectedElementId && !selectedLibrary.elements.some((item) => item.id === selectedElementId)) {
+      setSelectedElementId("");
     }
   }, [selectedElementId, selectedLibrary]);
 

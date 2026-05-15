@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-15T16:01:50.432Z",
+  "updatedAt": "2026-05-15T16:34:07.196Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -85,512 +85,29 @@
   ],
   "elements": [
     {
-      "id": "element_qkwgwe",
+      "id": "element_usnbz5",
       "libraryId": "amaks-basic-equipment",
-      "elementKey": "PZK1",
-      "name": "ПЗК-1",
+      "elementKey": "zazazazaza",
+      "name": "zazazazaza",
       "description": "",
-      "category": "valves",
-      "width": 220,
-      "height": 120,
-      "objects": [
-        {
-          "id": "state_img_4gyecx",
-          "type": "stateImage",
-          "name": "valves",
-          "x": 66,
-          "y": 45,
-          "width": 90,
-          "height": 56,
-          "minWidth": 40,
-          "minHeight": 40,
-          "tag": ".State",
-          "states": [
-            {
-              "id": "state_7qih2d",
-              "name": "State 0",
-              "condition": {
-                "type": "equals",
-                "value": 0
-              },
-              "assetId": "f908f864-26b3-48e3-bcb4-732b013f28f2"
-            },
-            {
-              "id": "state_nqxuxv",
-              "name": "State 1",
-              "condition": {
-                "type": "equals",
-                "value": 1
-              },
-              "assetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0"
-            },
-            {
-              "id": "state_suse7j",
-              "name": "State 2",
-              "condition": {
-                "type": "equals",
-                "value": 2
-              },
-              "assetId": "edd18c1b-b49b-4269-85bc-a51c9786d8f8"
-            }
-          ],
-          "defaultAssetId": "f908f864-26b3-48e3-bcb4-732b013f28f2",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        },
-        {
-          "id": "state_img_ojo66y",
-          "type": "stateImage",
-          "name": "move",
-          "x": 91.50553805816568,
-          "y": 17.505538058165733,
-          "width": 40,
-          "height": 40,
-          "rotation": 0,
-          "minWidth": 40,
-          "minHeight": 40,
-          "tag": ".State",
-          "states": [
-            {
-              "id": "state_rlzr24",
-              "name": "State 0",
-              "condition": {
-                "type": "equals",
-                "value": 0
-              },
-              "assetId": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1"
-            },
-            {
-              "id": "state_janmv5",
-              "name": "State 1",
-              "condition": {
-                "type": "equals",
-                "value": 1
-              },
-              "assetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0"
-            }
-          ],
-          "defaultAssetId": "3c1c67dc-0808-4f8b-960f-1ad5f7bc70e1",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        }
-      ],
-      "parameters": [],
-      "stateRules": [],
-      "createdAt": "2026-05-08T06:46:42.460Z",
-      "updatedAt": "2026-05-08T09:16:44.484Z"
-    },
-    {
-      "id": "prefix_demo_element",
-      "libraryId": "amaks-basic-equipment",
-      "elementKey": "PREFIX_DEMO",
-      "name": "Prefix Binding Demo",
-      "description": "Demo element for binding prefix transforms",
-      "category": "demo",
-      "width": 360,
-      "height": 150,
-      "objects": [
-        {
-          "id": "txt_prefix_demo_title",
-          "type": "text",
-          "name": "title",
-          "x": 8,
-          "y": 6,
-          "width": 344,
-          "height": 20,
-          "text": "Bindings: base / last-segment prefix / segment prefix",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 12,
-            "fontStyle": "bold",
-            "color": "#d9d9d9",
-            "horizontalAlign": "left",
-            "verticalAlign": "middle",
-            "padding": 0
-          }
-        },
-        {
-          "id": "txt_prefix_demo_base",
-          "type": "text",
-          "name": "label_base",
-          "x": 16,
-          "y": 118,
-          "width": 96,
-          "height": 22,
-          "text": "base",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 12,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 0
-          }
-        },
-        {
-          "id": "txt_prefix_demo_last",
-          "type": "text",
-          "name": "label_last",
-          "x": 132,
-          "y": 118,
-          "width": 96,
-          "height": 22,
-          "text": "last + _PFX",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 12,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 0
-          }
-        },
-        {
-          "id": "txt_prefix_demo_segment",
-          "type": "text",
-          "name": "label_segment",
-          "x": 248,
-          "y": 118,
-          "width": 96,
-          "height": 22,
-          "text": "seg1 prepend DEV_",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 12,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 0
-          }
-        },
-        {
-          "id": "state_prefix_demo_base",
-          "type": "stateImage",
-          "name": "state_base",
-          "x": 24,
-          "y": 34,
-          "width": 80,
-          "height": 74,
-          "minWidth": 40,
-          "minHeight": 40,
-          "tag": "$binding.stateBase",
-          "states": [
-            {
-              "id": "state_prefix_demo_base_0",
-              "name": "Off",
-              "condition": {
-                "type": "equals",
-                "value": 0
-              },
-              "assetId": "valve_closed_svg"
-            },
-            {
-              "id": "state_prefix_demo_base_1",
-              "name": "On",
-              "condition": {
-                "type": "equals",
-                "value": 1
-              },
-              "assetId": "valve_open_svg"
-            }
-          ],
-          "defaultAssetId": "valve_closed_svg",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        },
-        {
-          "id": "state_prefix_demo_last",
-          "type": "stateImage",
-          "name": "state_last_segment",
-          "x": 140,
-          "y": 34,
-          "width": 80,
-          "height": 74,
-          "minWidth": 40,
-          "minHeight": 40,
-          "tag": "$binding.stateLastSegmentPrefixed",
-          "states": [
-            {
-              "id": "state_prefix_demo_last_0",
-              "name": "Off",
-              "condition": {
-                "type": "equals",
-                "value": 0
-              },
-              "assetId": "valve_closed_svg"
-            },
-            {
-              "id": "state_prefix_demo_last_1",
-              "name": "On",
-              "condition": {
-                "type": "equals",
-                "value": 1
-              },
-              "assetId": "valve_open_svg"
-            }
-          ],
-          "defaultAssetId": "valve_closed_svg",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        },
-        {
-          "id": "state_prefix_demo_segment",
-          "type": "stateImage",
-          "name": "state_segment_prefixed",
-          "x": 256,
-          "y": 34,
-          "width": 80,
-          "height": 74,
-          "minWidth": 40,
-          "minHeight": 40,
-          "tag": "$binding.stateSegmentPrefixed",
-          "states": [
-            {
-              "id": "state_prefix_demo_segment_0",
-              "name": "Off",
-              "condition": {
-                "type": "equals",
-                "value": 0
-              },
-              "assetId": "valve_closed_svg"
-            },
-            {
-              "id": "state_prefix_demo_segment_1",
-              "name": "On",
-              "condition": {
-                "type": "equals",
-                "value": 1
-              },
-              "assetId": "valve_open_svg"
-            }
-          ],
-          "defaultAssetId": "valve_closed_svg",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        }
-      ],
-      "bindings": [
-        {
-          "id": "binding_prefix_demo_base",
-          "key": "stateBase",
-          "displayName": "State (base)",
-          "kind": "state",
-          "dataType": "INT",
-          "required": true,
-          "defaultBaseTag": "Burner_1.PZK_1.VisualState",
-          "overridable": true
-        },
-        {
-          "id": "binding_prefix_demo_last",
-          "key": "stateLastSegmentPrefixed",
-          "displayName": "State (last segment prefix)",
-          "kind": "state",
-          "dataType": "INT",
-          "required": true,
-          "defaultBaseTag": "Burner_1.PZK_1.VisualState",
-          "overridable": true
-        },
-        {
-          "id": "binding_prefix_demo_seg",
-          "key": "stateSegmentPrefixed",
-          "displayName": "State (segment prefix)",
-          "kind": "state",
-          "dataType": "INT",
-          "required": true,
-          "defaultBaseTag": "Burner_1.PZK_1.VisualState",
-          "overridable": true
-        }
-      ],
-      "parameters": [],
-      "stateRules": [],
-      "createdAt": "2026-05-08T15:35:00.000Z",
-      "updatedAt": "2026-05-08T15:35:00.000Z"
-    },
-    {
-      "id": "valve-universal",
-      "libraryId": "amaks-basic-equipment",
-      "elementKey": "VALVE_UNIVERSAL",
-      "name": "ValveUniversal",
-      "description": "Универсальный элемент арматуры/клапана с динамическими привязками",
-      "category": "Armature",
-      "width": 140,
-      "height": 90,
-      "objects": [
-        {
-          "id": "valve-state-image",
-          "type": "stateImage",
-          "name": "Valve state image",
-          "x": 15,
-          "y": 5,
-          "width": 80,
-          "height": 60,
-          "tag": "$binding.visualState",
-          "states": [
-            {
-              "id": "valve-state-closed",
-              "name": "Closed",
-              "condition": {
-                "type": "equals",
-                "value": 0
-              },
-              "assetId": "valve_closed_svg"
-            },
-            {
-              "id": "valve-state-open",
-              "name": "Open",
-              "condition": {
-                "type": "equals",
-                "value": 1
-              },
-              "assetId": "valve_open_svg"
-            }
-          ],
-          "defaultAssetId": "valve_closed_svg",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        },
-        {
-          "id": "valve-command-indicator",
-          "type": "state-indicator",
-          "name": "Command indicator",
-          "x": 104,
-          "y": 8,
-          "width": 26,
-          "height": 26,
-          "tag": "$binding.commandState",
-          "trueText": "ON",
-          "falseText": "OFF",
-          "trueColor": "#52c41a",
-          "falseColor": "#595959",
-          "badColor": "#8c8c8c",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 9,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 0
-          }
-        },
-        {
-          "id": "valve-label",
-          "type": "text",
-          "name": "Valve label",
-          "x": 0,
-          "y": 68,
-          "width": 140,
-          "height": 20,
-          "text": "{label}",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 12,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 0
-          }
-        }
-      ],
-      "bindings": [
-        {
-          "id": "binding-visual-state",
-          "key": "visualState",
-          "displayName": "Visual state",
-          "description": "Состояние положения арматуры: закрыто/промежуточно/открыто/авария",
-          "kind": "state",
-          "dataType": "INT",
-          "required": true,
-          "defaultBaseTag": "GVL_VALVE.valves[0].VisualState",
-          "overridable": true
-        },
-        {
-          "id": "binding-command-state",
-          "key": "commandState",
-          "displayName": "Command state",
-          "description": "Состояние команды/питания на исполнительный механизм",
-          "kind": "state",
-          "dataType": "INT",
-          "required": false,
-          "defaultBaseTag": "GVL_VALVE.valves[0].CommandState",
-          "overridable": true
-        },
-        {
-          "id": "binding-open-cmd",
-          "key": "openCmd",
-          "displayName": "Open command",
-          "description": "Команда открытия арматуры",
-          "kind": "command",
-          "dataType": "BOOL",
-          "required": false,
-          "defaultBaseTag": "GVL_VALVE.valves[0].OpenCmd",
-          "overridable": true
-        },
-        {
-          "id": "binding-close-cmd",
-          "key": "closeCmd",
-          "displayName": "Close command",
-          "description": "Команда закрытия арматуры",
-          "kind": "command",
-          "dataType": "BOOL",
-          "required": false,
-          "defaultBaseTag": "GVL_VALVE.valves[0].CloseCmd",
-          "overridable": true
-        },
-        {
-          "id": "binding-fault",
-          "key": "fault",
-          "displayName": "Fault",
-          "description": "Авария/неисправность арматуры",
-          "kind": "tag",
-          "dataType": "BOOL",
-          "required": false,
-          "defaultBaseTag": "GVL_VALVE.valves[0].Fault",
-          "overridable": true
-        }
-      ],
-      "parameters": [
-        {
-          "name": "label",
-          "displayName": "Label",
-          "type": "string",
-          "defaultValue": "Valve",
-          "description": "Подпись арматуры",
-          "required": false
-        }
-      ],
-      "stateRules": [],
-      "createdAt": "2026-01-01T00:00:00.000Z",
-      "updatedAt": "2026-01-01T00:00:00.000Z"
-    },
-    {
-      "id": "element_ly6psh",
-      "libraryId": "amaks-basic-equipment",
-      "elementKey": "zazaza_lupa",
-      "name": "zazaza_lupa",
-      "description": "зазазазазаза",
       "category": "General",
-      "width": 156.88062310601777,
-      "height": 90,
+      "width": 156.88062310601782,
+      "height": 76,
       "objects": [
         {
-          "id": "group_pk2zba",
+          "id": "group_gfra3j",
           "type": "group",
           "x": 0,
           "y": 0,
           "width": 156.88062310601777,
-          "height": 90,
+          "height": 76,
           "visible": true,
           "locked": false,
           "minWidth": 8,
           "minHeight": 8,
           "objects": [
             {
-              "id": "tri_mmzejl",
+              "id": "line_0gof1m",
               "type": "line",
               "x": 80.00000000000055,
               "y": 0,
@@ -611,10 +128,13 @@
               "stroke": "#8c8c8c",
               "strokeWidth": 2,
               "closed": true,
-              "fill": "#262626"
+              "fill": "#262626",
+              "gradientEnabled": false,
+              "gradientEndColor": "#230505",
+              "gradientDirection": "vertical"
             },
             {
-              "id": "line_mjhned",
+              "id": "line_utq0wx",
               "type": "line",
               "x": 76.88062310601721,
               "y": 90,
@@ -635,7 +155,10 @@
               "stroke": "#8c8c8c",
               "strokeWidth": 2,
               "closed": true,
-              "fill": "#262626"
+              "fill": "#262626",
+              "gradientEnabled": false,
+              "gradientEndColor": "#1e0b0b",
+              "gradientDirection": "vertical"
             }
           ]
         }
@@ -643,8 +166,8 @@
       "bindings": [],
       "parameters": [],
       "stateRules": [],
-      "createdAt": "2026-05-15T16:01:48.384Z",
-      "updatedAt": "2026-05-15T16:01:50.432Z"
+      "createdAt": "2026-05-15T16:26:31.988Z",
+      "updatedAt": "2026-05-15T16:34:07.196Z"
     }
   ],
   "macros": []
