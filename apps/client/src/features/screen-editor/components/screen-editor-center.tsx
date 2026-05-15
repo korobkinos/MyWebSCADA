@@ -13,8 +13,32 @@ import {
   UnorderedListOutlined,
 } from "@ant-design/icons";
 import {
+  ActivityLogIcon,
+  AlignBottomIcon,
+  AlignCenterHorizontallyIcon,
+  AlignCenterVerticallyIcon,
+  AlignLeftIcon,
+  AlignRightIcon,
+  AlignTopIcon,
+  BorderSplitIcon,
+  BoxIcon,
+  ButtonIcon,
+  CircleIcon,
+  CopyIcon,
+  CursorArrowIcon,
+  GroupIcon,
+  HandIcon,
+  HeightIcon,
   CheckIcon,
   SliderIcon,
+  SizeIcon,
+  SquareIcon,
+  SpaceBetweenHorizontallyIcon,
+  SpaceBetweenVerticallyIcon,
+  SwitchIcon,
+  TriangleUpIcon,
+  ValueIcon,
+  WidthIcon,
   BarChartIcon,
   ChevronDownIcon,
   DotFilledIcon,
@@ -330,17 +354,14 @@ export function ScreenEditorCenter({
           <div className="screen-editor-toolbar__group">
             <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("text"))} title="Add Text" icon={<FontSizeOutlined />} />
             <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("line"))} title="Add Line" icon={<MinusOutlined />} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))} title="Add Rectangle" icon={<span>R</span>} />
-            <WorkbenchIconButton onClick={() => addPrimitiveShape("square")} title="Add Square" icon={<span>Sq</span>} />
-            <WorkbenchIconButton onClick={() => addPrimitiveShape("circle")} title="Add Circle" icon={<span>O</span>} />
-            <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle")} title="Add Triangle" icon={<span>Tr</span>} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("button"))} title="Add Button" icon={<span>B</span>} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("switch"))} title="Add Switch" icon={<span>Sw</span>} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))} title="Add Value Display" icon={<span>V</span>} />
-            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<span>I</span>} />
-          </div>
-
-          <div className="screen-editor-toolbar__group">
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))} title="Add Rectangle" icon={<BoxIcon />} />
+            <WorkbenchIconButton onClick={() => addPrimitiveShape("square")} title="Add Square" icon={<SquareIcon />} />
+            <WorkbenchIconButton onClick={() => addPrimitiveShape("circle")} title="Add Circle" icon={<CircleIcon />} />
+            <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle")} title="Add Triangle" icon={<TriangleUpIcon />} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("button"))} title="Add Button" icon={<ButtonIcon />} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("switch"))} title="Add Switch" icon={<SwitchIcon />} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))} title="Add Value Display" icon={<ValueIcon />} />
+            <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<ActivityLogIcon />} />
             <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("checkbox"))} title="Add Checkbox" icon={<CheckIcon />} />
             <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("slider"))} title="Add Slider" icon={<SliderIcon />} />
             <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("progress-bar"))} title="Add Progress Bar" icon={<BarChartIcon />} />
@@ -391,24 +412,14 @@ export function ScreenEditorCenter({
 
         <div className="screen-editor-toolbar__row">
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize} title="Make same width">
-              Same W
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize} title="Make same height">
-              Same H
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size">
-              Same Size
-            </WorkbenchButton>
+            <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize} title="Make same width" icon={<WidthIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize} title="Make same height" icon={<HeightIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size" icon={<SizeIcon />} />
           </div>
 
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute} title="Distribute horizontally">
-              Dist H
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically">
-              Dist V
-            </WorkbenchButton>
+            <WorkbenchIconButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute} title="Distribute horizontally" icon={<SpaceBetweenHorizontallyIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
             <input
               className="workbench-input screen-editor-toolbar__gap-input"
               type="number"
@@ -420,53 +431,33 @@ export function ScreenEditorCenter({
           </div>
 
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign} title="Align left">
-              Align L
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign} title="Align horizontal center">
-              Align C
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign} title="Align right">
-              Align R
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign} title="Align top">
-              Align T
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign} title="Align vertical center">
-              Align M
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign} title="Align bottom">
-              Align B
-            </WorkbenchButton>
+            <WorkbenchIconButton onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign} title="Align left" icon={<AlignLeftIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign} title="Align horizontal center" icon={<AlignCenterHorizontallyIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign} title="Align right" icon={<AlignRightIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign} title="Align top" icon={<AlignTopIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign} title="Align vertical center" icon={<AlignCenterVerticallyIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign} title="Align bottom" icon={<AlignBottomIcon />} />
           </div>
 
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup} title="Group selected objects">
-              Group
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup} title="Ungroup selected objects">
-              Ungroup
-            </WorkbenchButton>
-            <WorkbenchButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length} title="Clone selected objects">
-              Clone
-            </WorkbenchButton>
+            <WorkbenchIconButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup} title="Group selected objects" icon={<GroupIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup} title="Ungroup selected objects" icon={<BorderSplitIcon />} />
+            <WorkbenchIconButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length} title="Clone selected objects" icon={<CopyIcon />} />
           </div>
 
           <div className="screen-editor-toolbar__group">
-            <WorkbenchButton
-              variant={activeTool === "select" ? "primary" : "default"}
+            <WorkbenchIconButton
+              active={activeTool === "select"}
               onClick={() => setActiveTool("select")}
               title="Select tool"
-            >
-              Select
-            </WorkbenchButton>
-            <WorkbenchButton
-              variant={activeTool === "pan" ? "primary" : "default"}
+              icon={<CursorArrowIcon />}
+            />
+            <WorkbenchIconButton
+              active={activeTool === "pan"}
               onClick={() => setActiveTool("pan")}
               title="Pan tool"
-            >
-              Hand
-            </WorkbenchButton>
+              icon={<HandIcon />}
+            />
           </div>
         </div>
       </div>

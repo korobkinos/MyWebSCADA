@@ -9775,6 +9775,7 @@
           "y": 210.31476997578702,
           "width": 130,
           "height": 44,
+          "rotation": 0,
           "shadowEnabled": true,
           "shadowOpacity": 0.35,
           "shadowBlur": 18,
