@@ -10362,52 +10362,66 @@
           "gradientDirection": "outside-inward"
         },
         {
-          "id": "tri_mmzejl",
-          "type": "line",
-          "x": 201.05244682297106,
-          "y": 834.6121920754587,
-          "width": 90.00000000000001,
-          "height": 80.00000000000055,
-          "rotation": 90,
-          "opacity": 1,
-          "minWidth": 20,
-          "minHeight": 20,
-          "points": [
-            45.00000000000001,
-            0,
-            90.00000000000001,
-            80.00000000000055,
-            0,
-            80.00000000000055
-          ],
-          "stroke": "#8c8c8c",
-          "strokeWidth": 2,
-          "closed": true,
-          "fill": "#262626"
-        },
-        {
-          "id": "line_mjhned",
-          "type": "line",
-          "x": 197.93306992898772,
-          "y": 926.9116954508659,
-          "width": 90.00000000000001,
-          "height": 80.00000000000055,
-          "rotation": 270,
-          "opacity": 1,
-          "minWidth": 20,
-          "minHeight": 20,
-          "points": [
-            45.00000000000001,
-            0,
-            90.00000000000001,
-            80.00000000000055,
-            0,
-            80.00000000000055
-          ],
-          "stroke": "#8c8c8c",
-          "strokeWidth": 2,
-          "closed": true,
-          "fill": "#262626"
+          "id": "group_1enwuq",
+          "type": "group",
+          "x": 286.16126839209824,
+          "y": 839.5,
+          "width": 156.88062310601777,
+          "height": 76,
+          "visible": true,
+          "locked": false,
+          "minWidth": 8,
+          "minHeight": 8,
+          "objects": [
+            {
+              "id": "tri_mmzejl",
+              "type": "line",
+              "x": 80.00000000000055,
+              "y": 0,
+              "width": 90.00000000000001,
+              "height": 80.00000000000055,
+              "rotation": 90,
+              "opacity": 1,
+              "minWidth": 20,
+              "minHeight": 20,
+              "points": [
+                45.00000000000001,
+                0,
+                90.00000000000001,
+                80.00000000000055,
+                0,
+                80.00000000000055
+              ],
+              "stroke": "#8c8c8c",
+              "strokeWidth": 2,
+              "closed": true,
+              "fill": "#262626"
+            },
+            {
+              "id": "line_mjhned",
+              "type": "line",
+              "x": 76.88062310601721,
+              "y": 90,
+              "width": 90.00000000000001,
+              "height": 80.00000000000055,
+              "rotation": 270,
+              "opacity": 1,
+              "minWidth": 20,
+              "minHeight": 20,
+              "points": [
+                45.00000000000001,
+                0,
+                90.00000000000001,
+                80.00000000000055,
+                0,
+                80.00000000000055
+              ],
+              "stroke": "#8c8c8c",
+              "strokeWidth": 2,
+              "closed": true,
+              "fill": "#262626"
+            }
+          ]
         }
       ]
     },

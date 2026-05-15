@@ -50,6 +50,13 @@ const HMI_CONTROL_COLORS = {
   overlayBg: "#252526",
 } as const;
 
+function isPrimaryPointerButton(event: Event): boolean {
+  if ("button" in event && typeof event.button === "number") {
+    return event.button === 0;
+  }
+  return true;
+}
+
 type FormatNumericOptions = {
   formatMode?: "decimals" | "pattern";
   decimals?: number;
@@ -731,6 +738,9 @@ function ObjectNode({
       }
     },
     onClick: (evt: KonvaEventObject<MouseEvent>) => {
+      if (!isPrimaryPointerButton(evt.evt)) {
+        return;
+      }
       if (!selectable) {
         return;
       }
@@ -1038,6 +1048,9 @@ function ObjectNode({
       <Group
         {...commonGroupProps}
         onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (!isPrimaryPointerButton(evt.evt)) {
+            return;
+          }
           if (interactive) {
             onSelectObject?.({
               objectId: resolvedObject.id,
@@ -1173,6 +1186,9 @@ function ObjectNode({
       <Group
         {...commonGroupProps}
         onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (!isPrimaryPointerButton(evt.evt)) {
+            return;
+          }
           if (interactive) {
             onSelectObject?.({
               objectId: resolvedObject.id,
@@ -1244,6 +1260,9 @@ function ObjectNode({
       <Group
         {...commonGroupProps}
         onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (!isPrimaryPointerButton(evt.evt)) {
+            return;
+          }
           if (interactive) {
             onSelectObject?.({
               objectId: resolvedObject.id,
@@ -1464,6 +1483,9 @@ function ObjectNode({
       <Group
         {...commonGroupProps}
         onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (!isPrimaryPointerButton(evt.evt)) {
+            return;
+          }
           if (interactive) {
             onSelectObject?.({
               objectId: resolvedObject.id,
@@ -1932,6 +1954,9 @@ function ObjectNode({
       <Group
         {...commonGroupProps}
         onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (!isPrimaryPointerButton(evt.evt)) {
+            return;
+          }
           if (interactive) {
             onSelectObject?.({
               objectId: resolvedObject.id,
@@ -2178,6 +2203,9 @@ function ObjectNode({
       <Group
         {...commonGroupProps}
         onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (!isPrimaryPointerButton(evt.evt)) {
+            return;
+          }
           if (interactive) {
             onSelectObject?.({
               objectId: resolvedObject.id,
@@ -2423,6 +2451,9 @@ function ObjectNode({
       <Group
         {...commonGroupProps}
         onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (!isPrimaryPointerButton(evt.evt)) {
+            return;
+          }
           if (interactive) {
             onSelectObject?.({
               objectId: resolvedObject.id,
@@ -2596,6 +2627,9 @@ function ObjectNode({
       <Group
         {...commonGroupProps}
         onClick={(evt: KonvaEventObject<MouseEvent>) => {
+          if (!isPrimaryPointerButton(evt.evt)) {
+            return;
+          }
           if (interactive) {
             onSelectObject?.({
               objectId: resolvedObject.id,
@@ -3076,6 +3110,9 @@ function LibraryInstanceNode({
     <Group
       {...commonGroupProps}
       onClick={(event) => {
+        if (!isPrimaryPointerButton(event.evt)) {
+          return;
+        }
         const baseOnClick = commonGroupProps.onClick as ((evt: KonvaEventObject<MouseEvent>) => void) | undefined;
         baseOnClick?.(event);
         if (!interactive && !runtimeDisabled && object.action) {
@@ -3177,6 +3214,9 @@ function ImageNode({
     <Group
       {...groupProps}
       onClick={(evt: KonvaEventObject<MouseEvent>) => {
+        if (!isPrimaryPointerButton(evt.evt)) {
+          return;
+        }
         if (interactive) {
           onSelectObject?.({
             objectId: object.id,
@@ -3357,6 +3397,9 @@ function ButtonNode({
         }
       }}
       onClick={(evt: KonvaEventObject<MouseEvent>) => {
+        if (!isPrimaryPointerButton(evt.evt)) {
+          return;
+        }
         if (interactive) {
           onSelectObject?.({
             objectId: object.id,

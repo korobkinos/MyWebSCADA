@@ -589,7 +589,10 @@ export function ScreenEditorCenter({
                 if (additive) {
                   toggleSelectedObject(objectId);
                 } else {
-                  setSelectedObjects([objectId], objectId);
+                  const isAlreadySelected = selection.selectedObjectIds.includes(objectId);
+                  if (!isAlreadySelected) {
+                    setSelectedObjects([objectId], objectId);
+                  }
                 }
                 setContextMenu({ visible: true, x: clientX, y: clientY });
               }}
