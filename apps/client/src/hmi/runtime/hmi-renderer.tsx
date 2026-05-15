@@ -2146,6 +2146,7 @@ function ObjectNode({
     const selectBadBorderColor = resolvedObject.badBorderColor ?? "#a03030";
     const selectDisabledBackgroundColor = resolvedObject.disabledBackgroundColor ?? HMI_CONTROL_COLORS.fieldDisabledBg;
     const selectDisabledTextColor = resolvedObject.disabledTextColor ?? "#8c8c8c";
+    const isSelectDropdownOpen = overlayState?.objectId === resolvedObject.id;
     const renderBackground = runtimeDisabled
       ? selectDisabledBackgroundColor
       : (selectBad ? selectBadBackgroundColor : selectBackgroundColor);
@@ -2172,13 +2173,22 @@ function ObjectNode({
           if (runtimeDisabled) {
             return;
           }
+          const groupNode = evt.currentTarget;
+          const pointer = groupNode.getRelativePointerPosition();
+          if (!pointer) {
+            return;
+          }
+          const arrowAreaStartX = Math.max(0, resolvedObject.width - selectArrowAreaWidth);
+          const clickedArrowArea = pointer.x >= arrowAreaStartX && pointer.x <= resolvedObject.width && pointer.y >= 0 && pointer.y <= resolvedObject.height;
+          if (!clickedArrowArea) {
+            return;
+          }
           if (resolvedObject.requiredActionRole) {
             const hasAccess = hasRoleAccess(renderContext.userRoleLevel, resolvedObject.requiredActionRole);
             if (!hasAccess) {
               return;
             }
           }
-          const groupNode = evt.currentTarget;
           const stage = groupNode.getStage();
           if (!stage) {
             return;
@@ -2195,7 +2205,7 @@ function ObjectNode({
           const scaleY = stage?.scaleY() ?? 1;
           const overlayX = (containerRect.left - wrapRect.left) + canvasWrap.scrollLeft + absPos.x * scaleX;
           const overlayY = (containerRect.top - wrapRect.top) + canvasWrap.scrollTop + (absPos.y + resolvedObject.height + selectDropdownOffsetY) * scaleY;
-          if (overlayState?.objectId === resolvedObject.id) {
+          if (isSelectDropdownOpen) {
             onHideOverlay?.();
             return;
           }
@@ -2280,6 +2290,15 @@ function ObjectNode({
           opacity={runtimeDisabled ? 0.65 : 1}
           perfectDrawEnabled={false}
           {...selectShadowProps}
+        />
+        <Rect
+          x={Math.max(0, resolvedObject.width - selectArrowAreaWidth)}
+          y={0}
+          width={selectArrowAreaWidth}
+          height={resolvedObject.height}
+          fill={isSelectDropdownOpen ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)"}
+          listening={false}
+          perfectDrawEnabled={false}
         />
         {renderBoxText(displayText, {
           fontFamily: selectFontFamily,
