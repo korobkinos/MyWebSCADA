@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Tree } from "antd";
+import { ColorPicker, Tree } from "antd";
 import type { DataNode } from "antd/es/tree";
 import type {
   ElementBindingDefinition,
@@ -176,20 +176,15 @@ type UpdateElementDialogState = {
   } | null;
 };
 
+type RenameElementDialogState = {
+  open: boolean;
+  element: LibraryElement | null;
+  nextName: string;
+  error?: string;
+};
+
 const DATA_TYPE_OPTIONS: Array<NonNullable<ElementBindingDefinition["dataType"]>> = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
-const COLOR_HEX_PATTERN = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/;
-const VISUAL_RULE_COLOR_PALETTE = [
-  "#00ff00",
-  "#ff0000",
-  "#ffff00",
-  "#808080",
-  "#ffffff",
-  "#000000",
-  "#0e639c",
-  "#3c3c3c",
-  "#262626",
-  "#d7ba7d",
-];
+const COLOR_HEX_PATTERN = /^#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})$/;
 
 function formatOneDecimal(value: number | undefined): string {
   if (!Number.isFinite(value)) {
@@ -412,20 +407,56 @@ function normalizeValueForKind(kind: VisualRuleValueKind, raw: string): string {
     return Number.isFinite(nextNumber) ? String(nextNumber) : "0";
   }
   if (kind === "color") {
-    return COLOR_HEX_PATTERN.test(raw) ? raw.toLowerCase() : "#ffffff";
+    return isLikelyCssColor(raw.trim()) ? normalizeColorInput(raw) : "#ffffff";
   }
   return raw;
 }
 
 function normalizeColorInput(raw: string): string {
-  const normalized = raw.trim().toLowerCase();
+  const normalized = raw.trim();
   if (!normalized) {
     return "";
   }
-  if (normalized.startsWith("#")) {
+  if (
+    normalized.startsWith("rgb(") ||
+    normalized.startsWith("rgba(") ||
+    normalized.startsWith("hsl(") ||
+    normalized.startsWith("hsla(")
+  ) {
     return normalized;
   }
-  return `#${normalized}`;
+  if (normalized.startsWith("#")) {
+    return normalized.toLowerCase();
+  }
+  if (/^[0-9a-fA-F]{3,8}$/.test(normalized)) {
+    return `#${normalized.toLowerCase()}`;
+  }
+  if (/^[a-zA-Z]+$/.test(normalized)) {
+    return normalized;
+  }
+  return normalized;
+}
+
+function normalizePickerColor(value: string | undefined, fallback: string): string {
+  const token = (value ?? "").trim();
+  if (!token) {
+    return fallback;
+  }
+  if (isLikelyCssColor(token)) {
+    return token;
+  }
+  return fallback;
+}
+
+function isLikelyCssColor(value: string): boolean {
+  return (
+    value.startsWith("#") ||
+    value.startsWith("rgb(") ||
+    value.startsWith("rgba(") ||
+    value.startsWith("hsl(") ||
+    value.startsWith("hsla(") ||
+    /^[a-zA-Z]+$/.test(value)
+  );
 }
 
 function defaultValueForKind(kind: VisualRuleValueKind): string {
@@ -873,7 +904,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     actionIndex: -1,
     query: "",
   });
-  const [activeColorActionId, setActiveColorActionId] = useState<string | null>(null);
   const [propertyPickerExpandedObjectIds, setPropertyPickerExpandedObjectIds] = useState<string[]>([]);
   const [deleteLibraryDialog, setDeleteLibraryDialog] = useState<DeleteLibraryDialogState>({
     open: false,
@@ -890,6 +920,11 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
   const [updateElementDialog, setUpdateElementDialog] = useState<UpdateElementDialogState>({
     open: false,
     payload: null,
+  });
+  const [renameElementDialog, setRenameElementDialog] = useState<RenameElementDialogState>({
+    open: false,
+    element: null,
+    nextName: "",
   });
   const [saveCopyDialog, setSaveCopyDialog] = useState<SaveCopyDialogState>({
     open: false,
@@ -1215,6 +1250,36 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     }
   };
 
+  const startRenameElement = (element: LibraryElement): void => {
+    setRenameElementDialog({
+      open: true,
+      element,
+      nextName: element.name,
+      error: undefined,
+    });
+  };
+
+  const confirmRenameElement = async (): Promise<void> => {
+    if (!selectedLibrary || !renameElementDialog.element) {
+      return;
+    }
+    const nextName = renameElementDialog.nextName.trim();
+    if (!nextName) {
+      setRenameElementDialog((prev) => ({ ...prev, error: "Element name is required." }));
+      return;
+    }
+    try {
+      await api.updateLibraryElement(selectedLibrary.id, renameElementDialog.element.id, { name: nextName });
+      await refresh();
+      setRenameElementDialog({ open: false, element: null, nextName: "", error: undefined });
+    } catch (error) {
+      setRenameElementDialog((prev) => ({
+        ...prev,
+        error: error instanceof Error ? error.message : "Failed to rename element.",
+      }));
+    }
+  };
+
   const saveMetadata = async (): Promise<void> => {
     if (!selectedLibrary) {
       return;
@@ -1476,7 +1541,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
   };
 
   const openPropertyPickerForAction = (actionIndex: number) => {
-    setActiveColorActionId(null);
     setPropertyPickerDialog({
       open: true,
       actionIndex,
@@ -1527,16 +1591,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       setPropertyPickerExpandedObjectIds([]);
     }
   }, [propertyPickerDialog.open, visualRuleDialog.open]);
-
-  useEffect(() => {
-    if (!visualRuleDialog.open) {
-      setActiveColorActionId(null);
-      return;
-    }
-    if (activeColorActionId && visualRuleDialog.actions.every((action) => action.id !== activeColorActionId)) {
-      setActiveColorActionId(null);
-    }
-  }, [activeColorActionId, visualRuleDialog.actions, visualRuleDialog.open]);
 
   const startCreateVisualRule = () => {
     if (!selectedElement) {
@@ -1604,8 +1658,8 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     if (visualRuleDialog.actions.some((action) => action.kind === "number" && !Number.isFinite(Number(action.value)))) {
       return "Number property value must be numeric.";
     }
-    if (visualRuleDialog.actions.some((action) => action.kind === "color" && !COLOR_HEX_PATTERN.test(normalizeColorInput(action.value)))) {
-      return "Color value must be HEX (#RRGGBB or #RGB).";
+    if (visualRuleDialog.actions.some((action) => action.kind === "color" && !isLikelyCssColor(normalizeColorInput(action.value)))) {
+      return "Color value is invalid.";
     }
     if ((visualRuleDialog.condition === "greaterThan" || visualRuleDialog.condition === "lessThan" || visualRuleDialog.condition === "between")
       && !Number.isFinite(Number(visualRuleDialog.value))) {
@@ -1663,7 +1717,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
             }
             return fromVisualActionDraft({
               ...action,
-              value: normalizeColorInput(action.value).toLowerCase(),
+              value: normalizeColorInput(action.value),
             });
           }),
         },
@@ -1887,6 +1941,11 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                         Save as Copy
                       </WorkbenchButton>
                       <WorkbenchButton
+                        onClick={() => startRenameElement(selectedElement)}
+                      >
+                        Rename
+                      </WorkbenchButton>
+                      <WorkbenchButton
                         variant="danger"
                         onClick={() => setDeleteElementDialog({
                           open: true,
@@ -2086,6 +2145,44 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
             ))}
           </div>
         ) : null}
+      </WorkbenchDialog>
+
+      <WorkbenchDialog
+        title="Rename Library Element"
+        open={renameElementDialog.open}
+        onClose={() => setRenameElementDialog({ open: false, element: null, nextName: "", error: undefined })}
+        width={560}
+        actions={(
+          <>
+            <WorkbenchButton onClick={() => setRenameElementDialog({ open: false, element: null, nextName: "", error: undefined })}>
+              Cancel
+            </WorkbenchButton>
+            <WorkbenchButton variant="primary" onClick={() => void confirmRenameElement()}>
+              Rename
+            </WorkbenchButton>
+          </>
+        )}
+      >
+        <div style={{ display: "grid", gap: 8 }}>
+          <div className="screen-editor-item-meta">
+            Rename element "{renameElementDialog.element?.name ?? "-"}"?
+          </div>
+          <label style={{ display: "grid", gap: 4 }}>
+            <span>New name</span>
+            <input
+              className="workbench-input"
+              value={renameElementDialog.nextName}
+              onChange={(event) => setRenameElementDialog((prev) => ({
+                ...prev,
+                nextName: event.target.value,
+                error: undefined,
+              }))}
+              placeholder="Element name"
+              autoFocus
+            />
+          </label>
+          {renameElementDialog.error ? <div className="screen-editor-library-interface__error">{renameElementDialog.error}</div> : null}
+        </div>
       </WorkbenchDialog>
 
       <WorkbenchDialog
@@ -2366,12 +2463,12 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
 
               {action.kind === "color" ? (
                 <div className="screen-editor-library-interface__color-field">
-                  <button
-                    type="button"
-                    className="screen-editor-library-interface__color-swatch"
-                    style={{ backgroundColor: COLOR_HEX_PATTERN.test(normalizeColorInput(action.value)) ? normalizeColorInput(action.value) : "#000000" }}
-                    onClick={() => setActiveColorActionId((prev) => (prev === action.id ? null : action.id))}
-                    title="Pick color"
+                  <ColorPicker
+                    value={normalizePickerColor(action.value, "#ffffff")}
+                    onChangeComplete={(color: any) => {
+                      const next = color?.toHexString?.() ?? String(color ?? "");
+                      updateVisualRuleAction(index, { value: normalizeColorInput(next) });
+                    }}
                   />
                   <input
                     className="workbench-input"
@@ -2380,28 +2477,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                     placeholder="#00ff00"
                     onChange={(event) => updateVisualRuleAction(index, { value: normalizeColorInput(event.target.value) })}
                   />
-                  {activeColorActionId === action.id ? (
-                    <div className="screen-editor-library-interface__color-popover">
-                      <div className="screen-editor-library-interface__color-grid">
-                        {VISUAL_RULE_COLOR_PALETTE.map((hex) => (
-                          <button
-                            key={`${action.id}-${hex}`}
-                            type="button"
-                            className="screen-editor-library-interface__color-chip"
-                            style={{ backgroundColor: hex }}
-                            title={hex}
-                            onClick={() => {
-                              updateVisualRuleAction(index, { value: hex });
-                              setActiveColorActionId(null);
-                            }}
-                          />
-                        ))}
-                      </div>
-                      <div className="screen-editor-library-interface__color-popover-actions">
-                        <WorkbenchButton onClick={() => setActiveColorActionId(null)}>Close</WorkbenchButton>
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               ) : null}
 
@@ -2412,9 +2487,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                     ...prev,
                     actions: prev.actions.filter((_, actionIndex) => actionIndex !== index),
                   }));
-                  if (activeColorActionId === action.id) {
-                    setActiveColorActionId(null);
-                  }
                 }}
               >
                 Delete

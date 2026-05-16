@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-16T16:51:52.037Z",
+  "updatedAt": "2026-05-16T17:11:58.574Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -91,14 +91,33 @@
       "name": "zazazaza",
       "description": "",
       "category": "General",
-      "width": 85.09811133892265,
-      "height": 93.24937025527163,
+      "width": 153.7934325235717,
+      "height": 148.81521313394046,
       "objects": [
         {
-          "id": "group_6tuiyb",
-          "type": "group",
+          "id": "checkbox_wqymh0",
+          "type": "checkbox",
           "x": 0,
           "y": 0,
+          "width": 153.79343252357168,
+          "height": 49.65764172199869,
+          "rotation": 0,
+          "shadowEnabled": false,
+          "minWidth": 60,
+          "minHeight": 24,
+          "label": "Checkbox",
+          "tag": "Counter2",
+          "writeTag": "Counter2",
+          "checkedText": "On",
+          "uncheckedText": "Off",
+          "checkedColor": "#0e639c",
+          "uncheckedColor": "#2d2d2d"
+        },
+        {
+          "id": "group_k5py7g",
+          "type": "group",
+          "x": 2.113057221747681,
+          "y": 55.56584287866883,
           "width": 85.09811133892268,
           "height": 93.24937025527166,
           "rotation": 0,
@@ -212,11 +231,74 @@
           ]
         }
       ],
-      "bindings": [],
+      "bindings": [
+        {
+          "id": "binding_p4k6nc",
+          "key": "open",
+          "displayName": "open",
+          "description": "",
+          "kind": "state",
+          "dataType": "INT",
+          "required": false
+        }
+      ],
       "parameters": [],
-      "stateRules": [],
+      "stateRules": [
+        {
+          "id": "rule_v9xogr",
+          "name": "Visual Rule",
+          "source": {
+            "type": "tag",
+            "value": "$binding.open"
+          },
+          "cases": [
+            {
+              "id": "case_ux0fs2",
+              "name": "when",
+              "condition": {
+                "type": "equals",
+                "value": 0
+              },
+              "actions": [
+                {
+                  "type": "setProperty",
+                  "objectId": "circle_yiqmmm",
+                  "property": "fill",
+                  "value": "#1d1c1b"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "rule_ghrosw",
+          "name": "Visual Rule 2",
+          "source": {
+            "type": "tag",
+            "value": "$binding.open"
+          },
+          "cases": [
+            {
+              "id": "case_6o8vm3",
+              "name": "when",
+              "condition": {
+                "type": "notEquals",
+                "value": 0
+              },
+              "actions": [
+                {
+                  "type": "setProperty",
+                  "objectId": "circle_yiqmmm",
+                  "property": "fill",
+                  "value": "#a0ac1e"
+                }
+              ]
+            }
+          ]
+        }
+      ],
       "createdAt": "2026-05-16T16:47:26.069Z",
-      "updatedAt": "2026-05-16T16:51:52.037Z"
+      "updatedAt": "2026-05-16T17:11:58.573Z"
     },
     {
       "id": "element_4lz46k",

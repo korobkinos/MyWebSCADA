@@ -485,6 +485,7 @@ const MemoObjectNode = memo(ObjectNode, areObjectNodePropsEqual);
 
 function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): boolean {
   if (prev.object !== next.object) return false;
+  if (prev.libraries !== next.libraries) return false;
   if (prev.selected !== next.selected) return false;
   if (prev.interactive !== next.interactive) return false;
   if (prev.inheritedDisabled !== next.inheritedDisabled) return false;

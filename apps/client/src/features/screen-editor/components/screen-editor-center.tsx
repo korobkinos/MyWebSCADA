@@ -387,7 +387,20 @@ export function ScreenEditorCenter({
       event.preventDefault();
       if (!event.deltaY) return;
       const delta = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-      setEditorZoom((prev) => clampZoom(prev * delta));
+      const viewportRect = el.getBoundingClientRect();
+      const pointerX = event.clientX - viewportRect.left;
+      const pointerY = event.clientY - viewportRect.top;
+      setEditorZoom((prev) => {
+        const next = clampZoom(prev * delta);
+        if (next === prev) {
+          return prev;
+        }
+        const worldX = (el.scrollLeft + pointerX) / prev;
+        const worldY = (el.scrollTop + pointerY) / prev;
+        el.scrollLeft = Math.max(0, Math.round(worldX * next - pointerX));
+        el.scrollTop = Math.max(0, Math.round(worldY * next - pointerY));
+        return next;
+      });
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
