@@ -2555,41 +2555,23 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   min-height: 0;
 }
 
-.screen-editor-setproperty-picker__toolbar {
-  display: grid;
-  gap: 6px;
+.screen-editor-setproperty-picker .screen-editor-opc-browser-toolbar {
+  flex-wrap: nowrap;
+}
+
+.screen-editor-setproperty-picker .screen-editor-opc-browser-toolbar__search {
+  width: auto !important;
+  min-width: 260px;
+  flex: 1 1 auto;
 }
 
 .screen-editor-setproperty-picker__list {
-  flex: 1 1 auto;
+  flex: 1;
   min-height: 0;
   overflow: auto;
-  display: grid;
-  gap: 4px;
-  padding-right: 2px;
-}
-
-.screen-editor-setproperty-picker__row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(150px, 1fr) 76px;
-  gap: 8px;
-  align-items: center;
-  text-align: left;
-  border: 1px solid #343434;
-  border-radius: 4px;
-  background: #1f1f1f;
-  color: #d5d5d5;
-  padding: 6px 8px;
-  cursor: pointer;
-}
-
-.screen-editor-setproperty-picker__row:hover {
-  border-color: #4f4f4f;
-  background: #262626;
 }
 
 .screen-editor-setproperty-picker__object {
@@ -2601,11 +2583,7 @@ body {
 }
 
 .screen-editor-setproperty-picker__property {
-  font-size: 11px;
   color: #9fd3ff;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .screen-editor-setproperty-picker__kind {
@@ -2613,6 +2591,17 @@ body {
   color: #b7b7b7;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.screen-editor-setproperty-picker__count {
+  font-size: 10px;
+  color: #8f8f8f;
+}
+
+.screen-editor-setproperty-picker__toggle-cell {
+  cursor: pointer;
+  user-select: none;
+  justify-content: center;
 }
 
 .screen-editor-asset-preview {
