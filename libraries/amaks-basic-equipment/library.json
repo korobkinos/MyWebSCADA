@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-16T20:19:22.005Z",
+  "updatedAt": "2026-05-16T21:34:39.975Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -106,9 +106,10 @@
           "shadowEnabled": false,
           "minWidth": 60,
           "minHeight": 24,
+          "visibleTag": "",
           "label": "Checkbox",
-          "tag": "",
-          "writeTag": "",
+          "tag": "$binding.chkbox",
+          "writeTag": "$binding.chkbox",
           "checkedText": "On",
           "uncheckedText": "Off",
           "checkedColor": "#0e639c",
@@ -341,7 +342,7 @@
         }
       ],
       "createdAt": "2026-05-16T16:47:26.069Z",
-      "updatedAt": "2026-05-16T20:19:22.004Z"
+      "updatedAt": "2026-05-16T21:34:39.974Z"
     },
     {
       "id": "element_4lz46k",

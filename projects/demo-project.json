@@ -10108,6 +10108,15 @@
               "indexMode": {
                 "type": "none"
               }
+            },
+            "chkbox": {
+              "baseTag": "Counter2",
+              "prefixMode": {
+                "type": "none"
+              },
+              "indexMode": {
+                "type": "none"
+              }
             }
           },
           "scaleMode": "fit"

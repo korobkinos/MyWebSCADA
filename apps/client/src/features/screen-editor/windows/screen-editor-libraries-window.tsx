@@ -10,10 +10,19 @@ import type {
   LibraryElement,
   MacroDefinition,
   ProjectLibraryRef,
+  RuntimeAction,
   ScadaProject,
 } from "@web-scada/shared";
 import { api } from "../../../services/api";
 import { WorkbenchButton, WorkbenchIconButton, WorkbenchSection } from "../../../components/workbench";
+import {
+  createObjectIoAction,
+  getObjectIoActionMode,
+  getObjectIoFields,
+  supportsObjectIoAction,
+  type ObjectIoActionMode,
+  type ObjectIoFieldDefinition,
+} from "../utils/object-io-fields";
 
 type ScreenEditorLibrariesWindowProps = {
   libraries: ElementLibrary[];
@@ -193,6 +202,24 @@ type RenameElementDialogState = {
   element: LibraryElement | null;
   nextName: string;
   error?: string;
+};
+
+type ObjectIoDialogState = {
+  open: boolean;
+  draftObjects: HmiObject[];
+  selectedObjectId: string;
+  dirty: boolean;
+};
+
+type ObjectIoSummaryCard = {
+  objectId: string;
+  objectType: HmiObject["type"];
+  objectLabel: string;
+  readTags: string[];
+  writeTags: string[];
+  statusTags: string[];
+  actionTags: string[];
+  modeText?: string;
 };
 
 const DATA_TYPE_OPTIONS: Array<NonNullable<ElementBindingDefinition["dataType"]>> = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
@@ -657,6 +684,113 @@ function flattenObjectMap(objects: HmiObject[]): Map<string, HmiObject> {
   };
   scan(objects);
   return map;
+}
+
+function findObjectDeepInList(objects: HmiObject[], objectId: string): HmiObject | null {
+  for (const item of objects) {
+    if (item.id === objectId) {
+      return item;
+    }
+    if (item.type === "group") {
+      const found = findObjectDeepInList(item.objects, objectId);
+      if (found) {
+        return found;
+      }
+    }
+  }
+  return null;
+}
+
+function updateObjectDeepInList(
+  objects: HmiObject[],
+  objectId: string,
+  updater: (object: HmiObject) => HmiObject,
+): HmiObject[] {
+  return objects.map((item) => {
+    if (item.id === objectId) {
+      return updater(item);
+    }
+    if (item.type === "group") {
+      return {
+        ...item,
+        objects: updateObjectDeepInList(item.objects, objectId, updater),
+      };
+    }
+    return item;
+  });
+}
+
+function extractBindingKey(value: string | undefined): string {
+  const normalized = value?.trim() ?? "";
+  if (!normalized.startsWith("$binding.")) {
+    return "";
+  }
+  return normalized.slice("$binding.".length).trim();
+}
+
+function getDeepValue(target: unknown, fieldPath: string): unknown {
+  const parts = fieldPath.split(".").filter(Boolean);
+  let current: unknown = target;
+  for (const part of parts) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function setDeepValue<T extends Record<string, unknown>>(
+  source: T,
+  fieldPath: string,
+  value: unknown,
+): T {
+  const result = structuredClone(source) as Record<string, unknown>;
+  const parts = fieldPath.split(".").filter(Boolean);
+  if (parts.length === 0) {
+    return source;
+  }
+  let cursor: Record<string, unknown> = result;
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const key = parts[index];
+    if (!key) {
+      continue;
+    }
+    const next = cursor[key];
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      cursor[key] = {};
+    }
+    cursor = cursor[key] as Record<string, unknown>;
+  }
+  const leafKey = parts[parts.length - 1];
+  if (!leafKey) {
+    return result as T;
+  }
+  cursor[leafKey] = value;
+  return result as T;
+}
+
+function getBindingDirectionBadge(kind: ElementBindingDefinition["kind"] | undefined): string {
+  if (kind === "writeTag") {
+    return "WRITE";
+  }
+  if (kind === "command") {
+    return "COMMAND";
+  }
+  if (kind === "custom") {
+    return "CUSTOM";
+  }
+  return "READ";
+}
+
+function toDisplayTagValue(rawValue: string, bindingsByKey: Map<string, ElementBindingDefinition>): string {
+  const key = extractBindingKey(rawValue);
+  if (key) {
+    const binding = bindingsByKey.get(key);
+    const badge = getBindingDirectionBadge(binding?.kind);
+    return `${key} [${badge}]`;
+  }
+  return `Manual: ${rawValue}`;
 }
 
 function inferVisualRuleValueKind(path: string, rawValue: unknown): VisualRuleValueKind {
@@ -1180,6 +1314,12 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
   const [selectedProjectMacroId, setSelectedProjectMacroId] = useState("");
   const [savingInterface, setSavingInterface] = useState(false);
   const [interfaceError, setInterfaceError] = useState<string | null>(null);
+  const [objectIoDialog, setObjectIoDialog] = useState<ObjectIoDialogState>({
+    open: false,
+    draftObjects: [],
+    selectedObjectId: "",
+    dirty: false,
+  });
 
   const [signalDialog, setSignalDialog] = useState<SignalDialogState>({
     open: false,
@@ -1299,10 +1439,93 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     () => flattenElementObjects(selectedElement?.objects ?? []),
     [selectedElement],
   );
+  const flatObjectIoDraftObjects = useMemo(
+    () => flattenElementObjects(objectIoDialog.draftObjects),
+    [objectIoDialog.draftObjects],
+  );
+  const selectedObjectIoDraftObject = useMemo(
+    () => findObjectDeepInList(objectIoDialog.draftObjects, objectIoDialog.selectedObjectId),
+    [objectIoDialog.draftObjects, objectIoDialog.selectedObjectId],
+  );
   const flatElementObjectMap = useMemo(
     () => flattenObjectMap(selectedElement?.objects ?? []),
     [selectedElement],
   );
+  const objectIoSummaryCards = useMemo<ObjectIoSummaryCard[]>(() => {
+    if (!selectedElement) {
+      return [];
+    }
+    const cards: ObjectIoSummaryCard[] = [];
+    const addCard = (object: HmiObject) => {
+      const fields = getObjectIoFields(object);
+      const readTags: string[] = [];
+      const writeTags: string[] = [];
+      const statusTags: string[] = [];
+      const actionTags: string[] = [];
+
+      for (const field of fields) {
+        if ((field.control ?? "tag") !== "tag") {
+          continue;
+        }
+        const rawValue = getDeepValue(object, field.fieldPath);
+        if (typeof rawValue !== "string" || !rawValue.trim()) {
+          continue;
+        }
+        const displayValue = toDisplayTagValue(rawValue.trim(), selectedElementBindingsByKey);
+        if (field.direction === "read") {
+          readTags.push(displayValue);
+        } else if (field.direction === "write") {
+          writeTags.push(displayValue);
+        } else if (field.direction === "status") {
+          statusTags.push(displayValue);
+        } else {
+          actionTags.push(displayValue);
+        }
+      }
+
+      let modeText: string | undefined;
+      if (object.type === "checkbox" && (readTags.length > 0 || writeTags.length > 0 || statusTags.length > 0 || actionTags.length > 0)) {
+        const mode = object.writeMode ?? "toggleState";
+        if (mode === "pulseTrue" || mode === "pulseFalse") {
+          modeText = `${mode}, ${Math.max(1, Math.floor(Number(object.pulseDurationMs ?? 300) || 300))} ms`;
+        } else {
+          modeText = mode;
+        }
+      }
+
+      if (
+        readTags.length === 0 &&
+        writeTags.length === 0 &&
+        statusTags.length === 0 &&
+        actionTags.length === 0 &&
+        !modeText
+      ) {
+        return;
+      }
+
+      cards.push({
+        objectId: object.id,
+        objectType: object.type,
+        objectLabel: object.name?.trim() || object.id,
+        readTags,
+        writeTags,
+        statusTags,
+        actionTags,
+        modeText,
+      });
+    };
+
+    const scan = (objects: HmiObject[]) => {
+      for (const object of objects) {
+        addCard(object);
+        if (object.type === "group") {
+          scan(object.objects);
+        }
+      }
+    };
+    scan(selectedElement.objects);
+    return cards;
+  }, [selectedElement, selectedElementBindingsByKey]);
   const propertyOptionsByObjectId = useMemo(() => {
     const map = new Map<string, VisualRulePropertyOption[]>();
     for (const [objectId, object] of flatElementObjectMap.entries()) {
@@ -1515,6 +1738,19 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       setSelectedElementId("");
     }
   }, [selectedElementId, selectedLibrary]);
+
+  useEffect(() => {
+    if (!objectIoDialog.open) {
+      return;
+    }
+    if (objectIoDialog.selectedObjectId && findObjectDeepInList(objectIoDialog.draftObjects, objectIoDialog.selectedObjectId)) {
+      return;
+    }
+    setObjectIoDialog((prev) => ({
+      ...prev,
+      selectedObjectId: flattenElementObjects(prev.draftObjects)[0]?.id ?? "",
+    }));
+  }, [objectIoDialog]);
 
   useEffect(() => {
     if (!selectedLibrary) {
@@ -1730,17 +1966,19 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     await refresh();
   };
 
-  const saveElementPatch = async (element: LibraryElement, patch: Partial<LibraryElement>): Promise<void> => {
+  const saveElementPatch = async (element: LibraryElement, patch: Partial<LibraryElement>): Promise<boolean> => {
     if (!selectedLibrary) {
-      return;
+      return false;
     }
     setSavingInterface(true);
     setInterfaceError(null);
     try {
       await api.updateLibraryElement(selectedLibrary.id, element.id, patch);
       await refresh();
+      return true;
     } catch (error) {
       setInterfaceError(error instanceof Error ? error.message : "Failed to save interface.");
+      return false;
     } finally {
       setSavingInterface(false);
     }
@@ -1926,6 +2164,102 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       stateRules: nextRules,
     });
     setSignalDeleteDialog({ open: false, signal: null, referencedRuleCount: 0, usedByInstancesCount: 0 });
+  };
+
+  const openObjectIoDialog = (objectId?: string) => {
+    if (!selectedElement) {
+      return;
+    }
+    const nextDraftObjects = structuredClone(selectedElement.objects);
+    const fallbackId = flattenElementObjects(nextDraftObjects)[0]?.id ?? "";
+    const nextSelectedObjectId = objectId && findObjectDeepInList(nextDraftObjects, objectId) ? objectId : fallbackId;
+    setObjectIoDialog({
+      open: true,
+      draftObjects: nextDraftObjects,
+      selectedObjectId: nextSelectedObjectId,
+      dirty: false,
+    });
+  };
+
+  const closeObjectIoDialog = () => {
+    setObjectIoDialog((prev) => ({ ...prev, open: false }));
+  };
+
+  const patchObjectIoField = (fieldPath: string, value: unknown) => {
+    if (!objectIoDialog.selectedObjectId) {
+      return;
+    }
+    setObjectIoDialog((prev) => ({
+      ...prev,
+      dirty: true,
+      draftObjects: updateObjectDeepInList(prev.draftObjects, prev.selectedObjectId, (object) =>
+        setDeepValue(object as unknown as Record<string, unknown>, fieldPath, value) as HmiObject),
+    }));
+  };
+
+  const setObjectIoActionMode = (object: HmiObject, mode: ObjectIoActionMode) => {
+    const currentAction = getDeepValue(object, "action") as RuntimeAction | undefined;
+    if (mode === "none" && object.type === "button") {
+      return;
+    }
+    const nextAction = createObjectIoAction(mode, currentAction);
+    patchObjectIoField("action", nextAction);
+  };
+
+  const saveObjectIoDialog = async (): Promise<void> => {
+    if (!selectedLibrary || !selectedElement) {
+      return;
+    }
+    setSavingInterface(true);
+    setInterfaceError(null);
+    try {
+      await api.updateLibraryElement(selectedLibrary.id, selectedElement.id, { objects: objectIoDialog.draftObjects });
+      await refresh();
+      setObjectIoDialog((prev) => ({ ...prev, open: false, dirty: false }));
+    } catch (error) {
+      setInterfaceError(error instanceof Error ? error.message : "Failed to save object I/O.");
+    } finally {
+      setSavingInterface(false);
+    }
+  };
+
+  const buildBindingOptionsForField = (
+    direction: ObjectIoFieldDefinition["direction"],
+    currentBindingKey: string,
+  ): Array<{ key: string; label: string }> => {
+    const preferredKinds = direction === "write" || direction === "action"
+      ? new Set<ElementBindingDefinition["kind"]>(["writeTag", "command", "custom"])
+      : new Set<ElementBindingDefinition["kind"]>(["state", "tag", "custom"]);
+    const allBindings = selectedElement?.bindings ?? [];
+    const preferred = allBindings.filter((binding) => preferredKinds.has(binding.kind));
+    const secondary = allBindings.filter((binding) => !preferredKinds.has(binding.kind));
+    const ordered = [...preferred, ...secondary];
+    const options: Array<{ key: string; label: string }> = [];
+    const used = new Set<string>();
+    for (const binding of ordered) {
+      if (used.has(binding.key)) {
+        continue;
+      }
+      used.add(binding.key);
+      const badge = getBindingDirectionBadge(binding.kind);
+      options.push({
+        key: binding.key,
+        label: `${binding.displayName || binding.key} (${binding.key}) [${badge}]`,
+      });
+    }
+    if (currentBindingKey && !used.has(currentBindingKey)) {
+      const existing = selectedElementBindingsByKey.get(currentBindingKey);
+      if (existing) {
+        const badge = getBindingDirectionBadge(existing.kind);
+        options.unshift({
+          key: existing.key,
+          label: `${existing.displayName || existing.key} (${existing.key}) [${badge}]`,
+        });
+      } else {
+        options.unshift({ key: currentBindingKey, label: `${currentBindingKey} (missing)` });
+      }
+    }
+    return options;
   };
 
   const updateVisualRuleAction = (actionIndex: number, patch: Partial<VisualRuleActionDraft>) => {
@@ -2419,6 +2753,9 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                       Signals define read/state inputs and write/command targets for this library element.
                       Visual Rules define read-to-view behavior. When this element is placed on a screen, users map these signals to real tags.
                     </div>
+                    <div className="screen-editor-item-meta">
+                      Signals declare the external interface of the library element. Internal objects use $binding.&lt;key&gt; to read/write the mapped real tags of each instance.
+                    </div>
 
                     {interfaceError ? <div className="screen-editor-library-interface__error">{interfaceError}</div> : null}
 
@@ -2483,6 +2820,34 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                             </div>
                           </div>
                         ))
+                      )}
+                    </div>
+
+                    <div className="screen-editor-library-interface__section">
+                      <div className="screen-editor-library-interface__section-title">OBJECT I/O</div>
+                      <div className="screen-editor-item-actions">
+                        <WorkbenchButton onClick={() => openObjectIoDialog()} disabled={savingInterface || flatElementObjects.length === 0}>
+                          Edit Object I/O
+                        </WorkbenchButton>
+                      </div>
+                      {objectIoSummaryCards.length === 0 ? (
+                        <div className="screen-editor-item-meta">No configured Object I/O fields yet.</div>
+                      ) : (
+                        <div className="screen-editor-library-interface__object-io-summary">
+                          {objectIoSummaryCards.map((card) => (
+                            <div key={card.objectId} className="screen-editor-library-interface__object-io-card">
+                              <div className="screen-editor-item-title">{card.objectLabel} ({card.objectType})</div>
+                              {card.readTags.length > 0 ? <div className="screen-editor-item-meta">READ: {card.readTags.join(", ")}</div> : null}
+                              {card.writeTags.length > 0 ? <div className="screen-editor-item-meta">WRITE: {card.writeTags.join(", ")}</div> : null}
+                              {card.statusTags.length > 0 ? <div className="screen-editor-item-meta">STATUS: {card.statusTags.join(", ")}</div> : null}
+                              {card.actionTags.length > 0 ? <div className="screen-editor-item-meta">ACTION: {card.actionTags.join(", ")}</div> : null}
+                              {card.modeText ? <div className="screen-editor-item-meta">MODE: {card.modeText}</div> : null}
+                              <div className="screen-editor-item-actions">
+                                <WorkbenchButton onClick={() => openObjectIoDialog(card.objectId)} disabled={savingInterface}>Edit</WorkbenchButton>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </>
@@ -2784,6 +3149,209 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         <div className="screen-editor-item-meta">Migrate existing instance tag mappings?</div>
         <div className="screen-editor-library-interface__warning">
           Keep as New Signal will keep old instance mappings unchanged. They may become obsolete under Advanced.
+        </div>
+      </WorkbenchDialog>
+
+      <WorkbenchDialog
+        title="EDIT OBJECT I/O"
+        open={objectIoDialog.open}
+        onClose={closeObjectIoDialog}
+        width={900}
+        height={620}
+        minWidth={760}
+        minHeight={480}
+        resizable
+        actions={(
+          <>
+            <WorkbenchButton onClick={closeObjectIoDialog}>Cancel</WorkbenchButton>
+            <WorkbenchButton variant="primary" onClick={() => void saveObjectIoDialog()} disabled={savingInterface || !objectIoDialog.dirty}>
+              Save
+            </WorkbenchButton>
+          </>
+        )}
+      >
+        <div className="screen-editor-library-interface__object-io-dialog">
+          <div className="screen-editor-library-interface__object-io-objects">
+            <div className="screen-editor-library-interface__section-title">INTERNAL OBJECTS</div>
+            {flatObjectIoDraftObjects.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="screen-editor-library-interface__object-io-object-button"
+                style={{ outline: objectIoDialog.selectedObjectId === item.id ? "1px solid #4e8ff0" : undefined }}
+                onClick={() => setObjectIoDialog((prev) => ({ ...prev, selectedObjectId: item.id }))}
+              >
+                <span style={{ whiteSpace: "pre-wrap" }}>{item.label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="screen-editor-library-interface__object-io-editor">
+            {!selectedObjectIoDraftObject ? (
+              <div className="screen-editor-item-meta">Select an internal object.</div>
+            ) : (
+              <>
+                <div className="screen-editor-item-title">{selectedObjectIoDraftObject.name?.trim() || selectedObjectIoDraftObject.id}</div>
+                <div className="screen-editor-item-meta">Type: {selectedObjectIoDraftObject.type}</div>
+                {(() => {
+                  const fields = getObjectIoFields(selectedObjectIoDraftObject);
+                  const hasTypeSpecificFields = fields.some((field) => field.fieldPath !== "visibleTag" && field.fieldPath !== "disabledTag");
+                  const action = getDeepValue(selectedObjectIoDraftObject, "action") as RuntimeAction | undefined;
+                  const actionMode = getObjectIoActionMode(action);
+                  const actionSelectValue = actionMode === "unsupported" ? "__unsupported__" : actionMode;
+                  const canEditAction = supportsObjectIoAction(selectedObjectIoDraftObject);
+                  return (
+                    <>
+                      {canEditAction ? (
+                        <label className="screen-editor-library-interface__object-io-field-row">
+                          <span>Action Type</span>
+                          <select
+                            className="workbench-select"
+                            value={actionSelectValue}
+                            onChange={(event) => {
+                              if (event.target.value === "__unsupported__") {
+                                return;
+                              }
+                              setObjectIoActionMode(selectedObjectIoDraftObject, event.target.value as ObjectIoActionMode);
+                            }}
+                          >
+                            {actionMode === "unsupported" ? <option value="__unsupported__">Keep current (non-I/O action)</option> : null}
+                            {selectedObjectIoDraftObject.type !== "button" ? <option value="none">No I/O action</option> : null}
+                            <option value="write">Write</option>
+                            <option value="pulse">Pulse</option>
+                            <option value="toggle">Toggle</option>
+                            <option value="writeConstTag">Write Const (Tag)</option>
+                            <option value="writeNumberPromptTag">Write Number Prompt (Tag)</option>
+                          </select>
+                        </label>
+                      ) : null}
+
+                      {!hasTypeSpecificFields ? (
+                        <div className="screen-editor-item-meta">No I/O fields available for this object type yet.</div>
+                      ) : null}
+
+                      <div className="screen-editor-library-interface__object-io-fields">
+                        {fields.map((field) => {
+                          if (field.visibleWhen) {
+                            const visibleWhenValue = String(getDeepValue(selectedObjectIoDraftObject, field.visibleWhen.fieldPath) ?? "");
+                            if (!field.visibleWhen.values.includes(visibleWhenValue)) {
+                              return null;
+                            }
+                          }
+                          const rawValue = getDeepValue(selectedObjectIoDraftObject, field.fieldPath);
+                          const control = field.control ?? "tag";
+                          const key = `${selectedObjectIoDraftObject.id}:${field.fieldPath}`;
+
+                          if (control === "tag") {
+                            const tagValue = String(rawValue ?? "");
+                            const bindingKey = extractBindingKey(tagValue);
+                            const bindingOptions = buildBindingOptionsForField(field.direction, bindingKey);
+                            return (
+                              <div key={key} className="screen-editor-library-interface__object-io-field-card">
+                                <label className="screen-editor-library-interface__object-io-field-row">
+                                  <span>{field.label} Binding</span>
+                                  <select
+                                    className="workbench-select"
+                                    value={bindingKey}
+                                    onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value ? `$binding.${event.target.value}` : "")}
+                                  >
+                                    <option value="">Manual / raw tag</option>
+                                    {bindingOptions.map((option) => (
+                                      <option key={`${key}:binding:${option.key}`} value={option.key}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="screen-editor-library-interface__object-io-field-row">
+                                  <span>{field.label}</span>
+                                  <input
+                                    className="workbench-input"
+                                    value={tagValue}
+                                    placeholder="$binding.signalKey"
+                                    onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value)}
+                                  />
+                                </label>
+                              </div>
+                            );
+                          }
+
+                          if (control === "boolean") {
+                            const boolValue = Boolean(rawValue);
+                            return (
+                              <label key={key} className="screen-editor-library-interface__object-io-field-row">
+                                <span>{field.label}</span>
+                                <select
+                                  className="workbench-select"
+                                  value={boolValue ? "true" : "false"}
+                                  onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value === "true")}
+                                >
+                                  <option value="true">true</option>
+                                  <option value="false">false</option>
+                                </select>
+                              </label>
+                            );
+                          }
+
+                          if (control === "number") {
+                            const numberValue = rawValue === undefined || rawValue === null ? "" : String(rawValue);
+                            return (
+                              <label key={key} className="screen-editor-library-interface__object-io-field-row">
+                                <span>{field.label}</span>
+                                <input
+                                  className="workbench-input"
+                                  type="number"
+                                  min={field.min}
+                                  max={field.max}
+                                  step={field.step}
+                                  value={numberValue}
+                                  onChange={(event) => {
+                                    const parsed = event.target.value === "" ? undefined : Number(event.target.value);
+                                    patchObjectIoField(field.fieldPath, parsed);
+                                  }}
+                                />
+                              </label>
+                            );
+                          }
+
+                          if (control === "select") {
+                            const selectValue = String(rawValue ?? field.options?.[0]?.value ?? "");
+                            return (
+                              <label key={key} className="screen-editor-library-interface__object-io-field-row">
+                                <span>{field.label}</span>
+                                <select
+                                  className="workbench-select"
+                                  value={selectValue}
+                                  onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value)}
+                                >
+                                  {(field.options ?? []).map((option) => (
+                                    <option key={`${key}:option:${option.value}`} value={option.value}>{option.label}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            );
+                          }
+
+                          const textValue = String(rawValue ?? "");
+                          return (
+                            <label key={key} className="screen-editor-library-interface__object-io-field-row">
+                              <span>{field.label}</span>
+                              <input
+                                className="workbench-input"
+                                value={textValue}
+                                onChange={(event) => {
+                                  const nextValue = field.fieldPath === "action.value" ? parseScalarToken(event.target.value) : event.target.value;
+                                  patchObjectIoField(field.fieldPath, nextValue);
+                                }}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+                {objectIoDialog.dirty ? <div className="screen-editor-item-meta">Unsaved changes</div> : null}
+              </>
+            )}
+          </div>
         </div>
       </WorkbenchDialog>
 
