@@ -2625,6 +2625,22 @@ function SpecificPropertyFields({
       bindingKeys.has("closeCmd") ||
       bindingKeys.has("fault");
 
+    const getConnectedTagStatus = (binding: ElementBindingDefinition) => {
+      const debug = bindingDebug?.debug[binding.key];
+      const resolvedTag = debug?.resolvedTag?.trim() || "";
+      const required = binding.required ?? false;
+      if (required && !resolvedTag) {
+        return { label: "missing required", color: "red" as const };
+      }
+      if (!resolvedTag) {
+        return { label: "not assigned", color: "default" as const };
+      }
+      if (knownTags.has(resolvedTag)) {
+        return { label: "OK", color: "green" as const };
+      }
+      return { label: "tag not found", color: "gold" as const };
+    };
+
     return (
       <>
         <Form.Item label="Library">
@@ -2641,12 +2657,11 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ elementId: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        <Form.Item label="Tag Prefix">
-          <Input value={object.tagPrefix ?? ""} onChange={(e) => onPatch({ tagPrefix: e.target.value } as Partial<HmiObject>)} />
-        </Form.Item>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          Prefix is kept for compatibility. Use Indexed Address for arrays and structures.
-        </Typography.Text>
+        <div className="screen-editor-library-origin-note">
+          <div className="screen-editor-library-origin-note__title">LIBRARY INSTANCE</div>
+          <div>Library: {selectedLibrary?.name ?? "Unknown"} ({object.libraryId})</div>
+          <div>Element: {selectedElement?.name ?? "Unknown"} ({object.elementId})</div>
+        </div>
         <Form.Item label="Scale Mode">
           <Select
             value={object.scaleMode ?? "fit"}
@@ -2658,7 +2673,62 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ scaleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        {looksLikeValveElement ? (
+        <Form.Item label="Tag Prefix (Compatibility)">
+          <Input value={object.tagPrefix ?? ""} onChange={(e) => onPatch({ tagPrefix: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Connected Tags</Typography.Text>
+        {bindingDefinitions.length ? (
+          <div className="screen-editor-connected-tags">
+            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+            {bindingDefinitions.map((binding) => {
+              const assignment = bindingAssignments[binding.key] ?? {
+                baseTag: binding.defaultBaseTag ?? "",
+                prefixMode: { type: "none" as const },
+                indexMode: { type: "none" as const },
+              };
+              const status = getConnectedTagStatus(binding);
+              const debug = bindingDebug?.debug[binding.key];
+              return (
+                <Space key={binding.id} direction="vertical" style={{ width: "100%", border: "1px solid #303030", borderRadius: 8, padding: 8 }}>
+                  <Space wrap>
+                    <Typography.Text>{binding.displayName}</Typography.Text>
+                    <Typography.Text type="secondary">({binding.key})</Typography.Text>
+                    {(binding.required ?? false) ? <Tag color="red">Required</Tag> : null}
+                    <Tag color={status.color}>{status.label}</Tag>
+                  </Space>
+                  <TagPicker
+                    project={project}
+                    value={assignment.baseTag}
+                    onChange={(tag) => patchBindingAssignment(binding.key, { baseTag: tag ?? "" })}
+                  />
+                  <Input
+                    value={assignment.baseTag}
+                    placeholder={binding.defaultBaseTag ?? ".State"}
+                    onChange={(event) => patchBindingAssignment(binding.key, { baseTag: event.target.value })}
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    Resolved: {debug?.resolvedTag?.trim() ? debug.resolvedTag : "—"}
+                  </Typography.Text>
+                </Space>
+              );
+            })}
+            </Space>
+          </div>
+        ) : (
+          <Typography.Text type="secondary">
+            This library element has no Signals. It can still be used visually, but there are no external tags to map for this instance.
+            Add Signals in Libraries -&gt; Interface.
+          </Typography.Text>
+        )}
+
+        <details className="screen-editor-advanced-section">
+          <summary>Advanced</summary>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Prefix/index/override/debug and JSON controls.
+          </Typography.Text>
+          {looksLikeValveElement ? (
           <>
             <Divider orientation="left" style={{ marginTop: 16 }}>Binding Presets</Divider>
             <Space direction="vertical" style={{ width: "100%" }}>
@@ -2694,10 +2764,10 @@ function SpecificPropertyFields({
               </Typography.Text>
             </Space>
           </>
-        ) : null}
+          ) : null}
         <>
           <Divider style={{ margin: "10px 0" }} />
-          <Typography.Text strong>Bindings</Typography.Text>
+          <Typography.Text strong>Signal Tag Bindings (Advanced)</Typography.Text>
           {bindingDefinitions.length ? (
             bindingDefinitions.map((binding) => {
               const assignment = bindingAssignments[binding.key] ?? {
@@ -2964,10 +3034,10 @@ function SpecificPropertyFields({
             })
           ) : (
             <Typography.Text type="secondary">
-              This element has no binding definitions. Add bindings in Element Editor, then return here to map tags.
+              This library element has no Signals. Add Signals in Libraries -&gt; Interface.
             </Typography.Text>
           )}
-          <Form.Item label="Binding Assignments (JSON advanced)">
+          <Form.Item label="Signal Tag Bindings (JSON advanced)">
             <Input.TextArea
               rows={5}
               value={JSON.stringify(bindingAssignments, null, 2)}
@@ -2982,7 +3052,7 @@ function SpecificPropertyFields({
             />
           </Form.Item>
         </>
-        <Divider orientation="left" style={{ marginTop: 16 }}>Resolved Bindings Debug</Divider>
+        <Divider orientation="left" style={{ marginTop: 16 }}>Resolved Signals Debug</Divider>
         {!selectedElement ? (
           <Typography.Text type="secondary">Library element not found</Typography.Text>
         ) : null}
@@ -3040,10 +3110,11 @@ function SpecificPropertyFields({
             No resolved bindings yet. Check binding assignments and defaultBaseTag.
           </Typography.Text>
         ) : null}
+        </details>
         {selectedElement?.parameters?.length ? (
           <>
             <Typography.Text type="secondary">
-              Element parameters
+              Parameters
             </Typography.Text>
             {selectedElement.parameters.map((parameter) => {
               const currentValue = parameterValues[parameter.name] ?? parameter.defaultValue;
@@ -3119,23 +3190,13 @@ function SpecificPropertyFields({
                 </Form.Item>
               );
             })}
-            <Form.Item label="Parameter Values (JSON advanced)">
-              <Input.TextArea
-                rows={4}
-                value={JSON.stringify(parameterValues, null, 2)}
-                onChange={(e) => {
-                  try {
-                    const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
-                    onPatch({ parameterValues: parsed } as Partial<HmiObject>);
-                  } catch {
-                    // ignore invalid JSON while typing
-                  }
-                }}
-              />
-            </Form.Item>
           </>
         ) : (
-          <Form.Item label="Parameter Values (JSON)">
+          <Typography.Text type="secondary">No parameters.</Typography.Text>
+        )}
+        <details className="screen-editor-advanced-section">
+          <summary>Advanced Parameters</summary>
+          <Form.Item label="Parameter Values (JSON advanced)">
             <Input.TextArea
               rows={4}
               value={JSON.stringify(object.parameterValues ?? {}, null, 2)}
@@ -3149,7 +3210,7 @@ function SpecificPropertyFields({
               }}
             />
           </Form.Item>
-        )}
+        </details>
       </>
     );
   }

@@ -369,6 +369,8 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
             selectedObjectsCount={params.selectedObjects.length}
             libraryId={params.newLibraryId}
             libraryName={params.newLibraryName}
+            project={project}
+            onUpdateProjectJson={params.updateProjectJson}
             onLibraryIdChange={params.setNewLibraryId}
             onLibraryNameChange={params.setNewLibraryName}
             onCreateLibrary={params.createLibrary}

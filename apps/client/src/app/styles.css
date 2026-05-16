@@ -2459,6 +2459,88 @@ body {
   background: #2a2d2e;
 }
 
+.screen-editor-library-interface {
+  display: grid;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.screen-editor-library-interface__section {
+  display: grid;
+  gap: 6px;
+}
+
+.screen-editor-library-interface__section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #d8d8d8;
+}
+
+.screen-editor-signal-card,
+.screen-editor-visual-rule-card {
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  border-radius: 6px;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.screen-editor-library-interface__rule-actions {
+  display: grid;
+  gap: 2px;
+  margin-left: 8px;
+}
+
+.screen-editor-library-interface__dialog-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.screen-editor-library-interface__dialog-grid label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #cfcfcf;
+}
+
+.screen-editor-library-interface__checkbox {
+  grid-auto-flow: column;
+  justify-content: start;
+  align-items: center;
+  gap: 6px;
+}
+
+.screen-editor-library-interface__error {
+  padding: 6px 8px;
+  border: 1px solid #7c2f2f;
+  background: #2e1f1f;
+  color: #f3b6b6;
+  font-size: 11px;
+}
+
+.screen-editor-library-interface__warning {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid #6f5f2e;
+  background: #2d2818;
+  color: #f5d283;
+  font-size: 11px;
+}
+
+.screen-editor-library-interface__rule-actions-editor {
+  display: grid;
+  gap: 6px;
+}
+
+.screen-editor-library-interface__rule-action-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(110px, auto) minmax(110px, auto) minmax(90px, auto);
+  gap: 6px;
+  align-items: center;
+}
+
 .screen-editor-asset-preview {
   width: 100%;
   max-height: 96px;
@@ -4336,6 +4418,43 @@ body {
   min-height: 0;
   overflow: auto;
   padding: 4px 0;
+}
+
+.screen-editor-connected-tags {
+  display: grid;
+  gap: 8px;
+}
+
+.screen-editor-advanced-section {
+  margin-top: 10px;
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.screen-editor-advanced-section > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #cccccc;
+  user-select: none;
+  list-style: none;
+}
+
+.screen-editor-advanced-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.screen-editor-advanced-section > summary::before {
+  content: ">";
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px;
+  color: #9a9a9a;
+}
+
+.screen-editor-advanced-section[open] > summary::before {
+  content: "v";
 }
 
 .object-property-panel-toolbar .workbench-button {

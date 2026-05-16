@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-15T16:34:07.196Z",
+  "updatedAt": "2026-05-16T09:51:54.943Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -163,11 +163,93 @@
           ]
         }
       ],
-      "bindings": [],
+      "bindings": [
+        {
+          "id": "binding_68ure6",
+          "key": "open",
+          "displayName": "open",
+          "description": "",
+          "kind": "tag",
+          "dataType": "BOOL",
+          "required": false,
+          "defaultBaseTag": "",
+          "overridable": true
+        },
+        {
+          "id": "binding_8fxc7f",
+          "key": "closed",
+          "displayName": "closed",
+          "description": "",
+          "kind": "tag",
+          "dataType": "BOOL",
+          "required": false,
+          "defaultBaseTag": "",
+          "overridable": true
+        }
+      ],
       "parameters": [],
-      "stateRules": [],
+      "stateRules": [
+        {
+          "id": "rule_dxpxox",
+          "name": "Visual Rule",
+          "source": {
+            "type": "tag",
+            "value": "$binding.open"
+          },
+          "cases": [
+            {
+              "id": "case_e72fm9",
+              "name": "when",
+              "condition": {
+                "type": "true"
+              },
+              "actions": [
+                {
+                  "type": "setFill",
+                  "objectId": "line_0gof1m",
+                  "color": "#00ff00"
+                },
+                {
+                  "type": "setFill",
+                  "objectId": "line_utq0wx",
+                  "color": "#00ff00"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "rule_wiluuu",
+          "name": "Visual Rule 2",
+          "source": {
+            "type": "tag",
+            "value": "$binding.closed"
+          },
+          "cases": [
+            {
+              "id": "case_jp2my4",
+              "name": "when",
+              "condition": {
+                "type": "true"
+              },
+              "actions": [
+                {
+                  "type": "setFill",
+                  "objectId": "line_0gof1m",
+                  "color": "#141414"
+                },
+                {
+                  "type": "setFill",
+                  "objectId": "line_utq0wx",
+                  "color": "#141414"
+                }
+              ]
+            }
+          ]
+        }
+      ],
       "createdAt": "2026-05-15T16:26:31.988Z",
-      "updatedAt": "2026-05-15T16:34:07.196Z"
+      "updatedAt": "2026-05-16T09:51:54.942Z"
     }
   ],
   "macros": []
