@@ -533,6 +533,8 @@ const checkboxObjectSchema = hmiBaseSchema.extend({
   label: z.string().optional(),
   tag: z.string().optional(),
   writeTag: z.string().optional(),
+  writeMode: z.enum(["toggleState", "writeTrue", "writeFalse", "pulseTrue", "pulseFalse"]).optional(),
+  pulseDurationMs: z.number().int().positive().optional(),
   checkedText: z.string().optional(),
   uncheckedText: z.string().optional(),
   checkedColor: z.string().optional(),

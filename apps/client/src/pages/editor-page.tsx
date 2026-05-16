@@ -10,7 +10,7 @@ import type {
   RuntimeAction,
   ScadaProject,
 } from "@web-scada/shared";
-import { findObjectDeep, resolveLibraryElementInstanceBindingsDetailed } from "@web-scada/shared";
+import { findObjectDeep, isBindingReference, resolveLibraryElementInstanceBindingsDetailed } from "@web-scada/shared";
 import { Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import {
   ApiOutlined,
@@ -1655,13 +1655,21 @@ function sanitizeObjectForLibraryTemplate(object: HmiObject): HmiObject {
   return clone;
 }
 
+function preserveBindingOrClear(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const normalized = value.trim();
+  return isBindingReference(normalized) ? normalized : "";
+}
+
 function clearTagBindingsInObject(object: HmiObject): void {
   const record = object as Record<string, unknown>;
   record.tagIndexing = undefined;
   record.tagIndexingByField = undefined;
 
   if (typeof record.tag === "string") {
-    record.tag = "";
+    record.tag = preserveBindingOrClear(record.tag);
   }
 
   for (const key of Object.keys(record)) {
@@ -1669,24 +1677,24 @@ function clearTagBindingsInObject(object: HmiObject): void {
       continue;
     }
     if (typeof record[key] === "string") {
-      record[key] = "";
+      record[key] = preserveBindingOrClear(record[key]);
     }
   }
 
   if (object.type === "valueSelect" && object.target.type === "tag") {
     object.target = {
       ...object.target,
-      tag: "",
+      tag: preserveBindingOrClear(object.target.tag),
     };
   }
 
   if ("action" in object && object.action) {
     const action = object.action as RuntimeAction;
     if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
-      action.tag = "";
+      action.tag = preserveBindingOrClear(action.tag);
     }
     if ((action.type === "writeConst" || action.type === "writeNumberPrompt") && action.target === "tag") {
-      action.name = "";
+      action.name = preserveBindingOrClear(action.name);
     }
   }
 

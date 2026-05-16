@@ -4,6 +4,7 @@ import type {
   AccessRoleLevel,
   AppRole,
   Asset,
+  CheckboxWriteMode,
   ElementBindingDefinition,
   ElementLibrary,
   HmiObject,
@@ -87,6 +88,32 @@ const accessRoleOptions: Array<{ label: string; value: AccessRoleLevel }> = [
   { label: `3 вЂ” ${ACCESS_ROLE_LABELS_RU[3]}`, value: 3 },
   { label: `4 вЂ” ${ACCESS_ROLE_LABELS_RU[4]}`, value: 4 },
 ];
+
+function getBindingKindLabel(kind: ElementBindingDefinition["kind"] | undefined): string {
+  if (kind === "writeTag") {
+    return "Write Tag";
+  }
+  if (kind === "command") {
+    return "Command";
+  }
+  if (kind === "custom") {
+    return "Custom";
+  }
+  return "State / Read Tag";
+}
+
+function getBindingTagLabel(kind: ElementBindingDefinition["kind"] | undefined): string {
+  if (kind === "writeTag") {
+    return "Write Tag";
+  }
+  if (kind === "command") {
+    return "Command Tag";
+  }
+  if (kind === "custom") {
+    return "Custom Tag";
+  }
+  return "State / Read Tag";
+}
 
 function ColorField({
   label,
@@ -2424,6 +2451,7 @@ function SpecificPropertyFields({
                     <Space wrap>
                       <Typography.Text>{binding.displayName}</Typography.Text>
                       <Typography.Text type="secondary">({binding.key})</Typography.Text>
+                      <Tag>{getBindingKindLabel(binding.kind)}</Tag>
                       {(binding.required ?? false) ? <Tag color="red">Required</Tag> : null}
                       <Tag color={status.color}>{status.label}</Tag>
                     </Space>
@@ -2431,7 +2459,7 @@ function SpecificPropertyFields({
                       project={project}
                       bindings={[]}
                       value={assignment.baseTag}
-                      tagLabel="Tag"
+                      tagLabel={getBindingTagLabel(binding.kind)}
                       indexControl={{
                         enabled: indexEnabled,
                         status: indexEnabled ? (hasArrayIndexInTag ? "OK" : "Not found") : "Not configured",
@@ -2670,6 +2698,8 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "checkbox") {
+    const writeMode = object.writeMode ?? "toggleState";
+    const isPulseWriteMode = writeMode === "pulseTrue" || writeMode === "pulseFalse";
     return (
       <>
         <Form.Item label="Label">
@@ -2693,6 +2723,30 @@ function SpecificPropertyFields({
           indexControl={buildIndexControl("writeTag", "Write Tag", object.writeTag)}
           onChange={(nextValue) => onPatch({ writeTag: nextValue } as Partial<HmiObject>)}
         />
+        <Typography.Text strong>Command / Write</Typography.Text>
+        <Form.Item label="Write Mode">
+          <Select
+            value={writeMode}
+            options={[
+              { label: "Toggle State", value: "toggleState" },
+              { label: "Write True", value: "writeTrue" },
+              { label: "Write False", value: "writeFalse" },
+              { label: "Pulse True", value: "pulseTrue" },
+              { label: "Pulse False", value: "pulseFalse" },
+            ]}
+            onChange={(value) => onPatch({ writeMode: value as CheckboxWriteMode } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        {isPulseWriteMode ? (
+          <Form.Item label="Pulse Duration (ms)">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={1}
+              value={object.pulseDurationMs ?? 300}
+              onChange={(value) => onPatch({ pulseDurationMs: Math.max(1, Math.floor(Number(value ?? 300))) } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+        ) : null}
         <Form.Item label="Checked Text">
           <Input value={object.checkedText ?? "On"} onChange={(e) => onPatch({ checkedText: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>

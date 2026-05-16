@@ -196,6 +196,13 @@ type RenameElementDialogState = {
 };
 
 const DATA_TYPE_OPTIONS: Array<NonNullable<ElementBindingDefinition["dataType"]>> = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
+const BINDING_KIND_OPTIONS: Array<{ label: string; value: ElementBindingDefinition["kind"] }> = [
+  { label: "State / Read Tag", value: "state" },
+  { label: "Write Tag", value: "writeTag" },
+  { label: "Command", value: "command" },
+  { label: "Custom", value: "custom" },
+  { label: "Tag", value: "tag" },
+];
 const COLOR_HEX_PATTERN = /^#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})$/;
 
 function formatOneDecimal(value: number | undefined): string {
@@ -272,6 +279,22 @@ function parseScalarToken(rawValue: string): string | number | boolean {
     return asNumber;
   }
   return trimmed;
+}
+
+function formatBindingKindLabel(kind: ElementBindingDefinition["kind"] | undefined): string {
+  if (kind === "writeTag") {
+    return "Write Tag";
+  }
+  if (kind === "command") {
+    return "Command";
+  }
+  if (kind === "custom") {
+    return "Custom";
+  }
+  if (kind === "tag") {
+    return "Tag";
+  }
+  return "State / Read Tag";
 }
 
 function isBoolSignalDataType(dataType: ElementBindingDefinition["dataType"] | undefined): boolean {
@@ -2393,8 +2416,8 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                     </div>
 
                     <div className="screen-editor-item-meta">
-                      Signals define external tag inputs for this library element. Visual Rules define how these signals change internal objects.
-                      When this element is placed on a screen, users map only these signals to real tags.
+                      Signals define read/state inputs and write/command targets for this library element.
+                      Visual Rules define read-to-view behavior. When this element is placed on a screen, users map these signals to real tags.
                     </div>
 
                     {interfaceError ? <div className="screen-editor-library-interface__error">{interfaceError}</div> : null}
@@ -2411,6 +2434,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                           <div key={signal.id} className="screen-editor-signal-card">
                             <div className="screen-editor-item-title">{signal.displayName}</div>
                             <div className="screen-editor-item-meta">key: {signal.key}</div>
+                            <div className="screen-editor-item-meta">kind: {formatBindingKindLabel(signal.kind)}</div>
                             <div className="screen-editor-item-meta">type: {signal.dataType ?? "-"}</div>
                             <div className="screen-editor-item-meta">used in rules: {signalUsedInRulesCount.get(signal.key) ?? 0}</div>
                             {selectedLibrary ? (
@@ -2649,6 +2673,24 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 }));
               }}
             />
+          </label>
+          <label>
+            <span>Kind</span>
+            <select
+              className="workbench-select"
+              value={signalDialog.draft.kind}
+              onChange={(event) => setSignalDialog((prev) => ({
+                ...prev,
+                draft: {
+                  ...prev.draft,
+                  kind: event.target.value as ElementBindingDefinition["kind"],
+                },
+              }))}
+            >
+              {BINDING_KIND_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
           </label>
           <label>
             <span>Data type</span>

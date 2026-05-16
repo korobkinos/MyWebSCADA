@@ -1541,12 +1541,48 @@ function ObjectNode({
           if (runtimeMode && !tagName?.trim()) {
             return;
           }
-          onAction?.(
-            withActionRoleLevel({
+          const normalizedTagName = tagName?.trim() ?? "";
+          if (!normalizedTagName) {
+            return;
+          }
+          const writeMode = resolvedObject.writeMode ?? "toggleState";
+          const pulseDurationMs = Math.max(1, Math.floor(Number(resolvedObject.pulseDurationMs ?? 300) || 300));
+          let action: RuntimeAction;
+          if (writeMode === "writeTrue") {
+            action = {
               type: "write",
-              tag: tagName ?? "",
+              tag: normalizedTagName,
+              value: true,
+            };
+          } else if (writeMode === "writeFalse") {
+            action = {
+              type: "write",
+              tag: normalizedTagName,
+              value: false,
+            };
+          } else if (writeMode === "pulseTrue") {
+            action = {
+              type: "pulse",
+              tag: normalizedTagName,
+              value: true,
+              durationMs: pulseDurationMs,
+            };
+          } else if (writeMode === "pulseFalse") {
+            action = {
+              type: "pulse",
+              tag: normalizedTagName,
+              value: false,
+              durationMs: pulseDurationMs,
+            };
+          } else {
+            action = {
+              type: "write",
+              tag: normalizedTagName,
               value: !isChecked,
-            }, resolvedObject.requiredActionRole),
+            };
+          }
+          onAction?.(
+            withActionRoleLevel(action, resolvedObject.requiredActionRole),
             withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
           );
         }}

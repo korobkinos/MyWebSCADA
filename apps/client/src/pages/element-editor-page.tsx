@@ -2199,9 +2199,11 @@ export function ElementEditorPage() {
                             <Select
                               value={binding.kind}
                               options={[
-                                { label: "State", value: "state" },
-                                { label: "Text", value: "text" },
-                                { label: "Value", value: "value" },
+                                { label: "State / Read Tag", value: "state" },
+                                { label: "Write Tag", value: "writeTag" },
+                                { label: "Command", value: "command" },
+                                { label: "Custom", value: "custom" },
+                                { label: "Tag", value: "tag" },
                               ]}
                               onChange={(value) => {
                                 const next = [...(draftElement.bindings ?? [])];

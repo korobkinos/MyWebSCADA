@@ -418,11 +418,20 @@ export type CheckboxObject = HmiObjectBase & {
   label?: string;
   tag?: string;
   writeTag?: string;
+  writeMode?: CheckboxWriteMode;
+  pulseDurationMs?: number;
   checkedText?: string;
   uncheckedText?: string;
   checkedColor?: string;
   uncheckedColor?: string;
 };
+
+export type CheckboxWriteMode =
+  | "toggleState"
+  | "writeTrue"
+  | "writeFalse"
+  | "pulseTrue"
+  | "pulseFalse";
 
 export type SliderObject = HmiObjectBase & {
   type: "slider";
