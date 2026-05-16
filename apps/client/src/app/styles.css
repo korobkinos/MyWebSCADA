@@ -2551,6 +2551,57 @@ body {
   background: #1a1a1a;
 }
 
+.screen-editor-library-interface__color-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.screen-editor-library-interface__color-swatch {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.screen-editor-library-interface__color-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 150px;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.screen-editor-library-interface__color-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.screen-editor-library-interface__color-chip {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #5a5a5a;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.screen-editor-library-interface__color-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .screen-editor-setproperty-picker {
   height: 100%;
   display: flex;

@@ -113,7 +113,7 @@ export type ScreenEditorCenterProps = {
   canUndo: boolean;
   canRedo: boolean;
   addObjectWithHistory: (obj: HmiObject) => void;
-  addPrimitiveShape: (kind: PrimitiveShapeKind) => void;
+  addPrimitiveShape: (kind: PrimitiveShapeKind, center?: { x: number; y: number }) => void;
   adjustPrimitiveStrokeWidth: (delta: number) => void;
   selectedUnlocked: HmiObject[];
   runCommand: (cmd: EditorCommand) => void;
@@ -140,6 +140,7 @@ export type ScreenEditorCenterProps = {
   onSendToBack: () => void;
   onMoveForward: () => void;
   onMoveBackward: () => void;
+  onViewportCenterChange?: (center: { x: number; y: number }) => void;
 };
 
 export function ScreenEditorCenter({
@@ -200,6 +201,7 @@ export function ScreenEditorCenter({
   onSendToBack,
   onMoveForward,
   onMoveBackward,
+  onViewportCenterChange,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
   const [activeTool, setActiveTool] = useState<EditorTool>(() => {
@@ -335,6 +337,62 @@ export function ScreenEditorCenter({
     window.addEventListener("mouseup", stopPan);
   }, []);
 
+  // Task 3: compute canvas-space position of the current viewport center
+  const getViewportCenter = useCallback((): { x: number; y: number } => {
+    const el = canvasScrollRef.current;
+    if (!el) {
+      return { x: 100, y: 100 };
+    }
+    return {
+      x: (el.scrollLeft + el.clientWidth / 2) / editorZoom,
+      y: (el.scrollTop + el.clientHeight / 2) / editorZoom,
+    };
+  }, [editorZoom]);
+
+  useEffect(() => {
+    onViewportCenterChange?.(getViewportCenter());
+  }, [getViewportCenter, onViewportCenterChange]);
+
+  useEffect(() => {
+    const el = canvasScrollRef.current;
+    if (!el || !onViewportCenterChange) {
+      return;
+    }
+    const emit = () => onViewportCenterChange(getViewportCenter());
+    el.addEventListener("scroll", emit, { passive: true });
+    return () => el.removeEventListener("scroll", emit);
+  }, [getViewportCenter, onViewportCenterChange]);
+
+  // Task 3: add any object centered on the current viewport
+  const addAtViewportCenter = useCallback(
+    (obj: HmiObject) => {
+      const center = getViewportCenter();
+      addObjectWithHistory({
+        ...obj,
+        x: Math.round(center.x - obj.width / 2),
+        y: Math.round(center.y - obj.height / 2),
+      });
+    },
+    [addObjectWithHistory, getViewportCenter],
+  );
+
+  // Task 4: native non-passive wheel listener – prevents scroll when wheel-zoom is active
+  useEffect(() => {
+    const el = canvasScrollRef.current;
+    if (!el) return;
+    const handler = (event: WheelEvent) => {
+      if (previewMode) return;
+      if (!wheelZoomEnabled) return;
+      if (isTextEditingTarget(event.target as EventTarget)) return;
+      event.preventDefault();
+      if (!event.deltaY) return;
+      const delta = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+      setEditorZoom((prev) => clampZoom(prev * delta));
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [previewMode, wheelZoomEnabled]);
+
   const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
     if (activeTool !== "pan" || event.button !== 0) {
       return;
@@ -386,22 +444,22 @@ export function ScreenEditorCenter({
                   label: "Insert",
                   children: (
                     <div className="screen-editor-toolbar-tabs__actions">
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("text"))} title="Add Text" icon={<FontSizeOutlined />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("line"))} title="Add Line" icon={<MinusOutlined />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("rectangle"))} title="Add Rectangle" icon={<BoxIcon />} />
-                      <WorkbenchIconButton onClick={() => addPrimitiveShape("square")} title="Add Square" icon={<SquareIcon />} />
-                      <WorkbenchIconButton onClick={() => addPrimitiveShape("circle")} title="Add Circle" icon={<CircleIcon />} />
-                      <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle")} title="Add Triangle" icon={<TriangleUpIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("button"))} title="Add Button" icon={<ButtonIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("switch"))} title="Add Switch" icon={<SwitchIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("value-display"))} title="Add Value Display" icon={<ValueIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<ActivityLogIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("checkbox"))} title="Add Checkbox" icon={<CheckIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("slider"))} title="Add Slider" icon={<SliderIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("progress-bar"))} title="Add Progress Bar" icon={<BarChartIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("select"))} title="Add Select" icon={<ChevronDownIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("radio-group"))} title="Add Radio Group" icon={<DotFilledIcon />} />
-                      <WorkbenchIconButton onClick={() => addObjectWithHistory(createObjectByType("numeric-input"))} title="Add Numeric Input" icon={<InputIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("text"))} title="Add Text" icon={<FontSizeOutlined />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("line"))} title="Add Line" icon={<MinusOutlined />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("rectangle"))} title="Add Rectangle" icon={<BoxIcon />} />
+                      <WorkbenchIconButton onClick={() => addPrimitiveShape("square", getViewportCenter())} title="Add Square" icon={<SquareIcon />} />
+                      <WorkbenchIconButton onClick={() => addPrimitiveShape("circle", getViewportCenter())} title="Add Circle" icon={<CircleIcon />} />
+                      <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle", getViewportCenter())} title="Add Triangle" icon={<TriangleUpIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("button"))} title="Add Button" icon={<ButtonIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("switch"))} title="Add Switch" icon={<SwitchIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("value-display"))} title="Add Value Display" icon={<ValueIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<ActivityLogIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("checkbox"))} title="Add Checkbox" icon={<CheckIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("slider"))} title="Add Slider" icon={<SliderIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("progress-bar"))} title="Add Progress Bar" icon={<BarChartIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("select"))} title="Add Select" icon={<ChevronDownIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("radio-group"))} title="Add Radio Group" icon={<DotFilledIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("numeric-input"))} title="Add Numeric Input" icon={<InputIcon />} />
                     </div>
                   ),
                 },
@@ -504,21 +562,12 @@ export function ScreenEditorCenter({
         className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${!previewMode && activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${!previewMode && isPanning ? " screen-editor-canvas-host--panning" : ""}`}
         style={viewportBackground ? { background: viewportBackground } : undefined}
         onWheel={(event) => {
-          if (previewMode) {
-            return;
+          // Task 4: zoom is handled by the native non-passive listener (useEffect above).
+          // React's onWheel is passive by default and cannot preventDefault reliably.
+          if (previewMode) return;
+          if (wheelZoomEnabled) {
+            event.stopPropagation();
           }
-          if (!wheelZoomEnabled) {
-            return;
-          }
-          if (isTextEditingTarget(event.target)) {
-            return;
-          }
-          if (!event.deltaY) {
-            return;
-          }
-          event.preventDefault();
-          const delta = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-          setEditorZoom((prev) => clampZoom(prev * delta));
         }}
         onContextMenu={(event) => {
           if (suppressNextContextMenuRef.current) {

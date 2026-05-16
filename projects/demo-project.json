@@ -9771,8 +9771,8 @@
         {
           "id": "value-display_92ahtl",
           "type": "value-display",
-          "x": 988.0982726955741,
-          "y": 764.8238230686976,
+          "x": 1041.1773447928676,
+          "y": 831.9630814228886,
           "width": 855.6969195579992,
           "height": 190.15487101288852,
           "rotation": 0,
@@ -10178,161 +10178,91 @@
           ]
         },
         {
-          "id": "group_lq72vf",
+          "id": "group_x9hlvf",
           "type": "group",
-          "x": 426.21868005886625,
-          "y": 802.6616641252339,
+          "x": 784.7159953307944,
+          "y": 804.9231794903392,
           "width": 156.88062310601777,
-          "height": 76,
+          "height": 160.20813518334091,
           "visible": true,
           "locked": false,
           "minWidth": 8,
           "minHeight": 8,
           "objects": [
             {
-              "id": "line_0gof1m",
-              "type": "line",
-              "x": 80.00000000000055,
-              "y": 0,
-              "width": 90.00000000000001,
-              "height": 80.00000000000055,
-              "rotation": 90,
-              "opacity": 1,
-              "minWidth": 20,
-              "minHeight": 20,
-              "points": [
-                45.00000000000001,
-                0,
-                90.00000000000001,
-                80.00000000000055,
-                0,
-                80.00000000000055
-              ],
-              "stroke": "#8c8c8c",
-              "strokeWidth": 2,
-              "closed": true,
-              "fill": "#262626",
-              "gradientEnabled": false,
-              "gradientEndColor": "#230505",
-              "gradientDirection": "vertical"
+              "id": "lib_2z987i",
+              "type": "libraryElementInstance",
+              "x": 0,
+              "y": 84.20813518334091,
+              "width": 156.88062310601777,
+              "height": 76,
+              "minWidth": 60,
+              "minHeight": 40,
+              "libraryId": "amaks-basic-equipment",
+              "elementId": "element_r5gvzj",
+              "bindingAssignments": {
+                "open": {
+                  "baseTag": "Counter2",
+                  "prefixMode": {
+                    "type": "none"
+                  },
+                  "indexMode": {
+                    "type": "none"
+                  }
+                },
+                "closed": {
+                  "baseTag": "Counter2",
+                  "prefixMode": {
+                    "type": "none"
+                  },
+                  "indexMode": {
+                    "type": "none"
+                  }
+                }
+              },
+              "scaleMode": "fit"
             },
             {
-              "id": "line_utq0wx",
-              "type": "line",
-              "x": 76.88062310601721,
-              "y": 90,
-              "width": 90.00000000000001,
-              "height": 80.00000000000055,
-              "rotation": 270,
+              "id": "circle_h0ysfu",
+              "type": "rectangle",
+              "x": 32.54326642017247,
+              "y": 0,
+              "width": 90,
+              "height": 90,
               "opacity": 1,
               "minWidth": 20,
               "minHeight": 20,
-              "points": [
-                45.00000000000001,
-                0,
-                90.00000000000001,
-                80.00000000000055,
-                0,
-                80.00000000000055
-              ],
+              "fill": "#262626",
               "stroke": "#8c8c8c",
               "strokeWidth": 2,
-              "closed": true,
-              "fill": "#262626",
+              "cornerRadius": 45
+            },
+            {
+              "id": "line_ufgdkc",
+              "type": "line",
+              "x": 87.54326642017247,
+              "y": 46.54300209254882,
+              "width": 82.99497548831661,
+              "height": 19.999999999999996,
+              "rotation": 90,
+              "minWidth": 20,
+              "minHeight": 10,
+              "points": [
+                0,
+                9.999999999999998,
+                82.99497548831661,
+                9.999999999999998
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 3,
+              "closed": false,
+              "activeValue": 1,
+              "inactiveStroke": "#d9d9d9",
+              "activeStroke": "#0e639c",
               "gradientEnabled": false,
-              "gradientEndColor": "#1e0b0b",
-              "gradientDirection": "vertical"
+              "gradientDirection": "horizontal"
             }
           ]
-        },
-        {
-          "id": "lib_mlr910",
-          "type": "libraryElementInstance",
-          "x": 795.4437784329525,
-          "y": 841.795428043983,
-          "width": 106.22308152187195,
-          "height": 51.459218071862935,
-          "rotation": 0,
-          "minWidth": 60,
-          "minHeight": 40,
-          "libraryId": "amaks-basic-equipment",
-          "elementId": "element_usnbz5",
-          "bindingAssignments": {
-            "open": {
-              "baseTag": "Counter2",
-              "prefixMode": {
-                "type": "none"
-              },
-              "indexMode": {
-                "type": "none"
-              }
-            },
-            "closed": {
-              "baseTag": "Counter2",
-              "prefixMode": {
-                "type": "none"
-              },
-              "indexMode": {
-                "type": "none"
-              }
-            }
-          },
-          "scaleMode": "fit"
-        },
-        {
-          "id": "circle_om330d",
-          "type": "rectangle",
-          "x": 821.5158781076542,
-          "y": 781.5494252853146,
-          "width": 54.82640856323956,
-          "height": 54.826408563239674,
-          "rotation": 0,
-          "opacity": 1,
-          "minWidth": 20,
-          "minHeight": 20,
-          "fill": "#262626",
-          "stroke": "#8c8c8c",
-          "strokeWidth": 2,
-          "cornerRadius": 45
-        },
-        {
-          "id": "line_w7go9g",
-          "type": "line",
-          "x": 858.2159516355163,
-          "y": 811.109493373945,
-          "width": 59.306568429931644,
-          "height": 20.000000000000014,
-          "rotation": 90,
-          "minWidth": 20,
-          "minHeight": 10,
-          "points": [
-            0,
-            10.000000000000007,
-            59.306568429931644,
-            10.000000000000007
-          ],
-          "stroke": "#d9d9d9",
-          "strokeWidth": 3,
-          "closed": false,
-          "activeValue": 1,
-          "inactiveStroke": "#d9d9d9",
-          "activeStroke": "#0e639c",
-          "gradientEnabled": false,
-          "gradientDirection": "horizontal"
-        },
-        {
-          "id": "lib_idv67y",
-          "type": "libraryElementInstance",
-          "x": 681.1183033658515,
-          "y": 855.1727949848539,
-          "width": 106.2230815218719,
-          "height": 111.70522083053129,
-          "minWidth": 60,
-          "minHeight": 40,
-          "libraryId": "amaks-basic-equipment",
-          "elementId": "element_usnbz5",
-          "bindingAssignments": {},
-          "scaleMode": "fit"
         }
       ]
     },

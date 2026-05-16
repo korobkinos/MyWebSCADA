@@ -95,9 +95,10 @@ type UseEditorWindowDefinitionsParams = {
   createLibrary: () => Promise<void>;
   attachLibrary: (libraryId: string) => Promise<void>;
   detachLibrary: (libraryId: string) => Promise<void>;
-  addLibraryElementInstance: (libraryId: string, elementOrId: LibraryElement | string) => void;
-  updateLibraryElementFromSelection: (libraryId: string, element: LibraryElement) => Promise<void>;
-  saveLibraryElementCopyFromSelection: (libraryId: string, element: LibraryElement) => Promise<void>;
+  addLibraryElementInstance: (libraryId: string, elementOrId: LibraryElement | string, position?: { x: number; y: number }) => void;
+  prepareLibraryElementUpdate: (libraryId: string, element: LibraryElement) => Promise<{ libraryId: string; elementId: string; elementName: string; confirmationLines: string[]; flattenedCount: number; flattenedObjects: HmiObject[]; macroIds: string[]; } | null>;
+  executeLibraryElementUpdate: (payload: { libraryId: string; elementId: string; elementName: string; flattenedObjects: HmiObject[]; macroIds: string[]; }) => Promise<void>;
+  saveLibraryElementCopyFromSelection: (libraryId: string, element: LibraryElement, copyName: string) => Promise<void>;
   loadLibraries: () => Promise<void>;
   projectMacros: MacroDefinition[];
   onUploadProjectAsset: (file: File) => Promise<void>;
@@ -377,7 +378,8 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
             onAttachLibrary={params.attachLibrary}
             onDetachLibrary={params.detachLibrary}
             onAddLibraryElementToScreen={params.addLibraryElementInstance}
-            onUpdateLibraryElementFromSelection={params.updateLibraryElementFromSelection}
+            onPrepareLibraryElementUpdate={params.prepareLibraryElementUpdate}
+            onExecuteLibraryElementUpdate={params.executeLibraryElementUpdate}
             onSaveLibraryElementCopyFromSelection={params.saveLibraryElementCopyFromSelection}
             onRefreshLibraries={params.loadLibraries}
             projectMacros={params.projectMacros}

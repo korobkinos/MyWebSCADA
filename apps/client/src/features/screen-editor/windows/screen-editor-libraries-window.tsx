@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Tree } from "antd";
 import type { DataNode } from "antd/es/tree";
 import type {
@@ -29,8 +29,9 @@ type ScreenEditorLibrariesWindowProps = {
   onAttachLibrary: (libraryId: string) => Promise<void>;
   onDetachLibrary: (libraryId: string) => Promise<void>;
   onAddLibraryElementToScreen: (libraryId: string, element: LibraryElement | string) => void;
-  onUpdateLibraryElementFromSelection: (libraryId: string, element: LibraryElement) => Promise<void>;
-  onSaveLibraryElementCopyFromSelection: (libraryId: string, element: LibraryElement) => Promise<void>;
+  onPrepareLibraryElementUpdate: (libraryId: string, element: LibraryElement) => Promise<{ libraryId: string; elementId: string; elementName: string; confirmationLines: string[]; flattenedCount: number; flattenedObjects: HmiObject[]; macroIds: string[]; } | null>;
+  onExecuteLibraryElementUpdate: (payload: { libraryId: string; elementId: string; elementName: string; flattenedObjects: HmiObject[]; macroIds: string[]; }) => Promise<void>;
+  onSaveLibraryElementCopyFromSelection: (libraryId: string, element: LibraryElement, copyName: string) => Promise<void>;
   onRefreshLibraries?: () => Promise<void>;
   projectMacros: MacroDefinition[];
 };
@@ -108,6 +109,13 @@ type DeleteElementDialogState = {
   message: string;
 };
 
+type SaveCopyDialogState = {
+  open: boolean;
+  libraryId: string;
+  element: LibraryElement | null;
+  name: string;
+};
+
 type WorkbenchDialogProps = {
   title: string;
   open: boolean;
@@ -155,7 +163,33 @@ type PropertyPickerTreeNode = DataNode & {
   row?: PropertySearchRow;
 };
 
+type UpdateElementDialogState = {
+  open: boolean;
+  payload: {
+    libraryId: string;
+    elementId: string;
+    elementName: string;
+    confirmationLines: string[];
+    flattenedCount: number;
+    flattenedObjects: HmiObject[];
+    macroIds: string[];
+  } | null;
+};
+
 const DATA_TYPE_OPTIONS: Array<NonNullable<ElementBindingDefinition["dataType"]>> = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
+const COLOR_HEX_PATTERN = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/;
+const VISUAL_RULE_COLOR_PALETTE = [
+  "#00ff00",
+  "#ff0000",
+  "#ffff00",
+  "#808080",
+  "#ffffff",
+  "#000000",
+  "#0e639c",
+  "#3c3c3c",
+  "#262626",
+  "#d7ba7d",
+];
 
 function formatOneDecimal(value: number | undefined): string {
   if (!Number.isFinite(value)) {
@@ -378,9 +412,20 @@ function normalizeValueForKind(kind: VisualRuleValueKind, raw: string): string {
     return Number.isFinite(nextNumber) ? String(nextNumber) : "0";
   }
   if (kind === "color") {
-    return /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(raw) ? raw : "#ffffff";
+    return COLOR_HEX_PATTERN.test(raw) ? raw.toLowerCase() : "#ffffff";
   }
   return raw;
+}
+
+function normalizeColorInput(raw: string): string {
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.startsWith("#")) {
+    return normalized;
+  }
+  return `#${normalized}`;
 }
 
 function defaultValueForKind(kind: VisualRuleValueKind): string {
@@ -751,7 +796,8 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     onAttachLibrary,
     onDetachLibrary,
     onAddLibraryElementToScreen,
-    onUpdateLibraryElementFromSelection,
+    onPrepareLibraryElementUpdate,
+    onExecuteLibraryElementUpdate,
     onSaveLibraryElementCopyFromSelection,
     onRefreshLibraries,
     projectMacros,
@@ -827,6 +873,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     actionIndex: -1,
     query: "",
   });
+  const [activeColorActionId, setActiveColorActionId] = useState<string | null>(null);
   const [propertyPickerExpandedObjectIds, setPropertyPickerExpandedObjectIds] = useState<string[]>([]);
   const [deleteLibraryDialog, setDeleteLibraryDialog] = useState<DeleteLibraryDialogState>({
     open: false,
@@ -839,6 +886,16 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     canForce: false,
     usagePreview: [],
     message: "",
+  });
+  const [updateElementDialog, setUpdateElementDialog] = useState<UpdateElementDialogState>({
+    open: false,
+    payload: null,
+  });
+  const [saveCopyDialog, setSaveCopyDialog] = useState<SaveCopyDialogState>({
+    open: false,
+    libraryId: "",
+    element: null,
+    name: "",
   });
 
   useEffect(() => {
@@ -1406,7 +1463,20 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     setSignalDeleteDialog({ open: false, signal: null, referencedRuleCount: 0, usedByInstancesCount: 0 });
   };
 
+  const updateVisualRuleAction = (actionIndex: number, patch: Partial<VisualRuleActionDraft>) => {
+    setVisualRuleDialog((prev) => {
+      const nextActions = [...prev.actions];
+      const current = nextActions[actionIndex];
+      if (!current) {
+        return prev;
+      }
+      nextActions[actionIndex] = { ...current, ...patch };
+      return { ...prev, actions: nextActions, validationError: undefined };
+    });
+  };
+
   const openPropertyPickerForAction = (actionIndex: number) => {
+    setActiveColorActionId(null);
     setPropertyPickerDialog({
       open: true,
       actionIndex,
@@ -1457,6 +1527,16 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       setPropertyPickerExpandedObjectIds([]);
     }
   }, [propertyPickerDialog.open, visualRuleDialog.open]);
+
+  useEffect(() => {
+    if (!visualRuleDialog.open) {
+      setActiveColorActionId(null);
+      return;
+    }
+    if (activeColorActionId && visualRuleDialog.actions.every((action) => action.id !== activeColorActionId)) {
+      setActiveColorActionId(null);
+    }
+  }, [activeColorActionId, visualRuleDialog.actions, visualRuleDialog.open]);
 
   const startCreateVisualRule = () => {
     if (!selectedElement) {
@@ -1524,6 +1604,9 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     if (visualRuleDialog.actions.some((action) => action.kind === "number" && !Number.isFinite(Number(action.value)))) {
       return "Number property value must be numeric.";
     }
+    if (visualRuleDialog.actions.some((action) => action.kind === "color" && !COLOR_HEX_PATTERN.test(normalizeColorInput(action.value)))) {
+      return "Color value must be HEX (#RRGGBB or #RGB).";
+    }
     if ((visualRuleDialog.condition === "greaterThan" || visualRuleDialog.condition === "lessThan" || visualRuleDialog.condition === "between")
       && !Number.isFinite(Number(visualRuleDialog.value))) {
       return "Condition value must be a number.";
@@ -1574,7 +1657,15 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           id: createId("case"),
           name: "when",
           condition,
-          actions: visualRuleDialog.actions.map((action) => fromVisualActionDraft(action)),
+          actions: visualRuleDialog.actions.map((action) => {
+            if (action.kind !== "color") {
+              return fromVisualActionDraft(action);
+            }
+            return fromVisualActionDraft({
+              ...action,
+              value: normalizeColorInput(action.value).toLowerCase(),
+            });
+          }),
         },
       ],
     };
@@ -1775,13 +1866,23 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                       </WorkbenchButton>
                       <WorkbenchButton
                         disabled={selectedObjectsCount === 0}
-                        onClick={() => void onUpdateLibraryElementFromSelection(selectedLibrary.id, selectedElement)}
+                        onClick={async () => {
+                          const payload = await onPrepareLibraryElementUpdate(selectedLibrary.id, selectedElement);
+                          if (payload) {
+                            setUpdateElementDialog({ open: true, payload });
+                          }
+                        }}
                       >
                         Update from Selection
                       </WorkbenchButton>
                       <WorkbenchButton
                         disabled={selectedObjectsCount === 0}
-                        onClick={() => void onSaveLibraryElementCopyFromSelection(selectedLibrary.id, selectedElement)}
+                        onClick={() => setSaveCopyDialog({
+                          open: true,
+                          libraryId: selectedLibrary.id,
+                          element: selectedElement,
+                          name: `${selectedElement.name} copy`,
+                        })}
                       >
                         Save as Copy
                       </WorkbenchButton>
@@ -2225,15 +2326,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 <select
                   className="workbench-select"
                   value={action.value}
-                  onChange={(event) => setVisualRuleDialog((prev) => {
-                    const nextActions = [...prev.actions];
-                    const current = nextActions[index];
-                    if (!current) {
-                      return prev;
-                    }
-                    nextActions[index] = { ...current, value: event.target.value };
-                    return { ...prev, actions: nextActions };
-                  })}
+                  onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
                 >
                   <option value="true">true</option>
                   <option value="false">false</option>
@@ -2244,15 +2337,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 <select
                   className="workbench-select"
                   value={action.value}
-                  onChange={(event) => setVisualRuleDialog((prev) => {
-                    const nextActions = [...prev.actions];
-                    const current = nextActions[index];
-                    if (!current) {
-                      return prev;
-                    }
-                    nextActions[index] = { ...current, value: event.target.value };
-                    return { ...prev, actions: nextActions };
-                  })}
+                  onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
                 >
                   <option value="">Select asset</option>
                   {(selectedLibrary?.assets ?? []).map((asset) => (
@@ -2266,41 +2351,71 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                   className="workbench-input"
                   value={action.value}
                   type="number"
-                  onChange={(event) => setVisualRuleDialog((prev) => {
-                    const nextActions = [...prev.actions];
-                    const current = nextActions[index];
-                    if (!current) {
-                      return prev;
-                    }
-                    nextActions[index] = { ...current, value: event.target.value };
-                    return { ...prev, actions: nextActions };
-                  })}
+                  onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
                 />
               ) : null}
 
-              {action.kind === "string" || action.kind === "color" ? (
+              {action.kind === "string" ? (
                 <input
                   className="workbench-input"
                   value={action.value}
-                  type={action.kind === "color" ? "color" : "text"}
-                  onChange={(event) => setVisualRuleDialog((prev) => {
-                    const nextActions = [...prev.actions];
-                    const current = nextActions[index];
-                    if (!current) {
-                      return prev;
-                    }
-                    nextActions[index] = { ...current, value: event.target.value };
-                    return { ...prev, actions: nextActions };
-                  })}
+                  type="text"
+                  onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
                 />
+              ) : null}
+
+              {action.kind === "color" ? (
+                <div className="screen-editor-library-interface__color-field">
+                  <button
+                    type="button"
+                    className="screen-editor-library-interface__color-swatch"
+                    style={{ backgroundColor: COLOR_HEX_PATTERN.test(normalizeColorInput(action.value)) ? normalizeColorInput(action.value) : "#000000" }}
+                    onClick={() => setActiveColorActionId((prev) => (prev === action.id ? null : action.id))}
+                    title="Pick color"
+                  />
+                  <input
+                    className="workbench-input"
+                    value={action.value}
+                    type="text"
+                    placeholder="#00ff00"
+                    onChange={(event) => updateVisualRuleAction(index, { value: normalizeColorInput(event.target.value) })}
+                  />
+                  {activeColorActionId === action.id ? (
+                    <div className="screen-editor-library-interface__color-popover">
+                      <div className="screen-editor-library-interface__color-grid">
+                        {VISUAL_RULE_COLOR_PALETTE.map((hex) => (
+                          <button
+                            key={`${action.id}-${hex}`}
+                            type="button"
+                            className="screen-editor-library-interface__color-chip"
+                            style={{ backgroundColor: hex }}
+                            title={hex}
+                            onClick={() => {
+                              updateVisualRuleAction(index, { value: hex });
+                              setActiveColorActionId(null);
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div className="screen-editor-library-interface__color-popover-actions">
+                        <WorkbenchButton onClick={() => setActiveColorActionId(null)}>Close</WorkbenchButton>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
 
               <WorkbenchButton
                 variant="danger"
-                onClick={() => setVisualRuleDialog((prev) => ({
-                  ...prev,
-                  actions: prev.actions.filter((_, actionIndex) => actionIndex !== index),
-                }))}
+                onClick={() => {
+                  setVisualRuleDialog((prev) => ({
+                    ...prev,
+                    actions: prev.actions.filter((_, actionIndex) => actionIndex !== index),
+                  }));
+                  if (activeColorActionId === action.id) {
+                    setActiveColorActionId(null);
+                  }
+                }}
               >
                 Delete
               </WorkbenchButton>
@@ -2400,6 +2515,87 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         )}
       >
         <div className="screen-editor-item-meta">Delete visual rule "{visualRuleDeleteDialog.title}"?</div>
+      </WorkbenchDialog>
+
+      <WorkbenchDialog
+        title="Update Library Element"
+        open={updateElementDialog.open}
+        onClose={() => setUpdateElementDialog({ open: false, payload: null })}
+        width={480}
+        actions={(
+          <>
+            <WorkbenchButton onClick={() => setUpdateElementDialog({ open: false, payload: null })}>
+              Cancel
+            </WorkbenchButton>
+            <WorkbenchButton
+              variant="primary"
+              onClick={async () => {
+                if (updateElementDialog.payload) {
+                  await onExecuteLibraryElementUpdate(updateElementDialog.payload);
+                  setUpdateElementDialog({ open: false, payload: null });
+                }
+              }}
+            >
+              Update
+            </WorkbenchButton>
+          </>
+        )}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {updateElementDialog.payload?.confirmationLines.map((line, i) => (
+            <div key={i} className="screen-editor-item-meta" style={{ color: i === 0 ? "white" : undefined }}>
+              {line}
+            </div>
+          ))}
+          {updateElementDialog.payload && updateElementDialog.payload.flattenedCount > 0 ? (
+            <div className="screen-editor-item-meta" style={{ color: "#f5d283", marginTop: 8 }}>
+              Note: Selection contains {updateElementDialog.payload.flattenedCount} instance(s) of this element which will be expanded to avoid recursion.
+            </div>
+          ) : null}
+        </div>
+      </WorkbenchDialog>
+
+      <WorkbenchDialog
+        title="Save Element as Copy"
+        open={saveCopyDialog.open}
+        onClose={() => setSaveCopyDialog({ open: false, libraryId: "", element: null, name: "" })}
+        width={520}
+        actions={(
+          <>
+            <WorkbenchButton onClick={() => setSaveCopyDialog({ open: false, libraryId: "", element: null, name: "" })}>
+              Cancel
+            </WorkbenchButton>
+            <WorkbenchButton
+              variant="primary"
+              onClick={async () => {
+                if (!saveCopyDialog.element || !saveCopyDialog.libraryId) {
+                  return;
+                }
+                await onSaveLibraryElementCopyFromSelection(
+                  saveCopyDialog.libraryId,
+                  saveCopyDialog.element,
+                  saveCopyDialog.name,
+                );
+                setSaveCopyDialog({ open: false, libraryId: "", element: null, name: "" });
+              }}
+            >
+              Save
+            </WorkbenchButton>
+          </>
+        )}
+      >
+        <div style={{ display: "grid", gap: 8 }}>
+          <label style={{ display: "grid", gap: 4 }}>
+            <span className="screen-editor-item-meta">Element name</span>
+            <input
+              className="workbench-input"
+              value={saveCopyDialog.name}
+              onChange={(event) => setSaveCopyDialog((prev) => ({ ...prev, name: event.target.value }))}
+              placeholder="Copy name"
+              autoFocus
+            />
+          </label>
+        </div>
       </WorkbenchDialog>
     </div>
   );

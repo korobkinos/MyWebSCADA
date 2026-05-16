@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   Asset,
@@ -10,7 +10,7 @@ import type {
   RuntimeAction,
   ScadaProject,
 } from "@web-scada/shared";
-import { findObjectDeep } from "@web-scada/shared";
+import { findObjectDeep, resolveLibraryElementInstanceBindingsDetailed } from "@web-scada/shared";
 import { Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from "antd";
 import {
   ApiOutlined,
@@ -63,6 +63,7 @@ type CloneOptions = {
 };
 
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
+type CanvasPoint = { x: number; y: number };
 
 function id(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
@@ -215,6 +216,7 @@ export function EditorPage() {
   } = useWorkbenchWindows();
 
   const { editorLog, appendEditorLog, clearEditorLog } = useEditorLog();
+  const viewportCenterRef = useRef<CanvasPoint>({ x: 100, y: 100 });
 
   const screen = useMemo(
     () => project?.screens.find((item) => item.id === currentScreenId) ?? project?.screens[0],
@@ -374,12 +376,17 @@ export function EditorPage() {
     [executeCommand, screen],
   );
 
-  const addPrimitiveShape = (kind: PrimitiveShapeKind) => {
-    addObjectWithHistory(createPrimitiveShape(kind));
+  const addPrimitiveShape = (kind: PrimitiveShapeKind, center?: { x: number; y: number }) => {
+    const shape = createPrimitiveShape(kind);
+    if (center) {
+      shape.x = Math.round(center.x - shape.width / 2);
+      shape.y = Math.round(center.y - shape.height / 2);
+    }
+    addObjectWithHistory(shape);
   };
 
   const addLibraryElementInstance = useCallback(
-    (libraryId: string, elementOrId: LibraryElement | string) => {
+    (libraryId: string, elementOrId: LibraryElement | string, position?: CanvasPoint) => {
       if (!screen) {
         return;
       }
@@ -399,6 +406,14 @@ export function EditorPage() {
       instance.elementId = elementId;
       instance.width = element.width ?? 100;
       instance.height = element.height ?? 80;
+      if (position) {
+        instance.x = Math.max(0, Math.round(position.x));
+        instance.y = Math.max(0, Math.round(position.y));
+      } else {
+        const center = viewportCenterRef.current;
+        instance.x = Math.max(0, Math.round(center.x - instance.width / 2));
+        instance.y = Math.max(0, Math.round(center.y - instance.height / 2));
+      }
       addObjectWithHistory(instance);
     },
     [addObjectWithHistory, libraries, screen],
@@ -479,7 +494,7 @@ export function EditorPage() {
             addAssetAsImage(asset, position);
           }
         } else if ("kind" in payload && payload.kind === "library-element") {
-          addLibraryElementInstance(payload.libraryId, payload.elementId);
+          addLibraryElementInstance(payload.libraryId, payload.elementId, position);
         }
       } catch {
         // ignore
@@ -597,26 +612,48 @@ export function EditorPage() {
     selectedObjects,
   ]);
 
-  const updateLibraryElementFromSelection = useCallback(
+  const prepareLibraryElementUpdate = useCallback(
     async (libraryId: string, element: LibraryElement) => {
-      if (!selectedObjects.length) {
+      const state = useScadaStore.getState();
+      const currentScreen = state.project?.screens.find((item) => item.id === screen?.id);
+      const selectedFromState = state.selection.selectedObjectIds
+        .map((objectId) => (currentScreen ? findObjectDeep(currentScreen.objects, objectId) : null))
+        .filter((item): item is HmiObject => Boolean(item));
+      const selectedForUpdate = selectedFromState.length > 0 ? selectedFromState : selectedObjects;
+
+      if (!selectedForUpdate.length) {
+        appendEditorLog("error", `action=update-library-element libraryId=${libraryId} elementId=${element.id} selectedCount=0 status=ERROR error=no-selection`);
         void message.warning("Select one or more objects on canvas");
-        return;
+        return null;
       }
 
-      const macroIds = collectMacroReferenceIds(selectedObjects);
-      let usageCount: number | null = null;
-      try {
-        const usage = await api.getLibraryElementUsage(libraryId, element.id);
-        usageCount = usage.items.length;
-      } catch {
-        usageCount = null;
+      const library = libraries.find((item) => item.id === libraryId);
+      const sourceElement = library?.elements.find((item) => item.id === element.id);
+      if (!library || !sourceElement) {
+        appendEditorLog("error", `action=update-library-element libraryId=${libraryId} elementId=${element.id} selectedCount=${selectedForUpdate.length} status=ERROR error=element-not-found`);
+        void message.error("Selected element is missing from the selected library.");
+        return null;
       }
+
+      const { result: flattenedObjects, flattenedCount } = flattenSelfInstancesInSelection(
+        selectedForUpdate,
+        libraryId,
+        element.id,
+        libraries,
+      );
+      if (!flattenedObjects.length) {
+        appendEditorLog("error", `action=update-library-element libraryId=${libraryId} elementId=${element.id} selectedCount=0 status=ERROR error=empty-after-flatten`);
+        void message.error("Selection cannot be used for update.");
+        return null;
+      }
+
+      const macroIds = collectMacroReferenceIds(flattenedObjects);
+      const usageCount = countLibraryElementInstancesInProject(state.project, libraryId, element.id);
 
       const confirmationLines = [
         `Update library element "${element.name}"?`,
-        `Selected objects: ${selectedObjects.length}`,
-        usageCount !== null ? `Linked instances in project: ${usageCount}` : "Linked instances in project: unknown",
+        `Selected objects: ${selectedForUpdate.length}`,
+        `Linked instances in project: ${usageCount}`,
         "Updating this element will affect all linked instances on screens.",
       ];
       if (macroIds.length > 0) {
@@ -625,36 +662,56 @@ export function EditorPage() {
         );
       }
 
-      const confirmed = window.confirm(confirmationLines.join("\n"));
-      if (!confirmed) {
-        return;
-      }
+      return {
+        libraryId,
+        elementId: element.id,
+        elementName: element.name,
+        confirmationLines,
+        flattenedCount,
+        flattenedObjects,
+        macroIds,
+      };
+    },
+    [appendEditorLog, libraries, screen?.id, selectedObjects],
+  );
 
+  const executeLibraryElementUpdate = useCallback(
+    async (payload: {
+      libraryId: string;
+      elementId: string;
+      elementName: string;
+      flattenedObjects: HmiObject[];
+      macroIds: string[];
+    }) => {
       try {
-        const normalizedObjects = normalizeObjects(selectedObjects);
-        const bounds = computeBounds(selectedObjects);
-        const copiedObjects = await copySelectionAssetsToLibrary(normalizedObjects, assets, libraryId, libraries);
-        await api.updateLibraryElement(libraryId, element.id, {
+        const normalizedObjects = normalizeObjects(payload.flattenedObjects);
+        const bounds = computeBounds(payload.flattenedObjects);
+        const copiedObjects = await copySelectionAssetsToLibrary(normalizedObjects, assets, payload.libraryId, libraries);
+        await api.updateLibraryElement(payload.libraryId, payload.elementId, {
           width: bounds.width,
           height: bounds.height,
           objects: copiedObjects,
         });
         await loadLibraries();
-        if (macroIds.length > 0) {
+        appendEditorLog("success", `action=update-library-element libraryId=${payload.libraryId} elementId=${payload.elementId} selectedCount=${payload.flattenedObjects.length} status=OK`);
+        if (payload.macroIds.length > 0) {
           void message.warning(
-            `Selected objects reference project macros: ${macroIds.join(", ")}. Macros are not included in the library.`,
+            `Selected objects reference project macros: ${payload.macroIds.join(", ")}. Macros are not included in the library.`,
           );
         }
-        void message.success(`Library element updated: ${element.name}`);
+        void message.success(`Library element updated: ${payload.elementName}`);
       } catch (error) {
-        void message.error(error instanceof Error ? error.message : "Failed to update library element");
+        const errorText = error instanceof Error ? error.message : "Failed to update library element";
+        appendEditorLog("error", `action=update-library-element libraryId=${payload.libraryId} elementId=${payload.elementId} selectedCount=${payload.flattenedObjects.length} status=ERROR error=${errorText}`);
+        void message.error(errorText);
       }
     },
-    [assets, libraries, loadLibraries, selectedObjects],
+    [appendEditorLog, assets, libraries, loadLibraries],
   );
 
+
   const saveLibraryElementCopyFromSelection = useCallback(
-    async (libraryId: string, element: LibraryElement) => {
+    async (libraryId: string, element: LibraryElement, copyName: string) => {
       if (!selectedObjects.length) {
         void message.warning("Select one or more objects on canvas");
         return;
@@ -667,9 +724,9 @@ export function EditorPage() {
         );
       }
 
-      const suggestedName = `${element.name} copy`;
-      const enteredName = window.prompt("Save as Copy: element name", suggestedName)?.trim();
+      const enteredName = copyName.trim();
       if (!enteredName) {
+        void message.warning("Element name is required");
         return;
       }
 
@@ -914,7 +971,8 @@ export function EditorPage() {
     attachLibrary,
     detachLibrary,
     addLibraryElementInstance,
-    updateLibraryElementFromSelection,
+    prepareLibraryElementUpdate,
+    executeLibraryElementUpdate,
     saveLibraryElementCopyFromSelection,
     loadLibraries,
     projectMacros: macros,
@@ -1125,6 +1183,9 @@ export function EditorPage() {
             onSendToBack={() => zOrderWithHistory("sendToBack")}
             onMoveForward={() => zOrderWithHistory("moveForward")}
             onMoveBackward={() => zOrderWithHistory("moveBackward")}
+            onViewportCenterChange={(center) => {
+              viewportCenterRef.current = center;
+            }}
           />
         }
         bottom={
@@ -1596,6 +1657,129 @@ function slugify(input: string): string {
   return clean || `element-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function countLibraryElementInstancesInProject(
+  project: ScadaProject | null | undefined,
+  libraryId: string,
+  elementId: string,
+): number {
+  if (!project) {
+    return 0;
+  }
+  let count = 0;
+  const scan = (objects: HmiObject[]) => {
+    for (const item of objects) {
+      if (item.type === "libraryElementInstance" && item.libraryId === libraryId && item.elementId === elementId) {
+        count += 1;
+      }
+      if (item.type === "group") {
+        scan(item.objects);
+      }
+    }
+  };
+  for (const screen of project.screens) {
+    scan(screen.objects);
+  }
+  return count;
+}
 
+export function flattenSelfInstancesInSelection(
+  objects: HmiObject[],
+  libraryId: string,
+  elementId: string,
+  libraries: ElementLibrary[],
+): { result: HmiObject[]; flattenedCount: number } {
+  const result: HmiObject[] = [];
+  let flattenedCount = 0;
 
+  for (const obj of objects) {
+    if (obj.type === "libraryElementInstance" && obj.libraryId === libraryId && obj.elementId === elementId) {
+      const library = libraries.find((lib) => lib.id === libraryId);
+      const element = library?.elements.find((el) => el.id === elementId);
+      if (element) {
+        // Resolve bindings for this specific instance using real tag assignments
+        const { resolvedBindings } = resolveLibraryElementInstanceBindingsDetailed(
+          element,
+          obj as Extract<HmiObject, { type: "libraryElementInstance" }>,
+          { tagValues: {} }, // runtime values not needed for static analysis
+        );
 
+        // Map internal $binding.* refs to their actual resolved tags in the raw objects
+        const resolvedObjects = element.objects.map((childObj) => {
+          const deepClone = structuredClone(childObj);
+          resolveBindingRefsInObject(deepClone, resolvedBindings);
+          // Apply instance offset relative to the original instance bounds
+          deepClone.x += obj.x;
+          deepClone.y += obj.y;
+          return deepClone;
+        });
+
+        result.push(...resolvedObjects);
+        flattenedCount++;
+      }
+    } else {
+      result.push(obj);
+    }
+  }
+
+  return { result, flattenedCount };
+}
+
+function resolveBindingRefsInObject(object: HmiObject, resolvedBindings: Record<string, string>): void {
+  // Common tag properties across multiple object types
+  const tagFields = [
+    "tag",
+    "writeTag",
+    "stateTag",
+    "openTag",
+    "closedTag",
+    "errorTag",
+    "commandOpenTag",
+    "commandCloseTag",
+    "runTag",
+    "faultTag",
+    "commandStartTag",
+    "commandStopTag",
+    "visibleTag",
+    "disabledTag",
+  ];
+
+  for (const field of tagFields) {
+    if (field in object) {
+      const val = (object as Record<string, unknown>)[field];
+      if (typeof val === "string" && val.startsWith("$binding.")) {
+        const bindingKey = val.slice(9);
+        (object as Record<string, unknown>)[field] = resolvedBindings[bindingKey] || "";
+      }
+    }
+  }
+
+  if (object.type === "valueSelect" && object.target?.type === "tag" && object.target.tag.startsWith("$binding.")) {
+    const bindingKey = object.target.tag.slice(9);
+    object.target.tag = resolvedBindings[bindingKey] || "";
+  }
+
+  if ("action" in object && object.action) {
+    const action = object.action as RuntimeAction;
+    if (
+      (action.type === "write" || action.type === "pulse" || action.type === "toggle") &&
+      action.tag.startsWith("$binding.")
+    ) {
+      const bindingKey = action.tag.slice(9);
+      action.tag = resolvedBindings[bindingKey] || "";
+    }
+    if (
+      (action.type === "writeConst" || action.type === "writeNumberPrompt") &&
+      action.target === "tag" &&
+      action.name.startsWith("$binding.")
+    ) {
+      const bindingKey = action.name.slice(9);
+      action.name = resolvedBindings[bindingKey] || "";
+    }
+  }
+
+  if (object.type === "group") {
+    for (const child of object.objects) {
+      resolveBindingRefsInObject(child, resolvedBindings);
+    }
+  }
+}
