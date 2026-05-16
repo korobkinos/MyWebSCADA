@@ -2495,7 +2495,8 @@ body {
 
 .screen-editor-library-interface__dialog-grid {
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  justify-items: start;
 }
 
 .screen-editor-library-interface__dialog-grid label {
@@ -2503,6 +2504,17 @@ body {
   gap: 4px;
   font-size: 12px;
   color: #cfcfcf;
+  width: 100%;
+}
+
+.screen-editor-library-interface__rule-name-field {
+  max-width: 520px;
+}
+
+.screen-editor-library-interface__inline-actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 2px;
 }
 
 .screen-editor-library-interface__checkbox {
@@ -2531,15 +2543,17 @@ body {
 
 .screen-editor-library-interface__rule-actions-editor {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .screen-editor-library-interface__rule-action-row {
   display: grid;
-  grid-template-columns: minmax(220px, 250px) 118px minmax(220px, 260px) 86px;
-  gap: 8px;
+  grid-template-columns: minmax(200px, 230px) 122px minmax(180px, 220px) 86px;
+  gap: 10px;
   align-items: center;
   justify-content: start;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .screen-editor-library-interface__action-target {
@@ -2576,10 +2590,19 @@ body {
 
 .screen-editor-library-interface__condition-row {
   display: grid;
-  grid-template-columns: minmax(220px, 250px) 150px 110px 110px 86px;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   justify-content: start;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.screen-editor-library-interface__condition-row--single {
+  grid-template-columns: minmax(200px, 230px) 150px 110px 86px;
+}
+
+.screen-editor-library-interface__condition-row--between {
+  grid-template-columns: minmax(200px, 230px) 150px 110px 110px 86px;
 }
 
 .screen-editor-library-interface__condition-row .workbench-select,
@@ -2642,11 +2665,13 @@ body {
   .screen-editor-library-interface__rule-action-row {
     grid-template-columns: 1fr;
     gap: 6px;
+    width: 100%;
   }
 
   .screen-editor-library-interface__condition-row {
     grid-template-columns: 1fr;
     gap: 6px;
+    width: 100%;
   }
 
   .screen-editor-library-interface__condition-joiner {

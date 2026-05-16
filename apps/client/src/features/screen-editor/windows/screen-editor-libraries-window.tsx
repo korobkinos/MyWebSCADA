@@ -2689,7 +2689,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         )}
       >
         <div className="screen-editor-library-interface__dialog-grid">
-          <label>
+          <label className="screen-editor-library-interface__rule-name-field">
             <span>Rule Name</span>
             <input
               className="workbench-input"
@@ -2706,7 +2706,12 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           <div className="screen-editor-item-meta">Maximum conditions: {MAX_VISUAL_RULE_CONDITIONS}</div>
           <div className="screen-editor-library-interface__condition-list">
             {visualRuleDialog.clauses.map((clause, index) => (
-              <div key={clause.id} className="screen-editor-library-interface__condition-row">
+              <div
+                key={clause.id}
+                className={`screen-editor-library-interface__condition-row ${conditionNeedsSecondValue(clause.condition)
+                  ? "screen-editor-library-interface__condition-row--between"
+                  : "screen-editor-library-interface__condition-row--single"}`}
+              >
                 <select
                   className="workbench-select"
                   value={clause.signalKey}
@@ -2767,9 +2772,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                       validationError: undefined,
                     }))}
                   />
-                ) : (
-                  <div />
-                )}
+                ) : null}
                 <WorkbenchButton
                   variant="danger"
                   disabled={visualRuleDialog.clauses.length <= 1}
@@ -2801,7 +2804,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
               </div>
             ))}
           </div>
-          <div className="screen-editor-item-actions">
+          <div className="screen-editor-library-interface__inline-actions">
             <WorkbenchButton
               disabled={visualRuleDialog.clauses.length >= MAX_VISUAL_RULE_CONDITIONS}
               onClick={() => {
@@ -2821,7 +2824,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           </div>
         </div>
 
-        <div className="screen-editor-library-interface__section-title" style={{ marginTop: 8 }}>Then Actions</div>
+        <div className="screen-editor-library-interface__section-title" style={{ marginTop: 12 }}>Then Actions</div>
         <div className="screen-editor-library-interface__rule-actions-editor">
           {visualRuleDialog.actions.map((action, index) => (
             <div key={action.id} className="screen-editor-library-interface__rule-action-row">
@@ -2913,21 +2916,23 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
             </div>
           ))}
         </div>
-        <WorkbenchButton
-          onClick={() => setVisualRuleDialog((prev) => ({
-            ...prev,
-            actions: (() => {
-              const objectId = flatElementObjects[0]?.id ?? "";
-              if (!objectId) {
-                return prev.actions;
-              }
-              const options = propertyOptionsByObjectId.get(objectId) ?? [];
-              return [...prev.actions, createDefaultVisualRuleAction(objectId, options)];
-            })(),
-          }))}
-        >
-          Add Action
-        </WorkbenchButton>
+        <div className="screen-editor-library-interface__inline-actions">
+          <WorkbenchButton
+            onClick={() => setVisualRuleDialog((prev) => ({
+              ...prev,
+              actions: (() => {
+                const objectId = flatElementObjects[0]?.id ?? "";
+                if (!objectId) {
+                  return prev.actions;
+                }
+                const options = propertyOptionsByObjectId.get(objectId) ?? [];
+                return [...prev.actions, createDefaultVisualRuleAction(objectId, options)];
+              })(),
+            }))}
+          >
+            Add Action
+          </WorkbenchButton>
+        </div>
         {visualRuleDialog.validationError ? <div className="screen-editor-library-interface__error">{visualRuleDialog.validationError}</div> : null}
       </WorkbenchDialog>
 
