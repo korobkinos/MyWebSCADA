@@ -14,7 +14,7 @@ import type {
   ScadaProject,
 } from "@web-scada/shared";
 import { api } from "../../../services/api";
-import { WorkbenchButton, WorkbenchIconButton, WorkbenchSection } from "../../../components/workbench";
+import { WorkbenchButton, WorkbenchIconButton, WorkbenchSection, WorkbenchTabs, type WorkbenchTabItem } from "../../../components/workbench";
 import {
   createObjectIoAction,
   getObjectIoActionMode,
@@ -46,6 +46,7 @@ type ScreenEditorLibrariesWindowProps = {
 };
 
 type TabId = "elements" | "assets" | "macros" | "metadata" | "interface";
+type InterfaceDialogTab = "signals" | "visualRules" | "objectIo";
 type VisualRuleClauseConditionType =
   | Exclude<ElementStateCase["condition"]["type"], "true" | "false">
   | "greaterOrEqual"
@@ -149,6 +150,7 @@ type WorkbenchDialogProps = {
   children: React.ReactNode;
   actions?: React.ReactNode;
   bodyClassName?: string;
+  zIndex?: number;
 };
 
 type FlatObjectOption = {
@@ -182,6 +184,11 @@ type PropertySearchGroup = {
 type PropertyPickerTreeNode = DataNode & {
   nodeType: "object" | "property";
   row?: PropertySearchRow;
+};
+
+type ObjectIoPickerTreeNode = DataNode & {
+  nodeType: "object";
+  objectId?: string;
 };
 
 type UpdateElementDialogState = {
@@ -1148,6 +1155,7 @@ function WorkbenchDialog({
   children,
   actions,
   bodyClassName,
+  zIndex,
 }: WorkbenchDialogProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -1245,7 +1253,7 @@ function WorkbenchDialog({
     : undefined;
 
   return (
-    <div className="workbench-confirm-backdrop" onPointerDown={(event) => event.stopPropagation()}>
+    <div className="workbench-confirm-backdrop" style={zIndex !== undefined ? { zIndex } : undefined} onPointerDown={(event) => event.stopPropagation()}>
       <div
         ref={dialogRef}
         className="workbench-confirm-dialog"
@@ -1320,6 +1328,11 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     selectedObjectId: "",
     dirty: false,
   });
+  const [interfaceDialogOpen, setInterfaceDialogOpen] = useState(false);
+  const [interfaceDialogTab, setInterfaceDialogTab] = useState<InterfaceDialogTab>("signals");
+  const [objectIoSearchQuery, setObjectIoSearchQuery] = useState("");
+  const [objectIoExpandedObjectIds, setObjectIoExpandedObjectIds] = useState<string[]>([]);
+  const [objectIoLeftPaneWidth, setObjectIoLeftPaneWidth] = useState(320);
 
   const [signalDialog, setSignalDialog] = useState<SignalDialogState>({
     open: false,
@@ -1447,6 +1460,39 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     () => findObjectDeepInList(objectIoDialog.draftObjects, objectIoDialog.selectedObjectId),
     [objectIoDialog.draftObjects, objectIoDialog.selectedObjectId],
   );
+  const objectIoObjectRows = useMemo(
+    () => flatObjectIoDraftObjects.map((objectOption) => ({
+      objectId: objectOption.id,
+      objectType: objectOption.type,
+      objectLabel: objectOption.label.replace(/^\s*-\s*/, ""),
+      searchText: `${objectOption.label.replace(/^\s*-\s*/, "")} ${objectOption.id} ${objectOption.type}`.toLowerCase(),
+    })),
+    [flatObjectIoDraftObjects],
+  );
+  const filteredObjectIoObjectRows = useMemo(() => {
+    const query = objectIoSearchQuery.trim().toLowerCase();
+    const filtered = query
+      ? objectIoObjectRows.filter((row) => row.searchText.includes(query))
+      : objectIoObjectRows;
+    return filtered.slice(0, 300);
+  }, [objectIoObjectRows, objectIoSearchQuery]);
+  const objectIoTreeData = useMemo<ObjectIoPickerTreeNode[]>(() => {
+    return filteredObjectIoObjectRows.map((row) => ({
+      key: `obj:${row.objectId}`,
+      nodeType: "object",
+      objectId: row.objectId,
+      title: (
+        <span className="screen-editor-setproperty-picker__tree-object">
+          {row.objectLabel} ({row.objectType})
+        </span>
+      ),
+      isLeaf: true,
+    }));
+  }, [filteredObjectIoObjectRows]);
+  const objectIoExpandedKeys = useMemo(
+    () => (objectIoSearchQuery.trim() ? objectIoTreeData.map((node) => String(node.key)) : objectIoExpandedObjectIds),
+    [objectIoExpandedObjectIds, objectIoSearchQuery, objectIoTreeData],
+  );
   const flatElementObjectMap = useMemo(
     () => flattenObjectMap(selectedElement?.objects ?? []),
     [selectedElement],
@@ -1526,6 +1572,14 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     scan(selectedElement.objects);
     return cards;
   }, [selectedElement, selectedElementBindingsByKey]);
+  const interfaceTabItems = useMemo<WorkbenchTabItem[]>(
+    () => [
+      { id: "signals", title: "Signals", active: interfaceDialogTab === "signals", onClick: () => setInterfaceDialogTab("signals") },
+      { id: "visualRules", title: "Visual Rules", active: interfaceDialogTab === "visualRules", onClick: () => setInterfaceDialogTab("visualRules") },
+      { id: "objectIo", title: "Object I/O", active: interfaceDialogTab === "objectIo", onClick: () => setInterfaceDialogTab("objectIo") },
+    ],
+    [interfaceDialogTab],
+  );
   const propertyOptionsByObjectId = useMemo(() => {
     const map = new Map<string, VisualRulePropertyOption[]>();
     for (const [objectId, object] of flatElementObjectMap.entries()) {
@@ -2179,10 +2233,35 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       selectedObjectId: nextSelectedObjectId,
       dirty: false,
     });
+    setObjectIoSearchQuery("");
+    setObjectIoExpandedObjectIds([]);
+  };
+
+  const openInterfaceDialog = (tab: InterfaceDialogTab = "signals") => {
+    setInterfaceDialogTab(tab);
+    setInterfaceDialogOpen(true);
   };
 
   const closeObjectIoDialog = () => {
     setObjectIoDialog((prev) => ({ ...prev, open: false }));
+  };
+
+  const startObjectIoPaneResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const baseWidth = objectIoLeftPaneWidth;
+    const onMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const next = Math.max(220, Math.min(560, Math.round(baseWidth + dx)));
+      setObjectIoLeftPaneWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
   };
 
   const patchObjectIoField = (fieldPath: string, value: unknown) => {
@@ -2646,7 +2725,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           <div style={{ padding: "0 10px", display: "grid", gap: 6 }}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <WorkbenchButton onClick={() => setActiveTab("elements")}>Elements</WorkbenchButton>
-              <WorkbenchButton onClick={() => setActiveTab("interface")}>Interface</WorkbenchButton>
+              <WorkbenchButton onClick={() => openInterfaceDialog("signals")}>Interface</WorkbenchButton>
               <WorkbenchButton onClick={() => setActiveTab("assets")}>Assets</WorkbenchButton>
               <WorkbenchButton onClick={() => setActiveTab("macros")}>Macros</WorkbenchButton>
               <WorkbenchButton onClick={() => setActiveTab("metadata")}>Metadata</WorkbenchButton>
@@ -3153,6 +3232,128 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       </WorkbenchDialog>
 
       <WorkbenchDialog
+        title="INTERFACE"
+        open={interfaceDialogOpen}
+        onClose={() => setInterfaceDialogOpen(false)}
+        width={940}
+        height={640}
+        minWidth={760}
+        minHeight={500}
+        resizable
+        zIndex={4900}
+        bodyClassName="screen-editor-library-interface-dialog-body"
+        actions={(
+          <>
+            <WorkbenchButton onClick={() => setInterfaceDialogOpen(false)}>Close</WorkbenchButton>
+          </>
+        )}
+      >
+        {!selectedElement ? (
+          <div className="screen-editor-item-meta">Select an element to edit interface.</div>
+        ) : (
+          <div className="screen-editor-library-interface">
+            <WorkbenchTabs items={interfaceTabItems} />
+            {interfaceError ? <div className="screen-editor-library-interface__error">{interfaceError}</div> : null}
+
+            {interfaceDialogTab === "signals" ? (
+              <div className="screen-editor-library-interface__section screen-editor-library-interface__tab-panel">
+                <div className="screen-editor-item-actions">
+                  <WorkbenchButton onClick={startCreateSignal} disabled={savingInterface}>Add Signal</WorkbenchButton>
+                </div>
+                {(selectedElement.bindings ?? []).length === 0 ? (
+                  <div className="screen-editor-item-meta">No Signals yet.</div>
+                ) : (
+                  (selectedElement.bindings ?? []).map((signal) => (
+                    <div key={signal.id} className="screen-editor-signal-card">
+                      <div className="screen-editor-item-title">{signal.displayName}</div>
+                      <div className="screen-editor-item-meta">key: {signal.key}</div>
+                      <div className="screen-editor-item-meta">kind: {formatBindingKindLabel(signal.kind)}</div>
+                      <div className="screen-editor-item-meta">type: {signal.dataType ?? "-"}</div>
+                      <div className="screen-editor-item-meta">used in rules: {signalUsedInRulesCount.get(signal.key) ?? 0}</div>
+                      {selectedLibrary ? (
+                        <div className="screen-editor-item-meta">
+                          used by instances: {countSignalAssignmentsInProject(project, selectedLibrary.id, selectedElement.id, signal.key)}
+                        </div>
+                      ) : null}
+                      <div className="screen-editor-item-actions">
+                        <WorkbenchButton onClick={() => startEditSignal(signal)} disabled={savingInterface}>Edit</WorkbenchButton>
+                        <WorkbenchButton variant="danger" onClick={() => startDeleteSignal(signal)} disabled={savingInterface}>Delete</WorkbenchButton>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+
+            {interfaceDialogTab === "visualRules" ? (
+              <div className="screen-editor-library-interface__section screen-editor-library-interface__tab-panel">
+                <div className="screen-editor-item-actions">
+                  <WorkbenchButton onClick={startCreateVisualRule} disabled={savingInterface || (selectedElement.bindings?.length ?? 0) === 0}>
+                    Add Visual Rule
+                  </WorkbenchButton>
+                </div>
+                {visualRuleCards.length === 0 ? (
+                  <div className="screen-editor-item-meta">No Visual Rules yet.</div>
+                ) : (
+                  visualRuleCards.map((rule) => (
+                    <div key={rule.ruleId} className="screen-editor-visual-rule-card">
+                      <div className="screen-editor-item-title">{rule.name || "Visual Rule"}</div>
+                      <div className="screen-editor-item-meta">Signal: {rule.signalKey || "-"}</div>
+                      <div className="screen-editor-item-meta">Condition: {describeCondition(rule.condition)}</div>
+                      <div className="screen-editor-item-meta">Actions:</div>
+                      <div className="screen-editor-library-interface__rule-actions">
+                        {rule.actions.map((action, index) => (
+                          <div key={`${rule.ruleId}-act-${index}`} className="screen-editor-item-meta">- {describeAction(action)}</div>
+                        ))}
+                      </div>
+                      {!rule.editable ? (
+                        <div className="screen-editor-item-meta" style={{ color: "#f5d283" }}>
+                          Complex rule: {rule.reason}
+                        </div>
+                      ) : null}
+                      <div className="screen-editor-item-actions">
+                        <WorkbenchButton onClick={() => startEditVisualRule(rule.ruleId)} disabled={!rule.editable || savingInterface}>Edit</WorkbenchButton>
+                        <WorkbenchButton variant="danger" onClick={() => startDeleteVisualRule(rule.ruleId, rule.name || "Visual Rule")} disabled={savingInterface}>Delete</WorkbenchButton>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+
+            {interfaceDialogTab === "objectIo" ? (
+              <div className="screen-editor-library-interface__section screen-editor-library-interface__tab-panel">
+                <div className="screen-editor-item-actions">
+                  <WorkbenchButton onClick={() => openObjectIoDialog()} disabled={savingInterface || flatElementObjects.length === 0}>
+                    Edit Object I/O
+                  </WorkbenchButton>
+                </div>
+                {objectIoSummaryCards.length === 0 ? (
+                  <div className="screen-editor-item-meta">No configured Object I/O fields yet.</div>
+                ) : (
+                  <div className="screen-editor-library-interface__object-io-summary">
+                    {objectIoSummaryCards.map((card) => (
+                      <div key={card.objectId} className="screen-editor-library-interface__object-io-card">
+                        <div className="screen-editor-item-title">{card.objectLabel} ({card.objectType})</div>
+                        {card.readTags.length > 0 ? <div className="screen-editor-item-meta">READ: {card.readTags.join(", ")}</div> : null}
+                        {card.writeTags.length > 0 ? <div className="screen-editor-item-meta">WRITE: {card.writeTags.join(", ")}</div> : null}
+                        {card.statusTags.length > 0 ? <div className="screen-editor-item-meta">STATUS: {card.statusTags.join(", ")}</div> : null}
+                        {card.actionTags.length > 0 ? <div className="screen-editor-item-meta">ACTION: {card.actionTags.join(", ")}</div> : null}
+                        {card.modeText ? <div className="screen-editor-item-meta">MODE: {card.modeText}</div> : null}
+                        <div className="screen-editor-item-actions">
+                          <WorkbenchButton onClick={() => openObjectIoDialog(card.objectId)} disabled={savingInterface}>Edit</WorkbenchButton>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </WorkbenchDialog>
+
+      <WorkbenchDialog
         title="EDIT OBJECT I/O"
         open={objectIoDialog.open}
         onClose={closeObjectIoDialog}
@@ -3161,6 +3362,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         minWidth={760}
         minHeight={480}
         resizable
+        bodyClassName="screen-editor-opc-browser-content screen-editor-setproperty-picker screen-editor-object-io-dialog-body"
         actions={(
           <>
             <WorkbenchButton onClick={closeObjectIoDialog}>Cancel</WorkbenchButton>
@@ -3170,22 +3372,55 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           </>
         )}
       >
-        <div className="screen-editor-library-interface__object-io-dialog">
-          <div className="screen-editor-library-interface__object-io-objects">
-            <div className="screen-editor-library-interface__section-title">INTERNAL OBJECTS</div>
-            {flatObjectIoDraftObjects.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="screen-editor-library-interface__object-io-object-button"
-                style={{ outline: objectIoDialog.selectedObjectId === item.id ? "1px solid #4e8ff0" : undefined }}
-                onClick={() => setObjectIoDialog((prev) => ({ ...prev, selectedObjectId: item.id }))}
-              >
-                <span style={{ whiteSpace: "pre-wrap" }}>{item.label}</span>
-              </button>
-            ))}
+        <div
+          className="screen-editor-library-interface__object-io-dialog screen-editor-object-io-picker"
+          style={{ ["--object-io-left-width" as string]: `${objectIoLeftPaneWidth}px` } as React.CSSProperties}
+        >
+          <div className="screen-editor-object-io-picker__left">
+            <div className="screen-editor-opc-browser-toolbar">
+              <input
+                className="workbench-input screen-editor-opc-browser-toolbar__search"
+                value={objectIoSearchQuery}
+                onChange={(event) => setObjectIoSearchQuery(event.target.value)}
+                placeholder="Search object or I/O field..."
+              />
+            </div>
+            <div className="screen-editor-opc-browser-list screen-editor-setproperty-picker__list">
+              <div className="screen-editor-setproperty-picker__tree">
+                <Tree
+                  treeData={objectIoTreeData}
+                  expandedKeys={objectIoExpandedKeys}
+                  onExpand={(keys) => {
+                    if (objectIoSearchQuery.trim()) {
+                      return;
+                    }
+                    setObjectIoExpandedObjectIds(keys.map((key) => String(key)));
+                  }}
+                  selectedKeys={objectIoDialog.selectedObjectId ? [`obj:${objectIoDialog.selectedObjectId}`] : []}
+                  onSelect={(_, info) => {
+                    const node = info.node as ObjectIoPickerTreeNode;
+                    if (node.nodeType === "object" && node.objectId) {
+                      setObjectIoDialog((prev) => ({ ...prev, selectedObjectId: node.objectId! }));
+                    }
+                  }}
+                />
+                {filteredObjectIoObjectRows.length === 0 ? (
+                  <div className="screen-editor-empty-state">Nothing found.</div>
+                ) : null}
+              </div>
+            </div>
+            <div className="screen-editor-setproperty-picker__footer">
+              <span>Objects: {filteredObjectIoObjectRows.length} / {objectIoObjectRows.length}</span>
+            </div>
           </div>
-          <div className="screen-editor-library-interface__object-io-editor">
+          <div
+            className="screen-editor-object-io-picker__splitter"
+            onPointerDown={startObjectIoPaneResize}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize columns"
+          />
+          <div className="screen-editor-library-interface__object-io-editor screen-editor-object-io-picker__right">
             {!selectedObjectIoDraftObject ? (
               <div className="screen-editor-item-meta">Select an internal object.</div>
             ) : (
@@ -3244,31 +3479,46 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                           if (control === "tag") {
                             const tagValue = String(rawValue ?? "");
                             const bindingKey = extractBindingKey(tagValue);
+                            const manualMode = !bindingKey;
+                            const selectedBindingValue = manualMode ? "__manual__" : bindingKey;
+                            const manualTagValue = manualMode ? tagValue : "";
                             const bindingOptions = buildBindingOptionsForField(field.direction, bindingKey);
                             return (
-                              <div key={key} className="screen-editor-library-interface__object-io-field-card">
+                              <div
+                                key={key}
+                                className="screen-editor-library-interface__object-io-field-card"
+                              >
                                 <label className="screen-editor-library-interface__object-io-field-row">
-                                  <span>{field.label} Binding</span>
+                                  <span>{field.label}</span>
                                   <select
                                     className="workbench-select"
-                                    value={bindingKey}
-                                    onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value ? `$binding.${event.target.value}` : "")}
+                                    value={selectedBindingValue}
+                                    onChange={(event) => {
+                                      const nextValue = event.target.value;
+                                      if (nextValue === "__manual__") {
+                                        patchObjectIoField(field.fieldPath, manualTagValue);
+                                        return;
+                                      }
+                                      patchObjectIoField(field.fieldPath, `$binding.${nextValue}`);
+                                    }}
                                   >
-                                    <option value="">Manual / raw tag</option>
+                                    <option value="__manual__">Manual tag</option>
                                     {bindingOptions.map((option) => (
                                       <option key={`${key}:binding:${option.key}`} value={option.key}>{option.label}</option>
                                     ))}
                                   </select>
                                 </label>
-                                <label className="screen-editor-library-interface__object-io-field-row">
-                                  <span>{field.label}</span>
-                                  <input
-                                    className="workbench-input"
-                                    value={tagValue}
-                                    placeholder="$binding.signalKey"
-                                    onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value)}
-                                  />
-                                </label>
+                                {manualMode ? (
+                                  <label className="screen-editor-library-interface__object-io-field-row">
+                                    <span>Manual Tag</span>
+                                    <input
+                                      className="workbench-input"
+                                      value={manualTagValue}
+                                      placeholder="Some.Real.Tag"
+                                      onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value)}
+                                    />
+                                  </label>
+                                ) : null}
                               </div>
                             );
                           }
@@ -3276,72 +3526,92 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                           if (control === "boolean") {
                             const boolValue = Boolean(rawValue);
                             return (
-                              <label key={key} className="screen-editor-library-interface__object-io-field-row">
-                                <span>{field.label}</span>
-                                <select
-                                  className="workbench-select"
-                                  value={boolValue ? "true" : "false"}
-                                  onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value === "true")}
-                                >
-                                  <option value="true">true</option>
-                                  <option value="false">false</option>
-                                </select>
-                              </label>
+                              <div
+                                key={key}
+                                className="screen-editor-library-interface__object-io-field-card"
+                              >
+                                <label className="screen-editor-library-interface__object-io-field-row">
+                                  <span>{field.label}</span>
+                                  <select
+                                    className="workbench-select"
+                                    value={boolValue ? "true" : "false"}
+                                    onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value === "true")}
+                                  >
+                                    <option value="true">true</option>
+                                    <option value="false">false</option>
+                                  </select>
+                                </label>
+                              </div>
                             );
                           }
 
                           if (control === "number") {
                             const numberValue = rawValue === undefined || rawValue === null ? "" : String(rawValue);
                             return (
-                              <label key={key} className="screen-editor-library-interface__object-io-field-row">
-                                <span>{field.label}</span>
-                                <input
-                                  className="workbench-input"
-                                  type="number"
-                                  min={field.min}
-                                  max={field.max}
-                                  step={field.step}
-                                  value={numberValue}
-                                  onChange={(event) => {
-                                    const parsed = event.target.value === "" ? undefined : Number(event.target.value);
-                                    patchObjectIoField(field.fieldPath, parsed);
-                                  }}
-                                />
-                              </label>
+                              <div
+                                key={key}
+                                className="screen-editor-library-interface__object-io-field-card"
+                              >
+                                <label className="screen-editor-library-interface__object-io-field-row">
+                                  <span>{field.label}</span>
+                                  <input
+                                    className="workbench-input"
+                                    type="number"
+                                    min={field.min}
+                                    max={field.max}
+                                    step={field.step}
+                                    value={numberValue}
+                                    onChange={(event) => {
+                                      const parsed = event.target.value === "" ? undefined : Number(event.target.value);
+                                      patchObjectIoField(field.fieldPath, parsed);
+                                    }}
+                                  />
+                                </label>
+                              </div>
                             );
                           }
 
                           if (control === "select") {
                             const selectValue = String(rawValue ?? field.options?.[0]?.value ?? "");
                             return (
-                              <label key={key} className="screen-editor-library-interface__object-io-field-row">
-                                <span>{field.label}</span>
-                                <select
-                                  className="workbench-select"
-                                  value={selectValue}
-                                  onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value)}
-                                >
-                                  {(field.options ?? []).map((option) => (
-                                    <option key={`${key}:option:${option.value}`} value={option.value}>{option.label}</option>
-                                  ))}
-                                </select>
-                              </label>
+                              <div
+                                key={key}
+                                className="screen-editor-library-interface__object-io-field-card"
+                              >
+                                <label className="screen-editor-library-interface__object-io-field-row">
+                                  <span>{field.label}</span>
+                                  <select
+                                    className="workbench-select"
+                                    value={selectValue}
+                                    onChange={(event) => patchObjectIoField(field.fieldPath, event.target.value)}
+                                  >
+                                    {(field.options ?? []).map((option) => (
+                                      <option key={`${key}:option:${option.value}`} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
                             );
                           }
 
                           const textValue = String(rawValue ?? "");
                           return (
-                            <label key={key} className="screen-editor-library-interface__object-io-field-row">
-                              <span>{field.label}</span>
-                              <input
-                                className="workbench-input"
-                                value={textValue}
-                                onChange={(event) => {
-                                  const nextValue = field.fieldPath === "action.value" ? parseScalarToken(event.target.value) : event.target.value;
-                                  patchObjectIoField(field.fieldPath, nextValue);
-                                }}
-                              />
-                            </label>
+                            <div
+                              key={key}
+                              className="screen-editor-library-interface__object-io-field-card"
+                            >
+                              <label className="screen-editor-library-interface__object-io-field-row">
+                                <span>{field.label}</span>
+                                <input
+                                  className="workbench-input"
+                                  value={textValue}
+                                  onChange={(event) => {
+                                    const nextValue = field.fieldPath === "action.value" ? parseScalarToken(event.target.value) : event.target.value;
+                                    patchObjectIoField(field.fieldPath, nextValue);
+                                  }}
+                                />
+                              </label>
+                            </div>
                           );
                         })}
                       </div>
