@@ -15,6 +15,7 @@ import type {
 import { WorkbenchButton, type WorkbenchWindowDefinition } from "../../../components/workbench";
 import { ObjectPropertyPanel } from "../../../components/object-property-panel";
 import { getAssetDisplayPath } from "../../../utils/asset-path";
+import { findLibraryOriginForObject } from "../utils/library-origin";
 import {
   ScreenEditorAssetsWindow,
   ScreenEditorDriversWindow,
@@ -432,7 +433,12 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
         defaultRect: { x: 280, y: 100, width: 420, height: 620 },
         minWidth: 320,
         minHeight: 360,
-        render: () => (
+        render: () => {
+          const libraryOrigin = params.activeObject
+            ? findLibraryOriginForObject(screen.objects, params.activeObject.id, params.libraries)
+            : null;
+
+          return (
           <div className="screen-editor-window-content screen-editor-object-properties-window">
             <div className="object-property-panel-toolbar">
               <WorkbenchButton
@@ -444,6 +450,22 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
               </WorkbenchButton>
             </div>
             <div className="screen-editor-object-properties-scroll">
+              {libraryOrigin ? (
+                <div className="screen-editor-library-origin-note">
+                  <div className="screen-editor-library-origin-note__title">
+                    {libraryOrigin.kind === "instanceRoot" ? "Library Instance" : "Library Element Child"}
+                  </div>
+                  <div>Library: {libraryOrigin.libraryName} ({libraryOrigin.libraryId})</div>
+                  <div>Element: {libraryOrigin.elementName} ({libraryOrigin.elementId})</div>
+                  {libraryOrigin.kind === "instanceChild" ? (
+                    <>
+                      <div>Parent instance: {libraryOrigin.instanceName || libraryOrigin.instanceId}</div>
+                      <div>Child object: {libraryOrigin.childName || libraryOrigin.childId} ({libraryOrigin.childType})</div>
+                      <div>Path: {libraryOrigin.childPath}</div>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
               <ObjectPropertyPanel
                 project={project}
                 screen={screen}
@@ -460,7 +482,8 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
               />
             </div>
           </div>
-        ),
+        );
+        },
       },
     ];
     },

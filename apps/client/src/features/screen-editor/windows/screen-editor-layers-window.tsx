@@ -4,6 +4,7 @@ import {
   WorkbenchSection,
 } from "../../../components/workbench";
 import { sortObjectsByZIndex } from "../../../hmi/editor/z-order";
+import { findLibraryOriginForObject } from "../utils/library-origin";
 
 type ScreenEditorLayersWindowProps = {
   screen: HmiScreen;
@@ -88,9 +89,7 @@ export function ScreenEditorLayersWindow({
               const item = row.object;
               const isSelected = selectedObjectIds.includes(item.id);
               const isActive = activeObjectId === item.id;
-              const libraryMeta = item.type === "libraryElementInstance"
-                ? resolveLibraryMeta(item, libraries)
-                : null;
+              const libraryOrigin = findLibraryOriginForObject(screen.objects, item.id, libraries);
 
               return (
                 <button
@@ -108,23 +107,28 @@ export function ScreenEditorLayersWindow({
                   <div>{item.name?.trim() || item.id}</div>
                   <div className="screen-editor-item-meta">{item.type} | z={row.zIndex} | {item.id}</div>
                   <div className="screen-editor-layer-badges">
-                    {item.type === "libraryElementInstance" ? (
+                    {libraryOrigin?.kind === "instanceRoot" ? (
                       <span
                         className={[
                           "screen-editor-layer-badge",
-                          libraryMeta?.missing ? "screen-editor-layer-badge--missing" : "screen-editor-layer-badge--library",
+                          libraryOrigin.missing ? "screen-editor-layer-badge--missing" : "screen-editor-layer-badge--library",
                         ].join(" ")}
                       >
-                        {libraryMeta?.missing ? "library missing" : "library"}
+                        {libraryOrigin.missing ? "library missing" : "LIB"}
+                      </span>
+                    ) : null}
+                    {libraryOrigin?.kind === "instanceChild" ? (
+                      <span className="screen-editor-layer-badge screen-editor-layer-badge--library-child">
+                        LIB child
                       </span>
                     ) : null}
                     {item.locked ? <span className="screen-editor-layer-badge">lock</span> : null}
                   </div>
-                  {libraryMeta ? (
+                  {libraryOrigin ? (
                     <div className="screen-editor-item-meta">
-                      Library: {libraryMeta.libraryName}
+                      Library: {libraryOrigin.libraryName}
                       <br />
-                      Element: {libraryMeta.elementName}
+                      Element: {libraryOrigin.elementName}
                     </div>
                   ) : null}
                 </button>
@@ -150,17 +154,4 @@ function flattenLayers(objects: HmiObject[], depth = 0): LayerRow[] {
     }
   }
   return rows;
-}
-
-function resolveLibraryMeta(
-  object: Extract<HmiObject, { type: "libraryElementInstance" }>,
-  libraries: ElementLibrary[],
-): { libraryName: string; elementName: string; missing: boolean } {
-  const library = libraries.find((item) => item.id === object.libraryId);
-  const element = library?.elements.find((item) => item.id === object.elementId);
-  return {
-    libraryName: library?.name ?? object.libraryId,
-    elementName: element?.name ?? object.elementId,
-    missing: !library || !element,
-  };
 }
