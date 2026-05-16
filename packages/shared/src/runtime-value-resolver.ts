@@ -399,6 +399,14 @@ function parseIdentifierValue(parser: ExpressionParser, identifier: string): unk
     return toNumber(args[0]) < toNumber(args[1]);
   }
 
+  if (identifier === "gte") {
+    return toNumber(args[0]) >= toNumber(args[1]);
+  }
+
+  if (identifier === "lte") {
+    return toNumber(args[0]) <= toNumber(args[1]);
+  }
+
   if (identifier === "between") {
     const value = toNumber(args[0]);
     const min = toNumber(args[1]);

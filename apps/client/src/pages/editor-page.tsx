@@ -567,6 +567,7 @@ export function EditorPage() {
       void message.warning(saveSelectionMacroWarningText);
     }
     const normalizedObjects = normalizeObjects(selectedObjects);
+    const templateObjects = sanitizeObjectsForLibraryTemplate(normalizedObjects);
     const bounds = computeBounds(selectedObjects);
     const now = new Date().toISOString();
     const element: LibraryElement = {
@@ -577,7 +578,7 @@ export function EditorPage() {
       category: saveElementCategory.trim(),
       width: bounds.width,
       height: bounds.height,
-      objects: normalizedObjects,
+      objects: templateObjects,
       bindings: [],
       parameters: [],
       stateRules: [],
@@ -679,8 +680,9 @@ export function EditorPage() {
     }) => {
       try {
         const normalizedObjects = normalizeObjects(payload.flattenedObjects);
+        const templateObjects = sanitizeObjectsForLibraryTemplate(normalizedObjects);
         const bounds = computeBounds(payload.flattenedObjects);
-        const copiedObjects = await copySelectionAssetsToLibrary(normalizedObjects, assets, payload.libraryId, libraries);
+        const copiedObjects = await copySelectionAssetsToLibrary(templateObjects, assets, payload.libraryId, libraries);
         await api.updateLibraryElement(payload.libraryId, payload.elementId, {
           width: bounds.width,
           height: bounds.height,
@@ -725,10 +727,11 @@ export function EditorPage() {
       }
 
       const normalizedObjects = normalizeObjects(selectedObjects);
+      const templateObjects = sanitizeObjectsForLibraryTemplate(normalizedObjects);
       const bounds = computeBounds(selectedObjects);
       const now = new Date().toISOString();
       try {
-        const copiedObjects = await copySelectionAssetsToLibrary(normalizedObjects, assets, libraryId, libraries);
+        const copiedObjects = await copySelectionAssetsToLibrary(templateObjects, assets, libraryId, libraries);
         const copyElement: LibraryElement = {
           ...element,
           id: id("element"),
@@ -1635,11 +1638,63 @@ function computeBounds(objects: HmiObject[]): { minX: number; minY: number; widt
 function normalizeObjects(objects: HmiObject[]): HmiObject[] {
   const bounds = computeBounds(objects);
   return objects.map((obj) => ({
-    ...obj,
+    ...structuredClone(obj),
     id: id(obj.type.replace(/[^a-z0-9]/gi, "_")),
     x: obj.x - bounds.minX,
     y: obj.y - bounds.minY,
   }));
+}
+
+function sanitizeObjectsForLibraryTemplate(objects: HmiObject[]): HmiObject[] {
+  return objects.map((object) => sanitizeObjectForLibraryTemplate(object));
+}
+
+function sanitizeObjectForLibraryTemplate(object: HmiObject): HmiObject {
+  const clone = structuredClone(object) as HmiObject;
+  clearTagBindingsInObject(clone);
+  return clone;
+}
+
+function clearTagBindingsInObject(object: HmiObject): void {
+  const record = object as Record<string, unknown>;
+  record.tagIndexing = undefined;
+  record.tagIndexingByField = undefined;
+
+  if (typeof record.tag === "string") {
+    record.tag = "";
+  }
+
+  for (const key of Object.keys(record)) {
+    if (!key.endsWith("Tag")) {
+      continue;
+    }
+    if (typeof record[key] === "string") {
+      record[key] = "";
+    }
+  }
+
+  if (object.type === "valueSelect" && object.target.type === "tag") {
+    object.target = {
+      ...object.target,
+      tag: "",
+    };
+  }
+
+  if ("action" in object && object.action) {
+    const action = object.action as RuntimeAction;
+    if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+      action.tag = "";
+    }
+    if ((action.type === "writeConst" || action.type === "writeNumberPrompt") && action.target === "tag") {
+      action.name = "";
+    }
+  }
+
+  if (object.type === "group") {
+    for (const child of object.objects) {
+      clearTagBindingsInObject(child);
+    }
+  }
 }
 
 function slugify(input: string): string {

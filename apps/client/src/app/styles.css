@@ -2511,10 +2511,14 @@ body {
   max-width: 520px;
 }
 
+.screen-editor-library-interface__logic-field {
+  max-width: 280px;
+}
+
 .screen-editor-library-interface__inline-actions {
   display: flex;
   gap: 10px;
-  padding-top: 2px;
+  padding-top: 6px;
 }
 
 .screen-editor-library-interface__checkbox {
@@ -2543,17 +2547,15 @@ body {
 
 .screen-editor-library-interface__rule-actions-editor {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .screen-editor-library-interface__rule-action-row {
   display: grid;
-  grid-template-columns: minmax(200px, 230px) 122px minmax(180px, 220px) 86px;
+  grid-template-columns: minmax(300px, 1fr) minmax(180px, 260px) 32px;
   gap: 10px;
   align-items: center;
-  justify-content: start;
-  width: fit-content;
-  max-width: 100%;
+  width: 100%;
 }
 
 .screen-editor-library-interface__action-target {
@@ -2574,8 +2576,22 @@ body {
   min-width: 0;
 }
 
+.screen-editor-library-interface__action-target-button {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  color: inherit;
+}
+
+.screen-editor-library-interface__action-target-button:hover {
+  border-color: #4a4a4a;
+  background: #202020;
+}
+
 .screen-editor-library-interface__action-value {
   min-width: 0;
+  width: 100%;
 }
 
 .screen-editor-library-interface__action-value .workbench-input,
@@ -2586,23 +2602,15 @@ body {
 .screen-editor-library-interface__condition-list {
   display: grid;
   gap: 8px;
+  width: 100%;
 }
 
 .screen-editor-library-interface__condition-row {
   display: grid;
+  grid-template-columns: minmax(240px, 1fr) 150px 130px 32px;
   gap: 10px;
   align-items: center;
-  justify-content: start;
-  width: fit-content;
-  max-width: 100%;
-}
-
-.screen-editor-library-interface__condition-row--single {
-  grid-template-columns: minmax(200px, 230px) 150px 110px 86px;
-}
-
-.screen-editor-library-interface__condition-row--between {
-  grid-template-columns: minmax(200px, 230px) 150px 110px 110px 86px;
+  width: 100%;
 }
 
 .screen-editor-library-interface__condition-row .workbench-select,
@@ -2610,11 +2618,24 @@ body {
   width: 100%;
 }
 
-.screen-editor-library-interface__condition-joiner {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: flex-start;
-  padding-left: 0;
+.screen-editor-library-interface__condition-value-cell {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+}
+
+.screen-editor-library-interface__row-delete {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #5e2a2a;
+  background: #2e1a1a;
+  color: #ff9c9c;
+  border-radius: 3px;
+}
+
+.screen-editor-library-interface__row-delete:hover {
+  background: #452020;
+  color: #ffd0d0;
 }
 
 .screen-editor-library-interface__color-swatch {
@@ -2665,17 +2686,11 @@ body {
   .screen-editor-library-interface__rule-action-row {
     grid-template-columns: 1fr;
     gap: 6px;
-    width: 100%;
   }
 
   .screen-editor-library-interface__condition-row {
     grid-template-columns: 1fr;
     gap: 6px;
-    width: 100%;
-  }
-
-  .screen-editor-library-interface__condition-joiner {
-    justify-content: flex-start;
   }
 }
 

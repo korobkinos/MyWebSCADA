@@ -13,7 +13,7 @@ import type {
   ScadaProject,
 } from "@web-scada/shared";
 import { api } from "../../../services/api";
-import { WorkbenchButton, WorkbenchSection } from "../../../components/workbench";
+import { WorkbenchButton, WorkbenchIconButton, WorkbenchSection } from "../../../components/workbench";
 
 type ScreenEditorLibrariesWindowProps = {
   libraries: ElementLibrary[];
@@ -37,7 +37,10 @@ type ScreenEditorLibrariesWindowProps = {
 };
 
 type TabId = "elements" | "assets" | "macros" | "metadata" | "interface";
-type VisualRuleClauseConditionType = Exclude<ElementStateCase["condition"]["type"], "true" | "false">;
+type VisualRuleClauseConditionType =
+  | Exclude<ElementStateCase["condition"]["type"], "true" | "false">
+  | "greaterOrEqual"
+  | "lessOrEqual";
 type VisualRuleLogicOperator = "AND" | "OR" | "XOR";
 type VisualRuleValueKind = "string" | "number" | "boolean" | "color" | "asset";
 type ApiErrorWithDetails = Error & { status?: number; details?: unknown };
@@ -271,18 +274,42 @@ function parseScalarToken(rawValue: string): string | number | boolean {
   return trimmed;
 }
 
-function createDefaultVisualRuleClause(signalKey: string): VisualRuleConditionClauseDraft {
+function isBoolSignalDataType(dataType: ElementBindingDefinition["dataType"] | undefined): boolean {
+  return dataType === "BOOL";
+}
+
+function isBoolClauseCondition(condition: VisualRuleClauseConditionType): boolean {
+  return condition === "equals" || condition === "notEquals";
+}
+
+function normalizeClauseBySignalDataType(
+  clause: VisualRuleConditionClauseDraft,
+  dataType: ElementBindingDefinition["dataType"] | undefined,
+): VisualRuleConditionClauseDraft {
+  if (!isBoolSignalDataType(dataType)) {
+    return clause;
+  }
+  return {
+    ...clause,
+    condition: isBoolClauseCondition(clause.condition) ? clause.condition : "equals",
+    value: clause.value === "false" ? "false" : "true",
+    value2: "",
+  };
+}
+
+function createDefaultVisualRuleClause(signalKey: string, dataType?: ElementBindingDefinition["dataType"]): VisualRuleConditionClauseDraft {
+  const isBool = dataType === "BOOL";
   return {
     id: createId("cond"),
     signalKey,
     condition: "equals",
-    value: "0",
+    value: isBool ? "true" : "0",
     value2: "",
   };
 }
 
 function conditionNeedsNumericValue(condition: VisualRuleClauseConditionType): boolean {
-  return condition === "greaterThan" || condition === "lessThan" || condition === "between";
+  return condition === "greaterThan" || condition === "lessThan" || condition === "greaterOrEqual" || condition === "lessOrEqual" || condition === "between";
 }
 
 function conditionNeedsSecondValue(condition: VisualRuleClauseConditionType): boolean {
@@ -315,6 +342,12 @@ function buildConditionClauseExpression(clause: VisualRuleConditionClauseDraft):
   }
   if (clause.condition === "lessThan") {
     return `lt(num(tag(${JSON.stringify(signalRef)})), ${Number(clause.value)})`;
+  }
+  if (clause.condition === "greaterOrEqual") {
+    return `gte(num(tag(${JSON.stringify(signalRef)})), ${Number(clause.value)})`;
+  }
+  if (clause.condition === "lessOrEqual") {
+    return `lte(num(tag(${JSON.stringify(signalRef)})), ${Number(clause.value)})`;
   }
   return `between(num(tag(${JSON.stringify(signalRef)})), ${Number(clause.value)}, ${Number(clause.value2)})`;
 }
@@ -471,6 +504,19 @@ function parseGeneratedConditionClause(source: string): VisualRuleConditionClaus
       id: createId("cond"),
       signalKey,
       condition: call.name === "gt" ? "greaterThan" : "lessThan",
+      value: parseExpressionLiteralToken(call.args[1] ?? ""),
+      value2: "",
+    };
+  }
+  if (call.name === "gte" || call.name === "lte") {
+    const signalKey = parseSignalKeyFromTagArg(call.args[0] ?? "", true);
+    if (!signalKey) {
+      return null;
+    }
+    return {
+      id: createId("cond"),
+      signalKey,
+      condition: call.name === "gte" ? "greaterOrEqual" : "lessOrEqual",
       value: parseExpressionLiteralToken(call.args[1] ?? ""),
       value2: "",
     };
@@ -1221,6 +1267,10 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     () => selectedLibrary?.elements.find((item) => item.id === selectedElementId) ?? null,
     [selectedElementId, selectedLibrary],
   );
+  const selectedElementBindingsByKey = useMemo(
+    () => new Map((selectedElement?.bindings ?? []).map((binding) => [binding.key, binding])),
+    [selectedElement],
+  );
 
   const flatElementObjects = useMemo(
     () => flattenElementObjects(selectedElement?.objects ?? []),
@@ -1923,7 +1973,8 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     if (!selectedElement) {
       return;
     }
-    const signalKey = selectedElement.bindings?.[0]?.key ?? "";
+    const firstBinding = selectedElement.bindings?.[0];
+    const signalKey = firstBinding?.key ?? "";
     const defaultObject = flatElementObjects[0]?.id ?? "";
     const defaultOptions = defaultObject ? (propertyOptionsByObjectId.get(defaultObject) ?? []) : [];
     setVisualRuleDialog({
@@ -1931,7 +1982,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       mode: "create",
       name: `Visual Rule ${(selectedElement.stateRules?.length ?? 0) + 1}`,
       logic: "AND",
-      clauses: signalKey ? [createDefaultVisualRuleClause(signalKey)] : [],
+      clauses: signalKey ? [createDefaultVisualRuleClause(signalKey, firstBinding?.dataType)] : [],
       actions: defaultObject
         ? [createDefaultVisualRuleAction(defaultObject, defaultOptions)]
         : [],
@@ -1950,7 +2001,11 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       editingRuleId: card.ruleId,
       name: card.name || "Visual Rule",
       logic: card.logic ?? "AND",
-      clauses: (card.clauses ?? []).map((item) => ({ ...item, id: createId("cond") })),
+      clauses: (card.clauses ?? []).map((item) =>
+        normalizeClauseBySignalDataType(
+          { ...item, id: createId("cond") },
+          selectedElementBindingsByKey.get(item.signalKey)?.dataType,
+        )),
       actions: card.actions.map((action) => toVisualActionDraft(action)),
     });
   };
@@ -1974,6 +2029,18 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     }
     if (visualRuleDialog.clauses.some((clause) => !knownSignals.has(clause.signalKey))) {
       return "One or more selected Signals no longer exist.";
+    }
+    if (visualRuleDialog.clauses.some((clause) => {
+      const dataType = selectedElementBindingsByKey.get(clause.signalKey)?.dataType;
+      return isBoolSignalDataType(dataType) && !isBoolClauseCondition(clause.condition);
+    })) {
+      return "BOOL signals support only == or != conditions.";
+    }
+    if (visualRuleDialog.clauses.some((clause) => {
+      const dataType = selectedElementBindingsByKey.get(clause.signalKey)?.dataType;
+      return isBoolSignalDataType(dataType) && clause.value !== "true" && clause.value !== "false";
+    })) {
+      return "BOOL condition value must be true or false.";
     }
     if (visualRuleDialog.clauses.some((clause) => !clause.value.trim())) {
       return "Condition value is required.";
@@ -2017,18 +2084,20 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       return;
     }
 
-    const source = visualRuleDialog.clauses.length === 1
-      ? {
-          type: "tag" as const,
-          value: `$binding.${visualRuleDialog.clauses[0]!.signalKey}`,
-        }
-      : {
-          type: "expression" as const,
-          value: buildConditionsExpression(visualRuleDialog.clauses, visualRuleDialog.logic),
-        };
     const firstClause = visualRuleDialog.clauses[0]!;
     const nextRuleName = visualRuleDialog.name.trim() || "Visual Rule";
-    const condition: ElementStateCase["condition"] = visualRuleDialog.clauses.length === 1
+    const singleClauseNeedsExpression = firstClause.condition === "greaterOrEqual" || firstClause.condition === "lessOrEqual";
+    const useExpressionSource = visualRuleDialog.clauses.length > 1 || singleClauseNeedsExpression;
+    const source = useExpressionSource
+      ? {
+          type: "expression" as const,
+          value: buildConditionsExpression(visualRuleDialog.clauses, visualRuleDialog.logic),
+        }
+      : {
+          type: "tag" as const,
+          value: `$binding.${firstClause.signalKey}`,
+        };
+    const condition: ElementStateCase["condition"] = !useExpressionSource
       ? (() => {
           if (firstClause.condition === "equals" || firstClause.condition === "notEquals") {
             return { type: firstClause.condition, value: parseScalarToken(firstClause.value) };
@@ -2680,7 +2749,11 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         title={visualRuleDialog.mode === "create" ? "Add Visual Rule" : "Edit Visual Rule"}
         open={visualRuleDialog.open}
         onClose={() => setVisualRuleDialog((prev) => ({ ...prev, open: false }))}
-        width={760}
+        width={900}
+        height={620}
+        minWidth={760}
+        minHeight={480}
+        resizable
         actions={(
           <>
             <WorkbenchButton onClick={() => setVisualRuleDialog((prev) => ({ ...prev, open: false }))}>Cancel</WorkbenchButton>
@@ -2704,20 +2777,43 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           </label>
           <div className="screen-editor-library-interface__section-title">Condition</div>
           <div className="screen-editor-item-meta">Maximum conditions: {MAX_VISUAL_RULE_CONDITIONS}</div>
+          <label className="screen-editor-library-interface__logic-field">
+            <span>Combine conditions with</span>
+            <select
+              className="workbench-select"
+              value={visualRuleDialog.logic}
+              onChange={(event) => setVisualRuleDialog((prev) => ({
+                ...prev,
+                logic: event.target.value as VisualRuleLogicOperator,
+                validationError: undefined,
+              }))}
+            >
+              <option value="AND">AND</option>
+              <option value="OR">OR</option>
+              <option value="XOR">XOR</option>
+            </select>
+          </label>
           <div className="screen-editor-library-interface__condition-list">
-            {visualRuleDialog.clauses.map((clause, index) => (
-              <div
-                key={clause.id}
-                className={`screen-editor-library-interface__condition-row ${conditionNeedsSecondValue(clause.condition)
-                  ? "screen-editor-library-interface__condition-row--between"
-                  : "screen-editor-library-interface__condition-row--single"}`}
-              >
+            {visualRuleDialog.clauses.map((clause) => (
+              <div key={clause.id} className="screen-editor-library-interface__condition-row">
+                {(() => {
+                  const selectedBinding = selectedElementBindingsByKey.get(clause.signalKey);
+                  const boolSignal = isBoolSignalDataType(selectedBinding?.dataType);
+                  return (
+                    <>
                 <select
                   className="workbench-select"
                   value={clause.signalKey}
                   onChange={(event) => setVisualRuleDialog((prev) => ({
                     ...prev,
-                    clauses: prev.clauses.map((item) => (item.id === clause.id ? { ...item, signalKey: event.target.value } : item)),
+                    clauses: prev.clauses.map((item) => {
+                      if (item.id !== clause.id) {
+                        return item;
+                      }
+                      const nextSignalKey = event.target.value;
+                      const nextBinding = selectedElementBindingsByKey.get(nextSignalKey);
+                      return normalizeClauseBySignalDataType({ ...item, signalKey: nextSignalKey }, nextBinding?.dataType);
+                    }),
                     validationError: undefined,
                   }))}
                 >
@@ -2743,64 +2839,73 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                     validationError: undefined,
                   }))}
                 >
-                  <option value="equals">equals</option>
-                  <option value="notEquals">notEquals</option>
-                  <option value="greaterThan">greaterThan</option>
-                  <option value="lessThan">lessThan</option>
-                  <option value="between">between</option>
+                  <option value="equals">==</option>
+                  <option value="notEquals">!=</option>
+                  {!boolSignal ? <option value="greaterThan">&gt;</option> : null}
+                  {!boolSignal ? <option value="lessThan">&lt;</option> : null}
+                  {!boolSignal ? <option value="greaterOrEqual">&gt;=</option> : null}
+                  {!boolSignal ? <option value="lessOrEqual">&lt;=</option> : null}
+                  {!boolSignal ? <option value="between">between</option> : null}
                 </select>
-                <input
-                  className="workbench-input"
-                  value={clause.value}
-                  type={conditionNeedsNumericValue(clause.condition) ? "number" : "text"}
-                  placeholder="Value"
-                  onChange={(event) => setVisualRuleDialog((prev) => ({
-                    ...prev,
-                    clauses: prev.clauses.map((item) => (item.id === clause.id ? { ...item, value: event.target.value } : item)),
-                    validationError: undefined,
-                  }))}
-                />
-                {conditionNeedsSecondValue(clause.condition) ? (
-                  <input
-                    className="workbench-input"
-                    value={clause.value2}
-                    type="number"
-                    placeholder="Value 2"
-                    onChange={(event) => setVisualRuleDialog((prev) => ({
-                      ...prev,
-                      clauses: prev.clauses.map((item) => (item.id === clause.id ? { ...item, value2: event.target.value } : item)),
-                      validationError: undefined,
-                    }))}
-                  />
-                ) : null}
-                <WorkbenchButton
-                  variant="danger"
+                <div className="screen-editor-library-interface__condition-value-cell">
+                  {boolSignal ? (
+                    <select
+                      className="workbench-select"
+                      value={clause.value === "false" ? "false" : "true"}
+                      onChange={(event) => setVisualRuleDialog((prev) => ({
+                        ...prev,
+                        clauses: prev.clauses.map((item) => (
+                          item.id === clause.id
+                            ? { ...item, value: event.target.value, value2: "" }
+                            : item
+                        )),
+                        validationError: undefined,
+                      }))}
+                    >
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  ) : (
+                    <input
+                      className="workbench-input"
+                      value={clause.value}
+                      type={conditionNeedsNumericValue(clause.condition) ? "number" : "text"}
+                      placeholder={clause.condition === "between" ? "Min" : "Value"}
+                      onChange={(event) => setVisualRuleDialog((prev) => ({
+                        ...prev,
+                        clauses: prev.clauses.map((item) => (item.id === clause.id ? { ...item, value: event.target.value } : item)),
+                        validationError: undefined,
+                      }))}
+                    />
+                  )}
+                  {!boolSignal && conditionNeedsSecondValue(clause.condition) ? (
+                    <input
+                      className="workbench-input"
+                      value={clause.value2}
+                      type="number"
+                      placeholder="Max"
+                      onChange={(event) => setVisualRuleDialog((prev) => ({
+                        ...prev,
+                        clauses: prev.clauses.map((item) => (item.id === clause.id ? { ...item, value2: event.target.value } : item)),
+                        validationError: undefined,
+                      }))}
+                    />
+                  ) : null}
+                </div>
+                <WorkbenchIconButton
+                  className="screen-editor-library-interface__row-delete"
+                  icon={"\u00d7"}
+                  title="Delete condition"
                   disabled={visualRuleDialog.clauses.length <= 1}
                   onClick={() => setVisualRuleDialog((prev) => ({
                     ...prev,
                     clauses: prev.clauses.filter((item) => item.id !== clause.id),
                     validationError: undefined,
                   }))}
-                >
-                  Delete
-                </WorkbenchButton>
-                {index < visualRuleDialog.clauses.length - 1 ? (
-                  <div className="screen-editor-library-interface__condition-joiner">
-                    <select
-                      className="workbench-select"
-                      value={visualRuleDialog.logic}
-                      onChange={(event) => setVisualRuleDialog((prev) => ({
-                        ...prev,
-                        logic: event.target.value as VisualRuleLogicOperator,
-                        validationError: undefined,
-                      }))}
-                    >
-                      <option value="AND">AND</option>
-                      <option value="OR">OR</option>
-                      <option value="XOR">XOR</option>
-                    </select>
-                  </div>
-                ) : null}
+                />
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
@@ -2814,7 +2919,11 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                   clauses:
                     prev.clauses.length >= MAX_VISUAL_RULE_CONDITIONS
                       ? prev.clauses
-                      : [...prev.clauses, createDefaultVisualRuleClause(prev.clauses[0]?.signalKey || fallbackSignal)],
+                      : (() => {
+                          const nextSignalKey = prev.clauses[0]?.signalKey || fallbackSignal;
+                          const nextBinding = selectedElementBindingsByKey.get(nextSignalKey);
+                          return [...prev.clauses, createDefaultVisualRuleClause(nextSignalKey, nextBinding?.dataType)];
+                        })(),
                   validationError: undefined,
                 }));
               }}
@@ -2828,17 +2937,22 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         <div className="screen-editor-library-interface__rule-actions-editor">
           {visualRuleDialog.actions.map((action, index) => (
             <div key={action.id} className="screen-editor-library-interface__rule-action-row">
-              <div className="screen-editor-library-interface__action-target">
-                <div className="screen-editor-item-meta">
-                  {action.objectId ? (flatElementObjectMap.get(action.objectId)?.name?.trim() || action.objectId) : "Object not selected"}
-                </div>
-                <div className="screen-editor-item-meta">
-                  {action.property || "Property not selected"}
-                </div>
-              </div>
-              <WorkbenchButton onClick={() => openPropertyPickerForAction(index)}>
-                Set Property...
-              </WorkbenchButton>
+              <button
+                type="button"
+                className="screen-editor-library-interface__action-target screen-editor-library-interface__action-target-button"
+                onClick={() => openPropertyPickerForAction(index)}
+                title="Select object property"
+              >
+                <span className="screen-editor-item-meta">
+                  {(() => {
+                    const objectLabel = action.objectId
+                      ? (flatElementObjectMap.get(action.objectId)?.name?.trim() || action.objectId)
+                      : "Object";
+                    const propertyLabel = action.property || "property";
+                    return `${objectLabel}.${propertyLabel}`;
+                  })()}
+                </span>
+              </button>
               <div className="screen-editor-library-interface__action-value">
                 {action.kind === "boolean" ? (
                   <select
@@ -2902,17 +3016,17 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 ) : null}
               </div>
 
-              <WorkbenchButton
-                variant="danger"
+              <WorkbenchIconButton
+                className="screen-editor-library-interface__row-delete"
+                icon={"\u00d7"}
+                title="Delete action"
                 onClick={() => {
                   setVisualRuleDialog((prev) => ({
                     ...prev,
                     actions: prev.actions.filter((_, actionIndex) => actionIndex !== index),
                   }));
                 }}
-              >
-                Delete
-              </WorkbenchButton>
+              />
             </div>
           ))}
         </div>
@@ -3096,5 +3210,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     </div>
   );
 }
+
 
 

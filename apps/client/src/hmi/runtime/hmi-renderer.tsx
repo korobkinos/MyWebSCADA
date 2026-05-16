@@ -368,6 +368,7 @@ type HmiRendererProps = {
   onHideOverlay?: () => void;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   shadowDisabled?: boolean;
+  nodeIdPrefix?: string;
 };
 
 type BaseNodeProps = {
@@ -396,6 +397,7 @@ type BaseNodeProps = {
   onHideOverlay?: () => void;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   shadowDisabled: boolean;
+  nodeIdPrefix?: string;
 };
 
 export function HmiRenderer({
@@ -424,6 +426,7 @@ export function HmiRenderer({
   onHideOverlay,
   onRequestNumericInput,
   shadowDisabled = false,
+  nodeIdPrefix,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
@@ -475,6 +478,7 @@ export function HmiRenderer({
           onHideOverlay={onHideOverlay}
           onRequestNumericInput={onRequestNumericInput}
           shadowDisabled={shadowDisabled}
+          nodeIdPrefix={nodeIdPrefix}
         />
       ))}
     </>
@@ -496,6 +500,7 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   if (prev.renderContext.parameters !== next.renderContext.parameters) return false;
   if (prev.renderContext.isAuthenticated !== next.renderContext.isAuthenticated) return false;
   if (prev.renderContext.userRoleLevel !== next.renderContext.userRoleLevel) return false;
+  if (prev.nodeIdPrefix !== next.nodeIdPrefix) return false;
   const prevRoles = prev.renderContext.userRoles?.join("|") ?? "";
   const nextRoles = next.renderContext.userRoles?.join("|") ?? "";
   if (prevRoles !== nextRoles) return false;
@@ -637,6 +642,7 @@ function ObjectNode({
   onHideOverlay,
   onRequestNumericInput,
   shadowDisabled,
+  nodeIdPrefix,
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
@@ -728,7 +734,7 @@ function ObjectNode({
   };
 
   const commonGroupProps = {
-    id: `hmi-${resolvedObject.id}`,
+    id: `hmi-${nodeIdPrefix ?? ""}${resolvedObject.id}`,
     x: resolvedObject.x,
     y: resolvedObject.y,
     rotation: resolvedObject.rotation ?? 0,
@@ -865,6 +871,7 @@ function ObjectNode({
         onShowOverlay={onShowOverlay}
         onHideOverlay={onHideOverlay}
         shadowDisabled={effectiveShadowDisabled}
+        nodeIdPrefix={nodeIdPrefix}
       />
     );
   }
@@ -1404,6 +1411,7 @@ function ObjectNode({
         commonGroupProps={commonGroupProps}
         runtimeDisabled={runtimeDisabled}
         shadowDisabled={effectiveShadowDisabled}
+        nodeIdPrefix={nodeIdPrefix}
       />
     );
   }
@@ -1475,6 +1483,7 @@ function ObjectNode({
         scopedAssets={scopedAssets}
         inheritedDisabled={runtimeDisabled}
         shadowDisabled={effectiveShadowDisabled}
+        nodeIdPrefix={nodeIdPrefix}
       />
     );
   }
@@ -2795,6 +2804,7 @@ function GroupNode({
   onShowOverlay,
   onHideOverlay,
   shadowDisabled,
+  nodeIdPrefix,
 }: {
   object: GroupObject;
   project: ScadaProject;
@@ -2821,6 +2831,7 @@ function GroupNode({
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
   shadowDisabled: boolean;
+  nodeIdPrefix?: string;
 }) {
   const scopedContext = useMemo(
     () => ({
@@ -2875,6 +2886,7 @@ function GroupNode({
         onShowOverlay={onShowOverlay}
         onHideOverlay={onHideOverlay}
         shadowDisabled={shadowDisabled}
+        nodeIdPrefix={`${nodeIdPrefix ?? ""}group-${object.id}-`}
       />
       {interactive ? <SelectionOutline object={object} selected={selected || showObjectFrames} /> : null}
     </Group>
@@ -2900,6 +2912,7 @@ function FrameNode({
   scopedAssets,
   inheritedDisabled,
   shadowDisabled,
+  nodeIdPrefix,
 }: {
   object: FrameObject;
   selected: boolean;
@@ -2919,6 +2932,7 @@ function FrameNode({
   scopedAssets?: Record<string, Asset>;
   inheritedDisabled: boolean;
   shadowDisabled: boolean;
+  nodeIdPrefix?: string;
 }) {
   const screen = project.screens.find((item) => item.id === object.screenId);
   const hasCycle = frameStack.includes(object.screenId);
@@ -2974,6 +2988,7 @@ function FrameNode({
           onAction={onAction}
           scopedAssets={scopedAssets}
           shadowDisabled={shadowDisabled}
+          nodeIdPrefix={`${nodeIdPrefix ?? ""}frame-${object.id}-`}
         />
       </Group>
       <SelectionOutline object={object} selected={selected} />
@@ -3001,6 +3016,7 @@ function LibraryInstanceNode({
   commonGroupProps,
   runtimeDisabled,
   shadowDisabled,
+  nodeIdPrefix,
 }: {
   object: LibraryElementInstanceObject;
   selected: boolean;
@@ -3021,6 +3037,7 @@ function LibraryInstanceNode({
   commonGroupProps: Record<string, unknown>;
   runtimeDisabled: boolean;
   shadowDisabled: boolean;
+  nodeIdPrefix?: string;
 }) {
   const library = libraries.find((item) => item.id === object.libraryId);
   if (!library) {
@@ -3167,6 +3184,7 @@ function LibraryInstanceNode({
           onAction={onAction}
           scopedAssets={scopedAssets}
           shadowDisabled={shadowDisabled}
+          nodeIdPrefix={mode === "editor" ? `${nodeIdPrefix ?? ""}libinst-${object.id}-` : nodeIdPrefix}
         />
       </Group>
       {interactive ? <SelectionOutline object={object} selected={selected} /> : null}

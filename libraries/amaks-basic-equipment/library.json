@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-16T17:53:24.245Z",
+  "updatedAt": "2026-05-16T19:27:00.349Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -92,13 +92,14 @@
       "description": "",
       "category": "General",
       "width": 153.7934325235717,
-      "height": 148.81521313394046,
+      "height": 147.71367362611613,
       "objects": [
         {
-          "id": "checkbox_wqymh0",
+          "id": "checkbox_l8q0qu",
           "type": "checkbox",
+          "name": "чекбокс_пзк",
           "x": 0,
-          "y": 0,
+          "y": 98.05603190411739,
           "width": 153.79343252357168,
           "height": 49.65764172199869,
           "rotation": 0,
@@ -106,18 +107,18 @@
           "minWidth": 60,
           "minHeight": 24,
           "label": "Checkbox",
-          "tag": "Counter2",
-          "writeTag": "Counter2",
+          "tag": "",
+          "writeTag": "",
           "checkedText": "On",
           "uncheckedText": "Off",
           "checkedColor": "#0e639c",
           "uncheckedColor": "#2d2d2d"
         },
         {
-          "id": "group_k5py7g",
+          "id": "group_5607t4",
           "type": "group",
-          "x": 2.113057221747681,
-          "y": 55.56584287866883,
+          "x": 34.34766059232447,
+          "y": 0,
           "width": 85.09811133892268,
           "height": 93.24937025527166,
           "rotation": 0,
@@ -255,18 +256,17 @@
       "stateRules": [
         {
           "id": "rule_v9xogr",
-          "name": "Visual Rule",
+          "name": "закрыто",
           "source": {
-            "type": "tag",
-            "value": "$binding.open"
+            "type": "expression",
+            "value": "or(eq(tag(\"$binding.open\"), 0), eq(tag(\"$binding.open_bool\"), false))"
           },
           "cases": [
             {
-              "id": "case_ux0fs2",
+              "id": "case_ll8nwr",
               "name": "when",
               "condition": {
-                "type": "equals",
-                "value": 0
+                "type": "true"
               },
               "actions": [
                 {
@@ -281,14 +281,14 @@
         },
         {
           "id": "rule_ghrosw",
-          "name": "Visual Rule",
+          "name": "открыто",
           "source": {
             "type": "expression",
-            "value": "or(gt(num(tag(\"$binding.open\")), 0), neq(tag(\"$binding.open\"), 0))"
+            "value": "or(gt(num(tag(\"$binding.open\")), 0), eq(tag(\"$binding.open_bool\"), true))"
           },
           "cases": [
             {
-              "id": "case_m0yin6",
+              "id": "case_fsccam",
               "name": "when",
               "condition": {
                 "type": "true"
@@ -299,12 +299,6 @@
                   "objectId": "circle_yiqmmm",
                   "property": "fill",
                   "value": "#a0ac1e"
-                },
-                {
-                  "type": "setProperty",
-                  "objectId": "checkbox_wqymh0",
-                  "property": "visible",
-                  "value": true
                 }
               ]
             }
@@ -312,7 +306,7 @@
         }
       ],
       "createdAt": "2026-05-16T16:47:26.069Z",
-      "updatedAt": "2026-05-16T17:53:24.245Z"
+      "updatedAt": "2026-05-16T19:27:00.348Z"
     },
     {
       "id": "element_4lz46k",
