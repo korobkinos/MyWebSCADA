@@ -635,19 +635,13 @@ export function EditorPage() {
         return null;
       }
 
-      const { result: flattenedObjects, flattenedCount } = flattenSelfInstancesInSelection(
-        selectedForUpdate,
-        libraryId,
-        element.id,
-        libraries,
-      );
-      if (!flattenedObjects.length) {
-        appendEditorLog("error", `action=update-library-element libraryId=${libraryId} elementId=${element.id} selectedCount=0 status=ERROR error=empty-after-flatten`);
-        void message.error("Selection cannot be used for update.");
+      if (hasLibraryInstanceReference(selectedForUpdate, libraryId, element.id)) {
+        appendEditorLog("error", `action=update-library-element libraryId=${libraryId} elementId=${element.id} selectedCount=${selectedForUpdate.length} status=ERROR error=self-reference`);
+        void message.error("Selection contains this same library element instance. Remove it to avoid recursion.");
         return null;
       }
 
-      const macroIds = collectMacroReferenceIds(flattenedObjects);
+      const macroIds = collectMacroReferenceIds(selectedForUpdate);
       const usageCount = countLibraryElementInstancesInProject(state.project, libraryId, element.id);
 
       const confirmationLines = [
@@ -667,8 +661,8 @@ export function EditorPage() {
         elementId: element.id,
         elementName: element.name,
         confirmationLines,
-        flattenedCount,
-        flattenedObjects,
+        flattenedCount: 0,
+        flattenedObjects: selectedForUpdate,
         macroIds,
       };
     },
@@ -1655,6 +1649,19 @@ function slugify(input: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return clean || `element-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function hasLibraryInstanceReference(objects: HmiObject[], libraryId: string, elementId: string): boolean {
+  const scan = (items: HmiObject[]): boolean => items.some((item) => {
+    if (item.type === "libraryElementInstance" && item.libraryId === libraryId && item.elementId === elementId) {
+      return true;
+    }
+    if (item.type === "group") {
+      return scan(item.objects);
+    }
+    return false;
+  });
+  return scan(objects);
 }
 
 function countLibraryElementInstancesInProject(
