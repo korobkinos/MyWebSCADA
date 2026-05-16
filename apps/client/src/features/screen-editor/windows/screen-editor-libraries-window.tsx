@@ -86,6 +86,12 @@ type VisualRuleDeleteDialogState = {
   title: string;
 };
 
+type PropertyPickerDialogState = {
+  open: boolean;
+  actionIndex: number;
+  query: string;
+};
+
 type DeleteLibraryDialogState = {
   open: boolean;
   canForce: boolean;
@@ -105,8 +111,13 @@ type WorkbenchDialogProps = {
   open: boolean;
   onClose: () => void;
   width?: number;
+  height?: number;
+  minWidth?: number;
+  minHeight?: number;
+  resizable?: boolean;
   children: React.ReactNode;
   actions?: React.ReactNode;
+  bodyClassName?: string;
 };
 
 type FlatObjectOption = {
@@ -119,6 +130,15 @@ type VisualRulePropertyOption = {
   path: string;
   label: string;
   kind: VisualRuleValueKind;
+};
+
+type PropertySearchRow = {
+  objectId: string;
+  objectType: HmiObject["type"];
+  objectLabel: string;
+  propertyPath: string;
+  kind: VisualRuleValueKind;
+  searchText: string;
 };
 
 const DATA_TYPE_OPTIONS: Array<NonNullable<ElementBindingDefinition["dataType"]>> = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
@@ -567,17 +587,26 @@ function WorkbenchDialog({
   open,
   onClose,
   width = 520,
+  height,
+  minWidth = 320,
+  minHeight = 220,
+  resizable = false,
   children,
   actions,
+  bodyClassName,
 }: WorkbenchDialogProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const [size, setSize] = useState<{ width: number; height: number | null }>({ width, height: height ?? null });
 
   useEffect(() => {
     if (!open) {
       setPosition(null);
     }
-  }, [open]);
+    if (open) {
+      setSize({ width, height: height ?? null });
+    }
+  }, [open, width, height]);
 
   if (!open) {
     return null;
@@ -608,12 +637,61 @@ function WorkbenchDialog({
     window.addEventListener("pointerup", onUp, { once: true });
   };
 
+  const onResizePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!resizable) {
+      return;
+    }
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const startRect = dialog.getBoundingClientRect();
+    const start = { x: event.clientX, y: event.clientY };
+    const base = {
+      width: startRect.width,
+      height: startRect.height,
+    };
+    const onMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - start.x;
+      const dy = moveEvent.clientY - start.y;
+      setSize({
+        width: Math.max(minWidth, Math.round(base.width + dx)),
+        height: Math.max(minHeight, Math.round(base.height + dy)),
+      });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+  };
+
+  const dialogStyle: React.CSSProperties = position
+    ? { position: "fixed", left: position.x, top: position.y, margin: 0 }
+    : {};
+  dialogStyle.width = size.width;
+  if (size.height !== null) {
+    dialogStyle.height = size.height;
+    dialogStyle.display = "flex";
+    dialogStyle.flexDirection = "column";
+  }
+  dialogStyle.minWidth = minWidth;
+  if (height !== undefined || resizable) {
+    dialogStyle.minHeight = minHeight;
+  }
+  const bodyStyle: React.CSSProperties | undefined = size.height !== null
+    ? { flex: "1 1 auto", minHeight: 0, overflow: "hidden" }
+    : undefined;
+
   return (
     <div className="workbench-confirm-backdrop" onPointerDown={(event) => event.stopPropagation()}>
       <div
         ref={dialogRef}
         className="workbench-confirm-dialog"
-        style={position ? { position: "fixed", left: position.x, top: position.y, width, margin: 0 } : { width }}
+        style={dialogStyle}
       >
         <div className="workbench-confirm-dialog__header" onPointerDown={onHeaderPointerDown} style={{ cursor: "move", justifyContent: "space-between" }}>
           <span>{title}</span>
@@ -621,8 +699,20 @@ function WorkbenchDialog({
             x
           </button>
         </div>
-        <div className="workbench-confirm-dialog__body">{children}</div>
+        <div
+          className={bodyClassName ? `workbench-confirm-dialog__body ${bodyClassName}` : "workbench-confirm-dialog__body"}
+          style={bodyStyle}
+        >
+          {children}
+        </div>
         {actions ? <div className="workbench-confirm-dialog__actions">{actions}</div> : null}
+        {resizable ? (
+          <div
+            className="workbench-window__resize-handle"
+            onPointerDown={onResizePointerDown}
+            style={{ position: "absolute", right: 0, bottom: 0 }}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -714,6 +804,11 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     ruleId: "",
     title: "",
   });
+  const [propertyPickerDialog, setPropertyPickerDialog] = useState<PropertyPickerDialogState>({
+    open: false,
+    actionIndex: -1,
+    query: "",
+  });
   const [deleteLibraryDialog, setDeleteLibraryDialog] = useState<DeleteLibraryDialogState>({
     open: false,
     canForce: false,
@@ -771,6 +866,30 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     }
     return map;
   }, [flatElementObjectMap]);
+  const propertySearchRows = useMemo(() => {
+    const rows: PropertySearchRow[] = [];
+    for (const objectOption of flatElementObjects) {
+      const options = propertyOptionsByObjectId.get(objectOption.id) ?? [];
+      for (const option of options) {
+        rows.push({
+          objectId: objectOption.id,
+          objectType: objectOption.type,
+          objectLabel: objectOption.label,
+          propertyPath: option.path,
+          kind: option.kind,
+          searchText: `${objectOption.label} ${objectOption.type} ${objectOption.id} ${option.path}`.toLowerCase(),
+        });
+      }
+    }
+    return rows;
+  }, [flatElementObjects, propertyOptionsByObjectId]);
+  const filteredPropertySearchRows = useMemo(() => {
+    const query = propertyPickerDialog.query.trim().toLowerCase();
+    const filtered = query
+      ? propertySearchRows.filter((row) => row.searchText.includes(query))
+      : propertySearchRows;
+    return filtered.slice(0, 200);
+  }, [propertySearchRows, propertyPickerDialog.query]);
 
   const signalUsedInRulesCount = useMemo(() => {
     const map = new Map<string, number>();
@@ -1220,6 +1339,54 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     });
     setSignalDeleteDialog({ open: false, signal: null, referencedRuleCount: 0, usedByInstancesCount: 0 });
   };
+
+  const openPropertyPickerForAction = (actionIndex: number) => {
+    setPropertyPickerDialog({
+      open: true,
+      actionIndex,
+      query: "",
+    });
+  };
+
+  const applyPropertyFromPicker = (row: PropertySearchRow) => {
+    setVisualRuleDialog((prev) => {
+      if (propertyPickerDialog.actionIndex < 0 || propertyPickerDialog.actionIndex >= prev.actions.length) {
+        return prev;
+      }
+      const nextActions = [...prev.actions];
+      const current = nextActions[propertyPickerDialog.actionIndex];
+      if (!current) {
+        return prev;
+      }
+      const nextValue = current.kind === row.kind
+        ? normalizeValueForKind(row.kind, current.value)
+        : defaultValueForKind(row.kind);
+      nextActions[propertyPickerDialog.actionIndex] = {
+        ...current,
+        objectId: row.objectId,
+        property: row.propertyPath,
+        kind: row.kind,
+        value: nextValue,
+      };
+      return { ...prev, actions: nextActions, validationError: undefined };
+    });
+    setPropertyPickerDialog((prev) => ({ ...prev, open: false }));
+  };
+
+  useEffect(() => {
+    if (!propertyPickerDialog.open) {
+      return;
+    }
+    if (propertyPickerDialog.actionIndex < 0 || propertyPickerDialog.actionIndex >= visualRuleDialog.actions.length) {
+      setPropertyPickerDialog({ open: false, actionIndex: -1, query: "" });
+    }
+  }, [propertyPickerDialog, visualRuleDialog.actions.length]);
+
+  useEffect(() => {
+    if (!visualRuleDialog.open && propertyPickerDialog.open) {
+      setPropertyPickerDialog({ open: false, actionIndex: -1, query: "" });
+    }
+  }, [propertyPickerDialog.open, visualRuleDialog.open]);
 
   const startCreateVisualRule = () => {
     if (!selectedElement) {
@@ -1972,60 +2139,17 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         <div className="screen-editor-library-interface__rule-actions-editor">
           {visualRuleDialog.actions.map((action, index) => (
             <div key={action.id} className="screen-editor-library-interface__rule-action-row">
-              <select
-                className="workbench-select"
-                value={action.objectId}
-                onChange={(event) => setVisualRuleDialog((prev) => {
-                  const nextActions = [...prev.actions];
-                  const current = nextActions[index];
-                  if (!current) {
-                    return prev;
-                  }
-                  const nextObjectId = event.target.value;
-                  const nextOptions = propertyOptionsByObjectId.get(nextObjectId) ?? [];
-                  const nextDefault = createDefaultVisualRuleAction(nextObjectId, nextOptions);
-                  nextActions[index] = {
-                    ...current,
-                    objectId: nextObjectId,
-                    property: nextDefault.property,
-                    kind: nextDefault.kind,
-                    value: nextDefault.value,
-                  };
-                  return { ...prev, actions: nextActions, validationError: undefined };
-                })}
-              >
-                <option value="">Select object</option>
-                {flatElementObjects.map((objectOption) => (
-                  <option key={objectOption.id} value={objectOption.id}>{objectOption.label}</option>
-                ))}
-              </select>
-              <select
-                className="workbench-select"
-                value={action.property}
-                onChange={(event) => setVisualRuleDialog((prev) => {
-                  const nextActions = [...prev.actions];
-                  const current = nextActions[index];
-                  if (!current) {
-                    return prev;
-                  }
-                  const nextProperty = event.target.value;
-                  const nextOptions = propertyOptionsByObjectId.get(current.objectId) ?? [];
-                  const selectedOption = nextOptions.find((option) => option.path === nextProperty);
-                  const nextKind = selectedOption?.kind ?? inferVisualRuleValueKind(nextProperty, current.value);
-                  nextActions[index] = {
-                    ...current,
-                    property: nextProperty,
-                    kind: nextKind,
-                    value: normalizeValueForKind(nextKind, defaultValueForKind(nextKind)),
-                  };
-                  return { ...prev, actions: nextActions, validationError: undefined };
-                })}
-              >
-                <option value="">Select property</option>
-                {(propertyOptionsByObjectId.get(action.objectId) ?? []).map((option) => (
-                  <option key={option.path} value={option.path}>{option.label}</option>
-                ))}
-              </select>
+              <div className="screen-editor-library-interface__action-target">
+                <div className="screen-editor-item-meta">
+                  {action.objectId ? (flatElementObjectMap.get(action.objectId)?.name?.trim() || action.objectId) : "Object not selected"}
+                </div>
+                <div className="screen-editor-item-meta">
+                  {action.property || "Property not selected"}
+                </div>
+              </div>
+              <WorkbenchButton onClick={() => openPropertyPickerForAction(index)}>
+                Set Property...
+              </WorkbenchButton>
 
               {action.kind === "boolean" ? (
                 <select
@@ -2129,6 +2253,52 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           Add Action
         </WorkbenchButton>
         {visualRuleDialog.validationError ? <div className="screen-editor-library-interface__error">{visualRuleDialog.validationError}</div> : null}
+      </WorkbenchDialog>
+
+      <WorkbenchDialog
+        title="SetProperty Picker"
+        open={propertyPickerDialog.open}
+        onClose={() => setPropertyPickerDialog({ open: false, actionIndex: -1, query: "" })}
+        width={840}
+        height={560}
+        minWidth={620}
+        minHeight={360}
+        resizable
+        bodyClassName="screen-editor-setproperty-picker"
+        actions={(
+          <>
+            <WorkbenchButton onClick={() => setPropertyPickerDialog({ open: false, actionIndex: -1, query: "" })}>Close</WorkbenchButton>
+          </>
+        )}
+      >
+        <div className="screen-editor-setproperty-picker__toolbar">
+          <input
+            className="workbench-input"
+            value={propertyPickerDialog.query}
+            onChange={(event) => setPropertyPickerDialog((prev) => ({ ...prev, query: event.target.value }))}
+            placeholder="Search object, id, type, property..."
+          />
+          <div className="screen-editor-item-meta">
+            Results: {filteredPropertySearchRows.length} / {propertySearchRows.length}
+          </div>
+        </div>
+        <div className="screen-editor-setproperty-picker__list">
+          {filteredPropertySearchRows.map((row) => (
+            <button
+              key={`${row.objectId}:${row.propertyPath}`}
+              type="button"
+              className="screen-editor-setproperty-picker__row"
+              onClick={() => applyPropertyFromPicker(row)}
+            >
+              <span className="screen-editor-setproperty-picker__object">{row.objectLabel}</span>
+              <span className="screen-editor-setproperty-picker__property">{row.propertyPath}</span>
+              <span className="screen-editor-setproperty-picker__kind">{row.kind}</span>
+            </button>
+          ))}
+          {filteredPropertySearchRows.length === 0 ? (
+            <div className="screen-editor-item-meta">Nothing found.</div>
+          ) : null}
+        </div>
       </WorkbenchDialog>
 
       <WorkbenchDialog
