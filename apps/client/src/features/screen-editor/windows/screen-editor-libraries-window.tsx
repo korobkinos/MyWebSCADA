@@ -115,7 +115,6 @@ type FlatObjectOption = {
 };
 
 const DATA_TYPE_OPTIONS: Array<NonNullable<ElementBindingDefinition["dataType"]>> = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
-const KIND_OPTIONS: Array<ElementBindingDefinition["kind"]> = ["state", "tag", "writeTag", "command", "custom"];
 
 function formatOneDecimal(value: number | undefined): string {
   if (!Number.isFinite(value)) {
@@ -499,7 +498,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       kind: "state",
       dataType: "BOOL",
       required: false,
-      defaultBaseTag: "",
       overridable: true,
       description: "",
     },
@@ -521,7 +519,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       kind: "state",
       dataType: "BOOL",
       required: false,
-      defaultBaseTag: "",
       overridable: true,
       description: "",
     },
@@ -870,7 +867,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         kind: "state",
         dataType: "BOOL",
         required: false,
-        defaultBaseTag: "",
         overridable: true,
         description: "",
       },
@@ -886,7 +882,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       draft: {
         ...signal,
         description: signal.description ?? "",
-        defaultBaseTag: signal.defaultBaseTag ?? "",
         overridable: signal.overridable ?? true,
         required: signal.required ?? false,
       },
@@ -973,7 +968,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       ...signalDialog.draft,
       key: signalDialog.draft.key.trim(),
       displayName: signalDialog.draft.displayName.trim(),
-      defaultBaseTag: (signalDialog.draft.defaultBaseTag ?? "").trim(),
       description: (signalDialog.draft.description ?? "").trim(),
       id: signalDialog.draft.id || createId("binding"),
     };
@@ -1418,8 +1412,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                           <div key={signal.id} className="screen-editor-signal-card">
                             <div className="screen-editor-item-title">{signal.displayName}</div>
                             <div className="screen-editor-item-meta">key: {signal.key}</div>
-                            <div className="screen-editor-item-meta">type: {signal.dataType ?? "-"} · kind: {signal.kind}</div>
-                            <div className="screen-editor-item-meta">default: {signal.defaultBaseTag?.trim() ? signal.defaultBaseTag : "-"}</div>
+                            <div className="screen-editor-item-meta">type: {signal.dataType ?? "-"}</div>
                             <div className="screen-editor-item-meta">used in rules: {signalUsedInRulesCount.get(signal.key) ?? 0}</div>
                             {selectedLibrary ? (
                               <div className="screen-editor-item-meta">
@@ -1635,36 +1628,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
             >
               {DATA_TYPE_OPTIONS.map((type) => <option key={type} value={type}>{type}</option>)}
             </select>
-          </label>
-          <label>
-            <span>Kind</span>
-            <select
-              className="workbench-select"
-              value={signalDialog.draft.kind}
-              onChange={(event) => setSignalDialog((prev) => ({
-                ...prev,
-                draft: {
-                  ...prev.draft,
-                  kind: event.target.value as ElementBindingDefinition["kind"],
-                },
-              }))}
-            >
-              {KIND_OPTIONS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
-            </select>
-          </label>
-          <label>
-            <span>Default tag</span>
-            <input
-              className="workbench-input"
-              value={signalDialog.draft.defaultBaseTag ?? ""}
-              onChange={(event) => setSignalDialog((prev) => ({
-                ...prev,
-                draft: {
-                  ...prev.draft,
-                  defaultBaseTag: event.target.value,
-                },
-              }))}
-            />
           </label>
           <label>
             <span>Description</span>

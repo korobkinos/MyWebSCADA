@@ -2410,14 +2410,14 @@ function SpecificPropertyFields({
             <Space direction="vertical" style={{ width: "100%" }} size={8}>
               {bindingDefinitions.map((binding) => {
                 const assignment = bindingAssignments[binding.key] ?? {
-                  baseTag: binding.defaultBaseTag ?? "",
+                  baseTag: "",
                   prefixMode: { type: "none" as const },
                   indexMode: { type: "none" as const },
                 };
                 const status = getConnectedTagStatus(binding);
                 const debug = bindingDebug?.debug[binding.key];
                 const indexEnabled = assignment.indexMode?.type === "arrayIndex" || assignment.indexMode?.type === "arrayIndexBySegment";
-                const hasArrayIndexInTag = /\[-?\d+\]/.test(assignment.baseTag || binding.defaultBaseTag || "");
+                const hasArrayIndexInTag = /\[-?\d+\]/.test(assignment.baseTag || "");
 
                 return (
                   <Space key={binding.id} direction="vertical" style={{ width: "100%", border: "1px solid #303030", borderRadius: 8, padding: 8 }}>
