@@ -2536,15 +2536,16 @@ body {
 
 .screen-editor-library-interface__rule-action-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr) auto;
-  gap: 6px;
-  align-items: start;
+  grid-template-columns: minmax(220px, 250px) 118px minmax(220px, 260px) 86px;
+  gap: 8px;
+  align-items: center;
+  justify-content: start;
 }
 
 .screen-editor-library-interface__action-target {
   display: grid;
   gap: 2px;
-  min-height: 36px;
+  min-height: 38px;
   padding: 6px 8px;
   border: 1px solid #3c3c3c;
   border-radius: 4px;
@@ -2570,20 +2571,27 @@ body {
 
 .screen-editor-library-interface__condition-list {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .screen-editor-library-interface__condition-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(130px, 150px) minmax(90px, 1fr) minmax(90px, 1fr) auto;
-  gap: 6px;
+  grid-template-columns: minmax(220px, 250px) 150px 110px 110px 86px;
+  gap: 8px;
   align-items: center;
+  justify-content: start;
+}
+
+.screen-editor-library-interface__condition-row .workbench-select,
+.screen-editor-library-interface__condition-row .workbench-input {
+  width: 100%;
 }
 
 .screen-editor-library-interface__condition-joiner {
   grid-column: 1 / -1;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-left: 0;
 }
 
 .screen-editor-library-interface__color-swatch {
@@ -2633,10 +2641,16 @@ body {
 @media (max-width: 960px) {
   .screen-editor-library-interface__rule-action-row {
     grid-template-columns: 1fr;
+    gap: 6px;
   }
 
   .screen-editor-library-interface__condition-row {
     grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .screen-editor-library-interface__condition-joiner {
+    justify-content: flex-start;
   }
 }
 

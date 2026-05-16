@@ -41,6 +41,7 @@ type VisualRuleClauseConditionType = Exclude<ElementStateCase["condition"]["type
 type VisualRuleLogicOperator = "AND" | "OR" | "XOR";
 type VisualRuleValueKind = "string" | "number" | "boolean" | "color" | "asset";
 type ApiErrorWithDetails = Error & { status?: number; details?: unknown };
+const MAX_VISUAL_RULE_CONDITIONS = 8;
 
 type SignalDialogState = {
   open: boolean;
@@ -84,6 +85,7 @@ type VisualRuleDialogState = {
   open: boolean;
   mode: "create" | "edit";
   editingRuleId?: string;
+  name: string;
   logic: VisualRuleLogicOperator;
   clauses: VisualRuleConditionClauseDraft[];
   actions: VisualRuleActionDraft[];
@@ -1147,6 +1149,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
   const [visualRuleDialog, setVisualRuleDialog] = useState<VisualRuleDialogState>({
     open: false,
     mode: "create",
+    name: "",
     logic: "AND",
     clauses: [],
     actions: [],
@@ -1926,6 +1929,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     setVisualRuleDialog({
       open: true,
       mode: "create",
+      name: `Visual Rule ${(selectedElement.stateRules?.length ?? 0) + 1}`,
       logic: "AND",
       clauses: signalKey ? [createDefaultVisualRuleClause(signalKey)] : [],
       actions: defaultObject
@@ -1944,6 +1948,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       open: true,
       mode: "edit",
       editingRuleId: card.ruleId,
+      name: card.name || "Visual Rule",
       logic: card.logic ?? "AND",
       clauses: (card.clauses ?? []).map((item) => ({ ...item, id: createId("cond") })),
       actions: card.actions.map((action) => toVisualActionDraft(action)),
@@ -1953,6 +1958,12 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
   const validateVisualRuleDialog = (): string | null => {
     if (!selectedElement) {
       return "No selected element.";
+    }
+    if (!visualRuleDialog.name.trim()) {
+      return "Rule name is required.";
+    }
+    if (visualRuleDialog.clauses.length > MAX_VISUAL_RULE_CONDITIONS) {
+      return `Maximum ${MAX_VISUAL_RULE_CONDITIONS} conditions allowed.`;
     }
     if (visualRuleDialog.clauses.length === 0) {
       return "Add at least one condition row.";
@@ -2016,6 +2027,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           value: buildConditionsExpression(visualRuleDialog.clauses, visualRuleDialog.logic),
         };
     const firstClause = visualRuleDialog.clauses[0]!;
+    const nextRuleName = visualRuleDialog.name.trim() || "Visual Rule";
     const condition: ElementStateCase["condition"] = visualRuleDialog.clauses.length === 1
       ? (() => {
           if (firstClause.condition === "equals" || firstClause.condition === "notEquals") {
@@ -2034,7 +2046,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
 
     const nextRule: NonNullable<LibraryElement["stateRules"]>[number] = {
       id: visualRuleDialog.mode === "edit" ? visualRuleDialog.editingRuleId || createId("rule") : createId("rule"),
-      name: visualRuleDialog.mode === "edit" ? "Visual Rule" : `Visual Rule ${(selectedElement.stateRules?.length ?? 0) + 1}`,
+      name: nextRuleName,
       source,
       cases: [
         {
@@ -2063,6 +2075,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     setVisualRuleDialog({
       open: false,
       mode: "create",
+      name: "",
       logic: "AND",
       clauses: [],
       actions: [],
@@ -2676,7 +2689,21 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         )}
       >
         <div className="screen-editor-library-interface__dialog-grid">
+          <label>
+            <span>Rule Name</span>
+            <input
+              className="workbench-input"
+              value={visualRuleDialog.name}
+              onChange={(event) => setVisualRuleDialog((prev) => ({
+                ...prev,
+                name: event.target.value,
+                validationError: undefined,
+              }))}
+              placeholder="Visual Rule"
+            />
+          </label>
           <div className="screen-editor-library-interface__section-title">Condition</div>
+          <div className="screen-editor-item-meta">Maximum conditions: {MAX_VISUAL_RULE_CONDITIONS}</div>
           <div className="screen-editor-library-interface__condition-list">
             {visualRuleDialog.clauses.map((clause, index) => (
               <div key={clause.id} className="screen-editor-library-interface__condition-row">
@@ -2776,11 +2803,15 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
           </div>
           <div className="screen-editor-item-actions">
             <WorkbenchButton
+              disabled={visualRuleDialog.clauses.length >= MAX_VISUAL_RULE_CONDITIONS}
               onClick={() => {
                 const fallbackSignal = selectedElement?.bindings?.[0]?.key ?? "";
                 setVisualRuleDialog((prev) => ({
                   ...prev,
-                  clauses: [...prev.clauses, createDefaultVisualRuleClause(prev.clauses[0]?.signalKey || fallbackSignal)],
+                  clauses:
+                    prev.clauses.length >= MAX_VISUAL_RULE_CONDITIONS
+                      ? prev.clauses
+                      : [...prev.clauses, createDefaultVisualRuleClause(prev.clauses[0]?.signalKey || fallbackSignal)],
                   validationError: undefined,
                 }));
               }}

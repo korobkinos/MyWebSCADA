@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-16T17:11:58.574Z",
+  "updatedAt": "2026-05-16T17:53:24.245Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -240,6 +240,15 @@
           "kind": "state",
           "dataType": "INT",
           "required": false
+        },
+        {
+          "id": "binding_qsuw13",
+          "key": "open_bool",
+          "displayName": "open_bool",
+          "description": "",
+          "kind": "state",
+          "dataType": "BOOL",
+          "required": false
         }
       ],
       "parameters": [],
@@ -272,18 +281,17 @@
         },
         {
           "id": "rule_ghrosw",
-          "name": "Visual Rule 2",
+          "name": "Visual Rule",
           "source": {
-            "type": "tag",
-            "value": "$binding.open"
+            "type": "expression",
+            "value": "or(gt(num(tag(\"$binding.open\")), 0), neq(tag(\"$binding.open\"), 0))"
           },
           "cases": [
             {
-              "id": "case_6o8vm3",
+              "id": "case_m0yin6",
               "name": "when",
               "condition": {
-                "type": "notEquals",
-                "value": 0
+                "type": "true"
               },
               "actions": [
                 {
@@ -291,6 +299,12 @@
                   "objectId": "circle_yiqmmm",
                   "property": "fill",
                   "value": "#a0ac1e"
+                },
+                {
+                  "type": "setProperty",
+                  "objectId": "checkbox_wqymh0",
+                  "property": "visible",
+                  "value": true
                 }
               ]
             }
@@ -298,7 +312,7 @@
         }
       ],
       "createdAt": "2026-05-16T16:47:26.069Z",
-      "updatedAt": "2026-05-16T17:11:58.573Z"
+      "updatedAt": "2026-05-16T17:53:24.245Z"
     },
     {
       "id": "element_4lz46k",
