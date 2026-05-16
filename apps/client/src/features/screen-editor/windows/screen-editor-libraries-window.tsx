@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { Tree } from "antd";
+import type { DataNode } from "antd/es/tree";
 import type {
   ElementBindingDefinition,
   ElementLibrary,
@@ -148,28 +150,10 @@ type PropertySearchGroup = {
   rows: PropertySearchRow[];
 };
 
-type PropertyPickerColumnId = "s" | "browseName" | "displayName" | "nodeClass" | "dataType" | "writable" | "nodeId" | "actions";
-type PropertyPickerColumnConfig = {
-  id: PropertyPickerColumnId;
-  title: string;
-  defaultWidth: number;
-  minWidth: number;
+type PropertyPickerTreeNode = DataNode & {
+  nodeType: "object" | "property";
+  row?: PropertySearchRow;
 };
-type PropertyPickerColumnVisibility = Record<PropertyPickerColumnId, boolean>;
-
-const PROPERTY_PICKER_COLUMNS: PropertyPickerColumnConfig[] = [
-  { id: "s", title: "S", defaultWidth: 36, minWidth: 30 },
-  { id: "browseName", title: "BROWSE NAME", defaultWidth: 180, minWidth: 120 },
-  { id: "displayName", title: "DISPLAY NAME", defaultWidth: 180, minWidth: 120 },
-  { id: "nodeClass", title: "NODE CLASS", defaultWidth: 110, minWidth: 90 },
-  { id: "dataType", title: "DATA TYPE", defaultWidth: 110, minWidth: 90 },
-  { id: "writable", title: "WRITABLE", defaultWidth: 80, minWidth: 70 },
-  { id: "nodeId", title: "NODEID", defaultWidth: 260, minWidth: 140 },
-  { id: "actions", title: "ACTIONS", defaultWidth: 96, minWidth: 80 },
-];
-
-const PROPERTY_PICKER_COLUMNS_WIDTH_STORAGE_KEY = "screenEditor.library.setProperty.columnWidths";
-const PROPERTY_PICKER_COLUMN_VISIBILITY_STORAGE_KEY = "screenEditor.library.setProperty.columnVisibility";
 
 const DATA_TYPE_OPTIONS: Array<NonNullable<ElementBindingDefinition["dataType"]>> = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
 
@@ -247,81 +231,6 @@ function parseScalarToken(rawValue: string): string | number | boolean {
     return asNumber;
   }
   return trimmed;
-}
-
-function createDefaultPropertyPickerColumnWidths(): Record<PropertyPickerColumnId, number> {
-  return PROPERTY_PICKER_COLUMNS.reduce<Record<PropertyPickerColumnId, number>>(
-    (acc, column) => ({ ...acc, [column.id]: column.defaultWidth }),
-    {
-      s: 0,
-      browseName: 0,
-      displayName: 0,
-      nodeClass: 0,
-      dataType: 0,
-      writable: 0,
-      nodeId: 0,
-      actions: 0,
-    },
-  );
-}
-
-function createDefaultPropertyPickerColumnVisibility(): PropertyPickerColumnVisibility {
-  return PROPERTY_PICKER_COLUMNS.reduce<PropertyPickerColumnVisibility>(
-    (acc, column) => ({ ...acc, [column.id]: true }),
-    {
-      s: true,
-      browseName: true,
-      displayName: true,
-      nodeClass: true,
-      dataType: true,
-      writable: true,
-      nodeId: true,
-      actions: true,
-    },
-  );
-}
-
-function parseStoredPropertyPickerColumnWidths(raw: string | null): Record<PropertyPickerColumnId, number> {
-  const defaults = createDefaultPropertyPickerColumnWidths();
-  if (!raw) {
-    return defaults;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<Record<PropertyPickerColumnId, unknown>>;
-    return PROPERTY_PICKER_COLUMNS.reduce<Record<PropertyPickerColumnId, number>>((acc, column) => {
-      const candidate = parsed[column.id];
-      acc[column.id] = typeof candidate === "number" && Number.isFinite(candidate)
-        ? Math.max(column.minWidth, candidate)
-        : defaults[column.id];
-      return acc;
-    }, { ...defaults });
-  } catch {
-    return defaults;
-  }
-}
-
-function parseStoredPropertyPickerColumnVisibility(raw: string | null): PropertyPickerColumnVisibility {
-  const defaults = createDefaultPropertyPickerColumnVisibility();
-  if (!raw) {
-    return defaults;
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<Record<PropertyPickerColumnId, unknown>>;
-    const next = PROPERTY_PICKER_COLUMNS.reduce<PropertyPickerColumnVisibility>((acc, column) => {
-      const candidate = parsed[column.id];
-      acc[column.id] = candidate === false ? false : true;
-      return acc;
-    }, { ...defaults });
-    next.s = true;
-    next.browseName = true;
-    if (!Object.values(next).some(Boolean)) {
-      next.s = true;
-      next.browseName = true;
-    }
-    return next;
-  } catch {
-    return defaults;
-  }
 }
 
 const ROOT_PROPERTY_BLOCKLIST = new Set([
@@ -725,7 +634,11 @@ function WorkbenchDialog({
     event.preventDefault();
     const startRect = dialog.getBoundingClientRect();
     const start = { x: event.clientX, y: event.clientY };
-    const base = { x: startRect.left, y: startRect.top };
+    const containerRect = dialog.parentElement?.getBoundingClientRect();
+    const base = {
+      x: startRect.left - (containerRect?.left ?? 0),
+      y: startRect.top - (containerRect?.top ?? 0),
+    };
     setPosition(base);
 
     const onMove = (moveEvent: PointerEvent) => {
@@ -775,7 +688,7 @@ function WorkbenchDialog({
   };
 
   const dialogStyle: React.CSSProperties = position
-    ? { position: "fixed", left: position.x, top: position.y, margin: 0 }
+    ? { position: "absolute", left: position.x, top: position.y, margin: 0 }
     : {};
   dialogStyle.width = size.width;
   if (size.height !== null) {
@@ -914,20 +827,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     actionIndex: -1,
     query: "",
   });
-  const [propertyPickerExpandedObjectIds, setPropertyPickerExpandedObjectIds] = useState<Set<string>>(() => new Set());
-  const [propertyPickerColumnsPanelOpen, setPropertyPickerColumnsPanelOpen] = useState(false);
-  const [propertyPickerColumnWidths, setPropertyPickerColumnWidths] = useState<Record<PropertyPickerColumnId, number>>(() => {
-    if (typeof window === "undefined") {
-      return createDefaultPropertyPickerColumnWidths();
-    }
-    return parseStoredPropertyPickerColumnWidths(window.localStorage.getItem(PROPERTY_PICKER_COLUMNS_WIDTH_STORAGE_KEY));
-  });
-  const [propertyPickerColumnVisibility, setPropertyPickerColumnVisibility] = useState<PropertyPickerColumnVisibility>(() => {
-    if (typeof window === "undefined") {
-      return createDefaultPropertyPickerColumnVisibility();
-    }
-    return parseStoredPropertyPickerColumnVisibility(window.localStorage.getItem(PROPERTY_PICKER_COLUMN_VISIBILITY_STORAGE_KEY));
-  });
+  const [propertyPickerExpandedObjectIds, setPropertyPickerExpandedObjectIds] = useState<string[]>([]);
   const [deleteLibraryDialog, setDeleteLibraryDialog] = useState<DeleteLibraryDialogState>({
     open: false,
     canForce: false,
@@ -1026,13 +926,35 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     }
     return Array.from(map.values());
   }, [filteredPropertySearchRows]);
-  const visiblePropertyPickerColumns = useMemo(() => {
-    const next = PROPERTY_PICKER_COLUMNS.filter((column) => propertyPickerColumnVisibility[column.id] !== false);
-    return next.length > 0 ? next : PROPERTY_PICKER_COLUMNS.filter((column) => column.id === "browseName");
-  }, [propertyPickerColumnVisibility]);
-  const propertyPickerGridTemplateColumns = useMemo(
-    () => visiblePropertyPickerColumns.map((column) => `${propertyPickerColumnWidths[column.id] ?? column.defaultWidth}px`).join(" "),
-    [propertyPickerColumnWidths, visiblePropertyPickerColumns],
+  const propertyPickerTreeData = useMemo<PropertyPickerTreeNode[]>(
+    () =>
+      filteredPropertySearchGroups.map((group) => ({
+        key: `obj:${group.objectId}`,
+        nodeType: "object",
+        selectable: false,
+        title: (
+          <span className="screen-editor-setproperty-picker__tree-object">
+            {group.objectLabel} ({group.objectType}) - {group.rows.length} properties
+          </span>
+        ),
+        children: group.rows.map((row) => ({
+          key: `prop:${row.objectId}:${row.propertyPath}`,
+          nodeType: "property",
+          row,
+          title: (
+            <span className="screen-editor-setproperty-picker__tree-property">
+              <span className="screen-editor-setproperty-picker__property">{row.propertyPath}</span>
+              <span className="screen-editor-setproperty-picker__kind">{row.kind.toUpperCase()}</span>
+            </span>
+          ),
+          isLeaf: true,
+        })),
+      })),
+    [filteredPropertySearchGroups],
+  );
+  const propertyPickerExpandedKeys = useMemo(
+    () => (propertyPickerDialog.query.trim() ? filteredPropertySearchGroups.map((group) => `obj:${group.objectId}`) : propertyPickerExpandedObjectIds),
+    [filteredPropertySearchGroups, propertyPickerDialog.query, propertyPickerExpandedObjectIds],
   );
 
   const signalUsedInRulesCount = useMemo(() => {
@@ -1490,7 +1412,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       actionIndex,
       query: "",
     });
-    setPropertyPickerExpandedObjectIds(new Set());
+    setPropertyPickerExpandedObjectIds([]);
   };
 
   const applyPropertyFromPicker = (row: PropertySearchRow) => {
@@ -1516,60 +1438,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       return { ...prev, actions: nextActions, validationError: undefined };
     });
     setPropertyPickerDialog((prev) => ({ ...prev, open: false }));
-    setPropertyPickerExpandedObjectIds(new Set());
-  };
-
-  const togglePropertyPickerObject = (objectId: string) => {
-    setPropertyPickerExpandedObjectIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(objectId)) {
-        next.delete(objectId);
-      } else {
-        next.add(objectId);
-      }
-      return next;
-    });
-  };
-
-  const startPropertyPickerColumnResize = (
-    event: React.MouseEvent<HTMLSpanElement>,
-    columnId: PropertyPickerColumnId,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const column = PROPERTY_PICKER_COLUMNS.find((item) => item.id === columnId);
-    if (!column) {
-      return;
-    }
-
-    const startX = event.clientX;
-    const startWidth = propertyPickerColumnWidths[columnId] ?? column.defaultWidth;
-
-    const onMove = (moveEvent: MouseEvent): void => {
-      const delta = moveEvent.clientX - startX;
-      const next = Math.max(column.minWidth, startWidth + delta);
-      setPropertyPickerColumnWidths((prev) => ({
-        ...prev,
-        [columnId]: next,
-      }));
-    };
-
-    const onUp = (): void => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  };
-
-  const resetPropertyPickerWidths = () => {
-    setPropertyPickerColumnWidths(createDefaultPropertyPickerColumnWidths());
+    setPropertyPickerExpandedObjectIds([]);
   };
 
   useEffect(() => {
@@ -1578,30 +1447,16 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     }
     if (propertyPickerDialog.actionIndex < 0 || propertyPickerDialog.actionIndex >= visualRuleDialog.actions.length) {
       setPropertyPickerDialog({ open: false, actionIndex: -1, query: "" });
-      setPropertyPickerExpandedObjectIds(new Set());
+      setPropertyPickerExpandedObjectIds([]);
     }
   }, [propertyPickerDialog, visualRuleDialog.actions.length]);
 
   useEffect(() => {
     if (!visualRuleDialog.open && propertyPickerDialog.open) {
       setPropertyPickerDialog({ open: false, actionIndex: -1, query: "" });
-      setPropertyPickerExpandedObjectIds(new Set());
+      setPropertyPickerExpandedObjectIds([]);
     }
   }, [propertyPickerDialog.open, visualRuleDialog.open]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem(PROPERTY_PICKER_COLUMNS_WIDTH_STORAGE_KEY, JSON.stringify(propertyPickerColumnWidths));
-  }, [propertyPickerColumnWidths]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem(PROPERTY_PICKER_COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(propertyPickerColumnVisibility));
-  }, [propertyPickerColumnVisibility]);
 
   const startCreateVisualRule = () => {
     if (!selectedElement) {
@@ -2475,12 +2330,12 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         open={propertyPickerDialog.open}
         onClose={() => {
           setPropertyPickerDialog({ open: false, actionIndex: -1, query: "" });
-          setPropertyPickerExpandedObjectIds(new Set());
+          setPropertyPickerExpandedObjectIds([]);
         }}
-        width={840}
-        height={560}
-        minWidth={620}
-        minHeight={360}
+        width={700}
+        height={460}
+        minWidth={520}
+        minHeight={320}
         resizable
         bodyClassName="screen-editor-opc-browser-content screen-editor-setproperty-picker"
         actions={(
@@ -2488,7 +2343,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
             <WorkbenchButton
               onClick={() => {
                 setPropertyPickerDialog({ open: false, actionIndex: -1, query: "" });
-                setPropertyPickerExpandedObjectIds(new Set());
+                setPropertyPickerExpandedObjectIds([]);
               }}
             >
               Close
@@ -2503,114 +2358,32 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
             onChange={(event) => setPropertyPickerDialog((prev) => ({ ...prev, query: event.target.value }))}
             placeholder="Search object, id, type, property..."
           />
-          <WorkbenchButton onClick={resetPropertyPickerWidths}>Reset Widths</WorkbenchButton>
-          <WorkbenchButton onClick={() => setPropertyPickerColumnsPanelOpen((open) => !open)}>Columns</WorkbenchButton>
         </div>
-        {propertyPickerColumnsPanelOpen ? (
-          <div className="screen-editor-tags-columns-panel">
-            {PROPERTY_PICKER_COLUMNS.filter((column) => column.id !== "s").map((column) => (
-              <label key={column.id} className="screen-editor-tags-column-toggle">
-                <input
-                  type="checkbox"
-                  checked={propertyPickerColumnVisibility[column.id] !== false}
-                  disabled={column.id === "browseName"}
-                  onChange={(event) =>
-                    setPropertyPickerColumnVisibility((prev) => ({
-                      ...prev,
-                      [column.id]: event.target.checked,
-                      s: true,
-                      browseName: true,
-                    }))}
-                />
-                <span>{column.title}</span>
-              </label>
-            ))}
-          </div>
-        ) : null}
         <div className="screen-editor-opc-browser-list screen-editor-setproperty-picker__list">
-          <div className="screen-editor-tags-table">
-            <div className="screen-editor-tags-row screen-editor-tags-row--header" style={{ gridTemplateColumns: propertyPickerGridTemplateColumns }}>
-              {visiblePropertyPickerColumns.map((column) => (
-                <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell">
-                  <span>{column.title}</span>
-                  <span className="screen-editor-tags-column-resize-handle" onMouseDown={(event) => startPropertyPickerColumnResize(event, column.id)} />
-                </div>
-              ))}
-            </div>
-            {filteredPropertySearchGroups.map((group) => {
-              const isExpanded = propertyPickerDialog.query.trim() ? true : propertyPickerExpandedObjectIds.has(group.objectId);
-              return (
-                <div key={group.objectId}>
-                <div
-                  className="screen-editor-tags-row"
-                  style={{ gridTemplateColumns: propertyPickerGridTemplateColumns }}
-                >
-                  {visiblePropertyPickerColumns.map((column) => {
-                    let value = "";
-                    if (column.id === "s") value = isExpanded ? "-" : "+";
-                    if (column.id === "browseName") value = group.objectLabel;
-                    if (column.id === "displayName") value = `${group.rows.length} properties`;
-                    if (column.id === "nodeClass") value = "Object";
-                      if (column.id === "dataType") value = "-";
-                    if (column.id === "writable") value = "-";
-                    if (column.id === "nodeId") value = group.objectId;
-                    if (column.id === "actions") value = "";
-                    const isToggleCell = column.id === "s";
-                    return (
-                      <div
-                        key={column.id}
-                        className={`screen-editor-tags-cell${isToggleCell ? " screen-editor-setproperty-picker__toggle-cell" : ""}`}
-                        title={isToggleCell ? "Click to expand/collapse" : value}
-                        onClick={isToggleCell ? () => togglePropertyPickerObject(group.objectId) : undefined}
-                      >
-                        {value || "\u00A0"}
-                      </div>
-                    );
-                  })}
-                </div>
-                  {isExpanded ? (
-                    group.rows.map((row) => (
-                      <div key={`${row.objectId}:${row.propertyPath}`} className="screen-editor-tags-row" style={{ gridTemplateColumns: propertyPickerGridTemplateColumns }}>
-                        {visiblePropertyPickerColumns.map((column) => {
-                          if (column.id === "actions") {
-                            return (
-                              <div key={column.id} className="screen-editor-tags-cell">
-                                <WorkbenchButton
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    applyPropertyFromPicker(row);
-                                  }}
-                                >
-                                  Select
-                                </WorkbenchButton>
-                              </div>
-                            );
-                          }
-                          let value = "";
-                          if (column.id === "s") value = "-";
-                          if (column.id === "browseName") value = row.propertyPath;
-                          if (column.id === "displayName") value = row.propertyPath;
-                          if (column.id === "nodeClass") value = "Property";
-                          if (column.id === "dataType") value = row.kind.toUpperCase();
-                          if (column.id === "writable") value = "-";
-                          if (column.id === "nodeId") value = `${row.objectId}.${row.propertyPath}`;
-                          return (
-                            <div key={column.id} className="screen-editor-tags-cell" title={value}>{value}</div>
-                          );
-                        })}
-                      </div>
-                    ))
-                  ) : null}
-                </div>
-              );
-            })}
+          <div className="screen-editor-setproperty-picker__tree">
+            <Tree
+              treeData={propertyPickerTreeData}
+              expandedKeys={propertyPickerExpandedKeys}
+              onExpand={(keys) => {
+                if (propertyPickerDialog.query.trim()) {
+                  return;
+                }
+                setPropertyPickerExpandedObjectIds(keys.map((key) => String(key)));
+              }}
+              onSelect={(_, info) => {
+                const node = info.node as PropertyPickerTreeNode;
+                if (node.nodeType === "property" && node.row) {
+                  applyPropertyFromPicker(node.row);
+                }
+              }}
+            />
             {filteredPropertySearchRows.length === 0 ? (
               <div className="screen-editor-empty-state">Nothing found.</div>
             ) : null}
           </div>
         </div>
         <div className="screen-editor-setproperty-picker__footer">
-          <span>Objects: {filteredPropertySearchGroups.length} · Properties: {filteredPropertySearchRows.length} / {propertySearchRows.length}</span>
+          <span>Objects: {filteredPropertySearchGroups.length} | Properties: {filteredPropertySearchRows.length} / {propertySearchRows.length}</span>
         </div>
       </WorkbenchDialog>
 
@@ -2631,3 +2404,5 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     </div>
   );
 }
+
+

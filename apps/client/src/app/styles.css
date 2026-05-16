@@ -2556,6 +2556,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  gap: 4px;
 }
 
 .screen-editor-setproperty-picker .screen-editor-opc-browser-toolbar {
@@ -2574,16 +2575,44 @@ body {
   overflow: auto;
 }
 
-.screen-editor-setproperty-picker__object {
+.screen-editor-setproperty-picker__tree {
+  min-height: 100%;
+  padding: 4px;
+  border: 1px solid #2d2d2d;
+  background: #1f1f1f;
+  overflow: auto;
+}
+
+.screen-editor-setproperty-picker .ant-tree {
   font-size: 11px;
+}
+
+.screen-editor-setproperty-picker .ant-tree-treenode {
+  min-height: 20px;
+}
+
+.screen-editor-setproperty-picker .ant-tree-node-content-wrapper {
+  padding: 1px 4px !important;
+}
+
+.screen-editor-setproperty-picker__tree-object {
   color: #cfcfcf;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .screen-editor-setproperty-picker__property {
   color: #9fd3ff;
+}
+
+.screen-editor-setproperty-picker__tree-property {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.screen-editor-setproperty-picker__footer {
+  padding-top: 2px;
+  color: #8f8f8f;
+  font-size: 10px;
 }
 
 .screen-editor-setproperty-picker__kind {
@@ -2591,17 +2620,6 @@ body {
   color: #b7b7b7;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-}
-
-.screen-editor-setproperty-picker__count {
-  font-size: 10px;
-  color: #8f8f8f;
-}
-
-.screen-editor-setproperty-picker__toggle-cell {
-  cursor: pointer;
-  user-select: none;
-  justify-content: center;
 }
 
 .screen-editor-asset-preview {
@@ -3929,7 +3947,7 @@ body {
 
 /* Workbench confirm dialog */
 .workbench-confirm-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 5000;
   display: flex;
