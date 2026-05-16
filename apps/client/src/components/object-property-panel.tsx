@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { ACCESS_ROLE_LABELS_RU } from "@web-scada/shared";
 import type {
   AccessRoleLevel,
@@ -11,17 +11,13 @@ import type {
   HmiScreen,
   RuntimeAction,
   RuntimeResolveContext,
-  RuntimeValueSource,
   ScadaProject,
   TextStyle,
 } from "@web-scada/shared";
 import {
   extractIndexedAddressSlots,
-  parseTagSegments,
-  resolveElementBindingAssignment,
   resolveIndexedAddress,
   resolveLibraryElementInstanceBindingsDetailed,
-  resolveRuntimeValueSync,
 } from "@web-scada/shared";
 import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
@@ -85,11 +81,11 @@ const roleOptions: Array<{ label: string; value: AppRole }> = [
   { label: "viewer", value: "viewer" },
 ];
 const accessRoleOptions: Array<{ label: string; value: AccessRoleLevel }> = [
-  { label: `0 — ${ACCESS_ROLE_LABELS_RU[0]}`, value: 0 },
-  { label: `1 — ${ACCESS_ROLE_LABELS_RU[1]}`, value: 1 },
-  { label: `2 — ${ACCESS_ROLE_LABELS_RU[2]}`, value: 2 },
-  { label: `3 — ${ACCESS_ROLE_LABELS_RU[3]}`, value: 3 },
-  { label: `4 — ${ACCESS_ROLE_LABELS_RU[4]}`, value: 4 },
+  { label: `0 вЂ” ${ACCESS_ROLE_LABELS_RU[0]}`, value: 0 },
+  { label: `1 вЂ” ${ACCESS_ROLE_LABELS_RU[1]}`, value: 1 },
+  { label: `2 вЂ” ${ACCESS_ROLE_LABELS_RU[2]}`, value: 2 },
+  { label: `3 вЂ” ${ACCESS_ROLE_LABELS_RU[3]}`, value: 3 },
+  { label: `4 вЂ” ${ACCESS_ROLE_LABELS_RU[4]}`, value: 4 },
 ];
 
 function ColorField({
@@ -340,15 +336,6 @@ function TagFieldWithBindingSource({
   );
 }
 
-type RuntimeSourceMode = "none" | "static" | "internal" | "lw" | "tag" | "expression";
-
-function runtimeSourceModeOf(source: RuntimeValueSource | undefined): RuntimeSourceMode {
-  if (!source) {
-    return "none";
-  }
-  return source.type;
-}
-
 function buildEditorRuntimeTagValues(project: ScadaProject): Record<string, unknown> {
   const tagValues: Record<string, unknown> = {};
   for (const variable of project.variables ?? []) {
@@ -366,200 +353,6 @@ function buildEditorRuntimeTagValues(project: ScadaProject): Record<string, unkn
     }
   }
   return tagValues;
-}
-
-function RuntimeValueSourceEditor({
-  label,
-  value,
-  valueType,
-  project,
-  onChange,
-}: {
-  label: string;
-  value: RuntimeValueSource | undefined;
-  valueType: "string" | "number";
-  project: ScadaProject;
-  onChange: (next: RuntimeValueSource | undefined) => void;
-}) {
-  const mode = runtimeSourceModeOf(value);
-  const staticValue = value?.type === "static" ? value.value : undefined;
-  const previewContext: RuntimeResolveContext = {
-    tagValues: buildEditorRuntimeTagValues(project),
-  };
-  const previewWarnings: string[] = [];
-  const previewValue = value
-    ? resolveRuntimeValueSync(value, {
-        ...previewContext,
-        warn(warning) {
-          previewWarnings.push(warning.message);
-        },
-      })
-    : undefined;
-
-  const expressionTemplates = valueType === "number"
-    ? [
-        {
-          label: "Burner/valve index: lw(20) * 32 + lw(10)",
-          value: "lw(20) * 32 + lw(10)",
-        },
-        {
-          label: "Burner base index: lw(20) * 32",
-          value: "lw(20) * 32",
-        },
-        {
-          label: "Selected LW value: lw(20)",
-          value: "lw(20)",
-        },
-        {
-          label: "Tag numeric value: tag('Selected.Index')",
-          value: "tag('Selected.Index')",
-        },
-        {
-          label: "Internal numeric value: internal('SelectedIndex')",
-          value: "internal('SelectedIndex')",
-        },
-      ]
-    : [
-        {
-          label: "Burner prefix: 'Burner_' + str(lw(20))",
-          value: "'Burner_' + str(lw(20))",
-        },
-        {
-          label: "Suffix from LW: '_' + str(lw(20))",
-          value: "'_' + str(lw(20))",
-        },
-        {
-          label: "Tag string value: str(tag('Selected.Prefix'))",
-          value: "str(tag('Selected.Prefix'))",
-        },
-        {
-          label: "Internal string value: str(internal('SelectedPrefix'))",
-          value: "str(internal('SelectedPrefix'))",
-        },
-      ];
-
-  return (
-    <Space direction="vertical" style={{ width: "100%" }} size={6}>
-      <Typography.Text type="secondary">{label} Source</Typography.Text>
-      <Select
-        value={mode}
-        options={[
-          { label: "Legacy static field", value: "none" },
-          { label: "Static", value: "static" },
-          { label: "From Internal Variable", value: "internal" },
-          { label: "From LW", value: "lw" },
-          { label: "From Tag", value: "tag" },
-          { label: "Expression", value: "expression" },
-        ]}
-        onChange={(nextMode: RuntimeSourceMode) => {
-          if (nextMode === "none") {
-            onChange(undefined);
-            return;
-          }
-          if (nextMode === "static") {
-            onChange({ type: "static", value: valueType === "number" ? 0 : "" });
-            return;
-          }
-          if (nextMode === "internal") {
-            onChange({ type: "internal", name: "" });
-            return;
-          }
-          if (nextMode === "lw") {
-            onChange({ type: "lw", address: 0 });
-            return;
-          }
-          if (nextMode === "tag") {
-            onChange({ type: "tag", tag: "" });
-            return;
-          }
-          if (nextMode === "expression") {
-            onChange({
-              type: "expression",
-              expression: valueType === "number" ? "lw(20) * 32 + lw(10)" : "'Prefix_' + str(lw(20))",
-            });
-            return;
-          }
-        }}
-      />
-      {mode === "static" ? (
-        valueType === "number" ? (
-          <InputNumber
-            style={{ width: "100%" }}
-            value={typeof staticValue === "number" ? staticValue : Number(staticValue ?? 0)}
-            onChange={(next) => onChange({ type: "static", value: Number(next ?? 0) })}
-          />
-        ) : (
-          <Input
-            value={typeof staticValue === "string" ? staticValue : String(staticValue ?? "")}
-            onChange={(event) => onChange({ type: "static", value: event.target.value })}
-          />
-        )
-      ) : null}
-      {mode === "internal" ? (
-        <Input
-          placeholder="selectedBurnerPrefix"
-          value={value?.type === "internal" ? value.name : ""}
-          onChange={(event) => onChange({ type: "internal", name: event.target.value })}
-        />
-      ) : null}
-      {mode === "lw" ? (
-        <InputNumber
-          style={{ width: "100%" }}
-          min={0}
-          value={value?.type === "lw" ? value.address : 0}
-          onChange={(next) => onChange({ type: "lw", address: Math.max(0, Math.floor(Number(next ?? 0))) })}
-        />
-      ) : null}
-      {mode === "tag" ? (
-        <TagPicker
-          project={project}
-          value={value?.type === "tag" ? value.tag : ""}
-          onChange={(tag) => onChange({ type: "tag", tag: tag ?? "" })}
-        />
-      ) : null}
-      {mode === "expression" ? (
-        <Space direction="vertical" style={{ width: "100%" }} size={4}>
-          <Select
-            placeholder="Insert expression template"
-            value={undefined}
-            options={expressionTemplates}
-            onChange={(template) => {
-              if (!template) {
-                return;
-              }
-              onChange({
-                type: "expression",
-                expression: template,
-              });
-            }}
-          />
-          <Input.TextArea
-            rows={3}
-            value={value?.type === "expression" ? value.expression : ""}
-            placeholder={valueType === "number" ? "lw(20) * 32 + lw(10)" : "'Prefix_' + str(lw(20))"}
-            onChange={(event) =>
-              onChange({
-                type: "expression",
-                expression: event.target.value,
-              })
-            }
-          />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            Available: lw(20), tag('Tag.Name'), internal('Name'), str(...), num(...), floor(...), ceil(...), round(...)
-          </Typography.Text>
-          {previewWarnings.length > 0 ? (
-            <Typography.Text type="danger" style={{ fontSize: 12 }}>
-              Expression error: {previewWarnings[0]}
-            </Typography.Text>
-          ) : (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              Preview result: {previewValue === undefined ? "—" : String(previewValue)}
-            </Typography.Text>
-          )}
-        </Space>
-      ) : null}
-    </Space>
-  );
 }
 
 function ActionAccessFields({
@@ -1715,7 +1508,7 @@ function SpecificPropertyFields({
             <Form.Item label="Popup Title">
               <Input
                 value={openPopupAction.title ?? ""}
-                placeholder="Управление: {{valveName}}"
+                placeholder="РЈРїСЂР°РІР»РµРЅРёРµ: {{valveName}}"
                 onChange={(event) =>
                   onPatch({
                     action: {
@@ -2549,18 +2342,13 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "libraryElementInstance") {
-    const libraryOptions = libraries.map((library) => ({ label: library.name, value: library.id }));
     const selectedLibrary = libraries.find((library) => library.id === object.libraryId);
-    const elementOptions = (selectedLibrary?.elements ?? []).map((element) => ({ label: element.name, value: element.id }));
     const selectedElement = selectedLibrary?.elements.find((element) => element.id === object.elementId);
     const parameterValues = object.parameterValues ?? {};
     const bindingAssignments = object.bindingAssignments ?? {};
     const bindingDefinitions = selectedElement?.bindings ?? [];
     const knownTags = new Set(project.tags.map((tag) => tag.name));
     const editorTagValues = buildEditorRuntimeTagValues(project);
-    const editorRuntimeContext = {
-      tagValues: editorTagValues,
-    };
     const runtimeResolveContext: RuntimeResolveContext = {
       tagValues: editorTagValues,
     };
@@ -2585,46 +2373,6 @@ function SpecificPropertyFields({
       } as Partial<HmiObject>);
     };
 
-    const removeBindingAssignment = (bindingKey: string) => {
-      const next = { ...bindingAssignments };
-      delete next[bindingKey];
-      onPatch({ bindingAssignments: next } as Partial<HmiObject>);
-    };
-
-    function createValveBindingAssignment(baseTag: string) {
-      return {
-        baseTag,
-        indexOffsetSource: {
-          type: "expression" as const,
-          expression: "lw(20) * 32 + lw(10)",
-        },
-        indexMode: {
-          type: "arrayIndex" as const,
-          occurrence: 0,
-          operation: "add" as const,
-          valueFrom: "indexOffset" as const,
-        },
-      };
-    }
-
-    function createValveUniversalBindingAssignments() {
-      return {
-        visualState: createValveBindingAssignment("GVL_VALVE.valves[0].VisualState"),
-        commandState: createValveBindingAssignment("GVL_VALVE.valves[0].CommandState"),
-        openCmd: createValveBindingAssignment("GVL_VALVE.valves[0].OpenCmd"),
-        closeCmd: createValveBindingAssignment("GVL_VALVE.valves[0].CloseCmd"),
-        fault: createValveBindingAssignment("GVL_VALVE.valves[0].Fault"),
-      };
-    }
-
-    const bindingKeys = new Set((selectedElement?.bindings ?? []).map((b) => b.key));
-    const looksLikeValveElement =
-      bindingKeys.has("visualState") ||
-      bindingKeys.has("commandState") ||
-      bindingKeys.has("openCmd") ||
-      bindingKeys.has("closeCmd") ||
-      bindingKeys.has("fault");
-
     const getConnectedTagStatus = (binding: ElementBindingDefinition) => {
       const debug = bindingDebug?.debug[binding.key];
       const resolvedTag = debug?.resolvedTag?.trim() || "";
@@ -2643,25 +2391,6 @@ function SpecificPropertyFields({
 
     return (
       <>
-        <Form.Item label="Library">
-          <Select
-            value={object.libraryId}
-            options={libraryOptions}
-            onChange={(value) => onPatch({ libraryId: value, elementId: "" } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        <Form.Item label="Element">
-          <Select
-            value={object.elementId}
-            options={elementOptions}
-            onChange={(value) => onPatch({ elementId: value } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        <div className="screen-editor-library-origin-note">
-          <div className="screen-editor-library-origin-note__title">LIBRARY INSTANCE</div>
-          <div>Library: {selectedLibrary?.name ?? "Unknown"} ({object.libraryId})</div>
-          <div>Element: {selectedElement?.name ?? "Unknown"} ({object.elementId})</div>
-        </div>
         <Form.Item label="Scale Mode">
           <Select
             value={object.scaleMode ?? "fit"}
@@ -2673,47 +2402,91 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ scaleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        <Form.Item label="Tag Prefix (Compatibility)">
-          <Input value={object.tagPrefix ?? ""} onChange={(e) => onPatch({ tagPrefix: e.target.value } as Partial<HmiObject>)} />
-        </Form.Item>
 
         <Divider style={{ margin: "10px 0" }} />
         <Typography.Text strong>Connected Tags</Typography.Text>
         {bindingDefinitions.length ? (
           <div className="screen-editor-connected-tags">
             <Space direction="vertical" style={{ width: "100%" }} size={8}>
-            {bindingDefinitions.map((binding) => {
-              const assignment = bindingAssignments[binding.key] ?? {
-                baseTag: binding.defaultBaseTag ?? "",
-                prefixMode: { type: "none" as const },
-                indexMode: { type: "none" as const },
-              };
-              const status = getConnectedTagStatus(binding);
-              const debug = bindingDebug?.debug[binding.key];
-              return (
-                <Space key={binding.id} direction="vertical" style={{ width: "100%", border: "1px solid #303030", borderRadius: 8, padding: 8 }}>
-                  <Space wrap>
-                    <Typography.Text>{binding.displayName}</Typography.Text>
-                    <Typography.Text type="secondary">({binding.key})</Typography.Text>
-                    {(binding.required ?? false) ? <Tag color="red">Required</Tag> : null}
-                    <Tag color={status.color}>{status.label}</Tag>
+              {bindingDefinitions.map((binding) => {
+                const assignment = bindingAssignments[binding.key] ?? {
+                  baseTag: binding.defaultBaseTag ?? "",
+                  prefixMode: { type: "none" as const },
+                  indexMode: { type: "none" as const },
+                };
+                const status = getConnectedTagStatus(binding);
+                const debug = bindingDebug?.debug[binding.key];
+                const indexEnabled = assignment.indexMode?.type === "arrayIndex" || assignment.indexMode?.type === "arrayIndexBySegment";
+                const hasArrayIndexInTag = /\[-?\d+\]/.test(assignment.baseTag || binding.defaultBaseTag || "");
+
+                return (
+                  <Space key={binding.id} direction="vertical" style={{ width: "100%", border: "1px solid #303030", borderRadius: 8, padding: 8 }}>
+                    <Space wrap>
+                      <Typography.Text>{binding.displayName}</Typography.Text>
+                      <Typography.Text type="secondary">({binding.key})</Typography.Text>
+                      {(binding.required ?? false) ? <Tag color="red">Required</Tag> : null}
+                      <Tag color={status.color}>{status.label}</Tag>
+                    </Space>
+                    <TagFieldWithBindingSource
+                      project={project}
+                      bindings={[]}
+                      value={assignment.baseTag}
+                      tagLabel="Tag"
+                      indexControl={{
+                        enabled: indexEnabled,
+                        status: indexEnabled ? (hasArrayIndexInTag ? "OK" : "Not found") : "Not configured",
+                        configureDisabled: !(assignment.baseTag?.trim()),
+                        onConfigure: () => {
+                          if (!indexEnabled) {
+                            patchBindingAssignment(binding.key, {
+                              indexMode: {
+                                type: "arrayIndex",
+                                occurrence: 0,
+                                operation: "add",
+                                valueFrom: "indexOffset",
+                              },
+                              indexOffset: assignment.indexOffset ?? 0,
+                            });
+                          }
+                        },
+                        onToggleEnabled: (checked: boolean) => {
+                          if (!checked) {
+                            patchBindingAssignment(binding.key, { indexMode: { type: "none" } });
+                            return;
+                          }
+                          patchBindingAssignment(binding.key, {
+                            indexMode: {
+                              type: "arrayIndex",
+                              occurrence: 0,
+                              operation: "add",
+                              valueFrom: "indexOffset",
+                            },
+                            indexOffset: assignment.indexOffset ?? 0,
+                          });
+                        },
+                      }}
+                      onChange={(nextValue) => patchBindingAssignment(binding.key, { baseTag: nextValue })}
+                    />
+                    {indexEnabled ? (
+                      <Form.Item label="Index offset">
+                        <InputNumber
+                          style={{ width: "100%" }}
+                          value={assignment.indexOffset ?? 0}
+                          onChange={(value) => patchBindingAssignment(binding.key, { indexOffset: Number(value ?? 0) })}
+                        />
+                      </Form.Item>
+                    ) : null}
+                    {indexEnabled && !hasArrayIndexInTag ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        Index offset is enabled, but base tag has no array token like [0].
+                      </Typography.Text>
+                    ) : null}
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      Resolved: {debug?.resolvedTag?.trim() ? debug.resolvedTag : "—"}
+                    </Typography.Text>
                   </Space>
-                  <TagPicker
-                    project={project}
-                    value={assignment.baseTag}
-                    onChange={(tag) => patchBindingAssignment(binding.key, { baseTag: tag ?? "" })}
-                  />
-                  <Input
-                    value={assignment.baseTag}
-                    placeholder={binding.defaultBaseTag ?? ".State"}
-                    onChange={(event) => patchBindingAssignment(binding.key, { baseTag: event.target.value })}
-                  />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    Resolved: {debug?.resolvedTag?.trim() ? debug.resolvedTag : "—"}
-                  </Typography.Text>
-                </Space>
-              );
-            })}
+                );
+              })}
             </Space>
           </div>
         ) : (
@@ -2723,394 +2496,6 @@ function SpecificPropertyFields({
           </Typography.Text>
         )}
 
-        <details className="screen-editor-advanced-section">
-          <summary>Advanced</summary>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            Prefix/index/override/debug and JSON controls.
-          </Typography.Text>
-          {looksLikeValveElement ? (
-          <>
-            <Divider orientation="left" style={{ marginTop: 16 }}>Binding Presets</Divider>
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <Button
-                onClick={() => {
-                  onPatch({
-                    bindingAssignments: {
-                      ...(object.bindingAssignments ?? {}),
-                      ...createValveUniversalBindingAssignments(),
-                    },
-                  } as Partial<HmiObject>);
-                }}
-                block
-              >
-                Fill ValveUniversal bindings
-              </Button>
-              <Button
-                onClick={() => {
-                  const preset = createValveUniversalBindingAssignments();
-                  onPatch({
-                    bindingAssignments: {
-                      ...preset,
-                      ...(object.bindingAssignments ?? {}),
-                    },
-                  } as Partial<HmiObject>);
-                }}
-                block
-              >
-                Fill missing ValveUniversal bindings
-              </Button>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                Uses index expression: lw(20) * 32 + lw(10)
-              </Typography.Text>
-            </Space>
-          </>
-          ) : null}
-        <>
-          <Divider style={{ margin: "10px 0" }} />
-          <Typography.Text strong>Signal Tag Bindings (Advanced)</Typography.Text>
-          {bindingDefinitions.length ? (
-            bindingDefinitions.map((binding) => {
-              const assignment = bindingAssignments[binding.key] ?? {
-                baseTag: binding.defaultBaseTag ?? "",
-                prefixMode: { type: "none" as const },
-                indexMode: { type: "none" as const },
-              };
-              const segments = parseTagSegments(assignment.baseTag || binding.defaultBaseTag || "");
-              const prefixModeValue =
-                assignment.prefixMode?.type === "segment"
-                  ? `segment:${assignment.prefixMode.segmentIndex}:${assignment.prefixMode.position}`
-                  : assignment.prefixMode?.type === "segmentByName"
-                    ? `segmentByName:${assignment.prefixMode.segmentName}:${assignment.prefixMode.position}`
-                  : assignment.prefixMode?.type === "lastSegment"
-                    ? `last:${assignment.prefixMode.position}`
-                    : "none";
-              const segmentNames = [...new Set(segments.map((segment) => segment.split("[")[0] ?? segment).filter(Boolean))];
-              const arrayTargets = segments.flatMap((segment, segmentIndex) =>
-                /\[-?\d+\]/.test(segment) ? [{ segment, segmentIndex }] : [],
-              );
-              const indexModeValue =
-                assignment.indexMode?.type === "arrayIndex"
-                  ? `arrayIndex:${assignment.indexMode.occurrence}`
-                  : assignment.indexMode?.type === "arrayIndexBySegment"
-                    ? `arrayBySegment:${assignment.indexMode.segmentName}`
-                    : "none";
-              const resolvedTag = resolveElementBindingAssignment(assignment, binding.defaultBaseTag, editorRuntimeContext);
-              const tagExists = resolvedTag ? knownTags.has(resolvedTag) : false;
-              const required = binding.required ?? false;
-              const isMissingRequired = required && !resolvedTag;
-              const canOverride = binding.overridable !== false;
-              const prefixCurrentValue = assignment.prefixSource
-                ? resolveRuntimeValueSync(assignment.prefixSource, editorRuntimeContext)
-                : assignment.prefix;
-              const indexCurrentValue = assignment.indexOffsetSource
-                ? resolveRuntimeValueSync(assignment.indexOffsetSource, editorRuntimeContext)
-                : assignment.indexOffset;
-
-              const debug = bindingDebug?.debug[binding.key];
-              const issue = bindingDebug?.issues.find((item) => item.key === binding.key);
-              return (
-                <Space
-                  key={binding.id}
-                  direction="vertical"
-                  style={{ width: "100%", border: "1px solid #f0f0f0", borderRadius: 8, padding: 8 }}
-                >
-                  <Space wrap>
-                    <Typography.Text>{binding.displayName} ({binding.key})</Typography.Text>
-                    <Tag color="blue">{binding.kind}</Tag>
-                    {binding.dataType ? <Tag color="geekblue">{binding.dataType}</Tag> : null}
-                    {required ? <Tag color="red">Required</Tag> : <Tag>Optional</Tag>}
-                  </Space>
-                  {debug ? (
-                    <Typography.Text copyable={Boolean(debug.resolvedTag)} type="secondary" style={{ fontSize: 12 }}>
-                      Resolved: {debug.resolvedTag || "—"}
-                    </Typography.Text>
-                  ) : issue ? (
-                    <Typography.Text type="danger" style={{ fontSize: 12 }}>
-                      Missing required binding
-                    </Typography.Text>
-                  ) : (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      Resolved: —
-                    </Typography.Text>
-                  )}
-                  {debug ? (
-                    <Space size={6} wrap>
-                      <Tag color={debug.tagExists === false ? "orange" : debug.tagExists === true ? "green" : "default"}>
-                        {debug.tagExists === false ? "missing" : debug.tagExists === true ? "exists" : "unknown"}
-                      </Tag>
-                      {debug.tagQuality ? <Tag>{debug.tagQuality}</Tag> : null}
-                      {debug.indexOffsetValue !== undefined ? <Tag>index {debug.indexOffsetValue}</Tag> : null}
-                    </Space>
-                  ) : null}
-                  <Typography.Text type="secondary">Base tag</Typography.Text>
-                  <TagPicker
-                    project={project}
-                    value={assignment.baseTag}
-                    onChange={(tag) => patchBindingAssignment(binding.key, { baseTag: tag ?? "" })}
-                  />
-                  <Input
-                    value={assignment.baseTag}
-                    placeholder={binding.defaultBaseTag ?? ".State"}
-                    onChange={(event) => patchBindingAssignment(binding.key, { baseTag: event.target.value })}
-                  />
-                  <Space wrap style={{ width: "100%" }}>
-                    <Input
-                      style={{ width: 130 }}
-                      addonBefore="Prefix"
-                      value={assignment.prefix ?? ""}
-                      onChange={(event) => patchBindingAssignment(binding.key, { prefix: event.target.value })}
-                    />
-                    <Select
-                      style={{ minWidth: 230 }}
-                      value={prefixModeValue}
-                      options={[
-                        { label: "No prefix", value: "none" },
-                        ...segments.map((segment, segmentIndex) => ({
-                          label: `Segment ${segmentIndex}: ${segment} (append)`,
-                          value: `segment:${segmentIndex}:append`,
-                        })),
-                        ...segments.map((segment, segmentIndex) => ({
-                          label: `Segment ${segmentIndex}: ${segment} (prepend)`,
-                          value: `segment:${segmentIndex}:prepend`,
-                        })),
-                        ...segmentNames.map((segmentName) => ({
-                          label: `Segment "${segmentName}" (append)`,
-                          value: `segmentByName:${segmentName}:append`,
-                        })),
-                        ...segmentNames.map((segmentName) => ({
-                          label: `Segment "${segmentName}" (prepend)`,
-                          value: `segmentByName:${segmentName}:prepend`,
-                        })),
-                        { label: "Last segment (append)", value: "last:append" },
-                        { label: "Last segment (prepend)", value: "last:prepend" },
-                      ]}
-                      onChange={(value) => {
-                        if (value === "none") {
-                          patchBindingAssignment(binding.key, { prefixMode: { type: "none" } });
-                          return;
-                        }
-                        if (value.startsWith("segment:")) {
-                          const [, indexToken, positionToken] = value.split(":");
-                          patchBindingAssignment(binding.key, {
-                            prefixMode: {
-                              type: "segment",
-                              segmentIndex: Number(indexToken ?? 0),
-                              position: positionToken === "prepend" ? "prepend" : "append",
-                            },
-                          });
-                          return;
-                        }
-                        if (value.startsWith("segmentByName:")) {
-                          const [, segmentNameToken, positionToken] = value.split(":");
-                          patchBindingAssignment(binding.key, {
-                            prefixMode: {
-                              type: "segmentByName",
-                              segmentName: segmentNameToken ?? "",
-                              position: positionToken === "prepend" ? "prepend" : "append",
-                            },
-                          });
-                          return;
-                        }
-                        if (value.startsWith("last:")) {
-                          const [, positionToken] = value.split(":");
-                          patchBindingAssignment(binding.key, {
-                            prefixMode: {
-                              type: "lastSegment",
-                              position: positionToken === "prepend" ? "prepend" : "append",
-                            },
-                          });
-                        }
-                      }}
-                    />
-                  </Space>
-                  <RuntimeValueSourceEditor
-                    label="Prefix"
-                    value={assignment.prefixSource}
-                    valueType="string"
-                    project={project}
-                    onChange={(nextSource) => patchBindingAssignment(binding.key, { prefixSource: nextSource })}
-                  />
-                  <Space wrap style={{ width: "100%" }}>
-                    <InputNumber
-                      style={{ width: 130 }}
-                      placeholder="Index offset"
-                      value={assignment.indexOffset}
-                      onChange={(value) => patchBindingAssignment(binding.key, { indexOffset: Number(value ?? 0) })}
-                    />
-                    <Select
-                      style={{ minWidth: 260 }}
-                      value={indexModeValue}
-                      options={[
-                        { label: "No index transform", value: "none" },
-                        ...arrayTargets.map((target, targetIndex) => ({
-                          label: `Array index ${targetIndex}: ${target.segment}`,
-                          value: `arrayIndex:${targetIndex}`,
-                        })),
-                        ...arrayTargets.map((target) => {
-                          const segmentName = target.segment.split("[")[0] ?? target.segment;
-                          return {
-                            label: `By segment ${segmentName}`,
-                            value: `arrayBySegment:${segmentName}`,
-                          };
-                        }),
-                      ]}
-                      onChange={(value) => {
-                        if (value === "none") {
-                          patchBindingAssignment(binding.key, { indexMode: { type: "none" } });
-                          return;
-                        }
-                        if (value.startsWith("arrayIndex:")) {
-                          const [, occurrenceToken] = value.split(":");
-                          patchBindingAssignment(binding.key, {
-                            indexMode: {
-                              type: "arrayIndex",
-                              occurrence: Number(occurrenceToken ?? 0),
-                              operation: "add",
-                              valueFrom: "indexOffset",
-                            },
-                          });
-                          return;
-                        }
-                        if (value.startsWith("arrayBySegment:")) {
-                          const [, segmentName] = value.split(":");
-                          patchBindingAssignment(binding.key, {
-                            indexMode: {
-                              type: "arrayIndexBySegment",
-                              segmentName: segmentName ?? "",
-                              operation: "add",
-                              valueFrom: "indexOffset",
-                            },
-                          });
-                        }
-                      }}
-                    />
-                  </Space>
-                  <RuntimeValueSourceEditor
-                    label="Index Offset"
-                    value={assignment.indexOffsetSource}
-                    valueType="number"
-                    project={project}
-                    onChange={(nextSource) => patchBindingAssignment(binding.key, { indexOffsetSource: nextSource })}
-                  />
-                  <Typography.Text type="secondary">Override tag</Typography.Text>
-                  <RuntimeValueSourceEditor
-                    label="Override Tag"
-                    value={assignment.overrideTagSource}
-                    valueType="string"
-                    project={project}
-                    onChange={(nextSource) => patchBindingAssignment(binding.key, { overrideTagSource: nextSource })}
-                  />
-                  {canOverride ? (
-                    <TagPicker
-                      project={project}
-                      value={assignment.overrideTag ?? ""}
-                      onChange={(tag) => patchBindingAssignment(binding.key, { overrideTag: tag ?? "" })}
-                    />
-                  ) : null}
-                  <Input
-                    value={assignment.overrideTag ?? ""}
-                    placeholder={canOverride ? "Optional exact resolved tag" : "Override is disabled for this binding"}
-                    disabled={!canOverride}
-                    onChange={(event) => patchBindingAssignment(binding.key, { overrideTag: event.target.value })}
-                  />
-                  <Space wrap>
-                    <Typography.Text type="secondary">Resolved:</Typography.Text>
-                    <Typography.Text code>{resolvedTag || "<empty>"}</Typography.Text>
-                    <Tag color="blue">prefix: {prefixCurrentValue === undefined ? "<undefined>" : String(prefixCurrentValue)}</Tag>
-                    <Tag color="geekblue">index: {indexCurrentValue === undefined ? "<undefined>" : String(indexCurrentValue)}</Tag>
-                    {isMissingRequired ? (
-                      <Tag color="red">Required binding is missing</Tag>
-                    ) : resolvedTag ? (
-                      <Tag color={tagExists ? "green" : "gold"}>{tagExists ? "Tag found" : "Tag not found"}</Tag>
-                    ) : (
-                      <Tag color="default">Not assigned</Tag>
-                    )}
-                  </Space>
-                  <Button size="small" danger onClick={() => removeBindingAssignment(binding.key)}>
-                    Clear assignment
-                  </Button>
-                </Space>
-              );
-            })
-          ) : (
-            <Typography.Text type="secondary">
-              This library element has no Signals. Add Signals in Libraries -&gt; Interface.
-            </Typography.Text>
-          )}
-          <Form.Item label="Signal Tag Bindings (JSON advanced)">
-            <Input.TextArea
-              rows={5}
-              value={JSON.stringify(bindingAssignments, null, 2)}
-              onChange={(e) => {
-                try {
-                  const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
-                  onPatch({ bindingAssignments: parsed } as Partial<HmiObject>);
-                } catch {
-                  // ignore invalid JSON while typing
-                }
-              }}
-            />
-          </Form.Item>
-        </>
-        <Divider orientation="left" style={{ marginTop: 16 }}>Resolved Signals Debug</Divider>
-        {!selectedElement ? (
-          <Typography.Text type="secondary">Library element not found</Typography.Text>
-        ) : null}
-        {bindingDebug?.issues.length ? (
-          <Space direction="vertical" style={{ width: "100%" }} size={4}>
-            {bindingDebug.issues.map((issue) => (
-              <Typography.Text key={issue.key} type="danger" style={{ fontSize: 12 }}>
-                Missing required binding: {issue.displayName ?? issue.key}
-              </Typography.Text>
-            ))}
-          </Space>
-        ) : null}
-        {bindingDebug && Object.keys(bindingDebug.debug).length > 0 ? (
-          <Space direction="vertical" style={{ width: "100%" }} size={8}>
-            {Object.entries(bindingDebug.debug).map(([key, debug]) => (
-              <div
-                key={key}
-                style={{
-                  border: "1px solid #303030",
-                  borderRadius: 6,
-                  padding: 8,
-                  background: "rgba(255,255,255,0.02)",
-                }}
-              >
-                <Space direction="vertical" style={{ width: "100%" }} size={2}>
-                  <Typography.Text strong>{key}</Typography.Text>
-                  <Typography.Text style={{ fontSize: 12 }}>Base: {debug.baseTag || "—"}</Typography.Text>
-                  {debug.prefixValue !== undefined ? (
-                    <Typography.Text style={{ fontSize: 12 }}>Prefix: {String(debug.prefixValue)}</Typography.Text>
-                  ) : null}
-                  {debug.indexOffsetValue !== undefined ? (
-                    <Typography.Text style={{ fontSize: 12 }}>Index offset: {String(debug.indexOffsetValue)}</Typography.Text>
-                  ) : null}
-                  {debug.overrideTagValue !== undefined ? (
-                    <Typography.Text style={{ fontSize: 12 }}>Override: {String(debug.overrideTagValue)}</Typography.Text>
-                  ) : null}
-                  <Typography.Text copyable style={{ fontSize: 12 }}>
-                    Resolved: {debug.resolvedTag || "—"}
-                  </Typography.Text>
-                  <Typography.Text style={{ fontSize: 12 }}>
-                    Exists: {debug.tagExists === undefined ? "unknown" : debug.tagExists ? "yes" : "no"}
-                  </Typography.Text>
-                  <Typography.Text style={{ fontSize: 12 }}>
-                    Quality: {debug.tagQuality ?? "—"}
-                  </Typography.Text>
-                  <Typography.Text style={{ fontSize: 12 }}>
-                    Value: {debug.tagValue === undefined ? "—" : JSON.stringify(debug.tagValue)}
-                  </Typography.Text>
-                </Space>
-              </div>
-            ))}
-          </Space>
-        ) : selectedElement ? (
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            No resolved bindings yet. Check binding assignments and defaultBaseTag.
-          </Typography.Text>
-        ) : null}
-        </details>
         {selectedElement?.parameters?.length ? (
           <>
             <Typography.Text type="secondary">
@@ -3194,27 +2579,9 @@ function SpecificPropertyFields({
         ) : (
           <Typography.Text type="secondary">No parameters.</Typography.Text>
         )}
-        <details className="screen-editor-advanced-section">
-          <summary>Advanced Parameters</summary>
-          <Form.Item label="Parameter Values (JSON advanced)">
-            <Input.TextArea
-              rows={4}
-              value={JSON.stringify(object.parameterValues ?? {}, null, 2)}
-              onChange={(e) => {
-                try {
-                  const parsed = JSON.parse(e.target.value) as Record<string, unknown>;
-                  onPatch({ parameterValues: parsed } as Partial<HmiObject>);
-                } catch {
-                  // ignore invalid JSON while typing
-                }
-              }}
-            />
-          </Form.Item>
-        </details>
       </>
     );
   }
-
   if (object.type === "valve") {
     return (
       <>
@@ -4184,5 +3551,6 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
+
 
 

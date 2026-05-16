@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-16T09:51:54.943Z",
+  "updatedAt": "2026-05-16T10:02:33.435Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -170,7 +170,7 @@
           "displayName": "open",
           "description": "",
           "kind": "tag",
-          "dataType": "BOOL",
+          "dataType": "INT",
           "required": false,
           "defaultBaseTag": "",
           "overridable": true
@@ -181,7 +181,7 @@
           "displayName": "closed",
           "description": "",
           "kind": "tag",
-          "dataType": "BOOL",
+          "dataType": "INT",
           "required": false,
           "defaultBaseTag": "",
           "overridable": true
@@ -198,10 +198,11 @@
           },
           "cases": [
             {
-              "id": "case_e72fm9",
+              "id": "case_up84d9",
               "name": "when",
               "condition": {
-                "type": "true"
+                "type": "greaterThan",
+                "value": 0
               },
               "actions": [
                 {
@@ -220,17 +221,18 @@
         },
         {
           "id": "rule_wiluuu",
-          "name": "Visual Rule 2",
+          "name": "Visual Rule",
           "source": {
             "type": "tag",
             "value": "$binding.closed"
           },
           "cases": [
             {
-              "id": "case_jp2my4",
+              "id": "case_0hmpm4",
               "name": "when",
               "condition": {
-                "type": "true"
+                "type": "equals",
+                "value": 0
               },
               "actions": [
                 {
@@ -249,7 +251,7 @@
         }
       ],
       "createdAt": "2026-05-15T16:26:31.988Z",
-      "updatedAt": "2026-05-16T09:51:54.942Z"
+      "updatedAt": "2026-05-16T10:02:33.435Z"
     }
   ],
   "macros": []

@@ -10350,11 +10350,31 @@
           "y": 813.1289134653545,
           "width": 156.88062310601777,
           "height": 76,
+          "rotation": 0,
           "minWidth": 60,
           "minHeight": 40,
           "libraryId": "amaks-basic-equipment",
           "elementId": "element_usnbz5",
-          "bindingAssignments": {},
+          "bindingAssignments": {
+            "open": {
+              "baseTag": "Counter2",
+              "prefixMode": {
+                "type": "none"
+              },
+              "indexMode": {
+                "type": "none"
+              }
+            },
+            "closed": {
+              "baseTag": "Counter2",
+              "prefixMode": {
+                "type": "none"
+              },
+              "indexMode": {
+                "type": "none"
+              }
+            }
+          },
           "scaleMode": "fit"
         }
       ]
