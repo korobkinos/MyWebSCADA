@@ -1272,8 +1272,38 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const handleRequestNumericInput = (payload: NumericInputOpenPayload) => {
     const dialogWidth = Number.isFinite(payload.dialogWidth) ? Math.max(220, Math.round(payload.dialogWidth!)) : 300;
     const dialogHeight = Number.isFinite(payload.dialogHeight) ? Math.max(120, Math.round(payload.dialogHeight!)) : 150;
-    const dialogX = Number.isFinite(payload.dialogX) ? Math.round(payload.dialogX!) : 200;
-    const dialogY = Number.isFinite(payload.dialogY) ? Math.round(payload.dialogY!) : 150;
+    const placement = payload.dialogPlacement ?? "custom";
+    const fallbackX = Number.isFinite(payload.dialogX) ? Math.round(payload.dialogX!) : 200;
+    const fallbackY = Number.isFinite(payload.dialogY) ? Math.round(payload.dialogY!) : 150;
+    let dialogX = fallbackX;
+    let dialogY = fallbackY;
+
+    if (placement !== "custom" && payload.sourceClientRect) {
+      const margin = Number.isFinite(payload.dialogOffset) ? Math.max(0, Math.round(payload.dialogOffset!)) : 12;
+      const { left, top, width, height } = payload.sourceClientRect;
+      const centerX = left + width / 2;
+      const centerY = top + height / 2;
+      if (placement === "top") {
+        dialogX = Math.round(centerX - dialogWidth / 2);
+        dialogY = Math.round(top - dialogHeight - margin);
+      } else if (placement === "bottom") {
+        dialogX = Math.round(centerX - dialogWidth / 2);
+        dialogY = Math.round(top + height + margin);
+      } else if (placement === "left") {
+        dialogX = Math.round(left - dialogWidth - margin);
+        dialogY = Math.round(centerY - dialogHeight / 2);
+      } else if (placement === "right") {
+        dialogX = Math.round(left + width + margin);
+        dialogY = Math.round(centerY - dialogHeight / 2);
+      }
+    }
+
+    const minOffset = 8;
+    const maxX = Math.max(minOffset, window.innerWidth - dialogWidth - minOffset);
+    const maxY = Math.max(minOffset, window.innerHeight - dialogHeight - minOffset);
+    dialogX = Math.min(maxX, Math.max(minOffset, dialogX));
+    dialogY = Math.min(maxY, Math.max(minOffset, dialogY));
+
     const dialogState: NumericInputDialogState = {
       objectId: payload.objectId,
       objectName: payload.objectName,

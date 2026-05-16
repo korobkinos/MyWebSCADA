@@ -322,8 +322,11 @@ export type NumericInputOpenPayload = {
   dialogTitle?: string;
   dialogWidth?: number;
   dialogHeight?: number;
+  dialogPlacement?: "custom" | "top" | "right" | "bottom" | "left";
+  dialogOffset?: number;
   dialogX?: number;
   dialogY?: number;
+  sourceClientRect?: { left: number; top: number; width: number; height: number };
   dialogBackgroundColor?: string;
   dialogTextColor?: string;
   dialogBorderColor?: string;
@@ -2668,6 +2671,20 @@ function ObjectNode({
           if (!targetTag) {
             return;
           }
+          const sourceClientRect = (() => {
+            const stage = evt.currentTarget.getStage();
+            const containerRect = stage?.container().getBoundingClientRect();
+            const nodeRect = evt.currentTarget.getClientRect({ skipShadow: true, skipStroke: true });
+            if (!containerRect || !Number.isFinite(nodeRect.x) || !Number.isFinite(nodeRect.y)) {
+              return undefined;
+            }
+            return {
+              left: containerRect.left + nodeRect.x,
+              top: containerRect.top + nodeRect.y,
+              width: Math.max(1, nodeRect.width),
+              height: Math.max(1, nodeRect.height),
+            };
+          })();
           onRequestNumericInput?.({
             objectId: resolvedObject.id,
             objectName: numObjName ?? "Numeric Input",
@@ -2690,8 +2707,11 @@ function ObjectNode({
             dialogTitle: resolvedObject.dialogTitle,
             dialogWidth: resolvedObject.dialogWidth,
             dialogHeight: resolvedObject.dialogHeight,
+            dialogPlacement: resolvedObject.dialogPlacement,
+            dialogOffset: resolvedObject.dialogOffset,
             dialogX: resolvedObject.dialogX,
             dialogY: resolvedObject.dialogY,
+            sourceClientRect,
             dialogBackgroundColor: resolvedObject.dialogBackgroundColor,
             dialogTextColor: resolvedObject.dialogTextColor,
             dialogBorderColor: resolvedObject.dialogBorderColor,

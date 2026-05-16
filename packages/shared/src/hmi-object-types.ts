@@ -595,6 +595,8 @@ export type NumericInputObject = HmiObjectBase & {
   dialogTitle?: string;
   dialogWidth?: number;
   dialogHeight?: number;
+  dialogPlacement?: "custom" | "top" | "right" | "bottom" | "left";
+  dialogOffset?: number;
   dialogX?: number;
   dialogY?: number;
   dialogBackgroundColor?: string;

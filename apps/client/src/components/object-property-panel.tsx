@@ -3309,11 +3309,44 @@ function SpecificPropertyFields({
         <Form.Item label="Dialog Height">
           <InputNumber style={{ width: "100%" }} min={120} max={480} value={object.dialogHeight ?? 150} onChange={(v) => onPatch({ dialogHeight: Number(v ?? 150) } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Dialog Position">
+          <Select
+            value={object.dialogPlacement ?? "custom"}
+            onChange={(value) => onPatch({ dialogPlacement: value } as Partial<HmiObject>)}
+            options={[
+              { value: "custom", label: "Custom (X/Y)" },
+              { value: "top", label: "Top of field" },
+              { value: "right", label: "Right of field" },
+              { value: "bottom", label: "Bottom of field" },
+              { value: "left", label: "Left of field" },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item label="Dialog Offset">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            max={120}
+            disabled={(object.dialogPlacement ?? "custom") === "custom"}
+            value={object.dialogOffset ?? 12}
+            onChange={(v) => onPatch({ dialogOffset: Math.max(0, Number(v ?? 12)) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
         <Form.Item label="Dialog X">
-          <InputNumber style={{ width: "100%" }} value={object.dialogX ?? 200} onChange={(v) => onPatch({ dialogX: Number(v ?? 200) } as Partial<HmiObject>)} />
+          <InputNumber
+            style={{ width: "100%" }}
+            disabled={(object.dialogPlacement ?? "custom") !== "custom"}
+            value={object.dialogX ?? 200}
+            onChange={(v) => onPatch({ dialogX: Number(v ?? 200) } as Partial<HmiObject>)}
+          />
         </Form.Item>
         <Form.Item label="Dialog Y">
-          <InputNumber style={{ width: "100%" }} value={object.dialogY ?? 150} onChange={(v) => onPatch({ dialogY: Number(v ?? 150) } as Partial<HmiObject>)} />
+          <InputNumber
+            style={{ width: "100%" }}
+            disabled={(object.dialogPlacement ?? "custom") !== "custom"}
+            value={object.dialogY ?? 150}
+            onChange={(v) => onPatch({ dialogY: Number(v ?? 150) } as Partial<HmiObject>)}
+          />
         </Form.Item>
         <Form.Item label="Dialog Background">
           <ColorPicker value={object.dialogBackgroundColor ?? "#252526"} onChange={(c: any) => onPatch({ dialogBackgroundColor: normalizePickerColor(c.toHexString?.() ?? c, "#252526") } as Partial<HmiObject>)} />

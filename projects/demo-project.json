@@ -10091,8 +10091,8 @@
         {
           "id": "lib_3lrfc7",
           "type": "libraryElementInstance",
-          "x": 409.3895242628337,
-          "y": 751.9017888760055,
+          "x": 425.57666363235586,
+          "y": 721.1774139194483,
           "width": 154.82538148765616,
           "height": 163.21902324907887,
           "minWidth": 60,
@@ -10138,7 +10138,10 @@
           "borderColor": "#3c3c3c",
           "borderWidth": 1,
           "cornerRadius": 4,
-          "textAlign": "center"
+          "textAlign": "center",
+          "dialogTitle": "ЗАЛУПА",
+          "dialogPlacement": "top",
+          "dialogOffset": 20
         },
         {
           "id": "group_m1tqiy",

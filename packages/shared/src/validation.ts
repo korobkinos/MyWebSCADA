@@ -704,6 +704,8 @@ const numericInputObjectSchema = hmiBaseSchema.extend({
   dialogTitle: z.string().optional(),
   dialogWidth: z.number().optional(),
   dialogHeight: z.number().optional(),
+  dialogPlacement: z.enum(["custom", "top", "right", "bottom", "left"]).optional(),
+  dialogOffset: z.number().optional(),
   dialogX: z.number().optional(),
   dialogY: z.number().optional(),
   dialogBackgroundColor: z.string().optional(),

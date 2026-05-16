@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-16T19:27:00.349Z",
+  "updatedAt": "2026-05-16T19:50:07.670Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -303,10 +303,36 @@
               ]
             }
           ]
+        },
+        {
+          "id": "rule_axeaso",
+          "name": "Visual Rule 3",
+          "source": {
+            "type": "tag",
+            "value": "$binding.open_bool"
+          },
+          "cases": [
+            {
+              "id": "case_h4fm9w",
+              "name": "when",
+              "condition": {
+                "type": "equals",
+                "value": true
+              },
+              "actions": [
+                {
+                  "type": "setProperty",
+                  "objectId": "checkbox_l8q0qu",
+                  "property": "checkedColor",
+                  "value": "#ffffff"
+                }
+              ]
+            }
+          ]
         }
       ],
       "createdAt": "2026-05-16T16:47:26.069Z",
-      "updatedAt": "2026-05-16T19:27:00.348Z"
+      "updatedAt": "2026-05-16T19:50:07.669Z"
     },
     {
       "id": "element_4lz46k",

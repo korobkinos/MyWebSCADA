@@ -488,6 +488,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         dialogTitle: "Set Value",
         dialogWidth: 300,
         dialogHeight: 150,
+        dialogPlacement: "custom",
+        dialogOffset: 12,
         dialogX: 200,
         dialogY: 150,
         dialogBackgroundColor: "#252526",
