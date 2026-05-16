@@ -152,5 +152,61 @@ function patchObjectByStateAction(object: HmiObject, action: ElementStateAction)
     return object;
   }
 
+  if (action.type === "setProperty") {
+    return setObjectPropertyValue(object, action.property, action.value);
+  }
+
   return object;
+}
+
+function setObjectPropertyValue(object: HmiObject, propertyPath: string, nextValue: string | number | boolean | null): HmiObject {
+  const segments = propertyPath.split(".").map((segment) => segment.trim()).filter(Boolean);
+  if (!isSafePropertyPath(segments)) {
+    return object;
+  }
+  if (segments.length === 0) {
+    return object;
+  }
+  const [first] = segments;
+  if (!first || first === "id" || first === "type" || first === "objects") {
+    return object;
+  }
+
+  const clone = structuredClone(object) as Record<string, unknown>;
+  let current: Record<string, unknown> = clone;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const key = segments[index];
+    if (!key) {
+      return object;
+    }
+    const value = current[key];
+    if (value === null || value === undefined) {
+      current[key] = {};
+      current = current[key] as Record<string, unknown>;
+      continue;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      return object;
+    }
+    current = value as Record<string, unknown>;
+  }
+
+  const leaf = segments[segments.length - 1];
+  if (!leaf) {
+    return object;
+  }
+  current[leaf] = nextValue;
+  return clone as HmiObject;
+}
+
+function isSafePropertyPath(segments: string[]): boolean {
+  if (segments.length === 0) {
+    return false;
+  }
+  return segments.every((segment) => (
+    /^[a-zA-Z0-9_]+$/.test(segment)
+    && segment !== "__proto__"
+    && segment !== "prototype"
+    && segment !== "constructor"
+  ));
 }

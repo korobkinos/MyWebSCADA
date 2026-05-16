@@ -35,7 +35,7 @@ type ScreenEditorLibrariesWindowProps = {
 
 type TabId = "elements" | "assets" | "macros" | "metadata" | "interface";
 type VisualRuleConditionType = ElementStateCase["condition"]["type"];
-type VisualRuleActionKind = "visible" | "asset" | "text" | "fill" | "stroke";
+type VisualRuleValueKind = "string" | "number" | "boolean" | "color" | "asset";
 type ApiErrorWithDetails = Error & { status?: number; details?: unknown };
 
 type SignalDialogState = {
@@ -63,7 +63,8 @@ type SignalKeyMigrationDialogState = {
 type VisualRuleActionDraft = {
   id: string;
   objectId: string;
-  type: VisualRuleActionKind;
+  property: string;
+  kind: VisualRuleValueKind;
   value: string;
 };
 
@@ -112,6 +113,12 @@ type FlatObjectOption = {
   id: string;
   type: HmiObject["type"];
   label: string;
+};
+
+type VisualRulePropertyOption = {
+  path: string;
+  label: string;
+  kind: VisualRuleValueKind;
 };
 
 const DATA_TYPE_OPTIONS: Array<NonNullable<ElementBindingDefinition["dataType"]>> = ["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"];
@@ -192,10 +199,47 @@ function parseScalarToken(rawValue: string): string | number | boolean {
   return trimmed;
 }
 
+const ROOT_PROPERTY_BLOCKLIST = new Set([
+  "id",
+  "type",
+  "name",
+  "objects",
+  "bindings",
+  "bindingAssignments",
+  "parameterValues",
+  "action",
+  "tagIndexing",
+  "tagIndexingByField",
+]);
+
+const TYPE_PROPERTY_HINTS: Partial<Record<HmiObject["type"], Array<{ path: string; kind: VisualRuleValueKind }>>> = {
+  group: [{ path: "visible", kind: "boolean" }, { path: "opacity", kind: "number" }],
+  text: [{ path: "text", kind: "string" }, { path: "visible", kind: "boolean" }, { path: "textStyle.color", kind: "color" }, { path: "textStyle.fontSize", kind: "number" }],
+  line: [{ path: "visible", kind: "boolean" }, { path: "stroke", kind: "color" }, { path: "fill", kind: "color" }, { path: "strokeWidth", kind: "number" }],
+  rectangle: [{ path: "visible", kind: "boolean" }, { path: "fill", kind: "color" }, { path: "stroke", kind: "color" }, { path: "strokeWidth", kind: "number" }],
+  "value-display": [{ path: "visible", kind: "boolean" }, { path: "suffix", kind: "string" }, { path: "textStyle.color", kind: "color" }],
+  "value-input": [{ path: "visible", kind: "boolean" }, { path: "suffix", kind: "string" }, { path: "textStyle.color", kind: "color" }],
+  "state-indicator": [{ path: "visible", kind: "boolean" }, { path: "trueColor", kind: "color" }, { path: "falseColor", kind: "color" }, { path: "textStyle.color", kind: "color" }],
+  button: [{ path: "visible", kind: "boolean" }, { path: "text", kind: "string" }, { path: "backgroundColor", kind: "color" }, { path: "borderColor", kind: "color" }, { path: "textStyle.color", kind: "color" }],
+  switch: [{ path: "visible", kind: "boolean" }, { path: "onText", kind: "string" }, { path: "offText", kind: "string" }, { path: "onColor", kind: "color" }, { path: "offColor", kind: "color" }],
+  image: [{ path: "visible", kind: "boolean" }, { path: "assetId", kind: "asset" }, { path: "fit", kind: "string" }, { path: "opacity", kind: "number" }],
+  stateImage: [{ path: "visible", kind: "boolean" }, { path: "defaultAssetId", kind: "asset" }, { path: "badQualityAssetId", kind: "asset" }, { path: "fit", kind: "string" }],
+  valueSelect: [{ path: "visible", kind: "boolean" }, { path: "textStyle.color", kind: "color" }],
+  frame: [{ path: "visible", kind: "boolean" }, { path: "showBorder", kind: "boolean" }, { path: "borderColor", kind: "color" }, { path: "borderWidth", kind: "number" }],
+  checkbox: [{ path: "visible", kind: "boolean" }, { path: "label", kind: "string" }, { path: "checkedColor", kind: "color" }, { path: "uncheckedColor", kind: "color" }],
+  slider: [{ path: "visible", kind: "boolean" }, { path: "fillColor", kind: "color" }, { path: "trackColor", kind: "color" }, { path: "thumbColor", kind: "color" }, { path: "fontSize", kind: "number" }],
+  "progress-bar": [{ path: "visible", kind: "boolean" }, { path: "fillColor", kind: "color" }, { path: "trackColor", kind: "color" }, { path: "textColor", kind: "color" }, { path: "fontSize", kind: "number" }],
+  select: [{ path: "visible", kind: "boolean" }, { path: "placeholder", kind: "string" }, { path: "backgroundColor", kind: "color" }, { path: "textColor", kind: "color" }, { path: "fontSize", kind: "number" }],
+  "radio-group": [{ path: "visible", kind: "boolean" }, { path: "selectedColor", kind: "color" }, { path: "unselectedColor", kind: "color" }, { path: "labelColor", kind: "color" }, { path: "fontSize", kind: "number" }],
+  "numeric-input": [{ path: "visible", kind: "boolean" }, { path: "placeholder", kind: "string" }, { path: "textColor", kind: "color" }, { path: "backgroundColor", kind: "color" }, { path: "fontSize", kind: "number" }],
+  valve: [{ path: "visible", kind: "boolean" }, { path: "label", kind: "string" }],
+  pump: [{ path: "visible", kind: "boolean" }, { path: "label", kind: "string" }],
+};
+
 function flattenElementObjects(objects: HmiObject[], depth = 0): FlatObjectOption[] {
   const rows: FlatObjectOption[] = [];
   for (const item of objects) {
-    const indent = depth > 0 ? `${"  ".repeat(depth)}• ` : "";
+    const indent = depth > 0 ? `${"  ".repeat(depth)}- ` : "";
     rows.push({
       id: item.id,
       type: item.type,
@@ -208,12 +252,142 @@ function flattenElementObjects(objects: HmiObject[], depth = 0): FlatObjectOptio
   return rows;
 }
 
+function flattenObjectMap(objects: HmiObject[]): Map<string, HmiObject> {
+  const map = new Map<string, HmiObject>();
+  const scan = (items: HmiObject[]) => {
+    for (const item of items) {
+      map.set(item.id, item);
+      if (item.type === "group") {
+        scan(item.objects);
+      }
+    }
+  };
+  scan(objects);
+  return map;
+}
+
+function inferVisualRuleValueKind(path: string, rawValue: unknown): VisualRuleValueKind {
+  if (typeof rawValue === "boolean") {
+    return "boolean";
+  }
+  if (typeof rawValue === "number") {
+    return "number";
+  }
+  const leaf = path.split(".").pop()?.toLowerCase() ?? "";
+  if (leaf === "assetid" || leaf.endsWith("assetid")) {
+    return "asset";
+  }
+  if (leaf.includes("color") || leaf === "fill" || leaf === "stroke") {
+    return "color";
+  }
+  return "string";
+}
+
+function collectObjectScalarProperties(
+  object: unknown,
+  prefix = "",
+  depth = 0,
+  target: Array<{ path: string; kind: VisualRuleValueKind }> = [],
+): Array<{ path: string; kind: VisualRuleValueKind }> {
+  if (!object || typeof object !== "object" || Array.isArray(object) || depth > 2) {
+    return target;
+  }
+  const rows = Object.entries(object as Record<string, unknown>);
+  for (const [key, value] of rows) {
+    if (!key) {
+      continue;
+    }
+    if (depth === 0 && ROOT_PROPERTY_BLOCKLIST.has(key)) {
+      continue;
+    }
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      target.push({ path, kind: inferVisualRuleValueKind(path, value) });
+      continue;
+    }
+    if (typeof value === "object" && !Array.isArray(value)) {
+      collectObjectScalarProperties(value, path, depth + 1, target);
+    }
+  }
+  return target;
+}
+
+function getObjectPropertyOptions(object: HmiObject | undefined): VisualRulePropertyOption[] {
+  if (!object) {
+    return [];
+  }
+  const dynamic = collectObjectScalarProperties(object).map((item) => ({
+    path: item.path,
+    label: item.path,
+    kind: item.kind,
+  }));
+  const hinted = (TYPE_PROPERTY_HINTS[object.type] ?? []).map((item) => ({
+    path: item.path,
+    label: item.path,
+    kind: item.kind,
+  }));
+  const map = new Map<string, VisualRulePropertyOption>();
+  for (const option of [...hinted, ...dynamic]) {
+    if (!map.has(option.path)) {
+      map.set(option.path, option);
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function normalizeValueForKind(kind: VisualRuleValueKind, raw: string): string {
+  if (kind === "boolean") {
+    return raw === "false" ? "false" : "true";
+  }
+  if (kind === "number") {
+    const nextNumber = Number(raw);
+    return Number.isFinite(nextNumber) ? String(nextNumber) : "0";
+  }
+  if (kind === "color") {
+    return /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(raw) ? raw : "#ffffff";
+  }
+  return raw;
+}
+
+function defaultValueForKind(kind: VisualRuleValueKind): string {
+  if (kind === "boolean") {
+    return "true";
+  }
+  if (kind === "number") {
+    return "0";
+  }
+  if (kind === "color") {
+    return "#ffffff";
+  }
+  return "";
+}
+
+function createDefaultVisualRuleAction(
+  objectId: string,
+  options: VisualRulePropertyOption[],
+): VisualRuleActionDraft {
+  const preferredOrder = ["fill", "stroke", "text", "assetId", "visible"];
+  const selectedOption = preferredOrder
+    .map((path) => options.find((option) => option.path === path))
+    .find(Boolean)
+    ?? options[0];
+  const kind = selectedOption?.kind ?? "string";
+  return {
+    id: createId("action"),
+    objectId,
+    property: selectedOption?.path ?? "visible",
+    kind,
+    value: defaultValueForKind(kind),
+  };
+}
+
 function toVisualActionDraft(action: ElementStateAction): VisualRuleActionDraft {
   if (action.type === "setVisible") {
     return {
       id: createId("act"),
       objectId: action.objectId,
-      type: "visible",
+      property: "visible",
+      kind: "boolean",
       value: action.visible ? "true" : "false",
     };
   }
@@ -221,7 +395,8 @@ function toVisualActionDraft(action: ElementStateAction): VisualRuleActionDraft 
     return {
       id: createId("act"),
       objectId: action.objectId,
-      type: "asset",
+      property: "assetId",
+      kind: "asset",
       value: action.assetId,
     };
   }
@@ -229,7 +404,8 @@ function toVisualActionDraft(action: ElementStateAction): VisualRuleActionDraft 
     return {
       id: createId("act"),
       objectId: action.objectId,
-      type: "text",
+      property: "text",
+      kind: "string",
       value: action.text,
     };
   }
@@ -237,54 +413,53 @@ function toVisualActionDraft(action: ElementStateAction): VisualRuleActionDraft 
     return {
       id: createId("act"),
       objectId: action.objectId,
-      type: "fill",
+      property: "fill",
+      kind: "color",
+      value: action.color,
+    };
+  }
+  if (action.type === "setStroke") {
+    return {
+      id: createId("act"),
+      objectId: action.objectId,
+      property: "stroke",
+      kind: "color",
       value: action.color,
     };
   }
   return {
     id: createId("act"),
     objectId: action.objectId,
-    type: "stroke",
-    value: action.color,
+    property: action.property,
+    kind: inferVisualRuleValueKind(action.property, action.value),
+    value: String(action.value ?? ""),
   };
 }
 
 function fromVisualActionDraft(action: VisualRuleActionDraft): ElementStateAction {
-  if (action.type === "visible") {
+  if (action.kind === "boolean") {
     return {
-      type: "setVisible",
+      type: "setProperty",
       objectId: action.objectId,
-      visible: action.value === "true",
+      property: action.property,
+      value: action.value === "true",
     };
   }
-  if (action.type === "asset") {
+  if (action.kind === "number") {
     return {
-      type: "setAsset",
+      type: "setProperty",
       objectId: action.objectId,
-      assetId: action.value,
-    };
-  }
-  if (action.type === "text") {
-    return {
-      type: "setText",
-      objectId: action.objectId,
-      text: action.value,
-    };
-  }
-  if (action.type === "fill") {
-    return {
-      type: "setFill",
-      objectId: action.objectId,
-      color: action.value,
+      property: action.property,
+      value: Number(action.value),
     };
   }
   return {
-    type: "setStroke",
+    type: "setProperty",
     objectId: action.objectId,
-    color: action.value,
+    property: action.property,
+    value: action.value,
   };
 }
-
 function describeCondition(condition: ElementStateCase["condition"]): string {
   switch (condition.type) {
     case "true":
@@ -319,7 +494,10 @@ function describeAction(action: ElementStateAction): string {
   if (action.type === "setFill") {
     return `${action.objectId}.fill = ${action.color || "<empty>"}`;
   }
-  return `${action.objectId}.stroke = ${action.color || "<empty>"}`;
+  if (action.type === "setStroke") {
+    return `${action.objectId}.stroke = ${action.color || "<empty>"}`;
+  }
+  return `${action.objectId}.${action.property} = ${String(action.value ?? "")}`;
 }
 
 function countSignalAssignmentsInProject(
@@ -582,6 +760,17 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     () => flattenElementObjects(selectedElement?.objects ?? []),
     [selectedElement],
   );
+  const flatElementObjectMap = useMemo(
+    () => flattenObjectMap(selectedElement?.objects ?? []),
+    [selectedElement],
+  );
+  const propertyOptionsByObjectId = useMemo(() => {
+    const map = new Map<string, VisualRulePropertyOption[]>();
+    for (const [objectId, object] of flatElementObjectMap.entries()) {
+      map.set(objectId, getObjectPropertyOptions(object));
+    }
+    return map;
+  }, [flatElementObjectMap]);
 
   const signalUsedInRulesCount = useMemo(() => {
     const map = new Map<string, number>();
@@ -1038,6 +1227,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     }
     const signalKey = selectedElement.bindings?.[0]?.key ?? "";
     const defaultObject = flatElementObjects[0]?.id ?? "";
+    const defaultOptions = defaultObject ? (propertyOptionsByObjectId.get(defaultObject) ?? []) : [];
     setVisualRuleDialog({
       open: true,
       mode: "create",
@@ -1046,7 +1236,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       value: "",
       value2: "",
       actions: defaultObject
-        ? [{ id: createId("action"), objectId: defaultObject, type: "fill", value: "#00ff00" }]
+        ? [createDefaultVisualRuleAction(defaultObject, defaultOptions)]
         : [],
     });
   };
@@ -1090,6 +1280,12 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     }
     if (visualRuleDialog.actions.some((action) => !action.objectId)) {
       return "Choose object for each action.";
+    }
+    if (visualRuleDialog.actions.some((action) => !action.property.trim())) {
+      return "Choose property for each action.";
+    }
+    if (visualRuleDialog.actions.some((action) => action.kind === "number" && !Number.isFinite(Number(action.value)))) {
+      return "Number property value must be numeric.";
     }
     if ((visualRuleDialog.condition === "greaterThan" || visualRuleDialog.condition === "lessThan" || visualRuleDialog.condition === "between")
       && !Number.isFinite(Number(visualRuleDialog.value))) {
@@ -1785,7 +1981,16 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                   if (!current) {
                     return prev;
                   }
-                  nextActions[index] = { ...current, objectId: event.target.value };
+                  const nextObjectId = event.target.value;
+                  const nextOptions = propertyOptionsByObjectId.get(nextObjectId) ?? [];
+                  const nextDefault = createDefaultVisualRuleAction(nextObjectId, nextOptions);
+                  nextActions[index] = {
+                    ...current,
+                    objectId: nextObjectId,
+                    property: nextDefault.property,
+                    kind: nextDefault.kind,
+                    value: nextDefault.value,
+                  };
                   return { ...prev, actions: nextActions, validationError: undefined };
                 })}
               >
@@ -1796,30 +2001,33 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
               </select>
               <select
                 className="workbench-select"
-                value={action.type}
+                value={action.property}
                 onChange={(event) => setVisualRuleDialog((prev) => {
-                  const nextType = event.target.value as VisualRuleActionKind;
                   const nextActions = [...prev.actions];
                   const current = nextActions[index];
                   if (!current) {
                     return prev;
                   }
+                  const nextProperty = event.target.value;
+                  const nextOptions = propertyOptionsByObjectId.get(current.objectId) ?? [];
+                  const selectedOption = nextOptions.find((option) => option.path === nextProperty);
+                  const nextKind = selectedOption?.kind ?? inferVisualRuleValueKind(nextProperty, current.value);
                   nextActions[index] = {
                     ...current,
-                    type: nextType,
-                    value: nextType === "visible" ? "true" : nextType === "fill" || nextType === "stroke" ? "#ffffff" : "",
+                    property: nextProperty,
+                    kind: nextKind,
+                    value: normalizeValueForKind(nextKind, defaultValueForKind(nextKind)),
                   };
                   return { ...prev, actions: nextActions, validationError: undefined };
                 })}
               >
-                <option value="visible">visible</option>
-                <option value="asset">asset</option>
-                <option value="text">text</option>
-                <option value="fill">fill</option>
-                <option value="stroke">stroke</option>
+                <option value="">Select property</option>
+                {(propertyOptionsByObjectId.get(action.objectId) ?? []).map((option) => (
+                  <option key={option.path} value={option.path}>{option.label}</option>
+                ))}
               </select>
 
-              {action.type === "visible" ? (
+              {action.kind === "boolean" ? (
                 <select
                   className="workbench-select"
                   value={action.value}
@@ -1838,7 +2046,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 </select>
               ) : null}
 
-              {action.type === "asset" ? (
+              {action.kind === "asset" ? (
                 <select
                   className="workbench-select"
                   value={action.value}
@@ -1859,11 +2067,28 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 </select>
               ) : null}
 
-              {action.type === "text" || action.type === "fill" || action.type === "stroke" ? (
+              {action.kind === "number" ? (
                 <input
                   className="workbench-input"
                   value={action.value}
-                  type={action.type === "fill" || action.type === "stroke" ? "color" : "text"}
+                  type="number"
+                  onChange={(event) => setVisualRuleDialog((prev) => {
+                    const nextActions = [...prev.actions];
+                    const current = nextActions[index];
+                    if (!current) {
+                      return prev;
+                    }
+                    nextActions[index] = { ...current, value: event.target.value };
+                    return { ...prev, actions: nextActions };
+                  })}
+                />
+              ) : null}
+
+              {action.kind === "string" || action.kind === "color" ? (
+                <input
+                  className="workbench-input"
+                  value={action.value}
+                  type={action.kind === "color" ? "color" : "text"}
                   onChange={(event) => setVisualRuleDialog((prev) => {
                     const nextActions = [...prev.actions];
                     const current = nextActions[index];
@@ -1891,7 +2116,14 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         <WorkbenchButton
           onClick={() => setVisualRuleDialog((prev) => ({
             ...prev,
-            actions: [...prev.actions, { id: createId("action"), objectId: flatElementObjects[0]?.id ?? "", type: "fill", value: "#ffffff" }],
+            actions: (() => {
+              const objectId = flatElementObjects[0]?.id ?? "";
+              if (!objectId) {
+                return prev.actions;
+              }
+              const options = propertyOptionsByObjectId.get(objectId) ?? [];
+              return [...prev.actions, createDefaultVisualRuleAction(objectId, options)];
+            })(),
           }))}
         >
           Add Action

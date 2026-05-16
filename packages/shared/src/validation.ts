@@ -783,6 +783,12 @@ const elementStateActionSchema = z.discriminatedUnion("type", [
     objectId: z.string().min(1),
     color: z.string().min(1),
   }),
+  z.object({
+    type: z.literal("setProperty"),
+    objectId: z.string().min(1),
+    property: z.string().min(1),
+    value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+  }),
 ]);
 
 const elementStateCaseSchema = z.object({

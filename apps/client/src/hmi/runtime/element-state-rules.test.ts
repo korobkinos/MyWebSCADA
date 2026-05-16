@@ -387,4 +387,107 @@ describe("element-state-rules", () => {
       }
     }
   });
+
+  it("applies setProperty action to nested scalar property", () => {
+    const objects: HmiObject[] = [
+      {
+        id: "label-1",
+        type: "text",
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 24,
+        text: "Valve",
+        textStyle: {
+          fontFamily: "Arial",
+          fontSize: 14,
+          color: "#ffffff",
+          horizontalAlign: "left",
+          verticalAlign: "middle",
+        },
+      },
+    ];
+
+    const rules: ElementStateRule[] = [
+      {
+        id: "rule-1",
+        name: "Rule 1",
+        source: { type: "parameter", value: "alarm" },
+        cases: [
+          {
+            id: "case-1",
+            name: "Case 1",
+            condition: { type: "equals", value: true },
+            actions: [
+              {
+                type: "setProperty",
+                objectId: "label-1",
+                property: "textStyle.color",
+                value: "#ff4d4f",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const result = applyElementStateRules(objects, rules, {
+      tags: {},
+      renderContext: {},
+      parameters: { alarm: true },
+    });
+
+    const text = result[0];
+    if (text?.type === "text") {
+      expect(text.textStyle.color).toBe("#ff4d4f");
+    }
+  });
+
+  it("ignores unsafe setProperty path", () => {
+    const objects: HmiObject[] = [
+      {
+        id: "rect-1",
+        type: "rectangle",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        fill: "#595959",
+      },
+    ];
+
+    const rules: ElementStateRule[] = [
+      {
+        id: "rule-1",
+        name: "Rule 1",
+        source: { type: "parameter", value: "state" },
+        cases: [
+          {
+            id: "case-1",
+            name: "Case 1",
+            condition: { type: "equals", value: 1 },
+            actions: [
+              {
+                type: "setProperty",
+                objectId: "rect-1",
+                property: "__proto__.polluted",
+                value: "yes",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const result = applyElementStateRules(objects, rules, {
+      tags: {},
+      renderContext: {},
+      parameters: { state: 1 },
+    });
+
+    const rect = result[0];
+    if (rect?.type === "rectangle") {
+      expect(rect.fill).toBe("#595959");
+    }
+  });
 });

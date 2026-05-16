@@ -130,6 +130,12 @@ export type ElementStateAction =
       type: "setStroke";
       objectId: string;
       color: string;
+    }
+  | {
+      type: "setProperty";
+      objectId: string;
+      property: string;
+      value: string | number | boolean | null;
     };
 
 export type ElementStateCase = {
