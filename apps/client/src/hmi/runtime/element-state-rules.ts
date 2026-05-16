@@ -64,6 +64,15 @@ export function resolveElementStateRuleSource(
         expression: rule.source.value,
       },
       {
+        tagStore: {
+          readTag: (tag: string) => {
+            const resolvedTag = resolveTagName(tag, context.renderContext);
+            if (resolvedTag) {
+              return context.tags[resolvedTag]?.value;
+            }
+            return context.tags[tag]?.value;
+          },
+        },
         tagValues: context.tags,
       },
     );

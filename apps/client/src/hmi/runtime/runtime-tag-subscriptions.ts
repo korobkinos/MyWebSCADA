@@ -410,6 +410,20 @@ function collectObjectTags(
       for (const rule of element.stateRules ?? []) {
         if (rule.source.type === "tag") {
           addTag(out, resolveTemplateString(rule.source.value, childContext.parameters ?? {}), childContext);
+          continue;
+        }
+        if (rule.source.type === "expression") {
+          const dependencies = getRuntimeValueSourceDependencies({
+            type: "expression",
+            expression: rule.source.value,
+          });
+          for (const dependency of dependencies) {
+            if (dependency.type === "tag") {
+              addTag(out, resolveTemplateString(dependency.tag, childContext.parameters ?? {}), childContext);
+              continue;
+            }
+            addRuntimeDependencies(out, [dependency]);
+          }
         }
       }
 

@@ -2536,9 +2536,9 @@ body {
 
 .screen-editor-library-interface__rule-action-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(110px, auto) minmax(110px, auto) minmax(90px, auto);
+  grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr) auto;
   gap: 6px;
-  align-items: center;
+  align-items: start;
 }
 
 .screen-editor-library-interface__action-target {
@@ -2556,6 +2556,34 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.screen-editor-library-interface__action-value {
+  min-width: 0;
+}
+
+.screen-editor-library-interface__action-value .workbench-input,
+.screen-editor-library-interface__action-value .workbench-select {
+  width: 100%;
+}
+
+.screen-editor-library-interface__condition-list {
+  display: grid;
+  gap: 6px;
+}
+
+.screen-editor-library-interface__condition-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(130px, 150px) minmax(90px, 1fr) minmax(90px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.screen-editor-library-interface__condition-joiner {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
 }
 
 .screen-editor-library-interface__color-swatch {
@@ -2600,6 +2628,16 @@ body {
 .screen-editor-library-interface__color-popover-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+@media (max-width: 960px) {
+  .screen-editor-library-interface__rule-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .screen-editor-library-interface__condition-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .screen-editor-setproperty-picker {

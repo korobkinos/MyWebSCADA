@@ -93,6 +93,26 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
+function toBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    if (normalized === "false" || normalized === "0" || normalized === "null" || normalized === "undefined" || normalized === "nan") {
+      return false;
+    }
+    return true;
+  }
+  return Boolean(value);
+}
+
 function tokenizeExpression(expression: string): ExpressionToken[] {
   const tokens: ExpressionToken[] = [];
   let index = 0;
@@ -353,6 +373,55 @@ function parseIdentifierValue(parser: ExpressionParser, identifier: string): unk
 
   if (identifier === "round") {
     return Math.round(toNumber(args[0]));
+  }
+
+  if (identifier === "bool") {
+    return toBoolean(args[0]);
+  }
+
+  if (identifier === "not") {
+    return !toBoolean(args[0]);
+  }
+
+  if (identifier === "eq") {
+    return String(args[0]) === String(args[1]);
+  }
+
+  if (identifier === "neq") {
+    return String(args[0]) !== String(args[1]);
+  }
+
+  if (identifier === "gt") {
+    return toNumber(args[0]) > toNumber(args[1]);
+  }
+
+  if (identifier === "lt") {
+    return toNumber(args[0]) < toNumber(args[1]);
+  }
+
+  if (identifier === "between") {
+    const value = toNumber(args[0]);
+    const min = toNumber(args[1]);
+    const max = toNumber(args[2]);
+    return value >= min && value <= max;
+  }
+
+  if (identifier === "and") {
+    return args.every((arg) => toBoolean(arg));
+  }
+
+  if (identifier === "or") {
+    return args.some((arg) => toBoolean(arg));
+  }
+
+  if (identifier === "xor") {
+    let truthyCount = 0;
+    for (const arg of args) {
+      if (toBoolean(arg)) {
+        truthyCount += 1;
+      }
+    }
+    return truthyCount % 2 === 1;
   }
 
   throw new Error(`Unknown function: ${identifier}`);

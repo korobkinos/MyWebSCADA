@@ -37,7 +37,8 @@ type ScreenEditorLibrariesWindowProps = {
 };
 
 type TabId = "elements" | "assets" | "macros" | "metadata" | "interface";
-type VisualRuleConditionType = ElementStateCase["condition"]["type"];
+type VisualRuleClauseConditionType = Exclude<ElementStateCase["condition"]["type"], "true" | "false">;
+type VisualRuleLogicOperator = "AND" | "OR" | "XOR";
 type VisualRuleValueKind = "string" | "number" | "boolean" | "color" | "asset";
 type ApiErrorWithDetails = Error & { status?: number; details?: unknown };
 
@@ -71,14 +72,20 @@ type VisualRuleActionDraft = {
   value: string;
 };
 
+type VisualRuleConditionClauseDraft = {
+  id: string;
+  signalKey: string;
+  condition: VisualRuleClauseConditionType;
+  value: string;
+  value2: string;
+};
+
 type VisualRuleDialogState = {
   open: boolean;
   mode: "create" | "edit";
   editingRuleId?: string;
-  signalKey: string;
-  condition: VisualRuleConditionType;
-  value: string;
-  value2: string;
+  logic: VisualRuleLogicOperator;
+  clauses: VisualRuleConditionClauseDraft[];
   actions: VisualRuleActionDraft[];
   validationError?: string;
 };
@@ -260,6 +267,258 @@ function parseScalarToken(rawValue: string): string | number | boolean {
     return asNumber;
   }
   return trimmed;
+}
+
+function createDefaultVisualRuleClause(signalKey: string): VisualRuleConditionClauseDraft {
+  return {
+    id: createId("cond"),
+    signalKey,
+    condition: "equals",
+    value: "0",
+    value2: "",
+  };
+}
+
+function conditionNeedsNumericValue(condition: VisualRuleClauseConditionType): boolean {
+  return condition === "greaterThan" || condition === "lessThan" || condition === "between";
+}
+
+function conditionNeedsSecondValue(condition: VisualRuleClauseConditionType): boolean {
+  return condition === "between";
+}
+
+function toExpressionLiteral(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (value === null || value === undefined) {
+    return "null";
+  }
+  return JSON.stringify(String(value));
+}
+
+function buildConditionClauseExpression(clause: VisualRuleConditionClauseDraft): string {
+  const signalRef = `$binding.${clause.signalKey}`;
+  if (clause.condition === "equals") {
+    return `eq(tag(${JSON.stringify(signalRef)}), ${toExpressionLiteral(parseScalarToken(clause.value))})`;
+  }
+  if (clause.condition === "notEquals") {
+    return `neq(tag(${JSON.stringify(signalRef)}), ${toExpressionLiteral(parseScalarToken(clause.value))})`;
+  }
+  if (clause.condition === "greaterThan") {
+    return `gt(num(tag(${JSON.stringify(signalRef)})), ${Number(clause.value)})`;
+  }
+  if (clause.condition === "lessThan") {
+    return `lt(num(tag(${JSON.stringify(signalRef)})), ${Number(clause.value)})`;
+  }
+  return `between(num(tag(${JSON.stringify(signalRef)})), ${Number(clause.value)}, ${Number(clause.value2)})`;
+}
+
+function buildConditionsExpression(clauses: VisualRuleConditionClauseDraft[], logic: VisualRuleLogicOperator): string {
+  if (clauses.length === 0) {
+    return "false";
+  }
+  const parts = clauses.map((clause) => buildConditionClauseExpression(clause));
+  if (parts.length === 1) {
+    return parts[0] ?? "false";
+  }
+  if (logic === "AND") {
+    return `and(${parts.join(", ")})`;
+  }
+  if (logic === "OR") {
+    return `or(${parts.join(", ")})`;
+  }
+  return `xor(${parts.join(", ")})`;
+}
+
+function splitTopLevelArgs(source: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let depth = 0;
+  let quote: "\"" | "'" | null = null;
+  let escaped = false;
+  for (const char of source) {
+    if (quote) {
+      current += char;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "(") {
+      depth += 1;
+      current += char;
+      continue;
+    }
+    if (char === ")") {
+      depth = Math.max(0, depth - 1);
+      current += char;
+      continue;
+    }
+    if (char === "," && depth === 0) {
+      if (current.trim()) {
+        args.push(current.trim());
+      }
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) {
+    args.push(current.trim());
+  }
+  return args;
+}
+
+function parseFunctionCall(source: string): { name: string; args: string[] } | null {
+  const trimmed = source.trim();
+  const openIndex = trimmed.indexOf("(");
+  if (openIndex <= 0 || !trimmed.endsWith(")")) {
+    return null;
+  }
+  const name = trimmed.slice(0, openIndex).trim();
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    return null;
+  }
+  const inner = trimmed.slice(openIndex + 1, -1);
+  return {
+    name,
+    args: splitTopLevelArgs(inner),
+  };
+}
+
+function parseExpressionLiteralToken(token: string): string {
+  const trimmed = token.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    try {
+      if (trimmed.startsWith("\"")) {
+        return String(JSON.parse(trimmed));
+      }
+      return trimmed.slice(1, -1);
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+}
+
+function parseSignalKeyFromTagArg(rawArg: string, allowNumWrapper: boolean): string | null {
+  let targetArg = rawArg.trim();
+  if (allowNumWrapper) {
+    const maybeNum = parseFunctionCall(targetArg);
+    if (!maybeNum || maybeNum.name !== "num" || maybeNum.args.length !== 1) {
+      return null;
+    }
+    targetArg = maybeNum.args[0] ?? "";
+  }
+  const tagCall = parseFunctionCall(targetArg);
+  if (!tagCall || tagCall.name !== "tag" || tagCall.args.length !== 1) {
+    return null;
+  }
+  const tagValue = parseExpressionLiteralToken(tagCall.args[0] ?? "");
+  if (!tagValue.startsWith("$binding.")) {
+    return null;
+  }
+  const key = tagValue.slice("$binding.".length).trim();
+  return key || null;
+}
+
+function parseGeneratedConditionClause(source: string): VisualRuleConditionClauseDraft | null {
+  const call = parseFunctionCall(source);
+  if (!call) {
+    return null;
+  }
+  if (call.name === "eq" || call.name === "neq") {
+    const signalKey = parseSignalKeyFromTagArg(call.args[0] ?? "", false);
+    if (!signalKey) {
+      return null;
+    }
+    return {
+      id: createId("cond"),
+      signalKey,
+      condition: call.name === "eq" ? "equals" : "notEquals",
+      value: parseExpressionLiteralToken(call.args[1] ?? ""),
+      value2: "",
+    };
+  }
+  if (call.name === "gt" || call.name === "lt") {
+    const signalKey = parseSignalKeyFromTagArg(call.args[0] ?? "", true);
+    if (!signalKey) {
+      return null;
+    }
+    return {
+      id: createId("cond"),
+      signalKey,
+      condition: call.name === "gt" ? "greaterThan" : "lessThan",
+      value: parseExpressionLiteralToken(call.args[1] ?? ""),
+      value2: "",
+    };
+  }
+  if (call.name === "between") {
+    const signalKey = parseSignalKeyFromTagArg(call.args[0] ?? "", true);
+    if (!signalKey) {
+      return null;
+    }
+    return {
+      id: createId("cond"),
+      signalKey,
+      condition: "between",
+      value: parseExpressionLiteralToken(call.args[1] ?? ""),
+      value2: parseExpressionLiteralToken(call.args[2] ?? ""),
+    };
+  }
+  return null;
+}
+
+function parseGeneratedConditionsExpression(source: string): { logic: VisualRuleLogicOperator; clauses: VisualRuleConditionClauseDraft[] } | null {
+  const topLevel = parseFunctionCall(source);
+  if (!topLevel) {
+    return null;
+  }
+  if (topLevel.name === "and" || topLevel.name === "or" || topLevel.name === "xor") {
+    const clauses: VisualRuleConditionClauseDraft[] = [];
+    for (const item of topLevel.args) {
+      const parsed = parseGeneratedConditionClause(item);
+      if (!parsed) {
+        return null;
+      }
+      clauses.push(parsed);
+    }
+    if (clauses.length < 2) {
+      return null;
+    }
+    return {
+      logic: topLevel.name.toUpperCase() as VisualRuleLogicOperator,
+      clauses,
+    };
+  }
+  const oneClause = parseGeneratedConditionClause(source);
+  if (!oneClause) {
+    return null;
+  }
+  return {
+    logic: "AND",
+    clauses: [oneClause],
+  };
 }
 
 const ROOT_PROPERTY_BLOCKLIST = new Set([
@@ -888,10 +1147,8 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
   const [visualRuleDialog, setVisualRuleDialog] = useState<VisualRuleDialogState>({
     open: false,
     mode: "create",
-    signalKey: "",
-    condition: "true",
-    value: "",
-    value2: "",
+    logic: "AND",
+    clauses: [],
     actions: [],
   });
   const [visualRuleDeleteDialog, setVisualRuleDeleteDialog] = useState<VisualRuleDeleteDialogState>({
@@ -1051,15 +1308,16 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
 
   const signalUsedInRulesCount = useMemo(() => {
     const map = new Map<string, number>();
-    for (const binding of selectedElement?.bindings ?? []) {
-      map.set(binding.key, 0);
-    }
-    for (const rule of selectedElement?.stateRules ?? []) {
-      const key = extractBindingKeyFromRuleSource(rule);
-      if (!key) {
-        continue;
+    const bindings = selectedElement?.bindings ?? [];
+    const rules = selectedElement?.stateRules ?? [];
+    for (const binding of bindings) {
+      let count = 0;
+      for (const rule of rules) {
+        if (ruleReferencesSignalKey(rule, binding.key)) {
+          count += rule.cases?.length ?? 0;
+        }
       }
-      map.set(key, (map.get(key) ?? 0) + (rule.cases?.length ?? 0));
+      map.set(binding.key, count);
     }
     return map;
   }, [selectedElement]);
@@ -1071,36 +1329,102 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       signalKey: string;
       condition: ElementStateCase["condition"];
       actions: ElementStateAction[];
+      logic?: VisualRuleLogicOperator;
+      clauses?: VisualRuleConditionClauseDraft[];
       editable: boolean;
       reason?: string;
     }> = [];
     for (const rule of selectedElement?.stateRules ?? []) {
-      const signalKey = extractBindingKeyFromRuleSource(rule);
       const firstCase = rule.cases?.[0];
       const hasMultipleCases = (rule.cases?.length ?? 0) > 1;
-      if (!signalKey || !firstCase || hasMultipleCases) {
+      if (!firstCase || hasMultipleCases) {
         rows.push({
           ruleId: rule.id,
           name: rule.name,
-          signalKey: signalKey ?? "",
+          signalKey: "",
           condition: firstCase?.condition ?? { type: "true" },
           actions: firstCase?.actions ?? [],
           editable: false,
-          reason: !signalKey
-            ? "Source is not a Signal"
-            : hasMultipleCases
-              ? "Rule has multiple cases"
-              : "Rule has no case",
+          reason: hasMultipleCases ? "Rule has multiple cases" : "Rule has no case",
         });
         continue;
       }
+      if (rule.source.type === "tag") {
+        const signalKey = extractBindingKeyFromRuleSource(rule);
+        const unsupportedCondition = firstCase.condition.type === "true" || firstCase.condition.type === "false";
+        if (!signalKey || unsupportedCondition) {
+          rows.push({
+            ruleId: rule.id,
+            name: rule.name,
+            signalKey: signalKey ?? "",
+            condition: firstCase.condition,
+            actions: firstCase.actions,
+            editable: false,
+            reason: !signalKey
+              ? "Source is not a Signal"
+              : "Condition type is not supported in this editor",
+          });
+          continue;
+        }
+        rows.push({
+          ruleId: rule.id,
+          name: rule.name,
+          signalKey,
+          condition: firstCase.condition,
+          actions: firstCase.actions,
+          logic: "AND",
+          clauses: [
+            {
+              id: createId("cond"),
+              signalKey,
+              condition: firstCase.condition.type as VisualRuleClauseConditionType,
+              value:
+                firstCase.condition.type === "equals" || firstCase.condition.type === "notEquals" || firstCase.condition.type === "greaterThan" || firstCase.condition.type === "lessThan"
+                  ? String((firstCase.condition as { value?: unknown }).value ?? "")
+                  : String((firstCase.condition as { min: number }).min ?? ""),
+              value2: firstCase.condition.type === "between" ? String((firstCase.condition as { max: number }).max ?? "") : "",
+            },
+          ],
+          editable: true,
+        });
+        continue;
+      }
+
+      if (rule.source.type === "expression" && firstCase.condition.type === "true") {
+        const parsed = parseGeneratedConditionsExpression(rule.source.value ?? "");
+        if (!parsed) {
+          rows.push({
+            ruleId: rule.id,
+            name: rule.name,
+            signalKey: "",
+            condition: firstCase.condition,
+            actions: firstCase.actions,
+            editable: false,
+            reason: "Expression format is not supported in this editor",
+          });
+          continue;
+        }
+        rows.push({
+          ruleId: rule.id,
+          name: rule.name,
+          signalKey: parsed.clauses[0]?.signalKey ?? "",
+          condition: firstCase.condition,
+          actions: firstCase.actions,
+          logic: parsed.logic,
+          clauses: parsed.clauses,
+          editable: true,
+        });
+        continue;
+      }
+
       rows.push({
         ruleId: rule.id,
         name: rule.name,
-        signalKey,
+        signalKey: "",
         condition: firstCase.condition,
         actions: firstCase.actions,
-        editable: true,
+        editable: false,
+        reason: "Source is not supported in this editor",
       });
     }
     return rows;
@@ -1602,10 +1926,8 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     setVisualRuleDialog({
       open: true,
       mode: "create",
-      signalKey,
-      condition: "true",
-      value: "",
-      value2: "",
+      logic: "AND",
+      clauses: signalKey ? [createDefaultVisualRuleClause(signalKey)] : [],
       actions: defaultObject
         ? [createDefaultVisualRuleAction(defaultObject, defaultOptions)]
         : [],
@@ -1617,21 +1939,13 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     if (!card || !card.editable) {
       return;
     }
-    const condition = card.condition.type;
-    const value =
-      condition === "equals" || condition === "notEquals" || condition === "greaterThan" || condition === "lessThan"
-        ? String((card.condition as { value?: unknown }).value ?? "")
-        : "";
-    const value2 = condition === "between" ? String((card.condition as { min: number; max: number }).max ?? "") : "";
 
     setVisualRuleDialog({
       open: true,
       mode: "edit",
       editingRuleId: card.ruleId,
-      signalKey: card.signalKey,
-      condition,
-      value,
-      value2,
+      logic: card.logic ?? "AND",
+      clauses: (card.clauses ?? []).map((item) => ({ ...item, id: createId("cond") })),
       actions: card.actions.map((action) => toVisualActionDraft(action)),
     });
   };
@@ -1640,11 +1954,28 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     if (!selectedElement) {
       return "No selected element.";
     }
-    if (!visualRuleDialog.signalKey) {
-      return "Select a Signal.";
+    if (visualRuleDialog.clauses.length === 0) {
+      return "Add at least one condition row.";
     }
-    if ((selectedElement.bindings ?? []).every((binding) => binding.key !== visualRuleDialog.signalKey)) {
-      return "Selected Signal no longer exists.";
+    const knownSignals = new Set((selectedElement.bindings ?? []).map((binding) => binding.key));
+    if (visualRuleDialog.clauses.some((clause) => !clause.signalKey)) {
+      return "Select a Signal for each condition row.";
+    }
+    if (visualRuleDialog.clauses.some((clause) => !knownSignals.has(clause.signalKey))) {
+      return "One or more selected Signals no longer exist.";
+    }
+    if (visualRuleDialog.clauses.some((clause) => !clause.value.trim())) {
+      return "Condition value is required.";
+    }
+    if (
+      visualRuleDialog.clauses.some((clause) => conditionNeedsNumericValue(clause.condition) && !Number.isFinite(Number(clause.value)))
+    ) {
+      return "Numeric condition value is invalid.";
+    }
+    if (
+      visualRuleDialog.clauses.some((clause) => clause.condition === "between" && !Number.isFinite(Number(clause.value2)))
+    ) {
+      return "Between max value is invalid.";
     }
     if (visualRuleDialog.actions.length === 0) {
       return "Add at least one action.";
@@ -1661,13 +1992,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     if (visualRuleDialog.actions.some((action) => action.kind === "color" && !isLikelyCssColor(normalizeColorInput(action.value)))) {
       return "Color value is invalid.";
     }
-    if ((visualRuleDialog.condition === "greaterThan" || visualRuleDialog.condition === "lessThan" || visualRuleDialog.condition === "between")
-      && !Number.isFinite(Number(visualRuleDialog.value))) {
-      return "Condition value must be a number.";
-    }
-    if (visualRuleDialog.condition === "between" && !Number.isFinite(Number(visualRuleDialog.value2))) {
-      return "Max value must be a number.";
-    }
     return null;
   };
 
@@ -1682,30 +2006,36 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       return;
     }
 
-    const condition: ElementStateCase["condition"] = (() => {
-      if (visualRuleDialog.condition === "true" || visualRuleDialog.condition === "false") {
-        return { type: visualRuleDialog.condition };
-      }
-      if (visualRuleDialog.condition === "equals" || visualRuleDialog.condition === "notEquals") {
-        return { type: visualRuleDialog.condition, value: parseScalarToken(visualRuleDialog.value) };
-      }
-      if (visualRuleDialog.condition === "greaterThan" || visualRuleDialog.condition === "lessThan") {
-        return { type: visualRuleDialog.condition, value: Number(visualRuleDialog.value) };
-      }
-      return {
-        type: "between",
-        min: Number(visualRuleDialog.value),
-        max: Number(visualRuleDialog.value2),
-      };
-    })();
+    const source = visualRuleDialog.clauses.length === 1
+      ? {
+          type: "tag" as const,
+          value: `$binding.${visualRuleDialog.clauses[0]!.signalKey}`,
+        }
+      : {
+          type: "expression" as const,
+          value: buildConditionsExpression(visualRuleDialog.clauses, visualRuleDialog.logic),
+        };
+    const firstClause = visualRuleDialog.clauses[0]!;
+    const condition: ElementStateCase["condition"] = visualRuleDialog.clauses.length === 1
+      ? (() => {
+          if (firstClause.condition === "equals" || firstClause.condition === "notEquals") {
+            return { type: firstClause.condition, value: parseScalarToken(firstClause.value) };
+          }
+          if (firstClause.condition === "greaterThan" || firstClause.condition === "lessThan") {
+            return { type: firstClause.condition, value: Number(firstClause.value) };
+          }
+          return {
+            type: "between",
+            min: Number(firstClause.value),
+            max: Number(firstClause.value2),
+          };
+        })()
+      : { type: "true" };
 
     const nextRule: NonNullable<LibraryElement["stateRules"]>[number] = {
       id: visualRuleDialog.mode === "edit" ? visualRuleDialog.editingRuleId || createId("rule") : createId("rule"),
       name: visualRuleDialog.mode === "edit" ? "Visual Rule" : `Visual Rule ${(selectedElement.stateRules?.length ?? 0) + 1}`,
-      source: {
-        type: "tag",
-        value: `$binding.${visualRuleDialog.signalKey}`,
-      },
+      source,
       cases: [
         {
           id: createId("case"),
@@ -1733,10 +2063,8 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     setVisualRuleDialog({
       open: false,
       mode: "create",
-      signalKey: "",
-      condition: "true",
-      value: "",
-      value2: "",
+      logic: "AND",
+      clauses: [],
       actions: [],
     });
   };
@@ -2348,59 +2676,118 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         )}
       >
         <div className="screen-editor-library-interface__dialog-grid">
-          <label>
-            <span>Signal</span>
-            <select
-              className="workbench-select"
-              value={visualRuleDialog.signalKey}
-              onChange={(event) => setVisualRuleDialog((prev) => ({ ...prev, signalKey: event.target.value, validationError: undefined }))}
+          <div className="screen-editor-library-interface__section-title">Condition</div>
+          <div className="screen-editor-library-interface__condition-list">
+            {visualRuleDialog.clauses.map((clause, index) => (
+              <div key={clause.id} className="screen-editor-library-interface__condition-row">
+                <select
+                  className="workbench-select"
+                  value={clause.signalKey}
+                  onChange={(event) => setVisualRuleDialog((prev) => ({
+                    ...prev,
+                    clauses: prev.clauses.map((item) => (item.id === clause.id ? { ...item, signalKey: event.target.value } : item)),
+                    validationError: undefined,
+                  }))}
+                >
+                  <option value="">Select signal</option>
+                  {(selectedElement?.bindings ?? []).map((binding) => (
+                    <option key={binding.id} value={binding.key}>{binding.displayName} ({binding.key})</option>
+                  ))}
+                </select>
+                <select
+                  className="workbench-select"
+                  value={clause.condition}
+                  onChange={(event) => setVisualRuleDialog((prev) => ({
+                    ...prev,
+                    clauses: prev.clauses.map((item) => (
+                      item.id === clause.id
+                        ? {
+                            ...item,
+                            condition: event.target.value as VisualRuleClauseConditionType,
+                            value2: event.target.value === "between" ? item.value2 : "",
+                          }
+                        : item
+                    )),
+                    validationError: undefined,
+                  }))}
+                >
+                  <option value="equals">equals</option>
+                  <option value="notEquals">notEquals</option>
+                  <option value="greaterThan">greaterThan</option>
+                  <option value="lessThan">lessThan</option>
+                  <option value="between">between</option>
+                </select>
+                <input
+                  className="workbench-input"
+                  value={clause.value}
+                  type={conditionNeedsNumericValue(clause.condition) ? "number" : "text"}
+                  placeholder="Value"
+                  onChange={(event) => setVisualRuleDialog((prev) => ({
+                    ...prev,
+                    clauses: prev.clauses.map((item) => (item.id === clause.id ? { ...item, value: event.target.value } : item)),
+                    validationError: undefined,
+                  }))}
+                />
+                {conditionNeedsSecondValue(clause.condition) ? (
+                  <input
+                    className="workbench-input"
+                    value={clause.value2}
+                    type="number"
+                    placeholder="Value 2"
+                    onChange={(event) => setVisualRuleDialog((prev) => ({
+                      ...prev,
+                      clauses: prev.clauses.map((item) => (item.id === clause.id ? { ...item, value2: event.target.value } : item)),
+                      validationError: undefined,
+                    }))}
+                  />
+                ) : (
+                  <div />
+                )}
+                <WorkbenchButton
+                  variant="danger"
+                  disabled={visualRuleDialog.clauses.length <= 1}
+                  onClick={() => setVisualRuleDialog((prev) => ({
+                    ...prev,
+                    clauses: prev.clauses.filter((item) => item.id !== clause.id),
+                    validationError: undefined,
+                  }))}
+                >
+                  Delete
+                </WorkbenchButton>
+                {index < visualRuleDialog.clauses.length - 1 ? (
+                  <div className="screen-editor-library-interface__condition-joiner">
+                    <select
+                      className="workbench-select"
+                      value={visualRuleDialog.logic}
+                      onChange={(event) => setVisualRuleDialog((prev) => ({
+                        ...prev,
+                        logic: event.target.value as VisualRuleLogicOperator,
+                        validationError: undefined,
+                      }))}
+                    >
+                      <option value="AND">AND</option>
+                      <option value="OR">OR</option>
+                      <option value="XOR">XOR</option>
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <div className="screen-editor-item-actions">
+            <WorkbenchButton
+              onClick={() => {
+                const fallbackSignal = selectedElement?.bindings?.[0]?.key ?? "";
+                setVisualRuleDialog((prev) => ({
+                  ...prev,
+                  clauses: [...prev.clauses, createDefaultVisualRuleClause(prev.clauses[0]?.signalKey || fallbackSignal)],
+                  validationError: undefined,
+                }));
+              }}
             >
-              <option value="">Select signal</option>
-              {(selectedElement?.bindings ?? []).map((binding) => (
-                <option key={binding.id} value={binding.key}>{binding.displayName} ({binding.key})</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Condition</span>
-            <select
-              className="workbench-select"
-              value={visualRuleDialog.condition}
-              onChange={(event) => setVisualRuleDialog((prev) => ({
-                ...prev,
-                condition: event.target.value as VisualRuleConditionType,
-                validationError: undefined,
-              }))}
-            >
-              <option value="true">true</option>
-              <option value="false">false</option>
-              <option value="equals">equals</option>
-              <option value="notEquals">notEquals</option>
-              <option value="greaterThan">greaterThan</option>
-              <option value="lessThan">lessThan</option>
-              <option value="between">between</option>
-            </select>
-          </label>
-          {visualRuleDialog.condition !== "true" && visualRuleDialog.condition !== "false" ? (
-            <label>
-              <span>Value</span>
-              <input
-                className="workbench-input"
-                value={visualRuleDialog.value}
-                onChange={(event) => setVisualRuleDialog((prev) => ({ ...prev, value: event.target.value, validationError: undefined }))}
-              />
-            </label>
-          ) : null}
-          {visualRuleDialog.condition === "between" ? (
-            <label>
-              <span>Value 2</span>
-              <input
-                className="workbench-input"
-                value={visualRuleDialog.value2}
-                onChange={(event) => setVisualRuleDialog((prev) => ({ ...prev, value2: event.target.value, validationError: undefined }))}
-              />
-            </label>
-          ) : null}
+              Add Condition
+            </WorkbenchButton>
+          </div>
         </div>
 
         <div className="screen-editor-library-interface__section-title" style={{ marginTop: 8 }}>Then Actions</div>
@@ -2418,67 +2805,68 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
               <WorkbenchButton onClick={() => openPropertyPickerForAction(index)}>
                 Set Property...
               </WorkbenchButton>
+              <div className="screen-editor-library-interface__action-value">
+                {action.kind === "boolean" ? (
+                  <select
+                    className="workbench-select"
+                    value={action.value}
+                    onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : null}
 
-              {action.kind === "boolean" ? (
-                <select
-                  className="workbench-select"
-                  value={action.value}
-                  onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
-                >
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
-              ) : null}
+                {action.kind === "asset" ? (
+                  <select
+                    className="workbench-select"
+                    value={action.value}
+                    onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
+                  >
+                    <option value="">Select asset</option>
+                    {(selectedLibrary?.assets ?? []).map((asset) => (
+                      <option key={asset.id} value={asset.id}>{asset.name}</option>
+                    ))}
+                  </select>
+                ) : null}
 
-              {action.kind === "asset" ? (
-                <select
-                  className="workbench-select"
-                  value={action.value}
-                  onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
-                >
-                  <option value="">Select asset</option>
-                  {(selectedLibrary?.assets ?? []).map((asset) => (
-                    <option key={asset.id} value={asset.id}>{asset.name}</option>
-                  ))}
-                </select>
-              ) : null}
-
-              {action.kind === "number" ? (
-                <input
-                  className="workbench-input"
-                  value={action.value}
-                  type="number"
-                  onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
-                />
-              ) : null}
-
-              {action.kind === "string" ? (
-                <input
-                  className="workbench-input"
-                  value={action.value}
-                  type="text"
-                  onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
-                />
-              ) : null}
-
-              {action.kind === "color" ? (
-                <div className="screen-editor-library-interface__color-field">
-                  <ColorPicker
-                    value={normalizePickerColor(action.value, "#ffffff")}
-                    onChangeComplete={(color: any) => {
-                      const next = color?.toHexString?.() ?? String(color ?? "");
-                      updateVisualRuleAction(index, { value: normalizeColorInput(next) });
-                    }}
+                {action.kind === "number" ? (
+                  <input
+                    className="workbench-input"
+                    value={action.value}
+                    type="number"
+                    onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
                   />
+                ) : null}
+
+                {action.kind === "string" ? (
                   <input
                     className="workbench-input"
                     value={action.value}
                     type="text"
-                    placeholder="#00ff00"
-                    onChange={(event) => updateVisualRuleAction(index, { value: normalizeColorInput(event.target.value) })}
+                    onChange={(event) => updateVisualRuleAction(index, { value: event.target.value })}
                   />
-                </div>
-              ) : null}
+                ) : null}
+
+                {action.kind === "color" ? (
+                  <div className="screen-editor-library-interface__color-field">
+                    <ColorPicker
+                      value={normalizePickerColor(action.value, "#ffffff")}
+                      onChangeComplete={(color: any) => {
+                        const next = color?.toHexString?.() ?? String(color ?? "");
+                        updateVisualRuleAction(index, { value: normalizeColorInput(next) });
+                      }}
+                    />
+                    <input
+                      className="workbench-input"
+                      value={action.value}
+                      type="text"
+                      placeholder="#00ff00"
+                      onChange={(event) => updateVisualRuleAction(index, { value: normalizeColorInput(event.target.value) })}
+                    />
+                  </div>
+                ) : null}
+              </div>
 
               <WorkbenchButton
                 variant="danger"
