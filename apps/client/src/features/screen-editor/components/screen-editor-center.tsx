@@ -211,6 +211,7 @@ export function ScreenEditorCenter({
   const [isPanning, setIsPanning] = useState(false);
   const [toolbarTab, setToolbarTab] = useState<ToolbarTab>("main");
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
+  const suppressNextContextMenuRef = useRef(false);
   const [editorZoom, setEditorZoom] = useState<number>(() => {
     if (typeof window === "undefined") {
       return 1;
@@ -303,35 +304,44 @@ export function ScreenEditorCenter({
     return () => observer.disconnect();
   }, [applyAutoFitZoom, previewMode]);
 
-  const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (activeTool !== "pan" || event.button !== 0) {
-      return;
-    }
+  const beginPan = useCallback((startX: number, startY: number, suppressContextMenu: boolean) => {
     const scrollElement = canvasScrollRef.current;
     if (!scrollElement) {
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
     setIsPanning(true);
-    const startX = event.clientX;
-    const startY = event.clientY;
     const startScrollLeft = scrollElement.scrollLeft;
     const startScrollTop = scrollElement.scrollTop;
+    let moved = false;
 
     const onMove = (moveEvent: MouseEvent) => {
+      if (!moved && (Math.abs(moveEvent.clientX - startX) > 2 || Math.abs(moveEvent.clientY - startY) > 2)) {
+        moved = true;
+      }
       scrollElement.scrollLeft = startScrollLeft - (moveEvent.clientX - startX);
       scrollElement.scrollTop = startScrollTop - (moveEvent.clientY - startY);
     };
 
     const stopPan = () => {
       setIsPanning(false);
+      if (suppressContextMenu && moved) {
+        suppressNextContextMenuRef.current = true;
+      }
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", stopPan);
     };
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", stopPan);
+  }, []);
+
+  const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (activeTool !== "pan" || event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    beginPan(event.clientX, event.clientY, false);
   };
 
   return (
@@ -511,6 +521,11 @@ export function ScreenEditorCenter({
           setEditorZoom((prev) => clampZoom(prev * delta));
         }}
         onContextMenu={(event) => {
+          if (suppressNextContextMenuRef.current) {
+            event.preventDefault();
+            suppressNextContextMenuRef.current = false;
+            return;
+          }
           if (previewMode) {
             event.preventDefault();
             return;
@@ -595,6 +610,12 @@ export function ScreenEditorCenter({
                   }
                 }
                 setContextMenu({ visible: true, x: clientX, y: clientY });
+              }}
+              onEmptySpaceMouseDown={(nativeEvent) => {
+                if (previewMode || nativeEvent.button !== 2) {
+                  return;
+                }
+                beginPan(nativeEvent.clientX, nativeEvent.clientY, true);
               }}
               onSelectObjects={(objectIds, activeId) => {
                 if (previewMode) {

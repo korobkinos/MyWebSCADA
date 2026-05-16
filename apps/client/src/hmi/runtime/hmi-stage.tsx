@@ -42,6 +42,7 @@ type HmiStageProps = {
   onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
   onDoubleClickObject?: (objectId: string) => void;
   onContextMenuObject?: (payload: { objectId: string; clientX: number; clientY: number; additive: boolean }) => void;
+  onEmptySpaceMouseDown?: (event: MouseEvent) => void;
   showObjectFrames?: boolean;
   fullscreenRuntime?: boolean;
   editorZoom?: number;
@@ -68,6 +69,7 @@ export function HmiStage({
   onAction,
   onDoubleClickObject,
   onContextMenuObject,
+  onEmptySpaceMouseDown,
   showObjectFrames = false,
   fullscreenRuntime = false,
   editorZoom = 1,
@@ -200,6 +202,10 @@ export function HmiStage({
     }
     const stage = evt.target.getStage();
     if (!stage || evt.target !== stage) {
+      return;
+    }
+    if (evt.evt.button === 2) {
+      onEmptySpaceMouseDown?.(evt.evt);
       return;
     }
     const pointer = stage.getPointerPosition();

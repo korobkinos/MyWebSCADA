@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-16T11:15:50.796Z",
+  "updatedAt": "2026-05-16T13:30:52.156Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -91,74 +91,95 @@
       "name": "zazazazaza",
       "description": "",
       "category": "General",
-      "width": 156.88062310601782,
-      "height": 76,
+      "width": 106.2230815218719,
+      "height": 111.70522083053129,
       "objects": [
         {
-          "id": "group_gfra3j",
+          "id": "group_2kzq0w",
           "type": "group",
           "x": 0,
           "y": 0,
-          "width": 156.88062310601777,
-          "height": 76,
+          "width": 106.2230815218719,
+          "height": 111.70522083053129,
           "visible": true,
           "locked": false,
           "minWidth": 8,
           "minHeight": 8,
           "objects": [
             {
-              "id": "line_0gof1m",
+              "id": "line_w7go9g",
               "type": "line",
-              "x": 80.00000000000055,
-              "y": 0,
-              "width": 90.00000000000001,
-              "height": 80.00000000000055,
+              "x": 62.77217320256375,
+              "y": 29.560068088630487,
+              "width": 59.306568429931644,
+              "height": 20.000000000000014,
               "rotation": 90,
-              "opacity": 1,
               "minWidth": 20,
-              "minHeight": 20,
+              "minHeight": 10,
               "points": [
-                45.00000000000001,
                 0,
-                90.00000000000001,
-                80.00000000000055,
-                0,
-                80.00000000000055
+                10.000000000000007,
+                59.306568429931644,
+                10.000000000000007
               ],
-              "stroke": "#8c8c8c",
-              "strokeWidth": 2,
-              "closed": true,
-              "fill": "#262626",
+              "stroke": "#262626",
+              "strokeWidth": 3,
+              "closed": false,
+              "activeValue": 1,
+              "inactiveStroke": "#262626",
+              "activeStroke": "#0e639c",
               "gradientEnabled": false,
-              "gradientEndColor": "#230505",
-              "gradientDirection": "vertical"
+              "gradientDirection": "horizontal"
             },
             {
-              "id": "line_utq0wx",
-              "type": "line",
-              "x": 76.88062310601721,
-              "y": 90,
-              "width": 90.00000000000001,
-              "height": 80.00000000000055,
-              "rotation": 270,
+              "id": "lib_mlr910",
+              "type": "libraryElementInstance",
+              "x": 0,
+              "y": 60.246002758668396,
+              "width": 106.22308152187195,
+              "height": 51.459218071862935,
+              "rotation": 0,
+              "minWidth": 60,
+              "minHeight": 40,
+              "libraryId": "amaks-basic-equipment",
+              "elementId": "element_usnbz5",
+              "bindingAssignments": {
+                "open": {
+                  "baseTag": "Counter2",
+                  "prefixMode": {
+                    "type": "none"
+                  },
+                  "indexMode": {
+                    "type": "none"
+                  }
+                },
+                "closed": {
+                  "baseTag": "Counter2",
+                  "prefixMode": {
+                    "type": "none"
+                  },
+                  "indexMode": {
+                    "type": "none"
+                  }
+                }
+              },
+              "scaleMode": "fit"
+            },
+            {
+              "id": "circle_om330d",
+              "type": "rectangle",
+              "x": 26.07209967470169,
+              "y": 0,
+              "width": 54.82640856323956,
+              "height": 54.826408563239674,
+              "rotation": 0,
               "opacity": 1,
               "minWidth": 20,
               "minHeight": 20,
-              "points": [
-                45.00000000000001,
-                0,
-                90.00000000000001,
-                80.00000000000055,
-                0,
-                80.00000000000055
-              ],
+              "fill": "#262626",
               "stroke": "#8c8c8c",
               "strokeWidth": 2,
-              "closed": true,
-              "fill": "#262626",
-              "gradientEnabled": false,
-              "gradientEndColor": "#1e0b0b",
-              "gradientDirection": "vertical"
+              "cornerRadius": 45
             }
           ]
         }
@@ -230,7 +251,7 @@
           },
           "cases": [
             {
-              "id": "case_0hmpm4",
+              "id": "case_cutu7r",
               "name": "when",
               "condition": {
                 "type": "equals",
@@ -238,14 +259,16 @@
               },
               "actions": [
                 {
-                  "type": "setFill",
+                  "type": "setProperty",
                   "objectId": "line_0gof1m",
-                  "color": "#141414"
+                  "property": "fill",
+                  "value": "#141414"
                 },
                 {
-                  "type": "setFill",
+                  "type": "setProperty",
                   "objectId": "line_utq0wx",
-                  "color": "#141414"
+                  "property": "fill",
+                  "value": "#141414"
                 }
               ]
             }
@@ -253,7 +276,7 @@
         }
       ],
       "createdAt": "2026-05-15T16:26:31.988Z",
-      "updatedAt": "2026-05-16T11:15:50.795Z"
+      "updatedAt": "2026-05-16T13:30:52.156Z"
     }
   ],
   "macros": []
