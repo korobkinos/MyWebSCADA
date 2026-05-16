@@ -498,7 +498,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       kind: "state",
       dataType: "BOOL",
       required: false,
-      overridable: true,
       description: "",
     },
     keyEditedManually: false,
@@ -519,7 +518,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       kind: "state",
       dataType: "BOOL",
       required: false,
-      overridable: true,
       description: "",
     },
   });
@@ -867,7 +865,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
         kind: "state",
         dataType: "BOOL",
         required: false,
-        overridable: true,
         description: "",
       },
       keyEditedManually: false,
@@ -882,7 +879,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       draft: {
         ...signal,
         description: signal.description ?? "",
-        overridable: signal.overridable ?? true,
         required: signal.required ?? false,
       },
       keyEditedManually: true,
@@ -1656,20 +1652,6 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
               }))}
             />
             Required
-          </label>
-          <label className="screen-editor-library-interface__checkbox">
-            <input
-              type="checkbox"
-              checked={signalDialog.draft.overridable !== false}
-              onChange={(event) => setSignalDialog((prev) => ({
-                ...prev,
-                draft: {
-                  ...prev.draft,
-                  overridable: event.target.checked,
-                },
-              }))}
-            />
-            Overridable
           </label>
         </div>
         {signalDialog.validationError ? <div className="screen-editor-library-interface__error">{signalDialog.validationError}</div> : null}
