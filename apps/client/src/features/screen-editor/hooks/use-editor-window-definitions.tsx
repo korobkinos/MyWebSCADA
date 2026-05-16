@@ -443,20 +443,22 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
                 Save Object
               </WorkbenchButton>
             </div>
-            <ObjectPropertyPanel
-              project={project}
-              screen={screen}
-              assets={params.assets}
-              libraries={params.libraries}
-              object={params.activeObject}
-              onPatch={params.patchActiveObject}
-              onPatchObjectById={params.patchObjectById}
-              onDelete={params.deleteActiveObject}
-              onBringToFront={params.onBringToFront}
-              onSendToBack={params.onSendToBack}
-              onMoveForward={params.onMoveForward}
-              onMoveBackward={params.onMoveBackward}
-            />
+            <div className="screen-editor-object-properties-scroll">
+              <ObjectPropertyPanel
+                project={project}
+                screen={screen}
+                assets={params.assets}
+                libraries={params.libraries}
+                object={params.activeObject}
+                onPatch={params.patchActiveObject}
+                onPatchObjectById={params.patchObjectById}
+                onDelete={params.deleteActiveObject}
+                onBringToFront={params.onBringToFront}
+                onSendToBack={params.onSendToBack}
+                onMoveForward={params.onMoveForward}
+                onMoveBackward={params.onMoveBackward}
+              />
+            </div>
           </div>
         ),
       },

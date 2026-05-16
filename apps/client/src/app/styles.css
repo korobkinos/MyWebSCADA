@@ -4320,6 +4320,7 @@ body {
 }
 
 .object-property-panel-toolbar {
+  flex: 0 0 auto;
   min-height: 32px;
   padding: 4px 8px;
   border-bottom: 1px solid #3c3c3c;
@@ -4328,6 +4329,13 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.screen-editor-object-properties-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
 }
 
 .object-property-panel-toolbar .workbench-button {
