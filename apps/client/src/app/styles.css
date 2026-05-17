@@ -4963,6 +4963,47 @@ body {
   padding: 0 6px;
 }
 
+.flow-animation-tuner-window {
+  padding: 0;
+}
+
+.flow-animation-tuner-window__scroll {
+  padding: 4px 0;
+}
+
+.flow-animation-tuner-window__panel .ant-form {
+  padding: 0 8px 8px;
+}
+
+.flow-animation-tuner-window__sections {
+  display: grid;
+  gap: 10px;
+}
+
+.flow-animation-tuner-window__section {
+  border: 1px solid #3a3d3f;
+  background: #1f1f20;
+}
+
+.flow-animation-tuner-window__section-title {
+  padding: 6px 8px;
+  border-bottom: 1px solid #3a3d3f;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.flow-animation-tuner-window__section-body {
+  padding: 8px 8px 4px;
+}
+
+.flow-animation-tuner-window__preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .object-property-tabs--main > .ant-tabs-nav,
 .object-property-tabs--numeric > .ant-tabs-nav {
   margin-bottom: 10px;

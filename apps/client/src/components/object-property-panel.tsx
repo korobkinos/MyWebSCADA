@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ACCESS_ROLE_LABELS_RU } from "@web-scada/shared";
 import type {
@@ -24,7 +24,7 @@ import {
 import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 import { IndexedAddressEditorWindow } from "./indexed-address-editor-window";
-import { WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
+import { WorkbenchButton, WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
 import { getAssetDisplayPath } from "../utils/asset-path";
 import {
   buildIndexedAddressRuntimeValues,
@@ -674,8 +674,31 @@ function FlowAnimationFields({
     });
   };
 
+  const renderSection = (title: string, content: ReactNode) => (
+    <section className="flow-animation-tuner-window__section">
+      <header className="flow-animation-tuner-window__section-title">{title}</header>
+      <div className="flow-animation-tuner-window__section-body">
+        {content}
+      </div>
+    </section>
+  );
+
   const renderDetailedControls = () => (
-    <>
+    <div className="flow-animation-tuner-window__sections object-property-tabs object-property-tabs--main">
+      {renderSection("PRESETS", (
+        <>
+          <Typography.Text type="secondary" style={{ marginBottom: 8, display: "block" }}>
+            Apply a quick base profile, then fine tune below.
+          </Typography.Text>
+          <div className="flow-animation-tuner-window__preset-actions">
+            <WorkbenchButton onClick={() => applyFlowPreset("pipeSoft")}>Pipe Soft</WorkbenchButton>
+            <WorkbenchButton onClick={() => applyFlowPreset("energySharp")}>Energy Sharp</WorkbenchButton>
+            <WorkbenchButton onClick={() => applyFlowPreset("airFast")}>Air Fast</WorkbenchButton>
+          </div>
+        </>
+      ))}
+      {renderSection("TRIGGER", (
+        <>
       <TagFieldWithBindingSource
         project={project}
         bindings={bindings}
@@ -722,6 +745,10 @@ function FlowAnimationFields({
           onChange={(checked) => patchFlowAnimation({ triggerInvert: checked })}
         />
       </Space>
+        </>
+      ))}
+      {renderSection("SPEED", (
+        <>
       <Form.Item label="Speed Source">
         <Select
           value={speedSource}
@@ -768,6 +795,32 @@ function FlowAnimationFields({
           onChange={(value) => patchFlowAnimation({ maxSpeedPxPerSec: Number(value ?? 500) })}
         />
       </Form.Item>
+      <Form.Item label="Direction">
+        <Select
+          value={flowAnimation.direction ?? "forward"}
+          options={[
+            { label: "forward", value: "forward" },
+            { label: "reverse", value: "reverse" },
+          ]}
+          onChange={(value) => patchFlowAnimation({ direction: value })}
+        />
+      </Form.Item>
+        </>
+      ))}
+      {renderSection("VISUAL EFFECT", (
+        <>
+          <Form.Item label="Effect Type">
+            <Select
+              value={effectType}
+              options={[
+                { label: "dash", value: "dash" },
+                { label: "arrows", value: "arrows" },
+                { label: "dots", value: "dots" },
+                { label: "gradientShift", value: "gradientShift" },
+              ]}
+              onChange={(value) => patchFlowAnimation({ effectType: value })}
+            />
+          </Form.Item>
       <ColorField
         label="Effect Color"
         value={flowAnimation.color}
@@ -802,6 +855,10 @@ function FlowAnimationFields({
           />
         </Form.Item>
       ) : null}
+        </>
+      ))}
+      {renderSection("GRADIENT / DASH SETTINGS", (
+        <>
       <Form.Item label="Dash Length">
         <InputNumber
           style={{ width: "100%" }}
@@ -844,7 +901,9 @@ function FlowAnimationFields({
           onChange={(value) => patchFlowAnimation({ gradientSpanPx: Number(value ?? 120) })}
         />
       </Form.Item>
-    </>
+        </>
+      ))}
+    </div>
   );
 
   return (
@@ -899,7 +958,7 @@ function FlowAnimationFields({
         </Form.Item>
       ) : null}
       <Form.Item>
-        <Button size="small" onClick={openAdvancedWindow}>Open Flow Animation Tuner</Button>
+        <WorkbenchButton onClick={openAdvancedWindow}>Open Flow Animation Tuner</WorkbenchButton>
       </Form.Item>
 
       {advancedOpen && typeof document !== "undefined"
@@ -917,18 +976,15 @@ function FlowAnimationFields({
               onMove={(x, y) => setAdvancedRect((prev) => ({ ...prev, x: Math.max(0, x), y: Math.max(0, y) }))}
               onResize={(nextRect) => setAdvancedRect(nextRect)}
             >
-              <Form layout="vertical" size="small">
-                <Typography.Text type="secondary" style={{ marginBottom: 8, display: "block" }}>
-                  Tune flow visuals live on selected line.
-                </Typography.Text>
-                <Space style={{ marginBottom: 8, width: "100%", justifyContent: "space-between" }}>
-                  <Button size="small" onClick={() => applyFlowPreset("pipeSoft")}>Pipe Soft</Button>
-                  <Button size="small" onClick={() => applyFlowPreset("energySharp")}>Energy Sharp</Button>
-                  <Button size="small" onClick={() => applyFlowPreset("airFast")}>Air Fast</Button>
-                </Space>
-                <Divider style={{ margin: "10px 0" }} />
-                {renderDetailedControls()}
-              </Form>
+              <div className="screen-editor-window-content screen-editor-object-properties-window flow-animation-tuner-window">
+                <div className="screen-editor-object-properties-scroll flow-animation-tuner-window__scroll">
+                  <div className="object-property-panel object-property-panel--workbench flow-animation-tuner-window__panel">
+                    <Form layout="vertical" size="small">
+                      {renderDetailedControls()}
+                    </Form>
+                  </div>
+                </div>
+              </div>
             </WorkbenchWindow>
           </div>,
           document.body,

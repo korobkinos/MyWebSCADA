@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
+import type Konva from "konva";
 import { message } from "antd";
 import {
   clampAccessRoleLevel,
@@ -884,10 +885,17 @@ function ObjectNode({
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
   const [isDragging, setIsDragging] = useState(false);
-  const [rotationAnimationOffset, setRotationAnimationOffset] = useState(0);
-  const [flowAnimationDashOffset, setFlowAnimationDashOffset] = useState(0);
   const rotationAnimationOffsetRef = useRef(0);
-  const flowAnimationDashOffsetRef = useRef(0);
+  const flowAnimationPhaseRef = useRef(0);
+  const rotationSpeedRef = useRef(0);
+  const rotationActiveRef = useRef(false);
+  const flowSpeedRef = useRef(0);
+  const flowActiveRef = useRef(false);
+  const groupNodeRef = useRef<Konva.Group | null>(null);
+  const flowDashLineRef = useRef<Konva.Line | null>(null);
+  const flowGradientLineRef = useRef<Konva.Line | null>(null);
+  const flowDotRefs = useRef<Array<Konva.Circle | null>>([]);
+  const flowArrowRefs = useRef<Array<Konva.Line | null>>([]);
   const rotationFrameRef = useRef<number | null>(null);
   const flowAnimationFrameRef = useRef<number | null>(null);
   const rotationLastFrameRef = useRef<number | null>(null);
@@ -1103,13 +1111,189 @@ function ObjectNode({
     flowAnimationSpeedPxPerSec = clampedSpeed;
   }
 
+  const flowEffectType = flowAnimation?.effectType ?? "dash";
+  const flowDashLength = Number(flowAnimation?.dashLength ?? 12);
+  const flowGapLength = Number(flowAnimation?.gapLength ?? 8);
+  const normalizedDashLength = Number.isFinite(flowDashLength) && flowDashLength > 0 ? flowDashLength : 12;
+  const normalizedGapLength = Number.isFinite(flowGapLength) && flowGapLength > 0 ? flowGapLength : 8;
+  const flowSpacing = Math.max(2, normalizedDashLength + normalizedGapLength);
+  const lineFlowRuntimeData = useMemo(() => {
+    if (resolvedObject.type !== "line") {
+      return null;
+    }
+    const flowPath = buildPolylinePath(resolvedObject.points, resolvedObject.closed ?? false);
+    const markerCount = Math.min(400, Math.max(1, Math.ceil((flowPath.totalLength || 0) / flowSpacing) + 1));
+    const defaultInnerStrokeWidth = Math.max(1, Math.min(resolvedObject.strokeWidth, Math.max(2, resolvedObject.strokeWidth * 0.35)));
+    const useBaseStrokeWidth = flowAnimation?.useBaseStrokeWidth ?? false;
+    const flowStrokeWidthRaw = Number(useBaseStrokeWidth ? resolvedObject.strokeWidth : (flowAnimation?.strokeWidth ?? defaultInnerStrokeWidth));
+    const flowStrokeWidth = Number.isFinite(flowStrokeWidthRaw) ? Math.max(0, flowStrokeWidthRaw) : Math.max(0, resolvedObject.strokeWidth);
+    const dotRadius = Math.max(1, Math.min(flowStrokeWidth * 0.5, normalizedDashLength * 0.5));
+    const arrowLength = Math.max(6, normalizedDashLength);
+    const arrowHalfWidth = Math.max(2, Math.min(flowStrokeWidth * 0.5, arrowLength * 0.55));
+    return {
+      flowPath,
+      markerCount,
+      flowStrokeWidth,
+      flowPathIsClosed: resolvedObject.closed ?? false,
+      dotRadius,
+      arrowLength,
+      arrowHalfWidth,
+    };
+  }, [
+    flowAnimation?.strokeWidth,
+    flowAnimation?.useBaseStrokeWidth,
+    flowSpacing,
+    normalizedDashLength,
+    resolvedObject.type,
+    resolvedObject.type === "line" ? resolvedObject.closed : undefined,
+    resolvedObject.type === "line" ? resolvedObject.points : undefined,
+    resolvedObject.type === "line" ? resolvedObject.strokeWidth : undefined,
+  ]);
+
+  const applyRotationNode = useCallback((offset: number) => {
+    const node = groupNodeRef.current;
+    if (!node) {
+      return;
+    }
+    const nextRotation = baseRotation + offset;
+    if (Math.abs(node.rotation() - nextRotation) < 1e-6) {
+      return;
+    }
+    node.rotation(nextRotation);
+    node.getLayer()?.batchDraw();
+  }, [baseRotation]);
+
+  const applyFlowDashOffset = useCallback((offset: number) => {
+    if (flowDashLineRef.current) {
+      flowDashLineRef.current.dashOffset(offset);
+    }
+    if (flowGradientLineRef.current) {
+      flowGradientLineRef.current.dashOffset(-offset);
+    }
+  }, []);
+
+  const updateFlowMarkerNodes = useCallback((phase: number) => {
+    if (!lineFlowRuntimeData || !(lineFlowRuntimeData.flowPath.totalLength > 0)) {
+      for (const node of flowDotRefs.current) {
+        node?.visible(false);
+      }
+      for (const node of flowArrowRefs.current) {
+        node?.visible(false);
+      }
+      return false;
+    }
+
+    const isFlowMarkerInsideOpenBounds = (distance: number, padding: number): boolean => {
+      if (lineFlowRuntimeData.flowPathIsClosed || !(lineFlowRuntimeData.flowPath.totalLength > 0)) {
+        return true;
+      }
+      const wrapped = ((distance % lineFlowRuntimeData.flowPath.totalLength) + lineFlowRuntimeData.flowPath.totalLength) % lineFlowRuntimeData.flowPath.totalLength;
+      return wrapped >= padding && wrapped <= (lineFlowRuntimeData.flowPath.totalLength - padding);
+    };
+
+    let changed = false;
+    if (flowEffectType === "dots") {
+      for (let markerIndex = 0; markerIndex < lineFlowRuntimeData.markerCount; markerIndex += 1) {
+        const node = flowDotRefs.current[markerIndex];
+        if (!node) {
+          continue;
+        }
+        const distance = markerIndex * flowSpacing + phase;
+        if (!isFlowMarkerInsideOpenBounds(distance, lineFlowRuntimeData.dotRadius)) {
+          if (node.visible()) {
+            node.visible(false);
+            changed = true;
+          }
+          continue;
+        }
+        const sample = samplePolylineAt(lineFlowRuntimeData.flowPath, distance);
+        if (!sample) {
+          if (node.visible()) {
+            node.visible(false);
+            changed = true;
+          }
+          continue;
+        }
+        node.position({ x: sample.x, y: sample.y });
+        if (!node.visible()) {
+          node.visible(true);
+        }
+        changed = true;
+      }
+      return changed;
+    }
+
+    if (flowEffectType === "arrows") {
+      for (let markerIndex = 0; markerIndex < lineFlowRuntimeData.markerCount; markerIndex += 1) {
+        const node = flowArrowRefs.current[markerIndex];
+        if (!node) {
+          continue;
+        }
+        const distance = markerIndex * flowSpacing + phase;
+        if (!isFlowMarkerInsideOpenBounds(distance, lineFlowRuntimeData.arrowLength)) {
+          if (node.visible()) {
+            node.visible(false);
+            changed = true;
+          }
+          continue;
+        }
+        const sample = samplePolylineAt(lineFlowRuntimeData.flowPath, distance);
+        if (!sample) {
+          if (node.visible()) {
+            node.visible(false);
+            changed = true;
+          }
+          continue;
+        }
+        const tipX = sample.x;
+        const tipY = sample.y;
+        const baseX = tipX - sample.ux * lineFlowRuntimeData.arrowLength;
+        const baseY = tipY - sample.uy * lineFlowRuntimeData.arrowLength;
+        const leftX = baseX + sample.nx * lineFlowRuntimeData.arrowHalfWidth;
+        const leftY = baseY + sample.ny * lineFlowRuntimeData.arrowHalfWidth;
+        const rightX = baseX - sample.nx * lineFlowRuntimeData.arrowHalfWidth;
+        const rightY = baseY - sample.ny * lineFlowRuntimeData.arrowHalfWidth;
+        node.points([tipX, tipY, leftX, leftY, rightX, rightY]);
+        if (!node.visible()) {
+          node.visible(true);
+        }
+        changed = true;
+      }
+      return changed;
+    }
+
+    for (const node of flowDotRefs.current) {
+      if (node?.visible()) {
+        node.visible(false);
+        changed = true;
+      }
+    }
+    for (const node of flowArrowRefs.current) {
+      if (node?.visible()) {
+        node.visible(false);
+        changed = true;
+      }
+    }
+    return changed;
+  }, [flowEffectType, flowSpacing, lineFlowRuntimeData]);
+
+  useEffect(() => {
+    rotationActiveRef.current = rotationAnimationIsActive;
+    rotationSpeedRef.current = Number.isFinite(rotationAnimationSpeedDegPerSec) ? rotationAnimationSpeedDegPerSec : 0;
+    if (!rotationAnimationConfigActive) {
+      applyRotationNode(0);
+      return;
+    }
+    applyRotationNode(rotationAnimationOffsetRef.current);
+  }, [applyRotationNode, rotationAnimationConfigActive, rotationAnimationIsActive, rotationAnimationSpeedDegPerSec]);
+
   useEffect(() => {
     if (rotationFrameRef.current !== null) {
       cancelAnimationFrame(rotationFrameRef.current);
       rotationFrameRef.current = null;
     }
     rotationLastFrameRef.current = null;
-    if (!rotationAnimationIsActive || !Number.isFinite(rotationAnimationSpeedDegPerSec) || rotationAnimationSpeedDegPerSec === 0) {
+    if (!rotationAnimationConfigActive) {
       return;
     }
 
@@ -1117,12 +1301,12 @@ function ObjectNode({
       const previousTime = rotationLastFrameRef.current ?? time;
       const deltaSeconds = Math.max(0, (time - previousTime) / 1000);
       rotationLastFrameRef.current = time;
-      if (deltaSeconds > 0) {
-        const rawOffset = rotationAnimationOffsetRef.current + rotationAnimationSpeedDegPerSec * deltaSeconds;
+      if (deltaSeconds > 0 && rotationActiveRef.current && rotationSpeedRef.current !== 0) {
+        const rawOffset = rotationAnimationOffsetRef.current + rotationSpeedRef.current * deltaSeconds;
         const normalizedOffset = ((rawOffset % 360) + 360) % 360;
         rotationAnimationOffsetRef.current = normalizedOffset;
-        setRotationAnimationOffset(normalizedOffset);
       }
+      applyRotationNode(rotationAnimationOffsetRef.current);
       rotationFrameRef.current = requestAnimationFrame(step);
     };
 
@@ -1134,7 +1318,21 @@ function ObjectNode({
       }
       rotationLastFrameRef.current = null;
     };
-  }, [rotationAnimationIsActive, rotationAnimationSpeedDegPerSec]);
+  }, [applyRotationNode, rotationAnimationConfigActive]);
+
+  useEffect(() => {
+    flowActiveRef.current = flowAnimationIsActive;
+    flowSpeedRef.current = Number.isFinite(flowAnimationSpeedPxPerSec) ? flowAnimationSpeedPxPerSec : 0;
+    applyFlowDashOffset(flowAnimationPhaseRef.current);
+    const changed = updateFlowMarkerNodes(flowAnimationPhaseRef.current);
+    if (changed) {
+      const layer = flowDashLineRef.current?.getLayer()
+        ?? flowGradientLineRef.current?.getLayer()
+        ?? flowDotRefs.current[0]?.getLayer()
+        ?? flowArrowRefs.current[0]?.getLayer();
+      layer?.batchDraw();
+    }
+  }, [applyFlowDashOffset, flowAnimationIsActive, flowAnimationSpeedPxPerSec, updateFlowMarkerNodes]);
 
   useEffect(() => {
     if (flowAnimationFrameRef.current !== null) {
@@ -1142,7 +1340,7 @@ function ObjectNode({
       flowAnimationFrameRef.current = null;
     }
     flowAnimationLastFrameRef.current = null;
-    if (!flowAnimationIsActive || !Number.isFinite(flowAnimationSpeedPxPerSec) || flowAnimationSpeedPxPerSec === 0) {
+    if (!flowAnimationConfigActive) {
       return;
     }
 
@@ -1150,10 +1348,17 @@ function ObjectNode({
       const previousTime = flowAnimationLastFrameRef.current ?? time;
       const deltaSeconds = Math.max(0, (time - previousTime) / 1000);
       flowAnimationLastFrameRef.current = time;
-      if (deltaSeconds > 0) {
-        const rawOffset = flowAnimationDashOffsetRef.current + flowAnimationSpeedPxPerSec * deltaSeconds;
-        flowAnimationDashOffsetRef.current = rawOffset;
-        setFlowAnimationDashOffset(rawOffset);
+      if (deltaSeconds > 0 && flowActiveRef.current && flowSpeedRef.current !== 0) {
+        flowAnimationPhaseRef.current += flowSpeedRef.current * deltaSeconds;
+      }
+      applyFlowDashOffset(flowAnimationPhaseRef.current);
+      const markerChanged = updateFlowMarkerNodes(flowAnimationPhaseRef.current);
+      if (flowDashLineRef.current || flowGradientLineRef.current || markerChanged) {
+        const layer = flowDashLineRef.current?.getLayer()
+          ?? flowGradientLineRef.current?.getLayer()
+          ?? flowDotRefs.current[0]?.getLayer()
+          ?? flowArrowRefs.current[0]?.getLayer();
+        layer?.batchDraw();
       }
       flowAnimationFrameRef.current = requestAnimationFrame(step);
     };
@@ -1166,10 +1371,9 @@ function ObjectNode({
       }
       flowAnimationLastFrameRef.current = null;
     };
-  }, [flowAnimationIsActive, flowAnimationSpeedPxPerSec]);
+  }, [applyFlowDashOffset, flowAnimationConfigActive, updateFlowMarkerNodes]);
 
-  const animatedRotationOffset = rotationAnimationConfigActive ? rotationAnimationOffset : 0;
-  const effectiveRotation = baseRotation + animatedRotationOffset;
+  const effectiveRotation = baseRotation;
   const useAnimatedCenterPivot = rotationAnimationConfigActive && rotationPivot === "center";
   const centerOffsetX = resolvedObject.width * 0.5;
   const centerOffsetY = resolvedObject.height * 0.5;
@@ -1204,6 +1408,7 @@ function ObjectNode({
   };
 
   const commonGroupProps = {
+    ref: groupNodeRef,
     id: `hmi-${nodeIdPrefix ?? ""}${resolvedObject.id}`,
     x: useAnimatedCenterPivot ? (resolvedObject.x + centerOffsetX) : resolvedObject.x,
     y: useAnimatedCenterPivot ? (resolvedObject.y + centerOffsetY) : resolvedObject.y,
@@ -1428,53 +1633,45 @@ function ObjectNode({
         })
       : {};
     const lineShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
-    const flowEffectType = flowAnimation?.effectType ?? "dash";
-    const flowDashLength = Number(flowAnimation?.dashLength ?? 12);
-    const flowGapLength = Number(flowAnimation?.gapLength ?? 8);
-    const normalizedDashLength = Number.isFinite(flowDashLength) && flowDashLength > 0 ? flowDashLength : 12;
-    const normalizedGapLength = Number.isFinite(flowGapLength) && flowGapLength > 0 ? flowGapLength : 8;
     const flowDash = flowEffectType === "dots" ? [Math.max(1, Math.round(normalizedDashLength * 0.25)), normalizedGapLength] : [normalizedDashLength, normalizedGapLength];
     const flowColor = flowAnimation?.color ?? resolvedObject.activeStroke ?? resolvedObject.stroke ?? "#00bfff";
     const flowOpacity = Number(flowAnimation?.opacity ?? 1);
     const normalizedFlowOpacity = Number.isFinite(flowOpacity) ? Math.max(0, Math.min(1, flowOpacity)) : 1;
-    const defaultInnerStrokeWidth = Math.max(1, Math.min(resolvedObject.strokeWidth, Math.max(2, resolvedObject.strokeWidth * 0.35)));
-    const useBaseStrokeWidth = flowAnimation?.useBaseStrokeWidth ?? false;
-    const flowStrokeWidthRaw = Number(useBaseStrokeWidth ? resolvedObject.strokeWidth : (flowAnimation?.strokeWidth ?? defaultInnerStrokeWidth));
-    const flowStrokeWidth = Number.isFinite(flowStrokeWidthRaw) ? Math.max(0, flowStrokeWidthRaw) : Math.max(0, resolvedObject.strokeWidth);
+    const flowStrokeWidth = lineFlowRuntimeData?.flowStrokeWidth ?? 0;
     const showFlowOverlay = flowAnimationConfigActive && flowAnimationIsActive && flowStrokeWidth > 0
       && (flowEffectType === "dash" || flowEffectType === "arrows" || flowEffectType === "dots" || flowEffectType === "gradientShift");
-    const flowPath = buildPolylinePath(resolvedObject.points, resolvedObject.closed ?? false);
-    const flowSpacing = Math.max(2, normalizedDashLength + normalizedGapLength);
-    const markerCount = Math.min(400, Math.max(1, Math.ceil((flowPath.totalLength || 0) / flowSpacing) + 1));
+    const flowPath = lineFlowRuntimeData?.flowPath;
+    const markerCount = lineFlowRuntimeData?.markerCount ?? 0;
     const renderDashOverlay = showFlowOverlay && flowEffectType === "dash";
     const renderDotsOverlay = showFlowOverlay && flowEffectType === "dots";
     const renderArrowsOverlay = showFlowOverlay && flowEffectType === "arrows";
     const renderGradientOverlay = showFlowOverlay && flowEffectType === "gradientShift";
-    const dotRadius = Math.max(1, Math.min(flowStrokeWidth * 0.5, normalizedDashLength * 0.5));
-    const arrowLength = Math.max(6, normalizedDashLength);
-    const arrowHalfWidth = Math.max(2, Math.min(flowStrokeWidth * 0.5, arrowLength * 0.55));
-    const flowMarkerPhase = flowAnimationDashOffset;
+    const dotRadius = lineFlowRuntimeData?.dotRadius ?? 1;
+    const arrowLength = lineFlowRuntimeData?.arrowLength ?? 0;
+    const arrowHalfWidth = lineFlowRuntimeData?.arrowHalfWidth ?? 0;
+    const flowMarkerPhase = flowAnimationPhaseRef.current;
     const gradientSpanRaw = Number(flowAnimation?.gradientSpanPx ?? 120);
     const gradientSpan = Number.isFinite(gradientSpanRaw) && gradientSpanRaw > 0 ? gradientSpanRaw : 120;
     const gradientGapRaw = Number(flowAnimation?.gapLength ?? 40);
     const gradientGap = Number.isFinite(gradientGapRaw) && gradientGapRaw >= 0 ? gradientGapRaw : 40;
-    const gradientPeriod = Math.max(1, gradientSpan + gradientGap);
+    const gradientDash = [gradientSpan, gradientGap];
     const gradientStartColor = flowAnimation?.gradientStartColor ?? resolvedObject.stroke ?? "#d9d9d9";
     const gradientMidColor = flowAnimation?.gradientMidColor ?? flowColor;
     const gradientEndColor = flowAnimation?.gradientEndColor ?? resolvedObject.stroke ?? "#d9d9d9";
-    const parsedGradientStart = parseHexColorToRgba(gradientStartColor);
-    const parsedGradientMid = parseHexColorToRgba(gradientMidColor);
-    const parsedGradientEnd = parseHexColorToRgba(gradientEndColor);
-    const gradientStartTransparent = parsedGradientStart ? rgbaToCss({ ...parsedGradientStart, a: 0 }) : "rgba(0, 0, 0, 0)";
-    const gradientStartShoulder = parsedGradientStart ? rgbaToCss({ ...parsedGradientStart, a: 0.45 }) : gradientStartColor;
-    const gradientMidStrong = parsedGradientMid ? rgbaToCss({ ...parsedGradientMid, a: 1 }) : gradientMidColor;
-    const gradientEndShoulder = parsedGradientEnd ? rgbaToCss({ ...parsedGradientEnd, a: 0.45 }) : gradientEndColor;
-    const gradientEndTransparent = parsedGradientEnd ? rgbaToCss({ ...parsedGradientEnd, a: 0 }) : "rgba(0, 0, 0, 0)";
-    const gradientSampleStep = Math.max(2, Math.min(10, Math.max(3, flowStrokeWidth * 0.5)));
-    const gradientPacketPhase = ((flowMarkerPhase % gradientPeriod) + gradientPeriod) % gradientPeriod;
-    const flowPathIsClosed = resolvedObject.closed ?? false;
+    const gradientStartPoint = {
+      x: resolvedObject.points[0] ?? 0,
+      y: resolvedObject.points[1] ?? 0,
+    };
+    const gradientEndPoint = {
+      x: resolvedObject.points[resolvedObject.points.length - 2] ?? (gradientStartPoint.x + Math.max(1, resolvedObject.width)),
+      y: resolvedObject.points[resolvedObject.points.length - 1] ?? gradientStartPoint.y,
+    };
+    const gradientAxisCollapsed = Math.hypot(gradientEndPoint.x - gradientStartPoint.x, gradientEndPoint.y - gradientStartPoint.y) < 1e-6;
+    const gradientStrokeEndPoint = gradientAxisCollapsed
+      ? { x: gradientStartPoint.x + Math.max(1, resolvedObject.width), y: gradientStartPoint.y }
+      : gradientEndPoint;
     const isFlowMarkerInsideOpenBounds = (distance: number, padding: number): boolean => {
-      if (flowPathIsClosed || !(flowPath.totalLength > 0)) {
+      if (lineFlowRuntimeData?.flowPathIsClosed || !(flowPath && flowPath.totalLength > 0)) {
         return true;
       }
       const wrapped = ((distance % flowPath.totalLength) + flowPath.totalLength) % flowPath.totalLength;
@@ -1502,73 +1699,25 @@ function ObjectNode({
             clipHeight={resolvedObject.height}
             listening={false}
           >
-            {renderGradientOverlay && flowPath.totalLength > 0
-              ? Array.from({ length: Math.min(256, Math.ceil((flowPath.totalLength + gradientPeriod * 3) / gradientPeriod)) }).map((_, packetIndex) => {
-                const rawStart = (packetIndex - 2) * gradientPeriod + gradientPacketPhase;
-                const rawEnd = rawStart + gradientSpan;
-                if (!flowPathIsClosed && (rawEnd <= 0 || rawStart >= flowPath.totalLength)) {
-                  return null;
-                }
-                const startDistance = flowPathIsClosed ? rawStart : Math.max(0, rawStart);
-                const endDistance = flowPathIsClosed ? rawEnd : Math.min(flowPath.totalLength, rawEnd);
-                const packetLength = endDistance - startDistance;
-                if (!(packetLength > 0)) {
-                  return null;
-                }
-                const sampleCount = Math.max(2, Math.ceil(packetLength / gradientSampleStep) + 1);
-                const packetPoints: number[] = [];
-                for (let i = 0; i < sampleCount; i += 1) {
-                  const t = sampleCount <= 1 ? 0 : (i / (sampleCount - 1));
-                  const sample = samplePolylineAt(
-                    flowPath,
-                    startDistance + packetLength * t,
-                    { wrap: flowPathIsClosed },
-                  );
-                  if (!sample) {
-                    continue;
-                  }
-                  packetPoints.push(sample.x, sample.y);
-                }
-                if (packetPoints.length < 4) {
-                  return null;
-                }
-                const sx = packetPoints[0] ?? 0;
-                const sy = packetPoints[1] ?? 0;
-                const ex = packetPoints[packetPoints.length - 2] ?? sx;
-                const ey = packetPoints[packetPoints.length - 1] ?? sy;
-                return (
-                  <Line
-                    key={`flow-gradient-packet-${packetIndex}`}
-                    points={packetPoints}
-                    stroke={gradientMidColor}
-                    strokeWidth={flowStrokeWidth}
-                    opacity={normalizedFlowOpacity}
-                    strokeLinearGradientStartPoint={{ x: sx, y: sy }}
-                    strokeLinearGradientEndPoint={{ x: ex, y: ey }}
-                    strokeLinearGradientColorStops={[
-                      0, gradientStartTransparent,
-                      0.22, gradientStartShoulder,
-                      0.5, gradientMidStrong,
-                      0.78, gradientEndShoulder,
-                      1, gradientEndTransparent,
-                    ]}
-                    listening={false}
-                    lineCap="round"
-                    lineJoin="round"
-                    perfectDrawEnabled={false}
-                  />
-                );
-              })
-              : null}
-            {renderDashOverlay ? (
+            {renderGradientOverlay ? (
               <Line
+                ref={(node) => {
+                  flowGradientLineRef.current = node;
+                }}
                 points={resolvedObject.points}
-                stroke={flowColor}
+                stroke={gradientMidColor}
                 strokeWidth={flowStrokeWidth}
                 opacity={normalizedFlowOpacity}
                 closed={resolvedObject.closed ?? false}
-                dash={flowDash}
-                dashOffset={flowAnimationDashOffset}
+                dash={gradientDash}
+                dashOffset={-flowMarkerPhase}
+                strokeLinearGradientStartPoint={gradientStartPoint}
+                strokeLinearGradientEndPoint={gradientStrokeEndPoint}
+                strokeLinearGradientColorStops={[
+                  0, gradientStartColor,
+                  0.5, gradientMidColor,
+                  1, gradientEndColor,
+                ]}
                 fillEnabled={false}
                 listening={false}
                 lineCap="round"
@@ -1576,54 +1725,71 @@ function ObjectNode({
                 perfectDrawEnabled={false}
               />
             ) : null}
-            {renderDotsOverlay && flowPath.totalLength > 0
+            {renderDashOverlay ? (
+              <Line
+                ref={(node) => {
+                  flowDashLineRef.current = node;
+                }}
+                points={resolvedObject.points}
+                stroke={flowColor}
+                strokeWidth={flowStrokeWidth}
+                opacity={normalizedFlowOpacity}
+                closed={resolvedObject.closed ?? false}
+                dash={flowDash}
+                dashOffset={flowMarkerPhase}
+                fillEnabled={false}
+                listening={false}
+                lineCap="round"
+                lineJoin="round"
+                perfectDrawEnabled={false}
+              />
+            ) : null}
+            {renderDotsOverlay && flowPath && flowPath.totalLength > 0
               ? Array.from({ length: markerCount }).map((_, markerIndex) => {
                 const distance = markerIndex * flowSpacing + flowMarkerPhase;
-                if (!isFlowMarkerInsideOpenBounds(distance, dotRadius)) {
-                  return null;
-                }
                 const sample = samplePolylineAt(flowPath, distance);
-                if (!sample) {
-                  return null;
-                }
+                const visible = Boolean(sample) && isFlowMarkerInsideOpenBounds(distance, dotRadius);
                 return (
                   <Circle
                     key={`flow-dot-${markerIndex}`}
-                    x={sample.x}
-                    y={sample.y}
+                    ref={(node) => {
+                      flowDotRefs.current[markerIndex] = node;
+                    }}
+                    x={sample?.x ?? 0}
+                    y={sample?.y ?? 0}
                     radius={dotRadius}
                     fill={flowColor}
                     opacity={normalizedFlowOpacity}
+                    visible={visible}
                     listening={false}
                   />
                 );
               })
               : null}
-            {renderArrowsOverlay && flowPath.totalLength > 0
+            {renderArrowsOverlay && flowPath && flowPath.totalLength > 0
               ? Array.from({ length: markerCount }).map((_, markerIndex) => {
                 const distance = markerIndex * flowSpacing + flowMarkerPhase;
-                if (!isFlowMarkerInsideOpenBounds(distance, arrowLength)) {
-                  return null;
-                }
                 const sample = samplePolylineAt(flowPath, distance);
-                if (!sample) {
-                  return null;
-                }
-                const tipX = sample.x;
-                const tipY = sample.y;
-                const baseX = tipX - sample.ux * arrowLength;
-                const baseY = tipY - sample.uy * arrowLength;
-                const leftX = baseX + sample.nx * arrowHalfWidth;
-                const leftY = baseY + sample.ny * arrowHalfWidth;
-                const rightX = baseX - sample.nx * arrowHalfWidth;
-                const rightY = baseY - sample.ny * arrowHalfWidth;
+                const visible = Boolean(sample) && isFlowMarkerInsideOpenBounds(distance, arrowLength);
+                const tipX = sample?.x ?? 0;
+                const tipY = sample?.y ?? 0;
+                const baseX = tipX - (sample?.ux ?? 0) * arrowLength;
+                const baseY = tipY - (sample?.uy ?? 0) * arrowLength;
+                const leftX = baseX + (sample?.nx ?? 0) * arrowHalfWidth;
+                const leftY = baseY + (sample?.ny ?? 0) * arrowHalfWidth;
+                const rightX = baseX - (sample?.nx ?? 0) * arrowHalfWidth;
+                const rightY = baseY - (sample?.ny ?? 0) * arrowHalfWidth;
                 return (
                   <Line
                     key={`flow-arrow-${markerIndex}`}
+                    ref={(node) => {
+                      flowArrowRefs.current[markerIndex] = node;
+                    }}
                     points={[tipX, tipY, leftX, leftY, rightX, rightY]}
                     closed
                     fill={flowColor}
                     opacity={normalizedFlowOpacity}
+                    visible={visible}
                     listening={false}
                     perfectDrawEnabled={false}
                   />

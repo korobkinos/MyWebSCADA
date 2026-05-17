@@ -10619,17 +10619,17 @@
             "triggerTag": "speed",
             "triggerMode": "truthy",
             "speedSource": "tag",
-            "fixedSpeedPxPerSec": 110,
+            "fixedSpeedPxPerSec": 70,
             "speedTag": "speed",
             "direction": "forward",
             "effectType": "gradientShift",
             "color": "#95e20f",
-            "opacity": 1,
-            "gradientStartColor": "#1f5f8f",
-            "gradientMidColor": "#7ce8ff",
-            "gradientEndColor": "#1f5f8f",
-            "gradientSpanPx": 68,
-            "gapLength": 24
+            "opacity": 0.95,
+            "gradientStartColor": "#557a2c",
+            "gradientMidColor": "#d5ff62",
+            "gradientEndColor": "#557a2c",
+            "gradientSpanPx": 90,
+            "gapLength": 34
           }
         }
       ]
