@@ -638,19 +638,44 @@ const ROOT_PROPERTY_BLOCKLIST = new Set([
   "tagIndexing",
   "tagIndexingByField",
 ]);
+const ROTATION_ANIMATION_HINT_TYPES = new Set<HmiObject["type"]>([
+  "text",
+  "line",
+  "rectangle",
+  "image",
+  "stateImage",
+  "numeric-image-indicator",
+  "value-display",
+  "state-indicator",
+  "button",
+]);
+const ROTATION_ANIMATION_PROPERTY_HINTS: Array<{ path: string; kind: VisualRuleValueKind }> = [
+  { path: "rotationAnimation.enabled", kind: "boolean" },
+  { path: "rotationAnimation.triggerTag", kind: "string" },
+  { path: "rotationAnimation.triggerMode", kind: "string" },
+  { path: "rotationAnimation.triggerValue", kind: "string" },
+  { path: "rotationAnimation.triggerInvert", kind: "boolean" },
+  { path: "rotationAnimation.speedSource", kind: "string" },
+  { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" },
+  { path: "rotationAnimation.speedTag", kind: "string" },
+  { path: "rotationAnimation.minSpeedDegPerSec", kind: "number" },
+  { path: "rotationAnimation.maxSpeedDegPerSec", kind: "number" },
+  { path: "rotationAnimation.direction", kind: "string" },
+  { path: "rotationAnimation.pivot", kind: "string" },
+];
 
 const TYPE_PROPERTY_HINTS: Partial<Record<HmiObject["type"], Array<{ path: string; kind: VisualRuleValueKind }>>> = {
   group: [{ path: "visible", kind: "boolean" }, { path: "opacity", kind: "number" }],
-  text: [{ path: "text", kind: "string" }, { path: "visible", kind: "boolean" }, { path: "textStyle.color", kind: "color" }, { path: "textStyle.fontSize", kind: "number" }],
-  line: [{ path: "visible", kind: "boolean" }, { path: "stroke", kind: "color" }, { path: "fill", kind: "color" }, { path: "strokeWidth", kind: "number" }],
-  rectangle: [{ path: "visible", kind: "boolean" }, { path: "fill", kind: "color" }, { path: "stroke", kind: "color" }, { path: "strokeWidth", kind: "number" }],
-  "value-display": [{ path: "visible", kind: "boolean" }, { path: "suffix", kind: "string" }, { path: "textStyle.color", kind: "color" }],
+  text: [{ path: "text", kind: "string" }, { path: "visible", kind: "boolean" }, { path: "textStyle.color", kind: "color" }, { path: "textStyle.fontSize", kind: "number" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
+  line: [{ path: "visible", kind: "boolean" }, { path: "stroke", kind: "color" }, { path: "fill", kind: "color" }, { path: "strokeWidth", kind: "number" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
+  rectangle: [{ path: "visible", kind: "boolean" }, { path: "fill", kind: "color" }, { path: "stroke", kind: "color" }, { path: "strokeWidth", kind: "number" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
+  "value-display": [{ path: "visible", kind: "boolean" }, { path: "suffix", kind: "string" }, { path: "textStyle.color", kind: "color" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
   "value-input": [{ path: "visible", kind: "boolean" }, { path: "suffix", kind: "string" }, { path: "textStyle.color", kind: "color" }],
-  "state-indicator": [{ path: "visible", kind: "boolean" }, { path: "trueColor", kind: "color" }, { path: "falseColor", kind: "color" }, { path: "textStyle.color", kind: "color" }],
-  button: [{ path: "visible", kind: "boolean" }, { path: "text", kind: "string" }, { path: "backgroundColor", kind: "color" }, { path: "borderColor", kind: "color" }, { path: "textStyle.color", kind: "color" }],
+  "state-indicator": [{ path: "visible", kind: "boolean" }, { path: "trueColor", kind: "color" }, { path: "falseColor", kind: "color" }, { path: "textStyle.color", kind: "color" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
+  button: [{ path: "visible", kind: "boolean" }, { path: "text", kind: "string" }, { path: "backgroundColor", kind: "color" }, { path: "borderColor", kind: "color" }, { path: "textStyle.color", kind: "color" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
   switch: [{ path: "visible", kind: "boolean" }, { path: "onText", kind: "string" }, { path: "offText", kind: "string" }, { path: "onColor", kind: "color" }, { path: "offColor", kind: "color" }],
-  image: [{ path: "visible", kind: "boolean" }, { path: "assetId", kind: "asset" }, { path: "fit", kind: "string" }, { path: "opacity", kind: "number" }],
-  stateImage: [{ path: "visible", kind: "boolean" }, { path: "defaultAssetId", kind: "asset" }, { path: "badQualityAssetId", kind: "asset" }, { path: "fit", kind: "string" }],
+  image: [{ path: "visible", kind: "boolean" }, { path: "assetId", kind: "asset" }, { path: "fit", kind: "string" }, { path: "opacity", kind: "number" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
+  stateImage: [{ path: "visible", kind: "boolean" }, { path: "defaultAssetId", kind: "asset" }, { path: "badQualityAssetId", kind: "asset" }, { path: "fit", kind: "string" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
   valueSelect: [{ path: "visible", kind: "boolean" }, { path: "textStyle.color", kind: "color" }],
   frame: [{ path: "visible", kind: "boolean" }, { path: "showBorder", kind: "boolean" }, { path: "borderColor", kind: "color" }, { path: "borderWidth", kind: "number" }],
   checkbox: [{ path: "visible", kind: "boolean" }, { path: "label", kind: "string" }, { path: "checkedColor", kind: "color" }, { path: "uncheckedColor", kind: "color" }],
@@ -659,7 +684,7 @@ const TYPE_PROPERTY_HINTS: Partial<Record<HmiObject["type"], Array<{ path: strin
   select: [{ path: "visible", kind: "boolean" }, { path: "placeholder", kind: "string" }, { path: "backgroundColor", kind: "color" }, { path: "textColor", kind: "color" }, { path: "fontSize", kind: "number" }],
   "radio-group": [{ path: "visible", kind: "boolean" }, { path: "selectedColor", kind: "color" }, { path: "unselectedColor", kind: "color" }, { path: "labelColor", kind: "color" }, { path: "fontSize", kind: "number" }],
   "numeric-input": [{ path: "visible", kind: "boolean" }, { path: "placeholder", kind: "string" }, { path: "textColor", kind: "color" }, { path: "backgroundColor", kind: "color" }, { path: "fontSize", kind: "number" }],
-  "numeric-image-indicator": [{ path: "visible", kind: "boolean" }, { path: "defaultAssetId", kind: "asset" }, { path: "badQualityAssetId", kind: "asset" }, { path: "fit", kind: "string" }],
+  "numeric-image-indicator": [{ path: "visible", kind: "boolean" }, { path: "defaultAssetId", kind: "asset" }, { path: "badQualityAssetId", kind: "asset" }, { path: "fit", kind: "string" }, { path: "rotationAnimation.enabled", kind: "boolean" }, { path: "rotationAnimation.triggerTag", kind: "string" }, { path: "rotationAnimation.speedTag", kind: "string" }, { path: "rotationAnimation.fixedSpeedDegPerSec", kind: "number" }, { path: "rotationAnimation.direction", kind: "string" }, { path: "rotationAnimation.pivot", kind: "string" }],
   valve: [{ path: "visible", kind: "boolean" }, { path: "label", kind: "string" }],
   pump: [{ path: "visible", kind: "boolean" }, { path: "label", kind: "string" }],
 };
@@ -861,8 +886,15 @@ function getObjectPropertyOptions(object: HmiObject | undefined): VisualRuleProp
     label: item.path,
     kind: item.kind,
   }));
+  const rotationAnimationHinted = ROTATION_ANIMATION_HINT_TYPES.has(object.type)
+    ? ROTATION_ANIMATION_PROPERTY_HINTS.map((item) => ({
+      path: item.path,
+      label: item.path,
+      kind: item.kind,
+    }))
+    : [];
   const map = new Map<string, VisualRulePropertyOption>();
-  for (const option of [...hinted, ...dynamic]) {
+  for (const option of [...hinted, ...rotationAnimationHinted, ...dynamic]) {
     if (!map.has(option.path)) {
       map.set(option.path, option);
     }
@@ -2304,6 +2336,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
   };
 
   const buildBindingOptionsForField = (
+    field: ObjectIoFieldDefinition,
     direction: ObjectIoFieldDefinition["direction"],
     currentBindingKey: string,
   ): Array<{ key: string; label: string }> => {
@@ -2313,7 +2346,22 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     const allBindings = selectedElement?.bindings ?? [];
     const preferred = allBindings.filter((binding) => preferredKinds.has(binding.kind));
     const secondary = allBindings.filter((binding) => !preferredKinds.has(binding.kind));
-    const ordered = [...preferred, ...secondary];
+    const preferNumericDataType = field.fieldPath === "rotationAnimation.speedTag";
+    const numericTypes = new Set<NonNullable<ElementBindingDefinition["dataType"]>>(["REAL", "INT", "DINT", "UINT", "UDINT"]);
+    const sortPreferred = (rows: ElementBindingDefinition[]) => {
+      if (!preferNumericDataType) {
+        return rows;
+      }
+      return [...rows].sort((left, right) => {
+        const leftScore = left.dataType && numericTypes.has(left.dataType) ? 0 : 1;
+        const rightScore = right.dataType && numericTypes.has(right.dataType) ? 0 : 1;
+        if (leftScore !== rightScore) {
+          return leftScore - rightScore;
+        }
+        return (left.displayName || left.key).localeCompare(right.displayName || right.key);
+      });
+    };
+    const ordered = [...sortPreferred(preferred), ...secondary];
     const options: Array<{ key: string; label: string }> = [];
     const used = new Set<string>();
     for (const binding of ordered) {
@@ -3483,7 +3531,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                             const manualMode = !bindingKey;
                             const selectedBindingValue = manualMode ? "__manual__" : bindingKey;
                             const manualTagValue = manualMode ? tagValue : "";
-                            const bindingOptions = buildBindingOptionsForField(field.direction, bindingKey);
+                            const bindingOptions = buildBindingOptionsForField(field, field.direction, bindingKey);
                             return (
                               <div
                                 key={key}

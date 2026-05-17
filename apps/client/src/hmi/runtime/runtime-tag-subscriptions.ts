@@ -113,6 +113,12 @@ function collectObjectTags(
     context,
     runtimeTagValues,
   });
+  addRotationAnimationFieldTags(out, {
+    project,
+    object: resolvedObject,
+    context,
+    runtimeTagValues,
+  });
 
   if ("action" in resolvedObject && resolvedObject.action) {
     collectActionTags(resolvedObject.action, context, out);
@@ -525,6 +531,39 @@ function addResolvedFieldTag(
       out.add(dependency.trim());
     }
   }
+}
+
+function addRotationAnimationFieldTags(
+  out: Set<string>,
+  input: {
+    project: ScadaProject;
+    object: HmiObject;
+    context: RenderContext;
+    runtimeTagValues?: TagMap;
+  },
+): void {
+  const rotationAnimation = input.object.rotationAnimation;
+  const hasTriggerTag = Boolean(rotationAnimation?.triggerTag?.trim());
+  const hasSpeedTag = Boolean(rotationAnimation?.speedTag?.trim());
+  if (!(rotationAnimation?.enabled === true || hasTriggerTag || hasSpeedTag)) {
+    return;
+  }
+  addResolvedFieldTag(out, {
+    project: input.project,
+    object: input.object,
+    fieldName: "rotationAnimation.triggerTag",
+    rawTagName: rotationAnimation?.triggerTag,
+    context: input.context,
+    runtimeTagValues: input.runtimeTagValues,
+  });
+  addResolvedFieldTag(out, {
+    project: input.project,
+    object: input.object,
+    fieldName: "rotationAnimation.speedTag",
+    rawTagName: rotationAnimation?.speedTag,
+    context: input.context,
+    runtimeTagValues: input.runtimeTagValues,
+  });
 }
 
 function addTag(out: Set<string>, tag: string | undefined, context: RenderContext): void {

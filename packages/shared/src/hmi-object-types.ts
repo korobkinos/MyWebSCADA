@@ -35,6 +35,25 @@ export type TextLayout = {
   ellipsis?: boolean;
 };
 
+export type RotationAnimationMode = "truthy" | "equals" | "notEquals";
+export type RotationAnimationDirection = "clockwise" | "counterclockwise";
+export type RotationAnimationPivot = "center" | "origin";
+
+export type RotationAnimationConfig = {
+  enabled?: boolean;
+  triggerTag?: string;
+  triggerMode?: RotationAnimationMode;
+  triggerValue?: string | number | boolean;
+  triggerInvert?: boolean;
+  speedSource?: "fixed" | "tag";
+  fixedSpeedDegPerSec?: number;
+  speedTag?: string;
+  minSpeedDegPerSec?: number;
+  maxSpeedDegPerSec?: number;
+  direction?: RotationAnimationDirection;
+  pivot?: RotationAnimationPivot;
+};
+
 export type HmiObjectBase = {
   id: string;
   type:
@@ -69,6 +88,7 @@ export type HmiObjectBase = {
   height: number;
 
   rotation?: number;
+  rotationAnimation?: RotationAnimationConfig;
   visible?: boolean;
   visibleForRoles?: AppRole[];
   requiredVisibleRole?: AccessRoleLevel;

@@ -67,6 +67,21 @@ type FormatNumericOptions = {
 
 type GradientDirection = "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
 type ShadowDirection = "right" | "left" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
+const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
+  "text",
+  "line",
+  "rectangle",
+  "image",
+  "stateImage",
+  "numeric-image-indicator",
+  "value-display",
+  "state-indicator",
+  "button",
+]);
+
+function isRotationAnimationSupportedObjectType(type: HmiObject["type"]): boolean {
+  return ROTATION_ANIMATION_SUPPORTED_TYPES.has(type);
+}
 
 function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   const formatMode = opts.formatMode ?? "decimals";
@@ -132,6 +147,12 @@ function matchesStateValue(actual: unknown, expected: string | number | boolean)
     return false;
   }
   return String(actual ?? "").trim() === expected;
+}
+
+function normalizeRotationSpeed(value: number, minValue: number, maxValue: number): number {
+  const low = Math.min(minValue, maxValue);
+  const high = Math.max(minValue, maxValue);
+  return Math.max(low, Math.min(high, value));
 }
 
 function resolveFillGradientProps(args: {
@@ -614,6 +635,12 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
     default:
       break;
   }
+  const rotationAnimation = object.rotationAnimation;
+  const hasRotationTriggerTag = Boolean(rotationAnimation?.triggerTag?.trim());
+  const hasRotationSpeedTag = Boolean(rotationAnimation?.speedTag?.trim());
+  if (rotationAnimation?.enabled === true || hasRotationTriggerTag || hasRotationSpeedTag) {
+    candidates.push(rotationAnimation?.triggerTag, rotationAnimation?.speedTag);
+  }
 
   return candidates
     .map((name) => resolveTagName(name, context))
@@ -651,6 +678,10 @@ function ObjectNode({
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
   const [isDragging, setIsDragging] = useState(false);
+  const [rotationAnimationOffset, setRotationAnimationOffset] = useState(0);
+  const rotationAnimationOffsetRef = useRef(0);
+  const rotationFrameRef = useRef<number | null>(null);
+  const rotationLastFrameRef = useRef<number | null>(null);
   const effectiveShadowDisabled = shadowDisabled || (mode === "editor" && isDragging);
   const debugPerformance =
     import.meta.env.DEV &&
@@ -708,6 +739,124 @@ function ObjectNode({
     };
   };
 
+  const baseRotation = resolvedObject.rotation ?? 0;
+  const rotationAnimation = resolvedObject.rotationAnimation;
+  const rotationAnimationSupported = isRotationAnimationSupportedObjectType(resolvedObject.type);
+  const rotationAnimationEnabled = rotationAnimation?.enabled === true;
+  const rotationPivot = rotationAnimation?.pivot ?? "center";
+  const rotationAnimationConfigActive = runtimeMode && rotationAnimationSupported && rotationAnimationEnabled;
+  let rotationAnimationIsActive = false;
+  let rotationAnimationSpeedDegPerSec = 0;
+  if (rotationAnimationConfigActive) {
+    const triggerTagRaw = rotationAnimation?.triggerTag?.trim() ?? "";
+    if (!triggerTagRaw) {
+      rotationAnimationIsActive = true;
+    } else {
+      const trigger = tagValue(rotationAnimation?.triggerTag, {
+        useObjectIndexing: true,
+        fieldName: "rotationAnimation.triggerTag",
+      });
+      if (
+        trigger.resolvedName
+        && !trigger.missingBindingReference
+        && !trigger.missingIndexedTag
+        && trigger.value
+        && trigger.value.quality !== "Bad"
+      ) {
+        const triggerMode = rotationAnimation?.triggerMode ?? "truthy";
+        const triggerRawValue = trigger.value.value;
+        if (triggerMode === "equals") {
+          if (rotationAnimation?.triggerValue !== undefined) {
+            rotationAnimationIsActive = matchesStateValue(triggerRawValue, rotationAnimation.triggerValue);
+          } else {
+            rotationAnimationIsActive = false;
+          }
+        } else if (triggerMode === "notEquals") {
+          if (rotationAnimation?.triggerValue !== undefined) {
+            rotationAnimationIsActive = !matchesStateValue(triggerRawValue, rotationAnimation.triggerValue);
+          } else {
+            rotationAnimationIsActive = false;
+          }
+        } else {
+          rotationAnimationIsActive = Boolean(triggerRawValue);
+        }
+      } else {
+        rotationAnimationIsActive = false;
+      }
+    }
+    if (rotationAnimation?.triggerInvert) {
+      rotationAnimationIsActive = !rotationAnimationIsActive;
+    }
+
+    const fixedSpeed = Number(rotationAnimation?.fixedSpeedDegPerSec ?? 90);
+    const fallbackSpeed = Number.isFinite(fixedSpeed) ? fixedSpeed : 90;
+    let resolvedSpeed = fallbackSpeed;
+    if ((rotationAnimation?.speedSource ?? "fixed") === "tag") {
+      const speed = tagValue(rotationAnimation?.speedTag, {
+        useObjectIndexing: true,
+        fieldName: "rotationAnimation.speedTag",
+      });
+      const numericSpeed = Number(speed.value?.value);
+      if (
+        speed.resolvedName
+        && !speed.missingBindingReference
+        && !speed.missingIndexedTag
+        && speed.value?.quality !== "Bad"
+        && Number.isFinite(numericSpeed)
+      ) {
+        resolvedSpeed = numericSpeed;
+      }
+    }
+    const minSpeed = Number(rotationAnimation?.minSpeedDegPerSec ?? 0);
+    const maxSpeed = Number(rotationAnimation?.maxSpeedDegPerSec ?? 720);
+    const normalizedMin = Number.isFinite(minSpeed) ? minSpeed : 0;
+    const normalizedMax = Number.isFinite(maxSpeed) ? maxSpeed : 720;
+    let clampedSpeed = normalizeRotationSpeed(resolvedSpeed, normalizedMin, normalizedMax);
+    if ((rotationAnimation?.direction ?? "clockwise") === "counterclockwise") {
+      clampedSpeed = -clampedSpeed;
+    }
+    rotationAnimationSpeedDegPerSec = clampedSpeed;
+  }
+
+  useEffect(() => {
+    if (rotationFrameRef.current !== null) {
+      cancelAnimationFrame(rotationFrameRef.current);
+      rotationFrameRef.current = null;
+    }
+    rotationLastFrameRef.current = null;
+    if (!rotationAnimationIsActive || !Number.isFinite(rotationAnimationSpeedDegPerSec) || rotationAnimationSpeedDegPerSec === 0) {
+      return;
+    }
+
+    const step = (time: number) => {
+      const previousTime = rotationLastFrameRef.current ?? time;
+      const deltaSeconds = Math.max(0, (time - previousTime) / 1000);
+      rotationLastFrameRef.current = time;
+      if (deltaSeconds > 0) {
+        const rawOffset = rotationAnimationOffsetRef.current + rotationAnimationSpeedDegPerSec * deltaSeconds;
+        const normalizedOffset = ((rawOffset % 360) + 360) % 360;
+        rotationAnimationOffsetRef.current = normalizedOffset;
+        setRotationAnimationOffset(normalizedOffset);
+      }
+      rotationFrameRef.current = requestAnimationFrame(step);
+    };
+
+    rotationFrameRef.current = requestAnimationFrame(step);
+    return () => {
+      if (rotationFrameRef.current !== null) {
+        cancelAnimationFrame(rotationFrameRef.current);
+        rotationFrameRef.current = null;
+      }
+      rotationLastFrameRef.current = null;
+    };
+  }, [rotationAnimationIsActive, rotationAnimationSpeedDegPerSec]);
+
+  const animatedRotationOffset = rotationAnimationConfigActive ? rotationAnimationOffset : 0;
+  const effectiveRotation = baseRotation + animatedRotationOffset;
+  const useAnimatedCenterPivot = rotationAnimationConfigActive && rotationPivot === "center";
+  const centerOffsetX = resolvedObject.width * 0.5;
+  const centerOffsetY = resolvedObject.height * 0.5;
+
   const selectable = interactive;
   const visibleByRole = isObjectVisibleByRole(resolvedObject, mode, renderContext);
   if (!visibleByRole && mode === "runtime") {
@@ -739,9 +888,11 @@ function ObjectNode({
 
   const commonGroupProps = {
     id: `hmi-${nodeIdPrefix ?? ""}${resolvedObject.id}`,
-    x: resolvedObject.x,
-    y: resolvedObject.y,
-    rotation: resolvedObject.rotation ?? 0,
+    x: useAnimatedCenterPivot ? (resolvedObject.x + centerOffsetX) : resolvedObject.x,
+    y: useAnimatedCenterPivot ? (resolvedObject.y + centerOffsetY) : resolvedObject.y,
+    rotation: effectiveRotation,
+    offsetX: useAnimatedCenterPivot ? centerOffsetX : 0,
+    offsetY: useAnimatedCenterPivot ? centerOffsetY : 0,
     opacity: resolvedObject.opacity ?? 1,
     visible: (resolvedObject.visible ?? true) && visibleByRole,
     draggable: interactive && !resolvedObject.locked,

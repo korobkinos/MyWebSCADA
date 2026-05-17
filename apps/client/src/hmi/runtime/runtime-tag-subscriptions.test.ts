@@ -190,4 +190,53 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).toContain("VALVES.PZK_1.ShowOpen");
     expect(subscriptions).toContain("VALVES.PZK_1.OpenCmd");
   });
+
+  it("collects rotation animation trigger/speed tags", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "fan-image",
+          type: "image",
+          x: 20,
+          y: 20,
+          width: 120,
+          height: 120,
+          fit: "contain",
+          preserveAspectRatio: true,
+          rotationAnimation: {
+            enabled: true,
+            triggerTag: "Fan_1.Run",
+            speedSource: "tag",
+            speedTag: "Fan_1.Speed",
+          },
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Fan_1.Run");
+    expect(subscriptions).toContain("Fan_1.Speed");
+  });
 });

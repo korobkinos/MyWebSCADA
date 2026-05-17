@@ -88,6 +88,17 @@ const accessRoleOptions: Array<{ label: string; value: AccessRoleLevel }> = [
   { label: `3 - ${ACCESS_ROLE_LABELS_RU[3]}`, value: 3 },
   { label: `4 - ${ACCESS_ROLE_LABELS_RU[4]}`, value: 4 },
 ];
+const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
+  "text",
+  "line",
+  "rectangle",
+  "image",
+  "stateImage",
+  "numeric-image-indicator",
+  "value-display",
+  "state-indicator",
+  "button",
+]);
 
 function getBindingKindLabel(kind: ElementBindingDefinition["kind"] | undefined): string {
   if (kind === "writeTag") {
@@ -363,6 +374,162 @@ function TagFieldWithBindingSource({
   );
 }
 
+function RotationAnimationFields({
+  project,
+  object,
+  bindings,
+  buildIndexControl,
+  onPatch,
+}: {
+  project: ScadaProject;
+  object: HmiObject;
+  bindings: ElementBindingDefinition[];
+  buildIndexControl: (fieldName: string, fieldLabel: string, rawTagName: string | undefined) => {
+    enabled: boolean;
+    status: string;
+    configureDisabled?: boolean;
+    onConfigure: () => void;
+    onToggleEnabled: (checked: boolean) => void;
+  };
+  onPatch: (patch: Partial<HmiObject>) => void;
+}) {
+  const rotationAnimation = object.rotationAnimation ?? {};
+  const triggerMode = rotationAnimation.triggerMode ?? "truthy";
+  const speedSource = rotationAnimation.speedSource ?? "fixed";
+  const showTriggerValue = triggerMode === "equals" || triggerMode === "notEquals";
+  const showSpeedTag = speedSource === "tag";
+
+  const patchRotationAnimation = (patch: Record<string, unknown>) => {
+    onPatch({
+      rotationAnimation: {
+        ...rotationAnimation,
+        ...patch,
+      },
+    } as Partial<HmiObject>);
+  };
+
+  return (
+    <>
+      <Divider style={{ margin: "12px 0" }} />
+      <Typography.Text strong>Rotation Animation</Typography.Text>
+      <div style={{ marginTop: 8 }}>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Enable Rotation Animation</span>
+          <Switch
+            checked={rotationAnimation.enabled === true}
+            onChange={(checked) => patchRotationAnimation({ enabled: checked })}
+          />
+        </Space>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={bindings}
+          value={rotationAnimation.triggerTag ?? ""}
+          bindingLabel="Rotation Trigger Binding"
+          tagLabel="Rotation Trigger Tag"
+          indexControl={buildIndexControl(
+            "rotationAnimation.triggerTag",
+            "Rotation Trigger Tag",
+            rotationAnimation.triggerTag,
+          )}
+          onChange={(nextValue) => patchRotationAnimation({ triggerTag: nextValue })}
+        />
+        <Form.Item label="Trigger Mode">
+          <Select
+            value={triggerMode}
+            options={[
+              { label: "truthy", value: "truthy" },
+              { label: "equals", value: "equals" },
+              { label: "notEquals", value: "notEquals" },
+            ]}
+            onChange={(value) => patchRotationAnimation({ triggerMode: value })}
+          />
+        </Form.Item>
+        {showTriggerValue ? (
+          <Form.Item label="Trigger Value">
+            <Input
+              value={scalarToText(rotationAnimation.triggerValue)}
+              onChange={(event) => patchRotationAnimation({ triggerValue: parseScalarToken(event.target.value) })}
+            />
+          </Form.Item>
+        ) : null}
+        <Space style={{ marginBottom: 8 }}>
+          <span>Trigger Invert</span>
+          <Switch
+            checked={rotationAnimation.triggerInvert ?? false}
+            onChange={(checked) => patchRotationAnimation({ triggerInvert: checked })}
+          />
+        </Space>
+        <Form.Item label="Speed Source">
+          <Select
+            value={speedSource}
+            options={[
+              { label: "fixed", value: "fixed" },
+              { label: "tag", value: "tag" },
+            ]}
+            onChange={(value) => patchRotationAnimation({ speedSource: value })}
+          />
+        </Form.Item>
+        <Form.Item label="Fixed Speed (deg/s)">
+          <InputNumber
+            style={{ width: "100%" }}
+            value={rotationAnimation.fixedSpeedDegPerSec ?? 90}
+            onChange={(value) => patchRotationAnimation({ fixedSpeedDegPerSec: Number(value ?? 90) })}
+          />
+        </Form.Item>
+        {showSpeedTag ? (
+          <TagFieldWithBindingSource
+            project={project}
+            bindings={bindings}
+            value={rotationAnimation.speedTag ?? ""}
+            bindingLabel="Rotation Speed Binding"
+            tagLabel="Rotation Speed Tag"
+            indexControl={buildIndexControl(
+              "rotationAnimation.speedTag",
+              "Rotation Speed Tag",
+              rotationAnimation.speedTag,
+            )}
+            onChange={(nextValue) => patchRotationAnimation({ speedTag: nextValue })}
+          />
+        ) : null}
+        <Form.Item label="Min Speed (deg/s)">
+          <InputNumber
+            style={{ width: "100%" }}
+            value={rotationAnimation.minSpeedDegPerSec ?? 0}
+            onChange={(value) => patchRotationAnimation({ minSpeedDegPerSec: Number(value ?? 0) })}
+          />
+        </Form.Item>
+        <Form.Item label="Max Speed (deg/s)">
+          <InputNumber
+            style={{ width: "100%" }}
+            value={rotationAnimation.maxSpeedDegPerSec ?? 720}
+            onChange={(value) => patchRotationAnimation({ maxSpeedDegPerSec: Number(value ?? 720) })}
+          />
+        </Form.Item>
+        <Form.Item label="Direction">
+          <Select
+            value={rotationAnimation.direction ?? "clockwise"}
+            options={[
+              { label: "clockwise", value: "clockwise" },
+              { label: "counterclockwise", value: "counterclockwise" },
+            ]}
+            onChange={(value) => patchRotationAnimation({ direction: value })}
+          />
+        </Form.Item>
+        <Form.Item label="Pivot">
+          <Select
+            value={rotationAnimation.pivot ?? "center"}
+            options={[
+              { label: "center", value: "center" },
+              { label: "origin", value: "origin" },
+            ]}
+            onChange={(value) => patchRotationAnimation({ pivot: value })}
+          />
+        </Form.Item>
+      </div>
+    </>
+  );
+}
+
 function buildEditorRuntimeTagValues(project: ScadaProject): Record<string, unknown> {
   const tagValues: Record<string, unknown> = {};
   for (const variable of project.variables ?? []) {
@@ -620,6 +787,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     }
     onPatch({ textStyle: { ...object.textStyle, ...patch } } as Partial<HmiObject>);
   };
+  const supportsRotationAnimation = ROTATION_ANIMATION_SUPPORTED_TYPES.has(object.type);
 
   const generalContent = (
     <>
@@ -742,6 +910,15 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           onChange={(value) => onPatch({ shadowDirection: value } as Partial<HmiObject>)}
         />
       </Form.Item>
+      {supportsRotationAnimation ? (
+        <RotationAnimationFields
+          project={project}
+          object={object}
+          bindings={templateBindings}
+          buildIndexControl={buildIndexControl}
+          onPatch={onPatch}
+        />
+      ) : null}
     </>
   );
 

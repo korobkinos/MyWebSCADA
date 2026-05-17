@@ -40,6 +40,39 @@ const CHECKBOX_WRITE_MODE_OPTIONS: Array<{ label: string; value: CheckboxWriteMo
   { label: "Pulse True", value: "pulseTrue" },
   { label: "Pulse False", value: "pulseFalse" },
 ];
+const ROTATION_ANIMATION_IO_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
+  "text",
+  "line",
+  "rectangle",
+  "image",
+  "stateImage",
+  "numeric-image-indicator",
+  "value-display",
+  "state-indicator",
+  "button",
+]);
+
+function rotationAnimationTagFields(object: HmiObject): ObjectIoFieldDefinition[] {
+  if (!ROTATION_ANIMATION_IO_SUPPORTED_TYPES.has(object.type)) {
+    return [];
+  }
+  return [
+    {
+      fieldPath: "rotationAnimation.triggerTag",
+      label: "Rotation Trigger Tag",
+      direction: "read",
+      dataTypeHint: "BOOL",
+      control: "tag",
+    },
+    {
+      fieldPath: "rotationAnimation.speedTag",
+      label: "Rotation Speed Tag",
+      direction: "read",
+      dataTypeHint: "REAL",
+      control: "tag",
+    },
+  ];
+}
 
 function baseTagFields(): ObjectIoFieldDefinition[] {
   return [
@@ -144,7 +177,7 @@ export function createObjectIoAction(mode: ObjectIoActionMode, previousAction?: 
 }
 
 export function getObjectIoFields(object: HmiObject): ObjectIoFieldDefinition[] {
-  const fields: ObjectIoFieldDefinition[] = [...baseTagFields()];
+  const fields: ObjectIoFieldDefinition[] = [...baseTagFields(), ...rotationAnimationTagFields(object)];
 
   if (object.type === "checkbox") {
     fields.push(

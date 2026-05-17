@@ -31,6 +31,21 @@ const textLayoutSchema = z.object({
   ellipsis: z.boolean().optional(),
 });
 
+const rotationAnimationSchema = z.object({
+  enabled: z.boolean().optional(),
+  triggerTag: z.string().optional(),
+  triggerMode: z.enum(["truthy", "equals", "notEquals"]).optional(),
+  triggerValue: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  triggerInvert: z.boolean().optional(),
+  speedSource: z.enum(["fixed", "tag"]).optional(),
+  fixedSpeedDegPerSec: z.number().optional(),
+  speedTag: z.string().optional(),
+  minSpeedDegPerSec: z.number().optional(),
+  maxSpeedDegPerSec: z.number().optional(),
+  direction: z.enum(["clockwise", "counterclockwise"]).optional(),
+  pivot: z.enum(["center", "origin"]).optional(),
+});
+
 const hmiBaseSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1),
@@ -40,6 +55,7 @@ const hmiBaseSchema = z.object({
   width: z.number().positive(),
   height: z.number().positive(),
   rotation: z.number().optional(),
+  rotationAnimation: rotationAnimationSchema.optional(),
   visible: z.boolean().optional(),
   visibleForRoles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),
   requiredVisibleRole: z.number().int().min(0).max(4).optional(),
