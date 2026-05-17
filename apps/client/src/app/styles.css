@@ -4964,6 +4964,22 @@ body {
   height: 2px !important;
 }
 
+.object-property-panel__state-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 130px minmax(180px, 1fr) 24px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.object-property-panel__states-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 /* ── Login Page – Workbench style ── */
 
 /* Indexed Address summary in Object Properties */

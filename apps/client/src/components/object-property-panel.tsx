@@ -2381,7 +2381,7 @@ function SpecificPropertyFields({
     const stateLimitReached = normalizedStates.length >= 100;
     const lastIndex = normalizedStates.length > 0 ? normalizedStates[normalizedStates.length - 1]!.index : -1;
 
-    return (
+    const numericImageGeneralContent = (
       <>
         <TagFieldWithBindingSource
           project={project}
@@ -2437,33 +2437,40 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ outOfRangeMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        <Typography.Text strong>States (max 100)</Typography.Text>
-        <Button
-          size="small"
-          disabled={stateLimitReached}
-          onClick={() =>
-            onPatch({
-              states: [
-                ...normalizedStates,
-                {
-                  index: lastIndex + 1,
-                  assetId: undefined,
-                },
-              ],
-            } as Partial<HmiObject>)
-          }
-        >
-          Add State
-        </Button>
+      </>
+    );
+
+    const numericImageStatesContent = (
+      <>
+        <div className="object-property-panel__states-header">
+          <Typography.Text strong>States (max 100)</Typography.Text>
+          <Button
+            size="small"
+            disabled={stateLimitReached}
+            onClick={() =>
+              onPatch({
+                states: [
+                  ...normalizedStates,
+                  {
+                    index: lastIndex + 1,
+                    assetId: undefined,
+                  },
+                ],
+              } as Partial<HmiObject>)
+            }
+          >
+            Add State
+          </Button>
+        </div>
         {stateLimitReached ? (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             Maximum number of states reached.
           </Typography.Text>
         ) : null}
         {normalizedStates.map((state, rowIndex) => (
-          <Space key={`${state.index}-${rowIndex}`} wrap style={{ width: "100%", marginBottom: 8 }}>
+          <div key={`${state.index}-${rowIndex}`} className="object-property-panel__state-row">
             <InputNumber
-              style={{ width: 130 }}
+              style={{ width: "100%" }}
               min={0}
               step={1}
               precision={0}
@@ -2476,7 +2483,7 @@ function SpecificPropertyFields({
               }}
             />
             <Select
-              style={{ minWidth: 260 }}
+              style={{ width: "100%" }}
               allowClear
               value={state.assetId}
               placeholder="Select asset"
@@ -2488,16 +2495,29 @@ function SpecificPropertyFields({
                 onPatch({ states: nextStates } as Partial<HmiObject>);
               }}
             />
-            <Button
-              danger
-              size="small"
+            <button
+              type="button"
+              className="screen-editor-library-interface__row-delete"
+              title="Delete state"
+              aria-label="Delete state"
               onClick={() => onPatch({ states: normalizedStates.filter((_, index) => index !== rowIndex) } as Partial<HmiObject>)}
             >
-              Delete
-            </Button>
-          </Space>
+              ×
+            </button>
+          </div>
         ))}
       </>
+    );
+
+    return (
+      <Tabs
+        size="small"
+        className="object-property-tabs object-property-tabs--main"
+        items={[
+          { key: "general", label: "General", children: numericImageGeneralContent },
+          { key: "states", label: "States", children: numericImageStatesContent },
+        ]}
+      />
     );
   }
 
