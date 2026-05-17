@@ -85,6 +85,53 @@ export type OpcUaDriverImpactResponse = {
   dynamicMacroCount: number;
 };
 
+export type ArchiveStatus = {
+  enabled: boolean;
+  queuedSamples: number;
+};
+
+export type ArchivePolicyPayload = {
+  name: string;
+  enabled: boolean;
+  mode: string;
+  periodMs: number;
+  deadband: number;
+  retentionDays: number;
+  aggregateEnabled: boolean;
+  compressionAfterDays?: number | null;
+};
+
+export type ArchivePolicy = ArchivePolicyPayload & {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ArchiveTagOverride = {
+  enabled?: boolean | null;
+  mode?: string | null;
+  periodMs?: number | null;
+  deadband?: number | null;
+  retentionDays?: number | null;
+  aggregateEnabled?: boolean | null;
+  compressionAfterDays?: number | null;
+};
+
+export type ArchiveTagConfig = {
+  tagId: number;
+  tagName: string;
+  policyId: number | null;
+  policyName: string | null;
+  enabled: boolean;
+  mode: string | null;
+  periodMs: number | null;
+  deadband: number | null;
+  retentionDays: number | null;
+  aggregateEnabled: boolean | null;
+  compressionAfterDays: number | null;
+  override: ArchiveTagOverride | null;
+};
+
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
 const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, "");
@@ -243,6 +290,27 @@ export const api = {
       body: JSON.stringify(project),
     }),
   getTags: () => request<TagSnapshot[]>("/api/tags"),
+  getArchiveStatus: () => request<ArchiveStatus>("/api/archive/status"),
+  listArchivePolicies: () => request<ArchivePolicy[]>("/api/archive/policies"),
+  createArchivePolicy: (payload: ArchivePolicyPayload) =>
+    request<ArchivePolicy>("/api/archive/policies", { method: "POST", body: JSON.stringify(payload) }),
+  updateArchivePolicy: (id: number, payload: ArchivePolicyPayload) =>
+    request<ArchivePolicy>(`/api/archive/policies/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deleteArchivePolicy: (id: number) => request<{ ok: boolean }>(`/api/archive/policies/${id}`, { method: "DELETE" }),
+  listArchiveTagConfigs: () => request<ArchiveTagConfig[]>("/api/archive/tag-configs"),
+  assignArchiveTagPolicy: (tagName: string, policyId: number | null) =>
+    request<{ ok: boolean }>(`/api/archive/tags/${encodeURIComponent(tagName)}/policy`, {
+      method: "PUT",
+      body: JSON.stringify({ policyId }),
+    }),
+  updateArchiveTagOverride: (tagName: string, payload: ArchiveTagOverride) =>
+    request<{ ok: boolean }>(`/api/archive/tags/${encodeURIComponent(tagName)}/override`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  deleteArchiveTagOverride: (tagName: string) =>
+    request<{ ok: boolean }>(`/api/archive/tags/${encodeURIComponent(tagName)}/override`, { method: "DELETE" }),
+  runArchiveMaintenance: () => request<{ deletedSamples: number }>("/api/archive/maintenance/run", { method: "POST" }),
   getDrivers: () => request<DriverStatus[]>("/api/drivers"),
   opcUaTest: (config: OpcUaDriverConfigInput) =>
     request<{ ok: boolean; message?: string }>("/api/drivers/opcua/test", {

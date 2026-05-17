@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, type ErrorInfo, type ReactNode, useCallback,
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   DashboardOutlined,
+  DatabaseOutlined,
   EditOutlined,
   FileImageOutlined,
   HddOutlined,
@@ -27,6 +28,7 @@ const DriversPage = lazy(() => import("../pages/drivers-page").then((m) => ({ de
 const ProjectPage = lazy(() => import("../pages/project-page").then((m) => ({ default: m.ProjectPage })));
 const ScreensPage = lazy(() => import("../pages/screens-page").then((m) => ({ default: m.ScreensPage })));
 const AssetsPage = lazy(() => import("../pages/assets-page").then((m) => ({ default: m.AssetsPage })));
+const ArchivePage = lazy(() => import("../pages/archive-page").then((m) => ({ default: m.ArchivePage })));
 const LibrariesPage = lazy(() => import("../pages/libraries-page").then((m) => ({ default: m.LibrariesPage })));
 const MacrosPage = lazy(() => import("../pages/macros-page").then((m) => ({ default: m.MacrosPage })));
 const ElementEditorPage = lazy(() => import("../pages/element-editor-page").then((m) => ({ default: m.ElementEditorPage })));
@@ -389,6 +391,7 @@ export function App() {
     hasPermission("screens.view") ? { key: "/screens", icon: <DashboardOutlined />, label: <Link to="/screens">Screens</Link> } : null,
     hasPermission("tags.view") ? { key: "/tags", icon: <TagsOutlined />, label: <Link to="/tags">Tags</Link> } : null,
     hasPermission("drivers.view") ? { key: "/drivers", icon: <HddOutlined />, label: <Link to="/drivers">Drivers</Link> } : null,
+    hasPermission("tags.view") ? { key: "/archive", icon: <DatabaseOutlined />, label: <Link to="/archive">Archive</Link> } : null,
     hasPermission("assets.view") ? { key: "/assets", icon: <FileImageOutlined />, label: <Link to="/assets">Assets</Link> } : null,
     hasPermission("libraries.view") ? { key: "/libraries", icon: <SettingOutlined />, label: <Link to="/libraries">Libraries</Link> } : null,
     hasPermission("macros.view") ? { key: "/macros", icon: <TagsOutlined />, label: <Link to="/macros">Macros</Link> } : null,
@@ -460,6 +463,7 @@ export function App() {
                 <Route path="/screens" element={<RequirePermission permission="screens.view"><ScrollPage><ScreensPage /></ScrollPage></RequirePermission>} />
                 <Route path="/tags" element={<RequirePermission permission="tags.view"><FillPage><TagsPage /></FillPage></RequirePermission>} />
                 <Route path="/drivers" element={<RequirePermission permission="drivers.view"><FillPage><DriversPage /></FillPage></RequirePermission>} />
+                <Route path="/archive" element={<RequirePermission permission="tags.view"><ScrollPage><ArchivePage /></ScrollPage></RequirePermission>} />
                 <Route path="/assets" element={<RequirePermission permission="assets.view"><FillPage><AssetsPage /></FillPage></RequirePermission>} />
                 <Route path="/libraries" element={<RequirePermission permission="libraries.view"><FillPage><LibrariesPage /></FillPage></RequirePermission>} />
                 <Route path="/macros" element={<RequirePermission permission="macros.view"><FillPage><MacrosPage /></FillPage></RequirePermission>} />

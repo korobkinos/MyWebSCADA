@@ -14,6 +14,7 @@ import type {
 } from "@web-scada/shared";
 import { WorkbenchButton, type WorkbenchWindowDefinition } from "../../../components/workbench";
 import { ObjectPropertyPanel } from "../../../components/object-property-panel";
+import { ArchivePage } from "../../../pages/archive-page";
 import { getAssetDisplayPath } from "../../../utils/asset-path";
 import { findLibraryOriginForObject } from "../utils/library-origin";
 import {
@@ -317,6 +318,18 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
         minWidth: 360,
         minHeight: 260,
         render: () => <ScreenEditorTagsWindow />,
+      },
+      {
+        id: "archive",
+        title: "Archive",
+        defaultRect: { x: 140, y: 90, width: 1100, height: 680 },
+        minWidth: 720,
+        minHeight: 420,
+        render: () => (
+          <div className="screen-editor-window-content" style={{ padding: 12, overflow: "auto" }}>
+            <ArchivePage />
+          </div>
+        ),
       },
       {
         id: "macros",
