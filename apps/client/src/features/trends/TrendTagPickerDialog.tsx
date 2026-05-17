@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { WorkbenchButton } from "../../components/workbench";
 import type { TrendAxisConfig, TrendTagInfo, TrendTagSelection } from "./trendTypes";
 import { pickSeriesColor } from "./trendUtils";
+import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 
 type TrendTagPickerDialogProps = {
   open: boolean;
@@ -149,8 +150,16 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, 
   };
 
   return (
-    <div className="trends-dialog-layer">
-      <div className="trends-dialog trends-dialog--wide trends-dialog--archive-like">
+    <TrendWorkbenchDialog
+      id="trend-tag-picker-dialog"
+      title="Add / Remove Tags"
+      open={open}
+      defaultRect={{ x: 80, y: 56, width: 1320, height: 760 }}
+      minWidth={900}
+      minHeight={520}
+      bodyClassName="trends-dialog-body--flush"
+      onClose={onClose}
+    >
         <div className="screen-editor-window-content screen-editor-tags-window screen-editor-archive-window trends-archive-picker">
           <div className="screen-editor-tags-window__toolbar">
             <WorkbenchButton variant="primary" onClick={selectFiltered} disabled={filtered.length === 0}>Select Found</WorkbenchButton>
@@ -273,7 +282,6 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, 
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </TrendWorkbenchDialog>
   );
 }

@@ -1718,19 +1718,12 @@ function ObjectNode({
       onRemoveWidgetOverlay?.(resolvedObject.id);
       return () => onRemoveWidgetOverlay?.(resolvedObject.id);
     }
-    const node = groupNodeRef.current;
-    const stage = node?.getStage();
-    if (!node || !stage) {
-      return;
-    }
-    const abs = node.getAbsolutePosition(stage);
-    const absScale = node.getAbsoluteScale();
     onUpsertWidgetOverlay?.({
       objectId: resolvedObject.id,
-      x: abs.x,
-      y: abs.y,
-      width: Math.max(1, resolvedObject.width * Math.abs(absScale.x || 1)),
-      height: Math.max(1, resolvedObject.height * Math.abs(absScale.y || 1)),
+      x: resolvedObject.x,
+      y: resolvedObject.y,
+      width: Math.max(1, resolvedObject.width),
+      height: Math.max(1, resolvedObject.height),
       content: <TrendRuntimeWidget object={resolvedObject} />,
     });
     return () => {

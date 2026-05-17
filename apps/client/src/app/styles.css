@@ -6081,10 +6081,19 @@ body {
   gap: 6px;
   flex-wrap: wrap;
 }
+.trends-toolbar--custom-range {
+  padding-top: 2px;
+  border-top: 1px solid #2d2d2d;
+}
 
 .trends-toolbar .workbench-input,
 .trends-toolbar .workbench-select {
   height: 26px;
+}
+.trends-toolbar__datetime {
+  width: auto;
+  min-width: 190px;
+  max-width: 230px;
 }
 
 .trends-toolbar__meta {
@@ -6104,6 +6113,7 @@ body {
 }
 .trends-chart-wrap--widget {
   overflow: hidden;
+  position: relative;
 }
 
 .trends-chart {
@@ -6144,6 +6154,13 @@ body {
   z-index: 2400;
   display: grid;
   place-items: center;
+}
+.trends-dialog-body--flush {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+.trends-settings-dialog-body {
+  padding: 0 !important;
 }
 
 .trends-dialog {
@@ -6191,6 +6208,19 @@ body {
   display: grid;
   gap: 10px;
   padding: 10px;
+}
+
+.trends-context-menu {
+  position: fixed;
+  z-index: 2500;
+  background: #252526;
+  color: #cccccc;
+  border: 1px solid #3c3c3c;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 170px;
+  max-width: 250px;
 }
 
 .trends-settings-section {

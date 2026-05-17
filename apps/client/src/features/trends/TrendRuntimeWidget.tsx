@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spin } from "antd";
 import type { TagValue, TrendChartObject } from "@web-scada/shared";
 import { createRuntimeSocket } from "../../services/ws";
@@ -64,6 +64,13 @@ type TrendRuntimeWidgetProps = {
   object: TrendChartObject;
 };
 
+type TrendContextMenuState = {
+  x: number;
+  y: number;
+};
+
+type LiveSocketState = "idle" | "connecting" | "open" | "closed" | "error";
+
 export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const initialRange = useMemo(() => resolveRangeFromObject(object), [object]);
   const [allTags, setAllTags] = useState<TrendTagInfo[]>([]);
@@ -82,6 +89,13 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [customTo, setCustomTo] = useState(() => toLocalDateTimeInputValue(initialRange.range.to));
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<TrendContextMenuState | null>(null);
+  const [liveSocketState, setLiveSocketState] = useState<LiveSocketState>("idle");
+  const [liveBatchCount, setLiveBatchCount] = useState(0);
+  const [livePointCount, setLivePointCount] = useState(0);
+  const [liveLastBatchAt, setLiveLastBatchAt] = useState<number | null>(null);
+  const [liveLastPointTs, setLiveLastPointTs] = useState<number | null>(null);
+  const [liveAutoStopReason, setLiveAutoStopReason] = useState<string | null>(null);
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -223,13 +237,19 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   }, [executeQuery, selectedTags.length]);
 
   useEffect(() => {
-    void executeQuery(visibleRange);
-  }, [executeQuery, visibleRange.from, visibleRange.to]);
+    if (!contextMenu) {
+      return;
+    }
+    const closeMenu = () => setContextMenu(null);
+    window.addEventListener("mousedown", closeMenu);
+    return () => window.removeEventListener("mousedown", closeMenu);
+  }, [contextMenu]);
 
   useEffect(() => {
     if (!liveMode || selectedTags.length === 0) {
       liveSocketRef.current?.close();
       liveSocketRef.current = null;
+      setLiveSocketState("idle");
       return;
     }
 
@@ -249,7 +269,10 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           });
         }
       },
-    });
+      onSocketStateChange: (state) => {
+        setLiveSocketState(state);
+      },
+    }, { participateInGlobalSubscriptions: false });
     socket.subscribeTags([...selected]);
     liveSocketRef.current = socket;
 
@@ -258,37 +281,66 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       if (batch.length === 0) {
         return;
       }
+      setLiveBatchCount((prev) => prev + 1);
+      setLivePointCount((prev) => prev + batch.length);
+      setLiveLastBatchAt(Date.now());
+      let batchMaxTs: number | null = null;
+      for (const item of batch) {
+        if (!Number.isFinite(item.timestamp)) {
+          continue;
+        }
+        batchMaxTs = batchMaxTs === null ? item.timestamp : Math.max(batchMaxTs, item.timestamp);
+      }
+      if (batchMaxTs !== null) {
+        setLiveLastPointTs(batchMaxTs);
+      }
       chartApiRef.current?.appendLivePoints(batch);
     }, LIVE_FLUSH_MS);
 
     return () => {
       window.clearInterval(flushTimer);
       socket.close();
+      setLiveSocketState("closed");
       if (liveSocketRef.current === socket) {
         liveSocketRef.current = null;
       }
     };
   }, [liveMode, selectedTags]);
 
-  const applyPreset = async (preset: Exclude<TrendRangePreset, "custom">) => {
+  useEffect(() => {
+    if (!liveMode) {
+      return;
+    }
+    setLiveAutoStopReason(null);
+    setLiveBatchCount(0);
+    setLivePointCount(0);
+    setLiveLastBatchAt(null);
+    setLiveLastPointTs(null);
+  }, [liveMode]);
+
+  const applyPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
     const next = parseQuickRange(preset);
     setRangePreset(preset);
     setVisibleRange(next);
     setCustomFrom(toLocalDateTimeInputValue(next.from));
     setCustomTo(toLocalDateTimeInputValue(next.to));
+    void executeQuery(next, { force: true });
   };
 
   const applyCustom = () => {
     const from = fromLocalDateTimeInputValue(customFrom);
     const to = fromLocalDateTimeInputValue(customTo);
+    const next = { from, to };
     setRangePreset("custom");
-    setVisibleRange({ from, to });
+    setVisibleRange(next);
+    void executeQuery(next, { force: true });
   };
 
-  const handleChartRangeChange = (range: TrendVisibleRange) => {
+  const handleChartRangeChange = (range: TrendVisibleRange, source: "interaction" | "live") => {
     setVisibleRange(range);
-    if (liveMode) {
+    if (source === "interaction" && liveMode) {
       setLiveMode(false);
+      setLiveAutoStopReason("Stopped by zoom/pan interaction");
     }
   };
 
@@ -297,38 +349,25 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   };
 
   const aggregationLabel = settings.aggregation === "auto" ? `auto -> ${statusAggregation}` : statusAggregation;
+  const openContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY });
+  };
+  const openToolbarMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setContextMenu({ x: rect.left, y: rect.bottom + 4 });
+  };
+  const runMenuAction = (action: () => void) => {
+    action();
+    setContextMenu(null);
+  };
 
   return (
     <div className="trends-widget-shell">
       {object.showToolbar !== false ? (
         <div className="trends-toolbar">
+          <WorkbenchButton onClick={openToolbarMenu}>Menu</WorkbenchButton>
           <WorkbenchButton variant="primary" onClick={() => setTagDialogOpen(true)}>Add/Remove Tags</WorkbenchButton>
-          <WorkbenchButton onClick={() => { setSelectedTags([]); setResponse(null); setError(null); }} disabled={selectedTags.length === 0}>Clear</WorkbenchButton>
-
-          <select className="workbench-select" value={rangePreset} onChange={(event) => {
-            const value = event.target.value as TrendRangePreset;
-            if (value === "custom") {
-              setRangePreset("custom");
-              return;
-            }
-            void applyPreset(value);
-          }}>
-            <option value="5m">Last 5 min</option>
-            <option value="15m">Last 15 min</option>
-            <option value="1h">Last 1 hour</option>
-            <option value="8h">Last 8 hours</option>
-            <option value="24h">Last 24 hours</option>
-            <option value="custom">Custom</option>
-          </select>
-
-          {rangePreset === "custom" ? (
-            <>
-              <input className="workbench-input" type="datetime-local" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} />
-              <input className="workbench-input" type="datetime-local" value={customTo} onChange={(event) => setCustomTo(event.target.value)} />
-              <WorkbenchButton onClick={applyCustom}>Apply</WorkbenchButton>
-            </>
-          ) : null}
-
           <WorkbenchButton variant={liveMode ? "danger" : "default"} onClick={() => setLiveMode((prev) => !prev)} disabled={selectedTags.length === 0}>
             {liveMode ? "Pause" : "Live"}
           </WorkbenchButton>
@@ -342,8 +381,15 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           </div>
         </div>
       ) : null}
+      {rangePreset === "custom" ? (
+        <div className="trends-toolbar trends-toolbar--custom-range">
+          <input className="workbench-input trends-toolbar__datetime" type="datetime-local" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} />
+          <input className="workbench-input trends-toolbar__datetime" type="datetime-local" value={customTo} onChange={(event) => setCustomTo(event.target.value)} />
+          <WorkbenchButton onClick={applyCustom}>Apply Custom Range</WorkbenchButton>
+        </div>
+      ) : null}
 
-      <div className="trends-chart-wrap trends-chart-wrap--widget">
+      <div className="trends-chart-wrap trends-chart-wrap--widget" onContextMenu={openContextMenu}>
         {selectedTags.length === 0 ? (
           <div className="trends-empty">No tags selected</div>
         ) : error ? (
@@ -365,6 +411,40 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           />
         )}
       </div>
+      {contextMenu ? (
+        <div className="trends-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => setTagDialogOpen(true))}>Add/Remove Tags</button>
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => setSettingsOpen(true))}>Settings</button>
+          <button
+            type="button"
+            className="screen-editor-context-menu__item"
+            onClick={() => runMenuAction(() => setLiveMode((prev) => !prev))}
+            disabled={selectedTags.length === 0}
+          >
+            {liveMode ? "Pause Live" : "Start Live"}
+          </button>
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(refresh)} disabled={selectedTags.length === 0}>Refresh</button>
+          <button
+            type="button"
+            className="screen-editor-context-menu__item"
+            onClick={() => runMenuAction(() => {
+              setSelectedTags([]);
+              setResponse(null);
+              setError(null);
+            })}
+            disabled={selectedTags.length === 0}
+          >
+            Clear Series
+          </button>
+          <div className="screen-editor-context-menu__separator" />
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => applyPreset("5m"))}>Last 5 min</button>
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => applyPreset("15m"))}>Last 15 min</button>
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => applyPreset("1h"))}>Last 1 hour</button>
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => applyPreset("8h"))}>Last 8 hours</button>
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => applyPreset("24h"))}>Last 24 hours</button>
+          <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => setRangePreset("custom"))}>Custom range...</button>
+        </div>
+      ) : null}
 
       {object.showStatusBar !== false ? (
         <div className="trends-status-bar">
@@ -373,6 +453,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           <span>Points: {pointCount.toLocaleString()}</span>
           <span>Aggregation: {aggregationLabel}</span>
           <span>Last load: {lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : "-"}</span>
+          <span>Live WS: {liveSocketState}</span>
+          <span>Live batches: {liveBatchCount}</span>
+          <span>Live points: {livePointCount}</span>
+          <span>Live last batch: {liveLastBatchAt ? new Date(liveLastBatchAt).toLocaleTimeString() : "-"}</span>
+          <span>Live last point ts: {liveLastPointTs ? new Date(liveLastPointTs).toLocaleTimeString() : "-"}</span>
+          <span>Live stop reason: {liveAutoStopReason ?? "-"}</span>
         </div>
       ) : null}
 

@@ -2,6 +2,11 @@ import { COMMAND_TIMEOUT_MS, type ManualCommandMeta, type RuntimeWsClientMessage
 
 type WsCallbacks = {
   onTagValues: (values: TagValue[]) => void;
+  onSocketStateChange?: (state: "connecting" | "open" | "closed" | "error") => void;
+};
+
+type RuntimeSocketOptions = {
+  participateInGlobalSubscriptions?: boolean;
 };
 
 type RuntimeSocketController = {
@@ -30,8 +35,9 @@ function resolveSocketUrl(): string {
   return `${protocol}://${window.location.host}/ws`;
 }
 
-export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketController {
+export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSocketOptions): RuntimeSocketController {
   const url = resolveSocketUrl();
+  const participateInGlobalSubscriptions = options?.participateInGlobalSubscriptions !== false;
   let socket: WebSocket | null = null;
   let closedByUser = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -108,11 +114,13 @@ export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketContro
   };
 
   const connect = () => {
+    callbacks.onSocketStateChange?.("connecting");
     socket = new WebSocket(url);
 
     socket.onmessage = onSocketMessage;
     socket.onopen = () => {
       isOpen = true;
+      callbacks.onSocketStateChange?.("open");
       reconnectAttempt = 0;
       if (pendingTags) {
         sendSubscription(pendingTags);
@@ -122,6 +130,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketContro
 
     socket.onclose = () => {
       isOpen = false;
+      callbacks.onSocketStateChange?.("closed");
       if (closedByUser) {
         if (activeSocketController === controller) {
           activeSocketController = null;
@@ -132,6 +141,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketContro
     };
 
     socket.onerror = () => {
+      callbacks.onSocketStateChange?.("error");
       // Let onclose handle reconnect scheduling.
     };
   };
@@ -161,6 +171,9 @@ export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketContro
       if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
         socket.close();
       }
+      if (participateInGlobalSubscriptions && activeSocketController === controller) {
+        activeSocketController = null;
+      }
     },
     writeTag: (name, value, commandMeta) => {
       const payload: RuntimeWsClientMessage = {
@@ -181,8 +194,10 @@ export function createRuntimeSocket(callbacks: WsCallbacks): RuntimeSocketContro
   };
 
   connect();
-  activeSocketController = controller;
-  if (pendingGlobalSubscriptions) {
+  if (participateInGlobalSubscriptions) {
+    activeSocketController = controller;
+  }
+  if (participateInGlobalSubscriptions && pendingGlobalSubscriptions) {
     controller.subscribeTags(pendingGlobalSubscriptions);
   }
   return controller;

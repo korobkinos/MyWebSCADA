@@ -146,10 +146,8 @@ export function HmiStage({
   useEffect(() => {
     if (mode !== "runtime") {
       setRuntimeWidgetOverlays({});
-      return;
     }
-    setRuntimeWidgetOverlays({});
-  }, [mode, screen.id]);
+  }, [mode]);
 
   useEffect(() => {
     if (mode !== "editor") {

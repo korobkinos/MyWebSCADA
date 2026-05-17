@@ -9175,8 +9175,8 @@
       "name": "Newmacro_1",
       "description": "",
       "language": "javascript-lite",
-      "code": "const current = Number(api.readVariable('Counter2') ?? 0); \napi.writeVariable('Counter2', current + 1);",
-      "enabled": false,
+      "code": "const current = Number(api.readVariable('Counter') ?? 0); \nif (current > 500) {\n  api.writeVariable(\"Counter\", 0);\n}else{\napi.writeVariable('Counter', current + 1);\n}",
+      "enabled": true,
       "triggers": [
         {
           "type": "interval",
@@ -11049,7 +11049,30 @@
           "rotation": 0,
           "minWidth": 220,
           "minHeight": 140,
-          "selectedTags": [],
+          "selectedTags": [
+            {
+              "tag": "speed",
+              "color": "#4FC3F7",
+              "displayName": "speed",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "Counter",
+              "color": "#81C784",
+              "displayName": "Counter",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            }
+          ],
           "axes": [],
           "settings": {
             "theme": "workbench-dark",
@@ -11080,7 +11103,7 @@
             "axisOffsetStep": 46
           },
           "rangePreset": "1h",
-          "liveMode": false,
+          "liveMode": true,
           "showToolbar": true,
           "showStatusBar": true
         }

@@ -1,6 +1,7 @@
 import type { ChangeEvent } from "react";
 import { WorkbenchButton } from "../../components/workbench";
 import type { TrendAxisConfig, TrendSettings, TrendTagSelection } from "./trendTypes";
+import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 
 type TrendSettingsPanelProps = {
   open: boolean;
@@ -53,14 +54,18 @@ export function TrendSettingsPanel({
   };
 
   return (
-    <div className="trends-dialog-layer">
-      <div className="trends-dialog">
-        <div className="trends-dialog__header">
-          <span>TREND SETTINGS</span>
-          <WorkbenchButton onClick={onClose}>Close</WorkbenchButton>
-        </div>
-
-        <div className="trends-dialog__body">
+    <TrendWorkbenchDialog
+      id="trend-settings-dialog"
+      title="Trend Settings"
+      open={open}
+      defaultRect={{ x: 180, y: 88, width: 680, height: 620 }}
+      minWidth={560}
+      minHeight={420}
+      bodyClassName="trends-settings-dialog-body"
+      footer={<WorkbenchButton onClick={onClose}>Close</WorkbenchButton>}
+      onClose={onClose}
+    >
+      <div className="trends-dialog__body">
           <section className="trends-settings-section">
             <h3>Appearance</h3>
             <label className="workbench-field">
@@ -176,7 +181,6 @@ export function TrendSettingsPanel({
             </div>
           </section>
         </div>
-      </div>
-    </div>
+    </TrendWorkbenchDialog>
   );
 }
