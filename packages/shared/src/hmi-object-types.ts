@@ -113,7 +113,8 @@ export type HmiObjectBase = {
     | "select"
     | "radio-group"
     | "numeric-input"
-    | "numeric-image-indicator";
+    | "numeric-image-indicator"
+    | "trendChart";
   name?: string;
 
   x: number;
@@ -693,6 +694,78 @@ export type NumericImageIndicatorObject = HmiObjectBase & {
   outOfRangeMode?: "default" | "clamp";
 };
 
+export type TrendChartAggregationMode = "auto" | "raw" | "minmax" | "avg" | "lttb";
+export type TrendChartRangePreset = "5m" | "15m" | "1h" | "8h" | "24h" | "custom";
+export type TrendChartLineType = "solid" | "dashed" | "dotted";
+export type TrendChartRenderMode = "line" | "step" | "points";
+
+export type TrendChartAxisConfig = {
+  id: string;
+  name?: string;
+  unit?: string;
+  position: "left" | "right";
+  offset?: number;
+  min?: number | "auto";
+  max?: number | "auto";
+  color?: string;
+};
+
+export type TrendChartSeriesConfig = {
+  tag: string;
+  color?: string;
+  displayName?: string;
+  unit?: string;
+  visible?: boolean;
+  lineWidth?: number;
+  lineType?: TrendChartLineType;
+  mode?: TrendChartRenderMode;
+  step?: boolean;
+  axisMode?: "auto" | "manual";
+  axisId?: string;
+};
+
+export type TrendChartSettings = {
+  theme?: "workbench-dark" | "echarts-dark" | "custom";
+  background?: string;
+  gridLines?: boolean;
+  axisLabels?: boolean;
+  legend?: boolean;
+  tooltip?: boolean;
+  dataZoomSlider?: boolean;
+  defaultLineWidth?: number;
+  showSymbols?: boolean;
+  showUnitsInTooltip?: boolean;
+  showBadQualityGaps?: boolean;
+  maxPointsPerSeries?: number;
+  aggregation?: TrendChartAggregationMode;
+  zoomDebounceMs?: number;
+  progressive?: boolean;
+  disableAnimationsLargeData?: boolean;
+  cacheEnabled?: boolean;
+  cacheSize?: number;
+  liveBufferLimit?: number;
+  autoScale?: boolean;
+  defaultAxisMin?: number | "auto";
+  defaultAxisMax?: number | "auto";
+  groupByUnit?: boolean;
+  separateAxisPerTag?: boolean;
+  axisPlacement?: "left" | "right" | "split";
+  axisOffsetStep?: number;
+};
+
+export type TrendChartObject = HmiObjectBase & {
+  type: "trendChart";
+  selectedTags: TrendChartSeriesConfig[];
+  axes?: TrendChartAxisConfig[];
+  settings?: TrendChartSettings;
+  rangePreset?: TrendChartRangePreset;
+  customFrom?: number;
+  customTo?: number;
+  liveMode?: boolean;
+  showToolbar?: boolean;
+  showStatusBar?: boolean;
+};
+
 export type HmiObject =
   | GroupObject
   | TextObject
@@ -716,4 +789,5 @@ export type HmiObject =
   | SelectObject
   | RadioGroupObject
   | NumericInputObject
-  | NumericImageIndicatorObject;
+  | NumericImageIndicatorObject
+  | TrendChartObject;

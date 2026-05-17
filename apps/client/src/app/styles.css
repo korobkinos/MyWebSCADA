@@ -5900,6 +5900,9 @@ body {
 .hmi-runtime-overlay {
   pointer-events: auto;
 }
+.hmi-runtime-widget-overlay {
+  pointer-events: auto;
+}
 
 .hmi-select-overlay {
   background: #252526;
@@ -6057,6 +6060,20 @@ body {
   border: 1px solid #3c3c3c;
   padding: 8px;
 }
+.trends-widget-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #3c3c3c;
+  box-sizing: border-box;
+  padding: 6px;
+}
 
 .trends-toolbar {
   display: flex;
@@ -6084,6 +6101,9 @@ body {
   min-height: 0;
   border: 1px solid #3c3c3c;
   background: #252526;
+}
+.trends-chart-wrap--widget {
+  overflow: hidden;
 }
 
 .trends-chart {
@@ -6137,6 +6157,15 @@ body {
 
 .trends-dialog--wide {
   width: min(1240px, calc(100vw - 40px));
+}
+.trends-dialog--archive-like {
+  width: min(1320px, calc(100vw - 28px));
+  max-height: calc(100vh - 24px);
+}
+.trends-archive-picker {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .trends-dialog__header {

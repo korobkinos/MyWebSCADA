@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { message, Spin } from "antd";
-import type { TagValue } from "@web-scada/shared";
+import { Spin } from "antd";
+import type { TagValue, TrendChartObject } from "@web-scada/shared";
 import { createRuntimeSocket } from "../../services/ws";
 import type { TrendTagInfo } from "../../services/api";
 import { WorkbenchButton } from "../../components/workbench";
-import { fetchTrendRange, fetchTrendTags, queryTrendData } from "./trendApi";
+import { fetchTrendTags, queryTrendData } from "./trendApi";
 import { TrendChart } from "./TrendChart";
 import { TrendSettingsPanel } from "./TrendSettingsPanel";
 import { TrendTagPickerDialog } from "./TrendTagPickerDialog";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendQueryResponse, TrendRangePreset, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { buildAxes, clamp, computeMaxPointsFromWidth, defaultTrendSettings, formatRangeLabel, loadTrendSelectedTags, loadTrendSettings, parseQuickRange, saveTrendSelectedTags, saveTrendSettings } from "./trendUtils";
+import { buildAxes, clamp, computeMaxPointsFromWidth, defaultTrendSettings, formatRangeLabel, parseQuickRange } from "./trendUtils";
 
 const LIVE_FLUSH_MS = 300;
 const TOO_MANY_TAGS_LIMIT = 40;
@@ -31,21 +31,55 @@ function fromLocalDateTimeInputValue(value: string): number {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
-export function TrendPage() {
+function resolveRangeFromObject(object: TrendChartObject): { preset: TrendRangePreset; range: TrendVisibleRange } {
+  const preset = object.rangePreset ?? "1h";
+  if (preset === "custom" && typeof object.customFrom === "number" && typeof object.customTo === "number" && object.customTo > object.customFrom) {
+    return {
+      preset,
+      range: { from: object.customFrom, to: object.customTo },
+    };
+  }
+  return {
+    preset,
+    range: parseQuickRange(preset === "custom" ? "1h" : preset),
+  };
+}
+
+function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
+  const defaults = defaultTrendSettings();
+  const source = object.settings ?? {};
+  return {
+    ...defaults,
+    ...source,
+    maxPointsPerSeries: clamp(Number(source.maxPointsPerSeries ?? defaults.maxPointsPerSeries), 1000, 8000),
+    cacheSize: clamp(Number(source.cacheSize ?? defaults.cacheSize), 8, 256),
+    liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
+    zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
+    defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
+    axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 24, 120),
+  };
+}
+
+type TrendRuntimeWidgetProps = {
+  object: TrendChartObject;
+};
+
+export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
+  const initialRange = useMemo(() => resolveRangeFromObject(object), [object]);
   const [allTags, setAllTags] = useState<TrendTagInfo[]>([]);
-  const [selectedTags, setSelectedTags] = useState<TrendTagSelection[]>(() => loadTrendSelectedTags());
-  const [settings, setSettings] = useState<TrendSettings>(() => loadTrendSettings());
-  const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>([]);
+  const [selectedTags, setSelectedTags] = useState<TrendTagSelection[]>(object.selectedTags ?? []);
+  const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>(object.axes ?? []);
+  const [settings, setSettings] = useState<TrendSettings>(() => resolveSettingsFromObject(object));
   const [response, setResponse] = useState<TrendQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [liveMode, setLiveMode] = useState(false);
+  const [liveMode, setLiveMode] = useState(Boolean(object.liveMode));
   const [lastLoadAt, setLastLoadAt] = useState<number | undefined>(undefined);
   const [statusAggregation, setStatusAggregation] = useState<TrendQueryResponse["aggregation"]>("raw");
-  const [rangePreset, setRangePreset] = useState<TrendRangePreset>("1h");
-  const [visibleRange, setVisibleRange] = useState<TrendVisibleRange>(() => parseQuickRange("1h"));
-  const [customFrom, setCustomFrom] = useState(() => toLocalDateTimeInputValue(Date.now() - 60 * 60 * 1000));
-  const [customTo, setCustomTo] = useState(() => toLocalDateTimeInputValue(Date.now()));
+  const [rangePreset, setRangePreset] = useState<TrendRangePreset>(initialRange.preset);
+  const [visibleRange, setVisibleRange] = useState<TrendVisibleRange>(initialRange.range);
+  const [customFrom, setCustomFrom] = useState(() => toLocalDateTimeInputValue(initialRange.range.from));
+  const [customTo, setCustomTo] = useState(() => toLocalDateTimeInputValue(initialRange.range.to));
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -69,6 +103,18 @@ export function TrendPage() {
     () => response?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0,
     [response],
   );
+
+  useEffect(() => {
+    const nextRange = resolveRangeFromObject(object);
+    setSelectedTags(object.selectedTags ?? []);
+    setManualAxes(object.axes ?? []);
+    setSettings(resolveSettingsFromObject(object));
+    setLiveMode(Boolean(object.liveMode));
+    setRangePreset(nextRange.preset);
+    setVisibleRange(nextRange.range);
+    setCustomFrom(toLocalDateTimeInputValue(nextRange.range.from));
+    setCustomTo(toLocalDateTimeInputValue(nextRange.range.to));
+  }, [object]);
 
   const executeQuery = useCallback(async (range: TrendVisibleRange, options?: { force?: boolean }) => {
     if (selectedTags.length === 0) {
@@ -146,12 +192,7 @@ export function TrendPage() {
 
   useEffect(() => {
     cacheRef.current = new TrendQueryCache(settings.cacheSize);
-    saveTrendSettings(settings);
-  }, [settings]);
-
-  useEffect(() => {
-    saveTrendSelectedTags(selectedTags);
-  }, [selectedTags]);
+  }, [settings.cacheSize]);
 
   useEffect(() => {
     void (async () => {
@@ -169,12 +210,17 @@ export function TrendPage() {
     })();
   }, []);
 
+  useEffect(() => () => {
+    requestControllerRef.current?.abort();
+    liveSocketRef.current?.close();
+  }, []);
+
   useEffect(() => {
     if (selectedTags.length === 0) {
       return;
     }
     void executeQuery(visibleRange, { force: true });
-  }, [selectedTags.length]);
+  }, [executeQuery, selectedTags.length]);
 
   useEffect(() => {
     void executeQuery(visibleRange);
@@ -228,10 +274,8 @@ export function TrendPage() {
     const next = parseQuickRange(preset);
     setRangePreset(preset);
     setVisibleRange(next);
-    if (preset === "24h" || preset === "8h" || preset === "1h" || preset === "15m" || preset === "5m") {
-      setCustomFrom(toLocalDateTimeInputValue(next.from));
-      setCustomTo(toLocalDateTimeInputValue(next.to));
-    }
+    setCustomFrom(toLocalDateTimeInputValue(next.from));
+    setCustomTo(toLocalDateTimeInputValue(next.to));
   };
 
   const applyCustom = () => {
@@ -245,84 +289,61 @@ export function TrendPage() {
     setVisibleRange(range);
     if (liveMode) {
       setLiveMode(false);
-      void message.info("Live paused by manual zoom/pan");
     }
-  };
-
-  const clearSelection = () => {
-    setSelectedTags([]);
-    setResponse(null);
-    setError(null);
   };
 
   const refresh = () => {
     void executeQuery(visibleRange, { force: true });
   };
 
-  const loadArchiveRange = async () => {
-    try {
-      const range = await fetchTrendRange(selectedTags.map((tag) => tag.tag));
-      if (!range.from || !range.to) {
-        void message.warning("No archive data for selected tags");
-        return;
-      }
-      const next = { from: new Date(range.from).getTime(), to: new Date(range.to).getTime() };
-      setRangePreset("custom");
-      setCustomFrom(toLocalDateTimeInputValue(next.from));
-      setCustomTo(toLocalDateTimeInputValue(next.to));
-      setVisibleRange(next);
-    } catch (rangeError) {
-      void message.error(rangeError instanceof Error ? rangeError.message : "Failed to load archive range");
-    }
-  };
-
   const aggregationLabel = settings.aggregation === "auto" ? `auto -> ${statusAggregation}` : statusAggregation;
 
   return (
-    <div className="trends-page">
-      <div className="trends-toolbar">
-        <WorkbenchButton variant="primary" onClick={() => setTagDialogOpen(true)}>Add/Remove Tags</WorkbenchButton>
-        <WorkbenchButton onClick={clearSelection} disabled={selectedTags.length === 0}>Clear</WorkbenchButton>
+    <div className="trends-widget-shell">
+      {object.showToolbar !== false ? (
+        <div className="trends-toolbar">
+          <WorkbenchButton variant="primary" onClick={() => setTagDialogOpen(true)}>Add/Remove Tags</WorkbenchButton>
+          <WorkbenchButton onClick={() => { setSelectedTags([]); setResponse(null); setError(null); }} disabled={selectedTags.length === 0}>Clear</WorkbenchButton>
 
-        <select className="workbench-select" value={rangePreset} onChange={(event) => {
-          const value = event.target.value as TrendRangePreset;
-          if (value === "custom") {
-            setRangePreset("custom");
-            return;
-          }
-          void applyPreset(value);
-        }}>
-          <option value="5m">Last 5 min</option>
-          <option value="15m">Last 15 min</option>
-          <option value="1h">Last 1 hour</option>
-          <option value="8h">Last 8 hours</option>
-          <option value="24h">Last 24 hours</option>
-          <option value="custom">Custom</option>
-        </select>
+          <select className="workbench-select" value={rangePreset} onChange={(event) => {
+            const value = event.target.value as TrendRangePreset;
+            if (value === "custom") {
+              setRangePreset("custom");
+              return;
+            }
+            void applyPreset(value);
+          }}>
+            <option value="5m">Last 5 min</option>
+            <option value="15m">Last 15 min</option>
+            <option value="1h">Last 1 hour</option>
+            <option value="8h">Last 8 hours</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="custom">Custom</option>
+          </select>
 
-        {rangePreset === "custom" ? (
-          <>
-            <input className="workbench-input" type="datetime-local" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} />
-            <input className="workbench-input" type="datetime-local" value={customTo} onChange={(event) => setCustomTo(event.target.value)} />
-            <WorkbenchButton onClick={applyCustom}>Apply</WorkbenchButton>
-          </>
-        ) : null}
+          {rangePreset === "custom" ? (
+            <>
+              <input className="workbench-input" type="datetime-local" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} />
+              <input className="workbench-input" type="datetime-local" value={customTo} onChange={(event) => setCustomTo(event.target.value)} />
+              <WorkbenchButton onClick={applyCustom}>Apply</WorkbenchButton>
+            </>
+          ) : null}
 
-        <WorkbenchButton onClick={loadArchiveRange} disabled={selectedTags.length === 0}>Archive Range</WorkbenchButton>
-        <WorkbenchButton variant={liveMode ? "danger" : "default"} onClick={() => setLiveMode((prev) => !prev)} disabled={selectedTags.length === 0}>
-          {liveMode ? "Pause" : "Live"}
-        </WorkbenchButton>
-        <WorkbenchButton onClick={refresh} disabled={selectedTags.length === 0}>Refresh</WorkbenchButton>
-        <WorkbenchButton onClick={() => setSettingsOpen(true)}>Settings</WorkbenchButton>
+          <WorkbenchButton variant={liveMode ? "danger" : "default"} onClick={() => setLiveMode((prev) => !prev)} disabled={selectedTags.length === 0}>
+            {liveMode ? "Pause" : "Live"}
+          </WorkbenchButton>
+          <WorkbenchButton onClick={refresh} disabled={selectedTags.length === 0}>Refresh</WorkbenchButton>
+          <WorkbenchButton onClick={() => setSettingsOpen(true)}>Settings</WorkbenchButton>
 
-        <div className="trends-toolbar__meta">
-          {loading ? <Spin size="small" /> : null}
-          <span>{aggregationLabel}</span>
-          <span>{pointCount.toLocaleString()} pts</span>
+          <div className="trends-toolbar__meta">
+            {loading ? <Spin size="small" /> : null}
+            <span>{aggregationLabel}</span>
+            <span>{pointCount.toLocaleString()} pts</span>
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="trends-chart-wrap">
+      <div className="trends-chart-wrap trends-chart-wrap--widget">
         {selectedTags.length === 0 ? (
           <div className="trends-empty">No tags selected</div>
         ) : error ? (
@@ -345,13 +366,15 @@ export function TrendPage() {
         )}
       </div>
 
-      <div className="trends-status-bar">
-        <span>Range: {formatRangeLabel(visibleRange.from, visibleRange.to)}</span>
-        <span>Series: {selectedTags.length}</span>
-        <span>Points: {pointCount.toLocaleString()}</span>
-        <span>Aggregation: {aggregationLabel}</span>
-        <span>Last load: {lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : "-"}</span>
-      </div>
+      {object.showStatusBar !== false ? (
+        <div className="trends-status-bar">
+          <span>Range: {formatRangeLabel(visibleRange.from, visibleRange.to)}</span>
+          <span>Series: {selectedTags.length}</span>
+          <span>Points: {pointCount.toLocaleString()}</span>
+          <span>Aggregation: {aggregationLabel}</span>
+          <span>Last load: {lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : "-"}</span>
+        </div>
+      ) : null}
 
       <TrendTagPickerDialog
         open={tagDialogOpen}

@@ -11,7 +11,7 @@ import type {
   ScadaProject,
   TagValue,
 } from "@web-scada/shared";
-import { HmiRenderer, type NumericInputOpenPayload, type ObjectSelectPayload, type RuntimeOverlayState } from "./hmi-renderer";
+import { HmiRenderer, type NumericInputOpenPayload, type ObjectSelectPayload, type RuntimeOverlayState, type RuntimeWidgetOverlayState } from "./hmi-renderer";
 import { sortObjectsByZIndex } from "../editor/z-order";
 
 type TagMap = Record<string, TagValue>;
@@ -90,6 +90,7 @@ export function HmiStage({
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [runtimeOverlay, setRuntimeOverlay] = useState<RuntimeOverlayState | null>(null);
+  const [runtimeWidgetOverlays, setRuntimeWidgetOverlays] = useState<Record<string, RuntimeWidgetOverlayState>>({});
 
   const handleShowOverlay = useCallback((overlay: RuntimeOverlayState) => {
     setRuntimeOverlay(overlay);
@@ -97,6 +98,24 @@ export function HmiStage({
 
   const handleHideOverlay = useCallback(() => {
     setRuntimeOverlay(null);
+  }, []);
+
+  const handleUpsertWidgetOverlay = useCallback((overlay: RuntimeWidgetOverlayState) => {
+    setRuntimeWidgetOverlays((prev) => ({
+      ...prev,
+      [overlay.objectId]: overlay,
+    }));
+  }, []);
+
+  const handleRemoveWidgetOverlay = useCallback((objectId: string) => {
+    setRuntimeWidgetOverlays((prev) => {
+      if (!prev[objectId]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[objectId];
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -123,6 +142,14 @@ export function HmiStage({
     window.addEventListener("mousedown", onWindowMouseDown);
     return () => window.removeEventListener("mousedown", onWindowMouseDown);
   }, [mode, runtimeOverlay]);
+
+  useEffect(() => {
+    if (mode !== "runtime") {
+      setRuntimeWidgetOverlays({});
+      return;
+    }
+    setRuntimeWidgetOverlays({});
+  }, [mode, screen.id]);
 
   useEffect(() => {
     if (mode !== "editor") {
@@ -398,6 +425,8 @@ export function HmiStage({
             overlayState={runtimeOverlay}
             onShowOverlay={handleShowOverlay}
             onHideOverlay={handleHideOverlay}
+            onUpsertWidgetOverlay={handleUpsertWidgetOverlay}
+            onRemoveWidgetOverlay={handleRemoveWidgetOverlay}
             onRequestNumericInput={onRequestNumericInput}
           />
 
@@ -457,6 +486,24 @@ export function HmiStage({
           {runtimeOverlay.content}
         </div>
       ) : null}
+      {mode === "runtime"
+        ? Object.values(runtimeWidgetOverlays).map((overlay) => (
+            <div
+              key={overlay.objectId}
+              className="hmi-runtime-widget-overlay"
+              style={{
+                position: "absolute",
+                left: overlay.x * stageScale,
+                top: overlay.y * stageScale,
+                width: overlay.width * stageScale,
+                height: overlay.height * stageScale,
+                zIndex: 910,
+              }}
+            >
+              {overlay.content}
+            </div>
+          ))
+        : null}
     </div>
   );
 }

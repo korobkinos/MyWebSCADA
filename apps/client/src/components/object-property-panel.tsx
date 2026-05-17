@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ACCESS_ROLE_LABELS_RU } from "@web-scada/shared";
 import type {
@@ -25,6 +25,9 @@ import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, 
 import { TagPicker } from "./tag-picker";
 import { IndexedAddressEditorWindow } from "./indexed-address-editor-window";
 import { WorkbenchButton, WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
+import { TrendTagPickerDialog } from "../features/trends/TrendTagPickerDialog";
+import type { TrendTagInfo } from "../features/trends/trendTypes";
+import { defaultTrendSettings } from "../features/trends/trendUtils";
 import { getAssetDisplayPath } from "../utils/asset-path";
 import {
   buildIndexedAddressRuntimeValues,
@@ -1166,10 +1169,30 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     fieldLabel: string;
     rawTagName?: string;
   } | null>(null);
+  const [trendTagPickerOpen, setTrendTagPickerOpen] = useState(false);
   const editorRuntimeValues = buildIndexedAddressRuntimeValues({ variables: project.variables });
+  const trendAvailableTags = useMemo<TrendTagInfo[]>(
+    () => project.tags.map((tag): TrendTagInfo => ({
+      id: tag.id ?? tag.name,
+      name: tag.name,
+      displayName: tag.name,
+      unit: tag.unit,
+      dataType: tag.dataType === "BOOL"
+        ? "boolean"
+        : tag.dataType === "STRING"
+          ? "string"
+          : "number",
+      description: tag.description,
+      group: tag.group,
+      min: tag.min,
+      max: tag.max,
+    })),
+    [project.tags],
+  );
 
   useEffect(() => {
     setIndexedEditorTarget(null);
+    setTrendTagPickerOpen(false);
   }, [object.id]);
 
   const getFieldIndexedConfig = (fieldName: string, rawTagName: string | undefined): IndexedTagAddress => {
@@ -1393,6 +1416,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
       object={object}
       elementBindings={elementBindings}
       buildIndexControl={buildIndexControl}
+      onOpenTrendTagPicker={() => setTrendTagPickerOpen(true)}
       onPatch={onPatch}
     />
   );
@@ -1655,6 +1679,22 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           onClose={() => setIndexedEditorTarget(null)}
         />
       ) : null}
+      {object.type === "trendChart" ? (
+        <TrendTagPickerDialog
+          open={trendTagPickerOpen}
+          tags={trendAvailableTags}
+          selectedTags={object.selectedTags ?? []}
+          axes={object.axes ?? []}
+          onClose={() => setTrendTagPickerOpen(false)}
+          onApply={(nextTags, nextAxes) => {
+            onPatch({
+              selectedTags: nextTags,
+              axes: nextAxes,
+            } as Partial<HmiObject>);
+            setTrendTagPickerOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1667,6 +1707,7 @@ function SpecificPropertyFields({
   elementBindings,
   buildIndexControl,
   numericInputSection,
+  onOpenTrendTagPicker,
   onPatch,
 }: {
   project: ScadaProject;
@@ -1682,6 +1723,7 @@ function SpecificPropertyFields({
     onToggleEnabled: (checked: boolean) => void;
     };
   numericInputSection?: "value" | "appearance" | "error" | "dialog";
+  onOpenTrendTagPicker?: () => void;
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
   const [stateImagePreviewValue, setStateImagePreviewValue] = useState<string>("0");
@@ -3842,6 +3884,132 @@ function SpecificPropertyFields({
         <ColorField label="Bad Border Color" value={object.badBorderColor ?? "#a03030"} fallback="#a03030" onChange={(next) => onPatch({ badBorderColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Background Color" value={object.disabledBackgroundColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledBackgroundColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
+      </>
+    );
+  }
+
+  if (object.type === "trendChart") {
+    const defaultSettings = defaultTrendSettings();
+    const settings = { ...defaultSettings, ...(object.settings ?? {}) };
+    const selectedTags = object.selectedTags ?? [];
+    const axes = object.axes ?? [];
+    return (
+      <>
+        <Typography.Text strong>Series & Axes</Typography.Text>
+        <div className="screen-editor-tag-editor__kv"><span>Selected series</span><strong>{selectedTags.length}</strong></div>
+        <div className="screen-editor-tag-editor__kv"><span>Axes</span><strong>{axes.length}</strong></div>
+        <Form.Item style={{ marginTop: 8 }}>
+          <WorkbenchButton variant="primary" onClick={() => onOpenTrendTagPicker?.()}>Add / Remove Tags...</WorkbenchButton>
+        </Form.Item>
+
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Range & Live</Typography.Text>
+        <Form.Item label="Default Range">
+          <Select
+            value={object.rangePreset ?? "1h"}
+            options={[
+              { value: "5m", label: "Last 5 min" },
+              { value: "15m", label: "Last 15 min" },
+              { value: "1h", label: "Last 1 hour" },
+              { value: "8h", label: "Last 8 hours" },
+              { value: "24h", label: "Last 24 hours" },
+              { value: "custom", label: "Custom" },
+            ]}
+            onChange={(value) => onPatch({ rangePreset: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        {(object.rangePreset ?? "1h") === "custom" ? (
+          <>
+            <Form.Item label="Custom From (unix ms)">
+              <InputNumber style={{ width: "100%" }} value={object.customFrom} onChange={(value) => onPatch({ customFrom: Number(value ?? Date.now() - 3600000) } as Partial<HmiObject>)} />
+            </Form.Item>
+            <Form.Item label="Custom To (unix ms)">
+              <InputNumber style={{ width: "100%" }} value={object.customTo} onChange={(value) => onPatch({ customTo: Number(value ?? Date.now()) } as Partial<HmiObject>)} />
+            </Form.Item>
+          </>
+        ) : null}
+        <Space style={{ marginBottom: 8 }}>
+          <span>Start Live Mode</span>
+          <Switch checked={object.liveMode ?? false} onChange={(checked) => onPatch({ liveMode: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Show Toolbar</span>
+          <Switch checked={object.showToolbar ?? true} onChange={(checked) => onPatch({ showToolbar: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Show Status Bar</span>
+          <Switch checked={object.showStatusBar ?? true} onChange={(checked) => onPatch({ showStatusBar: checked } as Partial<HmiObject>)} />
+        </Space>
+
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Performance</Typography.Text>
+        <Form.Item label="Aggregation">
+          <Select
+            value={settings.aggregation}
+            options={[
+              { value: "auto", label: "auto" },
+              { value: "raw", label: "raw" },
+              { value: "minmax", label: "minmax" },
+              { value: "avg", label: "avg" },
+              { value: "lttb", label: "lttb" },
+            ]}
+            onChange={(value) => onPatch({ settings: { ...settings, aggregation: value } } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Max Points / Series">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1000}
+            max={8000}
+            value={settings.maxPointsPerSeries}
+            onChange={(value) => onPatch({ settings: { ...settings, maxPointsPerSeries: Math.max(1000, Math.min(8000, Number(value ?? 4000))) } } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Zoom Debounce (ms)">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={100}
+            max={1200}
+            value={settings.zoomDebounceMs}
+            onChange={(value) => onPatch({ settings: { ...settings, zoomDebounceMs: Math.max(100, Math.min(1200, Number(value ?? 350))) } } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Cache Enabled</span>
+          <Switch checked={settings.cacheEnabled} onChange={(checked) => onPatch({ settings: { ...settings, cacheEnabled: checked } } as Partial<HmiObject>)} />
+        </Space>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Progressive Rendering</span>
+          <Switch checked={settings.progressive} onChange={(checked) => onPatch({ settings: { ...settings, progressive: checked } } as Partial<HmiObject>)} />
+        </Space>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Disable Animation on Large Data</span>
+          <Switch checked={settings.disableAnimationsLargeData} onChange={(checked) => onPatch({ settings: { ...settings, disableAnimationsLargeData: checked } } as Partial<HmiObject>)} />
+        </Space>
+
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Appearance</Typography.Text>
+        <ColorField label="Background" value={settings.background} fallback="#1e1e1e" onChange={(next) => onPatch({ settings: { ...settings, background: next } } as Partial<HmiObject>)} />
+        <Space style={{ marginBottom: 8 }}>
+          <span>Legend</span>
+          <Switch checked={settings.legend} onChange={(checked) => onPatch({ settings: { ...settings, legend: checked } } as Partial<HmiObject>)} />
+        </Space>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Tooltip</span>
+          <Switch checked={settings.tooltip} onChange={(checked) => onPatch({ settings: { ...settings, tooltip: checked } } as Partial<HmiObject>)} />
+        </Space>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Grid Lines</span>
+          <Switch checked={settings.gridLines} onChange={(checked) => onPatch({ settings: { ...settings, gridLines: checked } } as Partial<HmiObject>)} />
+        </Space>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Axis Labels</span>
+          <Switch checked={settings.axisLabels} onChange={(checked) => onPatch({ settings: { ...settings, axisLabels: checked } } as Partial<HmiObject>)} />
+        </Space>
+        <Space style={{ marginBottom: 8 }}>
+          <span>DataZoom Slider</span>
+          <Switch checked={settings.dataZoomSlider} onChange={(checked) => onPatch({ settings: { ...settings, dataZoomSlider: checked } } as Partial<HmiObject>)} />
+        </Space>
       </>
     );
   }

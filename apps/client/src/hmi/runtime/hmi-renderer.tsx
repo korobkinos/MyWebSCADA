@@ -34,6 +34,7 @@ import {
 import { applyElementStateRules } from "./element-state-rules";
 import { getObjectIndexedConfigForField, resolveObjectTagField } from "../tags/indexed-address";
 import { sortObjectsByZIndex } from "../editor/z-order";
+import { TrendRuntimeWidget } from "../../features/trends/TrendRuntimeWidget";
 
 const HMI_CONTROL_COLORS = {
   text: "#cccccc",
@@ -665,6 +666,15 @@ export type RuntimeOverlayState = {
   content: React.ReactNode;
 };
 
+export type RuntimeWidgetOverlayState = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  objectId: string;
+  content: React.ReactNode;
+};
+
 export type NumericInputOpenPayload = {
   objectId: string;
   objectName: string;
@@ -734,6 +744,8 @@ type HmiRendererProps = {
   overlayState?: RuntimeOverlayState | null;
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
+  onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
+  onRemoveWidgetOverlay?: (objectId: string) => void;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   shadowDisabled?: boolean;
   nodeIdPrefix?: string;
@@ -763,6 +775,8 @@ type BaseNodeProps = {
   overlayState?: RuntimeOverlayState | null;
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
+  onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
+  onRemoveWidgetOverlay?: (objectId: string) => void;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   shadowDisabled: boolean;
   nodeIdPrefix?: string;
@@ -792,6 +806,8 @@ export function HmiRenderer({
   overlayState,
   onShowOverlay,
   onHideOverlay,
+  onUpsertWidgetOverlay,
+  onRemoveWidgetOverlay,
   onRequestNumericInput,
   shadowDisabled = false,
   nodeIdPrefix,
@@ -844,6 +860,8 @@ export function HmiRenderer({
           overlayState={overlayState}
           onShowOverlay={onShowOverlay}
           onHideOverlay={onHideOverlay}
+          onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+          onRemoveWidgetOverlay={onRemoveWidgetOverlay}
           onRequestNumericInput={onRequestNumericInput}
           shadowDisabled={shadowDisabled}
           nodeIdPrefix={nodeIdPrefix}
@@ -1030,6 +1048,8 @@ function ObjectNode({
   overlayState,
   onShowOverlay,
   onHideOverlay,
+  onUpsertWidgetOverlay,
+  onRemoveWidgetOverlay,
   onRequestNumericInput,
   shadowDisabled,
   nodeIdPrefix,
@@ -1690,6 +1710,39 @@ function ObjectNode({
     },
   };
 
+  useEffect(() => {
+    if (resolvedObject.type !== "trendChart") {
+      return;
+    }
+    if (!runtimeMode) {
+      onRemoveWidgetOverlay?.(resolvedObject.id);
+      return () => onRemoveWidgetOverlay?.(resolvedObject.id);
+    }
+    const node = groupNodeRef.current;
+    const stage = node?.getStage();
+    if (!node || !stage) {
+      return;
+    }
+    const abs = node.getAbsolutePosition(stage);
+    const absScale = node.getAbsoluteScale();
+    onUpsertWidgetOverlay?.({
+      objectId: resolvedObject.id,
+      x: abs.x,
+      y: abs.y,
+      width: Math.max(1, resolvedObject.width * Math.abs(absScale.x || 1)),
+      height: Math.max(1, resolvedObject.height * Math.abs(absScale.y || 1)),
+      content: <TrendRuntimeWidget object={resolvedObject} />,
+    });
+    return () => {
+      onRemoveWidgetOverlay?.(resolvedObject.id);
+    };
+  }, [
+    onRemoveWidgetOverlay,
+    onUpsertWidgetOverlay,
+    resolvedObject,
+    runtimeMode,
+  ]);
+
   if (resolvedObject.type === "group") {
     return (
       <GroupNode
@@ -1717,6 +1770,8 @@ function ObjectNode({
         overlayState={overlayState}
         onShowOverlay={onShowOverlay}
         onHideOverlay={onHideOverlay}
+        onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+        onRemoveWidgetOverlay={onRemoveWidgetOverlay}
         shadowDisabled={effectiveShadowDisabled}
         nodeIdPrefix={nodeIdPrefix}
       />
@@ -2474,11 +2529,14 @@ function ObjectNode({
         inheritedDisabled={runtimeDisabled}
         onSelectObject={onSelectObject}
         onMoveObject={onMoveObject}
+        onCommitObjectMove={onCommitObjectMove}
         onResizeObject={onResizeObject}
         onAction={onAction}
         commonGroupProps={commonGroupProps}
         runtimeDisabled={runtimeDisabled}
         shadowDisabled={effectiveShadowDisabled}
+        onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+        onRemoveWidgetOverlay={onRemoveWidgetOverlay}
         nodeIdPrefix={nodeIdPrefix}
       />
     );
@@ -2600,12 +2658,15 @@ function ObjectNode({
         instanceStack={instanceStack}
         onSelectObject={onSelectObject}
         onMoveObject={onMoveObject}
+        onCommitObjectMove={onCommitObjectMove}
         onResizeObject={onResizeObject}
         onAction={onAction}
         commonGroupProps={commonGroupProps}
         scopedAssets={scopedAssets}
         inheritedDisabled={runtimeDisabled}
         shadowDisabled={effectiveShadowDisabled}
+        onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+        onRemoveWidgetOverlay={onRemoveWidgetOverlay}
         nodeIdPrefix={nodeIdPrefix}
       />
     );
@@ -3752,6 +3813,42 @@ function ObjectNode({
     );
   }
 
+  if (resolvedObject.type === "trendChart") {
+    if (runtimeMode) {
+      return (
+        <Group {...commonGroupProps} listening={false}>
+          <Rect width={resolvedObject.width} height={resolvedObject.height} fill="rgba(0,0,0,0)" listening={false} />
+        </Group>
+      );
+    }
+
+    return (
+      <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill="#1e1e1e"
+          stroke="#3c3c3c"
+          strokeWidth={1}
+          perfectDrawEnabled={false}
+        />
+        {renderBoxText("Trend Chart", {
+          fontFamily: "Consolas",
+          fontSize: 12,
+          color: "#d4d4d4",
+          horizontalAlign: "center",
+          verticalAlign: "middle",
+          padding: 4,
+        }, {
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+        })}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
   if (resolvedObject.type === "numeric-input") {
     const numInputTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
     const numErrorTag = runtimeMode ? tagValue(resolvedObject.errorTag, { useObjectIndexing: true, fieldName: "errorTag" }) : undefined;
@@ -3979,6 +4076,8 @@ function GroupNode({
   overlayState,
   onShowOverlay,
   onHideOverlay,
+  onUpsertWidgetOverlay,
+  onRemoveWidgetOverlay,
   shadowDisabled,
   nodeIdPrefix,
 }: {
@@ -4006,6 +4105,8 @@ function GroupNode({
   overlayState?: RuntimeOverlayState | null;
   onShowOverlay?: (overlay: RuntimeOverlayState) => void;
   onHideOverlay?: () => void;
+  onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
+  onRemoveWidgetOverlay?: (objectId: string) => void;
   shadowDisabled: boolean;
   nodeIdPrefix?: string;
 }) {
@@ -4061,6 +4162,8 @@ function GroupNode({
         overlayState={overlayState}
         onShowOverlay={onShowOverlay}
         onHideOverlay={onHideOverlay}
+        onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+        onRemoveWidgetOverlay={onRemoveWidgetOverlay}
         shadowDisabled={shadowDisabled}
         nodeIdPrefix={`${nodeIdPrefix ?? ""}group-${object.id}-`}
       />
@@ -4088,6 +4191,8 @@ function FrameNode({
   scopedAssets,
   inheritedDisabled,
   shadowDisabled,
+  onUpsertWidgetOverlay,
+  onRemoveWidgetOverlay,
   nodeIdPrefix,
 }: {
   object: FrameObject;
@@ -4104,6 +4209,8 @@ function FrameNode({
   onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
+  onRemoveWidgetOverlay?: (objectId: string) => void;
   commonGroupProps: Record<string, unknown>;
   scopedAssets?: Record<string, Asset>;
   inheritedDisabled: boolean;
@@ -4163,6 +4270,8 @@ function FrameNode({
           onResizeObject={onResizeObject}
           onAction={onAction}
           scopedAssets={scopedAssets}
+          onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+          onRemoveWidgetOverlay={onRemoveWidgetOverlay}
           shadowDisabled={shadowDisabled}
           nodeIdPrefix={`${nodeIdPrefix ?? ""}frame-${object.id}-`}
         />
@@ -4192,6 +4301,8 @@ function LibraryInstanceNode({
   commonGroupProps,
   runtimeDisabled,
   shadowDisabled,
+  onUpsertWidgetOverlay,
+  onRemoveWidgetOverlay,
   nodeIdPrefix,
 }: {
   object: LibraryElementInstanceObject;
@@ -4210,6 +4321,8 @@ function LibraryInstanceNode({
   onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
+  onRemoveWidgetOverlay?: (objectId: string) => void;
   commonGroupProps: Record<string, unknown>;
   runtimeDisabled: boolean;
   shadowDisabled: boolean;
@@ -4359,6 +4472,8 @@ function LibraryInstanceNode({
           onResizeObject={onResizeObject}
           onAction={onAction}
           scopedAssets={scopedAssets}
+          onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+          onRemoveWidgetOverlay={onRemoveWidgetOverlay}
           shadowDisabled={shadowDisabled}
           nodeIdPrefix={mode === "editor" ? `${nodeIdPrefix ?? ""}libinst-${object.id}-` : nodeIdPrefix}
         />

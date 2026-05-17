@@ -783,6 +783,73 @@ const numericImageIndicatorObjectSchema = hmiBaseSchema.extend({
   outOfRangeMode: z.enum(["default", "clamp"]).optional(),
 });
 
+const trendChartSeriesSchema = z.object({
+  tag: z.string().min(1),
+  color: z.string().optional(),
+  displayName: z.string().optional(),
+  unit: z.string().optional(),
+  visible: z.boolean().optional(),
+  lineWidth: z.number().optional(),
+  lineType: z.enum(["solid", "dashed", "dotted"]).optional(),
+  mode: z.enum(["line", "step", "points"]).optional(),
+  step: z.boolean().optional(),
+  axisMode: z.enum(["auto", "manual"]).optional(),
+  axisId: z.string().optional(),
+});
+
+const trendChartAxisSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  unit: z.string().optional(),
+  position: z.enum(["left", "right"]),
+  offset: z.number().optional(),
+  min: z.union([z.number(), z.literal("auto")]).optional(),
+  max: z.union([z.number(), z.literal("auto")]).optional(),
+  color: z.string().optional(),
+});
+
+const trendChartSettingsSchema = z.object({
+  theme: z.enum(["workbench-dark", "echarts-dark", "custom"]).optional(),
+  background: z.string().optional(),
+  gridLines: z.boolean().optional(),
+  axisLabels: z.boolean().optional(),
+  legend: z.boolean().optional(),
+  tooltip: z.boolean().optional(),
+  dataZoomSlider: z.boolean().optional(),
+  defaultLineWidth: z.number().optional(),
+  showSymbols: z.boolean().optional(),
+  showUnitsInTooltip: z.boolean().optional(),
+  showBadQualityGaps: z.boolean().optional(),
+  maxPointsPerSeries: z.number().optional(),
+  aggregation: z.enum(["auto", "raw", "minmax", "avg", "lttb"]).optional(),
+  zoomDebounceMs: z.number().optional(),
+  progressive: z.boolean().optional(),
+  disableAnimationsLargeData: z.boolean().optional(),
+  cacheEnabled: z.boolean().optional(),
+  cacheSize: z.number().optional(),
+  liveBufferLimit: z.number().optional(),
+  autoScale: z.boolean().optional(),
+  defaultAxisMin: z.union([z.number(), z.literal("auto")]).optional(),
+  defaultAxisMax: z.union([z.number(), z.literal("auto")]).optional(),
+  groupByUnit: z.boolean().optional(),
+  separateAxisPerTag: z.boolean().optional(),
+  axisPlacement: z.enum(["left", "right", "split"]).optional(),
+  axisOffsetStep: z.number().optional(),
+});
+
+const trendChartObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("trendChart"),
+  selectedTags: z.array(trendChartSeriesSchema),
+  axes: z.array(trendChartAxisSchema).optional(),
+  settings: trendChartSettingsSchema.optional(),
+  rangePreset: z.enum(["5m", "15m", "1h", "8h", "24h", "custom"]).optional(),
+  customFrom: z.number().optional(),
+  customTo: z.number().optional(),
+  liveMode: z.boolean().optional(),
+  showToolbar: z.boolean().optional(),
+  showStatusBar: z.boolean().optional(),
+});
+
 export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
   z.discriminatedUnion("type", [
     groupObjectSchema,
@@ -808,6 +875,7 @@ export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
     radioGroupObjectSchema,
     numericInputObjectSchema,
     numericImageIndicatorObjectSchema,
+    trendChartObjectSchema,
   ]) as z.ZodType<HmiObject>,
 );
 
