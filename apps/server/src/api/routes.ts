@@ -115,6 +115,31 @@ const archiveSamplesQuerySchema = z.object({
   to: z.coerce.date(),
   limit: z.coerce.number().int().positive().max(10000).optional(),
 });
+const numericIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+const archivePolicySchema = z.object({
+  name: z.string().min(1),
+  enabled: z.boolean(),
+  mode: z.string().min(1).default("on_change_with_periodic"),
+  periodMs: z.number().int().positive(),
+  deadband: z.number().nonnegative(),
+  retentionDays: z.number().int().positive(),
+  aggregateEnabled: z.boolean(),
+  compressionAfterDays: z.number().int().positive().nullable().optional(),
+});
+const archiveTagPolicySchema = z.object({
+  policyId: z.number().int().positive().nullable(),
+});
+const archiveTagOverrideSchema = z.object({
+  enabled: z.boolean().nullable().optional(),
+  mode: z.string().min(1).nullable().optional(),
+  periodMs: z.number().int().positive().nullable().optional(),
+  deadband: z.number().nonnegative().nullable().optional(),
+  retentionDays: z.number().int().positive().nullable().optional(),
+  aggregateEnabled: z.boolean().nullable().optional(),
+  compressionAfterDays: z.number().int().positive().nullable().optional(),
+});
 const permissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>((value) => typeof value === "string");
 const loginSchema: z.ZodType<AuthLoginRequest> = z.object({
   username: z.string().min(1),
@@ -872,9 +897,128 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
   });
 
-  app.get("/api/archive/status", async () => ({
-    enabled: deps.archiveService?.isEnabled() ?? false,
-  }));
+  app.get("/api/archive/status", async () => deps.archiveService?.getStatus() ?? { enabled: false, queuedSamples: 0 });
+
+  app.get("/api/archive/policies", async (request, reply) => {
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.listPolicies());
+  });
+
+  app.post("/api/archive/policies", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const payload = archivePolicySchema.parse(request.body);
+    const saved = await deps.archiveService.upsertPolicy(undefined, {
+      ...payload,
+      compressionAfterDays: payload.compressionAfterDays ?? null,
+    });
+    return reply.code(201).send(saved);
+  });
+
+  app.put("/api/archive/policies/:id", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const { id } = numericIdParamSchema.parse(request.params);
+    const payload = archivePolicySchema.parse(request.body);
+    const saved = await deps.archiveService.upsertPolicy(id, {
+      ...payload,
+      compressionAfterDays: payload.compressionAfterDays ?? null,
+    });
+    return reply.send(saved);
+  });
+
+  app.delete("/api/archive/policies/:id", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const { id } = numericIdParamSchema.parse(request.params);
+    const deleted = await deps.archiveService.deletePolicy(id);
+    if (!deleted) {
+      return reply.code(404).send({ message: "Archive policy not found" });
+    }
+    return reply.send({ ok: true });
+  });
+
+  app.get("/api/archive/tag-configs", async (request, reply) => {
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.listTagConfigs());
+  });
+
+  app.put("/api/archive/tags/:name/policy", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const params = request.params as { name: string };
+    const payload = archiveTagPolicySchema.parse(request.body);
+    const updated = await deps.archiveService.assignTagPolicy(params.name, payload.policyId);
+    if (!updated) {
+      return reply.code(404).send({ message: "Tag not found" });
+    }
+    return reply.send({ ok: true });
+  });
+
+  app.put("/api/archive/tags/:name/override", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const params = request.params as { name: string };
+    const payload = archiveTagOverrideSchema.parse(request.body);
+    const updated = await deps.archiveService.upsertTagOverride(params.name, payload);
+    if (!updated) {
+      return reply.code(404).send({ message: "Tag not found" });
+    }
+    return reply.send({ ok: true });
+  });
+
+  app.delete("/api/archive/tags/:name/override", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const params = request.params as { name: string };
+    await deps.archiveService.deleteTagOverride(params.name);
+    return reply.send({ ok: true });
+  });
+
+  app.post("/api/archive/maintenance/run", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "runtime.control");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.runMaintenance());
+  });
 
   app.get("/api/archive/tags/:name/samples", async (request, reply) => {
     if (!deps.archiveService?.isEnabled()) {

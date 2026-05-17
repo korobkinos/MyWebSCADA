@@ -33,6 +33,48 @@ export type ArchiveSampleRow = {
   source: string | null;
 };
 
+export type ArchivePolicyInput = {
+  name: string;
+  enabled: boolean;
+  mode: string;
+  periodMs: number;
+  deadband: number;
+  retentionDays: number;
+  aggregateEnabled: boolean;
+  compressionAfterDays: number | null;
+};
+
+export type ArchivePolicyRow = ArchivePolicyInput & {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ArchiveTagOverrideInput = {
+  enabled?: boolean | null;
+  mode?: string | null;
+  periodMs?: number | null;
+  deadband?: number | null;
+  retentionDays?: number | null;
+  aggregateEnabled?: boolean | null;
+  compressionAfterDays?: number | null;
+};
+
+export type ArchiveTagConfigRow = {
+  tagId: number;
+  tagName: string;
+  policyId: number | null;
+  policyName: string | null;
+  enabled: boolean;
+  mode: string | null;
+  periodMs: number | null;
+  deadband: number | null;
+  retentionDays: number | null;
+  aggregateEnabled: boolean | null;
+  compressionAfterDays: number | null;
+  override: ArchiveTagOverrideInput | null;
+};
+
 type ArchiveRepositoryOptions = {
   connectionString: string;
   maxPoolSize?: number;
@@ -236,6 +278,304 @@ export class ArchiveRepository {
     }));
   }
 
+  public async listPolicies(): Promise<ArchivePolicyRow[]> {
+    const result = await this.pool.query<{
+      id: number;
+      name: string;
+      enabled: boolean;
+      mode: string;
+      period_ms: number;
+      deadband: number;
+      retention_days: number;
+      aggregate_enabled: boolean;
+      compression_after_days: number | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      SELECT id, name, enabled, mode, period_ms, deadband, retention_days, aggregate_enabled,
+             compression_after_days, created_at, updated_at
+      FROM archive_policies
+      ORDER BY name ASC
+      `,
+    );
+    return result.rows.map((row) => this.mapPolicy(row));
+  }
+
+  public async upsertPolicy(id: number | undefined, policy: ArchivePolicyInput): Promise<ArchivePolicyRow> {
+    const params = [
+      policy.name,
+      policy.enabled,
+      policy.mode,
+      policy.periodMs,
+      policy.deadband,
+      policy.retentionDays,
+      policy.aggregateEnabled,
+      policy.compressionAfterDays,
+    ];
+    const result = await this.pool.query<{
+      id: number;
+      name: string;
+      enabled: boolean;
+      mode: string;
+      period_ms: number;
+      deadband: number;
+      retention_days: number;
+      aggregate_enabled: boolean;
+      compression_after_days: number | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      id
+        ? `
+          UPDATE archive_policies
+          SET name = $1,
+              enabled = $2,
+              mode = $3,
+              period_ms = $4,
+              deadband = $5,
+              retention_days = $6,
+              aggregate_enabled = $7,
+              compression_after_days = $8,
+              updated_at = now()
+          WHERE id = $9
+          RETURNING id, name, enabled, mode, period_ms, deadband, retention_days, aggregate_enabled,
+                    compression_after_days, created_at, updated_at
+          `
+        : `
+          INSERT INTO archive_policies (
+              name,
+              enabled,
+              mode,
+              period_ms,
+              deadband,
+              retention_days,
+              aggregate_enabled,
+              compression_after_days
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING id, name, enabled, mode, period_ms, deadband, retention_days, aggregate_enabled,
+                    compression_after_days, created_at, updated_at
+          `,
+      id ? [...params, id] : params,
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(id ? `Archive policy ${id} not found` : "Archive policy was not created");
+    }
+    await this.loadInsertCaches();
+    return this.mapPolicy(row);
+  }
+
+  public async deletePolicy(id: number): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE tags SET archive_policy_id = NULL WHERE archive_policy_id = $1", [id]);
+      const result = await client.query("DELETE FROM archive_policies WHERE id = $1", [id]);
+      await client.query("COMMIT");
+      await this.loadInsertCaches();
+      return (result.rowCount ?? 0) > 0;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async listTagConfigs(): Promise<ArchiveTagConfigRow[]> {
+    const result = await this.pool.query<{
+      tag_id: number;
+      tag_name: string;
+      policy_id: number | null;
+      policy_name: string | null;
+      enabled: boolean;
+      mode: string | null;
+      period_ms: number | null;
+      deadband: number | null;
+      retention_days: number | null;
+      aggregate_enabled: boolean | null;
+      compression_after_days: number | null;
+      override_enabled: boolean | null;
+      override_mode: string | null;
+      override_period_ms: number | null;
+      override_deadband: number | null;
+      override_retention_days: number | null;
+      override_aggregate_enabled: boolean | null;
+      override_compression_after_days: number | null;
+      has_override: boolean;
+    }>(
+      `
+      SELECT
+          t.id AS tag_id,
+          t.name AS tag_name,
+          p.id AS policy_id,
+          p.name AS policy_name,
+          COALESCE(o.enabled, p.enabled, false) AS enabled,
+          COALESCE(o.mode, p.mode) AS mode,
+          COALESCE(o.period_ms, p.period_ms) AS period_ms,
+          COALESCE(o.deadband, p.deadband) AS deadband,
+          COALESCE(o.retention_days, p.retention_days) AS retention_days,
+          COALESCE(o.aggregate_enabled, p.aggregate_enabled) AS aggregate_enabled,
+          COALESCE(o.compression_after_days, p.compression_after_days) AS compression_after_days,
+          o.enabled AS override_enabled,
+          o.mode AS override_mode,
+          o.period_ms AS override_period_ms,
+          o.deadband AS override_deadband,
+          o.retention_days AS override_retention_days,
+          o.aggregate_enabled AS override_aggregate_enabled,
+          o.compression_after_days AS override_compression_after_days,
+          o.tag_id IS NOT NULL AS has_override
+      FROM tags t
+      LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
+      LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
+      ORDER BY t.name ASC
+      `,
+    );
+
+    return result.rows.map((row) => ({
+      tagId: row.tag_id,
+      tagName: row.tag_name,
+      policyId: row.policy_id,
+      policyName: row.policy_name,
+      enabled: row.enabled,
+      mode: row.mode,
+      periodMs: row.period_ms,
+      deadband: row.deadband,
+      retentionDays: row.retention_days,
+      aggregateEnabled: row.aggregate_enabled,
+      compressionAfterDays: row.compression_after_days,
+      override: row.has_override
+        ? {
+            enabled: row.override_enabled,
+            mode: row.override_mode,
+            periodMs: row.override_period_ms,
+            deadband: row.override_deadband,
+            retentionDays: row.override_retention_days,
+            aggregateEnabled: row.override_aggregate_enabled,
+            compressionAfterDays: row.override_compression_after_days,
+          }
+        : null,
+    }));
+  }
+
+  public async assignTagPolicy(tagName: string, policyId: number | null): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+      UPDATE tags
+      SET archive_policy_id = $2,
+          updated_at = now()
+      WHERE name = $1
+      `,
+      [tagName, policyId],
+    );
+    await this.loadInsertCaches();
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  public async upsertTagOverride(tagName: string, override: ArchiveTagOverrideInput): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+      INSERT INTO tag_archive_overrides (
+          tag_id,
+          enabled,
+          mode,
+          period_ms,
+          deadband,
+          retention_days,
+          aggregate_enabled,
+          compression_after_days,
+          updated_at
+      )
+      SELECT id, $2, $3, $4, $5, $6, $7, $8, now()
+      FROM tags
+      WHERE name = $1
+      ON CONFLICT (tag_id) DO UPDATE
+      SET enabled = EXCLUDED.enabled,
+          mode = EXCLUDED.mode,
+          period_ms = EXCLUDED.period_ms,
+          deadband = EXCLUDED.deadband,
+          retention_days = EXCLUDED.retention_days,
+          aggregate_enabled = EXCLUDED.aggregate_enabled,
+          compression_after_days = EXCLUDED.compression_after_days,
+          updated_at = now()
+      `,
+      [
+        tagName,
+        override.enabled ?? null,
+        override.mode ?? null,
+        override.periodMs ?? null,
+        override.deadband ?? null,
+        override.retentionDays ?? null,
+        override.aggregateEnabled ?? null,
+        override.compressionAfterDays ?? null,
+      ],
+    );
+    await this.loadInsertCaches();
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  public async deleteTagOverride(tagName: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+      DELETE FROM tag_archive_overrides
+      WHERE tag_id = (SELECT id FROM tags WHERE name = $1)
+      `,
+      [tagName],
+    );
+    await this.loadInsertCaches();
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  public async applyRetention(): Promise<number> {
+    const result = await this.pool.query(
+      `
+      DELETE FROM archive_samples s
+      USING tags t
+      LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
+      LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
+      WHERE s.tag_id = t.id
+        AND COALESCE(o.retention_days, p.retention_days) IS NOT NULL
+        AND s.time < now() - make_interval(days => COALESCE(o.retention_days, p.retention_days))
+      `,
+    );
+    return result.rowCount ?? 0;
+  }
+
+  public async configureCompressionPolicy(): Promise<void> {
+    try {
+      await this.pool.query(
+        `
+        DO $$
+        DECLARE
+            after_days INTEGER;
+        BEGIN
+            IF to_regproc('add_compression_policy') IS NOT NULL THEN
+                SELECT MIN(COALESCE(o.compression_after_days, p.compression_after_days))
+                INTO after_days
+                FROM tags t
+                LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
+                LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
+                WHERE COALESCE(o.compression_after_days, p.compression_after_days) IS NOT NULL
+                  AND COALESCE(o.compression_after_days, p.compression_after_days) > 0;
+
+                IF after_days IS NOT NULL THEN
+                    ALTER TABLE archive_samples SET (
+                        timescaledb.compress,
+                        timescaledb.compress_segmentby = 'tag_id'
+                    );
+                    PERFORM add_compression_policy('archive_samples', make_interval(days => after_days), if_not_exists => TRUE);
+                END IF;
+            END IF;
+        END $$;
+        `,
+      );
+    } catch (error) {
+      this.logger.warn(`TimescaleDB compression policy was not applied: ${this.errorText(error)}`);
+    }
+  }
+
   private async tryEnableTimescale(): Promise<void> {
     try {
       await this.pool.query("CREATE EXTENSION IF NOT EXISTS timescaledb");
@@ -259,6 +599,34 @@ export class ArchiveRepository {
       `,
       [this.defaultArchiveEnabled],
     );
+  }
+
+  private mapPolicy(row: {
+    id: number;
+    name: string;
+    enabled: boolean;
+    mode: string;
+    period_ms: number;
+    deadband: number;
+    retention_days: number;
+    aggregate_enabled: boolean;
+    compression_after_days: number | null;
+    created_at: Date;
+    updated_at: Date;
+  }): ArchivePolicyRow {
+    return {
+      id: row.id,
+      name: row.name,
+      enabled: row.enabled,
+      mode: row.mode,
+      periodMs: row.period_ms,
+      deadband: row.deadband,
+      retentionDays: row.retention_days,
+      aggregateEnabled: row.aggregate_enabled,
+      compressionAfterDays: row.compression_after_days,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    };
   }
 
   private async syncReferences(client: PoolClient, tags: TagDefinition[], drivers: DriverConfig[]): Promise<ReferenceCache> {
