@@ -130,11 +130,23 @@ export class ArchiveService {
     };
   }
 
-  public getStatus(): { enabled: boolean; queuedSamples: number; reason: string } {
+  public async getStatus(): Promise<{ enabled: boolean; queuedSamples: number; reason: string; dbSizeMb: number | null; recordsCount: number | null }> {
+    if (!this.initialized) {
+      return {
+        enabled: false,
+        queuedSamples: this.queue.length,
+        reason: process.env.ARCHIVE_STATUS_REASON ?? "Archive service is not initialized",
+        dbSizeMb: null,
+        recordsCount: null,
+      };
+    }
+    const stats = await this.repository.getStorageStats();
     return {
-      enabled: this.initialized,
+      enabled: true,
       queuedSamples: this.queue.length,
       reason: process.env.ARCHIVE_STATUS_REASON ?? "Archive service is initialized",
+      dbSizeMb: stats.dbSizeMb,
+      recordsCount: stats.recordsCount,
     };
   }
 

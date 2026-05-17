@@ -897,13 +897,27 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
   });
 
-  app.get("/api/archive/status", async () =>
-    deps.archiveService?.getStatus() ?? {
-      enabled: false,
-      queuedSamples: 0,
-      reason: process.env.ARCHIVE_STATUS_REASON ?? "Archive service was not initialized",
-    },
-  );
+  app.get("/api/archive/status", async (request, reply) => {
+    if (!deps.archiveService) {
+      return {
+        enabled: false,
+        queuedSamples: 0,
+        reason: process.env.ARCHIVE_STATUS_REASON ?? "Archive service was not initialized",
+        dbSizeMb: null,
+        recordsCount: null,
+      };
+    }
+    try {
+      return await deps.archiveService.getStatus();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      request.log.error({ error }, "Archive status check failed");
+      return reply.code(503).send({
+        error: "Archive unavailable",
+        message,
+      });
+    }
+  });
 
   app.get("/api/archive/policies", async (request, reply) => {
     if (!deps.archiveService?.isEnabled()) {

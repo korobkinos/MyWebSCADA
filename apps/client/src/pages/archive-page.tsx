@@ -239,6 +239,20 @@ function formatStatusCheckTime(timestamp: number | null): string {
   return date.toLocaleTimeString("ru-RU", { hour12: false });
 }
 
+function formatDbSizeMb(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  return value.toFixed(2);
+}
+
+function formatRecordsCount(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  return Math.max(0, Math.round(value)).toLocaleString("ru-RU");
+}
+
 export function ArchivePage() {
   const [status, setStatus] = useState<ArchiveStatus>({ enabled: false, queuedSamples: 0 });
   const [lastLoadError, setLastLoadError] = useState<string | null>(null);
@@ -769,17 +783,18 @@ export function ArchivePage() {
   ];
   const archiveStatusView = useMemo(() => {
     const checkTime = formatStatusCheckTime(lastStatusCheckAt);
+    const details = `DB: ${formatDbSizeMb(status.dbSizeMb)} MB | Records: ${formatRecordsCount(status.recordsCount)}`;
     if (loading) {
-      return { tone: "loading", text: `Archive status: checking... | last check ${checkTime}` };
+      return { tone: "loading", text: `Archive status: checking... | last check ${checkTime}`, details };
     }
     if (lastLoadError) {
-      return { tone: "error", text: `Archive status: connection error - ${lastLoadError} | last check ${checkTime}` };
+      return { tone: "error", text: `Archive status: connection error - ${lastLoadError} | last check ${checkTime}`, details };
     }
     if (!status.enabled) {
-      return { tone: "warning", text: `Archive status: disabled${status.reason ? ` - ${status.reason}` : ""} | last check ${checkTime}` };
+      return { tone: "warning", text: `Archive status: disabled${status.reason ? ` - ${status.reason}` : ""} | last check ${checkTime}`, details };
     }
-    return { tone: "ok", text: `Archive status: running | queue ${status.queuedSamples} | last check ${checkTime}` };
-  }, [lastLoadError, lastStatusCheckAt, loading, status.enabled, status.queuedSamples, status.reason]);
+    return { tone: "ok", text: `Archive status: running | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+  }, [lastLoadError, lastStatusCheckAt, loading, status.dbSizeMb, status.enabled, status.queuedSamples, status.reason, status.recordsCount]);
 
   return (
     <div className="screen-editor-window-content screen-editor-tags-window screen-editor-archive-window route-page-fill">
@@ -1052,9 +1067,10 @@ export function ArchivePage() {
           <option value={200}>200</option>
           <option value={500}>500</option>
         </select>
-        <span className={`screen-editor-archive-window__status screen-editor-archive-window__status--${archiveStatusView.tone}`}>
-          {archiveStatusView.text}
-        </span>
+        <div className={`screen-editor-archive-window__status-wrap screen-editor-archive-window__status--${archiveStatusView.tone}`}>
+          <span className="screen-editor-archive-window__status">{archiveStatusView.text}</span>
+          <span className="screen-editor-archive-window__status-details">{archiveStatusView.details}</span>
+        </div>
       </div>
 
       <ArchiveWorkbenchDialog

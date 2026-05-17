@@ -89,6 +89,8 @@ export type ArchiveStatus = {
   enabled: boolean;
   queuedSamples: number;
   reason?: string;
+  dbSizeMb?: number | null;
+  recordsCount?: number | null;
 };
 
 export type ArchivePolicyPayload = {

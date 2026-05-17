@@ -2308,31 +2308,40 @@ body {
   width: 100% !important;
 }
 
-.screen-editor-archive-window__status {
+.screen-editor-archive-window__status-wrap {
   margin-left: auto;
-  padding: 2px 0;
-  color: #a8a8a8;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.screen-editor-archive-window__status {
+  color: inherit;
   font-size: 11px;
   white-space: nowrap;
 }
 
+.screen-editor-archive-window__status-details {
+  color: inherit;
+  opacity: 0.85;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .screen-editor-archive-window__status--ok {
-  border-color: #2d5a2d;
   color: #4ec94e;
 }
 
 .screen-editor-archive-window__status--warning {
-  border-color: #6b5a25;
   color: #e6b450;
 }
 
 .screen-editor-archive-window__status--error {
-  border-color: #7a2f2f;
   color: #f48771;
 }
 
 .screen-editor-archive-window__status--loading {
-  border-color: #2b4d6f;
   color: #7dc3ff;
 }
 

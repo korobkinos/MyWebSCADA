@@ -75,6 +75,11 @@ export type ArchiveTagConfigRow = {
   override: ArchiveTagOverrideInput | null;
 };
 
+export type ArchiveStorageStatsRow = {
+  recordsCount: number;
+  dbSizeMb: number;
+};
+
 type ArchiveRepositoryOptions = {
   connectionString: string;
   maxPoolSize?: number;
@@ -574,6 +579,29 @@ export class ArchiveRepository {
     } catch (error) {
       this.logger.warn(`TimescaleDB compression policy was not applied: ${this.errorText(error)}`);
     }
+  }
+
+  public async getStorageStats(): Promise<ArchiveStorageStatsRow> {
+    const result = await this.pool.query<{
+      records_count: string | number | null;
+      db_size_bytes: string | number | null;
+    }>(
+      `
+      SELECT
+          COALESCE((SELECT n_live_tup::bigint FROM pg_stat_user_tables WHERE relname = 'archive_samples'), 0) AS records_count,
+          COALESCE(pg_total_relation_size('archive_samples'), 0) AS db_size_bytes
+      `,
+    );
+    const row = result.rows[0];
+    const recordsCountRaw = row?.records_count ?? 0;
+    const dbSizeBytesRaw = row?.db_size_bytes ?? 0;
+    const recordsCount = typeof recordsCountRaw === "string" ? Number.parseInt(recordsCountRaw, 10) : Number(recordsCountRaw);
+    const dbSizeBytes = typeof dbSizeBytesRaw === "string" ? Number.parseInt(dbSizeBytesRaw, 10) : Number(dbSizeBytesRaw);
+
+    return {
+      recordsCount: Number.isFinite(recordsCount) ? Math.max(0, Math.round(recordsCount)) : 0,
+      dbSizeMb: Number.isFinite(dbSizeBytes) ? Math.max(0, dbSizeBytes / (1024 * 1024)) : 0,
+    };
   }
 
   private async tryEnableTimescale(): Promise<void> {
