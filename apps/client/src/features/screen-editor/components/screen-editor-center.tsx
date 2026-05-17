@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   AppstoreOutlined,
   CopyOutlined,
@@ -260,6 +260,7 @@ export function ScreenEditorCenter({
   const [toolbarTab, setToolbarTab] = useState<ToolbarTab>("main");
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
+  const pendingWheelZoomAnchorRef = useRef<{ worldX: number; worldY: number; targetZoom: number } | null>(null);
   const [editorZoom, setEditorZoom] = useState<number>(() => {
     if (typeof window === "undefined") {
       return 1;
@@ -428,6 +429,22 @@ export function ScreenEditorCenter({
   );
 
   // Task 4: native non-passive wheel listener – prevents scroll when wheel-zoom is active
+  useLayoutEffect(() => {
+    const anchor = pendingWheelZoomAnchorRef.current;
+    const el = canvasScrollRef.current;
+    if (!anchor || !el) {
+      return;
+    }
+    if (Math.abs(anchor.targetZoom - editorZoom) > 1e-6) {
+      return;
+    }
+    const centerX = el.clientWidth / 2;
+    const centerY = el.clientHeight / 2;
+    el.scrollLeft = Math.max(0, Math.round(anchor.worldX * editorZoom - centerX));
+    el.scrollTop = Math.max(0, Math.round(anchor.worldY * editorZoom - centerY));
+    pendingWheelZoomAnchorRef.current = null;
+  }, [editorZoom]);
+
   useEffect(() => {
     const el = canvasScrollRef.current;
     if (!el) return;
@@ -438,18 +455,17 @@ export function ScreenEditorCenter({
       event.preventDefault();
       if (!event.deltaY) return;
       const delta = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-      const viewportRect = el.getBoundingClientRect();
-      const pointerX = event.clientX - viewportRect.left;
-      const pointerY = event.clientY - viewportRect.top;
       setEditorZoom((prev) => {
         const next = clampZoom(prev * delta);
         if (next === prev) {
           return prev;
         }
-        const worldX = (el.scrollLeft + pointerX) / prev;
-        const worldY = (el.scrollTop + pointerY) / prev;
-        el.scrollLeft = Math.max(0, Math.round(worldX * next - pointerX));
-        el.scrollTop = Math.max(0, Math.round(worldY * next - pointerY));
+        // Zoom around the visible viewport center to keep behavior stable.
+        const centerX = el.clientWidth / 2;
+        const centerY = el.clientHeight / 2;
+        const worldX = (el.scrollLeft + centerX) / prev;
+        const worldY = (el.scrollTop + centerY) / prev;
+        pendingWheelZoomAnchorRef.current = { worldX, worldY, targetZoom: next };
         return next;
       });
     };

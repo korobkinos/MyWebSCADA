@@ -270,9 +270,6 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
             <span>Runtime hides main menu</span>
           </label>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <span style={{ color: "#9d9d9d", fontSize: 12 }}>
-              Manage users, passwords and role levels.
-            </span>
             <WorkbenchButton onClick={onOpenUserManagement} disabled={!canUsersView}>
               Open User Management
             </WorkbenchButton>

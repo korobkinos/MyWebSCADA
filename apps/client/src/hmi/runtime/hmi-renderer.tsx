@@ -1044,8 +1044,8 @@ function ObjectNode({
   const flowSpeedRef = useRef(0);
   const flowActiveRef = useRef(false);
   const groupNodeRef = useRef<Konva.Group | null>(null);
-  const flowDashLineRef = useRef<Konva.Line | null>(null);
-  const flowGradientLineRef = useRef<Konva.Line | null>(null);
+  const flowDashLineRef = useRef<Konva.Shape | null>(null);
+  const flowGradientLineRef = useRef<Konva.Shape | null>(null);
   const flowDotRefs = useRef<Array<Konva.Circle | null>>([]);
   const flowArrowRefs = useRef<Array<Konva.Line | null>>([]);
   const rotationFrameRef = useRef<number | null>(null);
@@ -1821,6 +1821,7 @@ function ObjectNode({
     const renderDotsOverlay = showFlowOverlay && flowEffectType === "dots";
     const renderArrowsOverlay = showFlowOverlay && flowEffectType === "arrows";
     const renderGradientOverlay = showFlowOverlay && flowEffectType === "gradientShift";
+    const renderRoundedFlowStrokeOverlay = renderRoundedLine && Boolean(roundedLinePath);
     const dotRadius = lineFlowRuntimeData?.dotRadius ?? 1;
     const arrowLength = lineFlowRuntimeData?.arrowLength ?? 0;
     const arrowHalfWidth = lineFlowRuntimeData?.arrowHalfWidth ?? 0;
@@ -1885,56 +1886,101 @@ function ObjectNode({
             )}
         {(renderDashOverlay || renderDotsOverlay || renderArrowsOverlay || renderGradientOverlay) ? (
           <Group
-            clipX={0}
-            clipY={0}
-            clipWidth={resolvedObject.width}
-            clipHeight={resolvedObject.height}
+            clipX={renderRoundedFlowStrokeOverlay ? undefined : 0}
+            clipY={renderRoundedFlowStrokeOverlay ? undefined : 0}
+            clipWidth={renderRoundedFlowStrokeOverlay ? undefined : resolvedObject.width}
+            clipHeight={renderRoundedFlowStrokeOverlay ? undefined : resolvedObject.height}
             listening={false}
           >
             {renderGradientOverlay ? (
-              <Line
-                ref={(node) => {
-                  flowGradientLineRef.current = node;
-                }}
-                points={lineFlowPoints}
-                stroke={gradientMidColor}
-                strokeWidth={flowStrokeWidth}
-                opacity={normalizedFlowOpacity}
-                closed={resolvedObject.closed ?? false}
-                dash={gradientDash}
-                dashOffset={-flowMarkerPhase}
-                strokeLinearGradientStartPoint={gradientStartPoint}
-                strokeLinearGradientEndPoint={gradientStrokeEndPoint}
-                strokeLinearGradientColorStops={[
-                  0, gradientStartColor,
-                  0.5, gradientMidColor,
-                  1, gradientEndColor,
-                ]}
-                fillEnabled={false}
-                listening={false}
-                lineCap={lineCap}
-                lineJoin={lineJoin}
-                perfectDrawEnabled={false}
-              />
+              renderRoundedFlowStrokeOverlay ? (
+                <Path
+                  ref={(node) => {
+                    flowGradientLineRef.current = node;
+                  }}
+                  data={roundedLinePath}
+                  stroke={gradientMidColor}
+                  strokeWidth={flowStrokeWidth}
+                  opacity={normalizedFlowOpacity}
+                  dash={gradientDash}
+                  dashOffset={-flowMarkerPhase}
+                  strokeLinearGradientStartPoint={gradientStartPoint}
+                  strokeLinearGradientEndPoint={gradientStrokeEndPoint}
+                  strokeLinearGradientColorStops={[
+                    0, gradientStartColor,
+                    0.5, gradientMidColor,
+                    1, gradientEndColor,
+                  ]}
+                  fillEnabled={false}
+                  listening={false}
+                  lineCap={lineCap}
+                  lineJoin={lineJoin}
+                  perfectDrawEnabled={false}
+                />
+              ) : (
+                <Line
+                  ref={(node) => {
+                    flowGradientLineRef.current = node;
+                  }}
+                  points={lineFlowPoints}
+                  stroke={gradientMidColor}
+                  strokeWidth={flowStrokeWidth}
+                  opacity={normalizedFlowOpacity}
+                  closed={resolvedObject.closed ?? false}
+                  dash={gradientDash}
+                  dashOffset={-flowMarkerPhase}
+                  strokeLinearGradientStartPoint={gradientStartPoint}
+                  strokeLinearGradientEndPoint={gradientStrokeEndPoint}
+                  strokeLinearGradientColorStops={[
+                    0, gradientStartColor,
+                    0.5, gradientMidColor,
+                    1, gradientEndColor,
+                  ]}
+                  fillEnabled={false}
+                  listening={false}
+                  lineCap={lineCap}
+                  lineJoin={lineJoin}
+                  perfectDrawEnabled={false}
+                />
+              )
             ) : null}
             {renderDashOverlay ? (
-              <Line
-                ref={(node) => {
-                  flowDashLineRef.current = node;
-                }}
-                points={lineFlowPoints}
-                stroke={flowColor}
-                strokeWidth={flowStrokeWidth}
-                opacity={normalizedFlowOpacity}
-                closed={resolvedObject.closed ?? false}
-                dash={flowDash}
-                dashOffset={flowMarkerPhase}
-                fillEnabled={false}
-                listening={false}
-                lineCap={lineCap}
-                lineJoin={lineJoin}
-                perfectDrawEnabled={false}
-              />
+              renderRoundedFlowStrokeOverlay ? (
+                <Path
+                  ref={(node) => {
+                    flowDashLineRef.current = node;
+                  }}
+                  data={roundedLinePath}
+                  stroke={flowColor}
+                  strokeWidth={flowStrokeWidth}
+                  opacity={normalizedFlowOpacity}
+                  dash={flowDash}
+                  dashOffset={flowMarkerPhase}
+                  fillEnabled={false}
+                  listening={false}
+                  lineCap={lineCap}
+                  lineJoin={lineJoin}
+                  perfectDrawEnabled={false}
+                />
+              ) : (
+                <Line
+                  ref={(node) => {
+                    flowDashLineRef.current = node;
+                  }}
+                  points={lineFlowPoints}
+                  stroke={flowColor}
+                  strokeWidth={flowStrokeWidth}
+                  opacity={normalizedFlowOpacity}
+                  closed={resolvedObject.closed ?? false}
+                  dash={flowDash}
+                  dashOffset={flowMarkerPhase}
+                  fillEnabled={false}
+                  listening={false}
+                  lineCap={lineCap}
+                  lineJoin={lineJoin}
+                  perfectDrawEnabled={false}
+                />
+              )
             ) : null}
             {renderDotsOverlay && flowPath && flowPath.totalLength > 0
               ? Array.from({ length: markerCount }).map((_, markerIndex) => {

@@ -9241,7 +9241,8 @@
     "leftPanelWidth": 373,
     "rightPanelWidth": 260,
     "showObjectFrames": true,
-    "editorGridColor": "#000000",
+    "showEditorGrid": true,
+    "editorGridColor": "#250808",
     "editorGridLineWidth": 2,
     "editorGridLineStyle": "dashed",
     "panels": [
@@ -9339,7 +9340,7 @@
       "kind": "screen",
       "width": 1920,
       "height": 1080,
-      "background": "#757575",
+      "background": "#838383",
       "backgroundFillMode": "screen",
       "objects": [
         {
@@ -10357,8 +10358,8 @@
         {
           "id": "num_img_zkc99c",
           "type": "numeric-image-indicator",
-          "x": 50.09377528081766,
-          "y": 578.9389801374025,
+          "x": 1018.4547371382864,
+          "y": 695.0104853729422,
           "width": 140,
           "height": 100,
           "minWidth": 40,
@@ -10594,8 +10595,8 @@
           "id": "line_siehek",
           "type": "line",
           "name": "Merged Line",
-          "x": 84.92775215422496,
-          "y": 408.5105718082779,
+          "x": 120.73991790339173,
+          "y": 430.0052950000445,
           "width": 384.1870087340034,
           "height": 364.0964001556057,
           "rotation": 0,

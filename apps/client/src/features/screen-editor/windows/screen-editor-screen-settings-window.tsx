@@ -1,4 +1,5 @@
 import type { HmiScreen } from "@web-scada/shared";
+import { ColorPicker, Input, Space } from "antd";
 import {
   WorkbenchSection,
 } from "../../../components/workbench";
@@ -7,6 +8,21 @@ type ScreenEditorScreenSettingsWindowProps = {
   screen: HmiScreen;
   onUpdateScreen: (patch: Partial<HmiScreen>) => void;
 };
+
+function normalizeScreenBackgroundColor(value: string | undefined): string {
+  const fallback = "#1e1e1e";
+  const token = (value ?? "").trim();
+  if (!token) {
+    return fallback;
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(token)) {
+    return token.toLowerCase();
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(token)) {
+    return `#${token.slice(1).split("").map((ch) => ch + ch).join("").toLowerCase()}`;
+  }
+  return fallback;
+}
 
 export function ScreenEditorScreenSettingsWindow(props: ScreenEditorScreenSettingsWindowProps) {
   const { screen, onUpdateScreen } = props;
@@ -59,19 +75,17 @@ export function ScreenEditorScreenSettingsWindow(props: ScreenEditorScreenSettin
 
           <label className="screen-editor-settings-field">
             <span>Background</span>
-            <div className="screen-editor-settings-color-row">
-              <input
-                className="workbench-input"
+            <Space.Compact style={{ width: "100%" }}>
+              <ColorPicker
+                value={normalizeScreenBackgroundColor(screen.background)}
+                onChangeComplete={(color) => onUpdateScreen({ background: color.toHexString() })}
+              />
+              <Input
                 value={screen.background ?? "#1e1e1e"}
                 onChange={(event) => onUpdateScreen({ background: event.target.value })}
+                placeholder="#1e1e1e"
               />
-              <input
-                className="screen-editor-settings-color-picker"
-                type="color"
-                value={screen.background ?? "#1e1e1e"}
-                onChange={(event) => onUpdateScreen({ background: event.target.value })}
-              />
-            </div>
+            </Space.Compact>
           </label>
 
           <label className="screen-editor-settings-field">
