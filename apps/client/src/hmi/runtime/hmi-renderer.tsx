@@ -162,6 +162,124 @@ function normalizeFlowSpeed(value: number, minValue: number, maxValue: number): 
   return Math.max(low, Math.min(high, value));
 }
 
+type PolylineSegment = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  length: number;
+  ux: number;
+  uy: number;
+  nx: number;
+  ny: number;
+  start: number;
+};
+
+type PolylinePath = {
+  segments: PolylineSegment[];
+  totalLength: number;
+};
+
+type PathSample = {
+  x: number;
+  y: number;
+  ux: number;
+  uy: number;
+  nx: number;
+  ny: number;
+};
+
+function buildPolylinePath(points: number[], closed: boolean): PolylinePath {
+  const segments: PolylineSegment[] = [];
+  if (points.length < 4) {
+    return { segments, totalLength: 0 };
+  }
+  const pairs: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+  for (let i = 0; i + 3 < points.length; i += 2) {
+    const x1 = points[i] ?? 0;
+    const y1 = points[i + 1] ?? 0;
+    const x2 = points[i + 2] ?? 0;
+    const y2 = points[i + 3] ?? 0;
+    pairs.push({
+      x1,
+      y1,
+      x2,
+      y2,
+    });
+  }
+  if (closed && points.length >= 6) {
+    const lastX = points[points.length - 2] ?? 0;
+    const lastY = points[points.length - 1] ?? 0;
+    const firstX = points[0] ?? 0;
+    const firstY = points[1] ?? 0;
+    pairs.push({
+      x1: lastX,
+      y1: lastY,
+      x2: firstX,
+      y2: firstY,
+    });
+  }
+
+  let cursor = 0;
+  for (const pair of pairs) {
+    const dx = pair.x2 - pair.x1;
+    const dy = pair.y2 - pair.y1;
+    const length = Math.hypot(dx, dy);
+    if (!(length > 0)) {
+      continue;
+    }
+    const ux = dx / length;
+    const uy = dy / length;
+    segments.push({
+      x1: pair.x1,
+      y1: pair.y1,
+      x2: pair.x2,
+      y2: pair.y2,
+      length,
+      ux,
+      uy,
+      nx: -uy,
+      ny: ux,
+      start: cursor,
+    });
+    cursor += length;
+  }
+  return { segments, totalLength: cursor };
+}
+
+function samplePolylineAt(path: PolylinePath, distance: number): PathSample | null {
+  if (!(path.totalLength > 0) || path.segments.length === 0) {
+    return null;
+  }
+  const wrappedDistance = ((distance % path.totalLength) + path.totalLength) % path.totalLength;
+  for (const segment of path.segments) {
+    if (wrappedDistance > segment.start + segment.length) {
+      continue;
+    }
+    const local = wrappedDistance - segment.start;
+    return {
+      x: segment.x1 + segment.ux * local,
+      y: segment.y1 + segment.uy * local,
+      ux: segment.ux,
+      uy: segment.uy,
+      nx: segment.nx,
+      ny: segment.ny,
+    };
+  }
+  const last = path.segments[path.segments.length - 1];
+  if (!last) {
+    return null;
+  }
+  return {
+    x: last.x2,
+    y: last.y2,
+    ux: last.ux,
+    uy: last.uy,
+    nx: last.nx,
+    ny: last.ny,
+  };
+}
+
 function resolveFillGradientProps(args: {
   enabled: boolean;
   direction: GradientDirection;
@@ -1251,10 +1369,21 @@ function ObjectNode({
     const flowColor = flowAnimation?.color ?? resolvedObject.activeStroke ?? resolvedObject.stroke ?? "#00bfff";
     const flowOpacity = Number(flowAnimation?.opacity ?? 1);
     const normalizedFlowOpacity = Number.isFinite(flowOpacity) ? Math.max(0, Math.min(1, flowOpacity)) : 1;
-    const useBaseStrokeWidth = flowAnimation?.useBaseStrokeWidth ?? true;
-    const flowStrokeWidthRaw = Number(useBaseStrokeWidth ? resolvedObject.strokeWidth : (flowAnimation?.strokeWidth ?? resolvedObject.strokeWidth));
+    const defaultInnerStrokeWidth = Math.max(1, Math.min(resolvedObject.strokeWidth, Math.max(2, resolvedObject.strokeWidth * 0.35)));
+    const useBaseStrokeWidth = flowAnimation?.useBaseStrokeWidth ?? false;
+    const flowStrokeWidthRaw = Number(useBaseStrokeWidth ? resolvedObject.strokeWidth : (flowAnimation?.strokeWidth ?? defaultInnerStrokeWidth));
     const flowStrokeWidth = Number.isFinite(flowStrokeWidthRaw) ? Math.max(0, flowStrokeWidthRaw) : Math.max(0, resolvedObject.strokeWidth);
     const showFlowOverlay = flowAnimationConfigActive && flowAnimationIsActive && flowStrokeWidth > 0 && (flowEffectType === "dash" || flowEffectType === "arrows" || flowEffectType === "dots");
+    const flowPath = buildPolylinePath(resolvedObject.points, resolvedObject.closed ?? false);
+    const flowSpacing = Math.max(2, normalizedDashLength + normalizedGapLength);
+    const markerCount = Math.min(400, Math.max(1, Math.ceil((flowPath.totalLength || 0) / flowSpacing) + 1));
+    const renderDashOverlay = showFlowOverlay && flowEffectType === "dash";
+    const renderDotsOverlay = showFlowOverlay && flowEffectType === "dots";
+    const renderArrowsOverlay = showFlowOverlay && flowEffectType === "arrows";
+    const dotRadius = Math.max(1, Math.min(flowStrokeWidth * 0.5, normalizedDashLength * 0.5));
+    const arrowLength = Math.max(6, normalizedDashLength);
+    const arrowHalfWidth = Math.max(2, Math.min(flowStrokeWidth * 0.5, arrowLength * 0.55));
+    const flowMarkerPhase = flowAnimationDashOffset;
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -1269,7 +1398,7 @@ function ObjectNode({
           {...lineStrokeGradientProps}
           {...lineShadowProps}
         />
-        {showFlowOverlay ? (
+        {renderDashOverlay ? (
           <Line
             points={resolvedObject.points}
             stroke={flowColor}
@@ -1280,9 +1409,57 @@ function ObjectNode({
             dashOffset={flowAnimationDashOffset}
             fillEnabled={false}
             listening={false}
+            lineCap="round"
+            lineJoin="round"
             perfectDrawEnabled={false}
           />
         ) : null}
+        {renderDotsOverlay && flowPath.totalLength > 0
+          ? Array.from({ length: markerCount }).map((_, markerIndex) => {
+            const sample = samplePolylineAt(flowPath, markerIndex * flowSpacing + flowMarkerPhase);
+            if (!sample) {
+              return null;
+            }
+            return (
+              <Circle
+                key={`flow-dot-${markerIndex}`}
+                x={sample.x}
+                y={sample.y}
+                radius={dotRadius}
+                fill={flowColor}
+                opacity={normalizedFlowOpacity}
+                listening={false}
+              />
+            );
+          })
+          : null}
+        {renderArrowsOverlay && flowPath.totalLength > 0
+          ? Array.from({ length: markerCount }).map((_, markerIndex) => {
+            const sample = samplePolylineAt(flowPath, markerIndex * flowSpacing + flowMarkerPhase);
+            if (!sample) {
+              return null;
+            }
+            const tipX = sample.x;
+            const tipY = sample.y;
+            const baseX = tipX - sample.ux * arrowLength;
+            const baseY = tipY - sample.uy * arrowLength;
+            const leftX = baseX + sample.nx * arrowHalfWidth;
+            const leftY = baseY + sample.ny * arrowHalfWidth;
+            const rightX = baseX - sample.nx * arrowHalfWidth;
+            const rightY = baseY - sample.ny * arrowHalfWidth;
+            return (
+              <Line
+                key={`flow-arrow-${markerIndex}`}
+                points={[tipX, tipY, leftX, leftY, rightX, rightY]}
+                closed
+                fill={flowColor}
+                opacity={normalizedFlowOpacity}
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+            );
+          })
+          : null}
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );

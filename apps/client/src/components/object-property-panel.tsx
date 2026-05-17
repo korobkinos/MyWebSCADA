@@ -553,7 +553,8 @@ function FlowAnimationFields({
   const flowAnimation = object.flowAnimation ?? {};
   const triggerMode = flowAnimation.triggerMode ?? "truthy";
   const speedSource = flowAnimation.speedSource ?? "fixed";
-  const useBaseStrokeWidth = flowAnimation.useBaseStrokeWidth ?? true;
+  const defaultInnerStrokeWidth = Math.max(1, Math.min(object.strokeWidth, Math.max(2, object.strokeWidth * 0.35)));
+  const useBaseStrokeWidth = flowAnimation.useBaseStrokeWidth ?? false;
   const showTriggerValue = triggerMode === "equals" || triggerMode === "notEquals";
   const showSpeedTag = speedSource === "tag";
 
@@ -733,7 +734,7 @@ function FlowAnimationFields({
         />
       </Form.Item>
       <Space style={{ marginBottom: 8 }}>
-        <span>Use Base Stroke Width</span>
+        <span>Use Full Line Width</span>
         <Switch
           checked={useBaseStrokeWidth}
           onChange={(checked) => patchFlowAnimation({ useBaseStrokeWidth: checked })}
@@ -744,8 +745,8 @@ function FlowAnimationFields({
           <InputNumber
             style={{ width: "100%" }}
             min={0}
-            value={flowAnimation.strokeWidth ?? object.strokeWidth}
-            onChange={(value) => patchFlowAnimation({ strokeWidth: Number(value ?? object.strokeWidth) })}
+            value={flowAnimation.strokeWidth ?? defaultInnerStrokeWidth}
+            onChange={(value) => patchFlowAnimation({ strokeWidth: Number(value ?? defaultInnerStrokeWidth) })}
           />
         </Form.Item>
       ) : null}
