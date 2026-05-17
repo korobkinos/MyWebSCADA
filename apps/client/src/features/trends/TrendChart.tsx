@@ -22,8 +22,6 @@ type TrendChartProps = {
   onChartApiReady?: (api: TrendChartApi) => void;
 };
 
-const LARGE_POINTS_THRESHOLD = 6000;
-
 export function TrendChart({
   data,
   tags,
@@ -45,6 +43,29 @@ export function TrendChart({
   const zoomTimerRef = useRef<number | null>(null);
   const optionGuardRef = useRef(false);
   const liveLastEmittedRightRef = useRef<number | null>(null);
+  const liveModeRef = useRef(liveMode);
+  const liveWindowMsRef = useRef(liveWindowMs);
+  const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
+  const zoomDebounceMsRef = useRef(settings.zoomDebounceMs);
+  const tagsRef = useRef(tags);
+  const liveBufferLimitRef = useRef(settings.liveBufferLimit);
+  const renderChartRef = useRef<() => void>(() => {});
+  const normalizeSeriesPoints = (points: TrendPoint[]): TrendPoint[] => {
+    if (points.length <= 1) {
+      return [...points];
+    }
+    const sorted = [...points].sort((a, b) => a.t - b.t);
+    const normalized: TrendPoint[] = [];
+    for (const point of sorted) {
+      const last = normalized[normalized.length - 1];
+      if (last && last.t === point.t) {
+        normalized[normalized.length - 1] = point;
+      } else {
+        normalized.push(point);
+      }
+    }
+    return normalized;
+  };
   const resolveRangeFromZoomPayload = (payload: unknown): TrendVisibleRange | null => {
     const source = payload && typeof payload === "object"
       ? ("batch" in payload && Array.isArray((payload as { batch?: unknown[] }).batch)
@@ -65,6 +86,55 @@ export function TrendChart({
     }
     return next;
   };
+  const normalizeRangeToDomain = (range: TrendVisibleRange): TrendVisibleRange | null => {
+    const domain = fullRangeRef.current;
+    if (!Number.isFinite(domain.from) || !Number.isFinite(domain.to) || domain.to <= domain.from) {
+      return range;
+    }
+    const minSpan = 1000;
+    const clampedFrom = Math.max(domain.from, Math.min(domain.to, range.from));
+    const clampedTo = Math.max(domain.from, Math.min(domain.to, range.to));
+    let from = Math.min(clampedFrom, clampedTo);
+    let to = Math.max(clampedFrom, clampedTo);
+    if (to - from < minSpan) {
+      const center = (from + to) / 2;
+      from = Math.max(domain.from, center - minSpan / 2);
+      to = Math.min(domain.to, from + minSpan);
+      from = Math.max(domain.from, to - minSpan);
+      if (to - from < minSpan) {
+        from = domain.from;
+        to = domain.to;
+      }
+    }
+    if (!(to > from)) {
+      return null;
+    }
+    return { from, to };
+  };
+
+  useEffect(() => {
+    liveModeRef.current = liveMode;
+  }, [liveMode]);
+
+  useEffect(() => {
+    liveWindowMsRef.current = liveWindowMs;
+  }, [liveWindowMs]);
+
+  useEffect(() => {
+    onVisibleRangeChangeRef.current = onVisibleRangeChange;
+  }, [onVisibleRangeChange]);
+
+  useEffect(() => {
+    zoomDebounceMsRef.current = settings.zoomDebounceMs;
+  }, [settings.zoomDebounceMs]);
+
+  useEffect(() => {
+    tagsRef.current = tags;
+  }, [tags]);
+
+  useEffect(() => {
+    liveBufferLimitRef.current = settings.liveBufferLimit;
+  }, [settings.liveBufferLimit]);
 
   const renderChart = (): void => {
     const chart = chartRef.current;
@@ -89,9 +159,6 @@ export function TrendChart({
       splitLine: { show: settings.gridLines, lineStyle: { color: TREND_WORKBENCH_THEME.gridLine, type: "dashed" } },
     }));
 
-    const totalPoints = [...seriesPointsRef.current.values()].reduce((acc, points) => acc + points.length, 0);
-    const disableAnimation = settings.disableAnimationsLargeData && totalPoints > LARGE_POINTS_THRESHOLD;
-
     const series = activeTags.map((tag, index) => {
       const points = seriesPointsRef.current.get(tag.tag) ?? [];
       const lineWidth = tag.lineWidth ?? settings.defaultLineWidth;
@@ -113,8 +180,8 @@ export function TrendChart({
         showSymbol: settings.showSymbols || renderMode === "points",
         symbol: settings.showSymbols || renderMode === "points" ? "circle" : "none",
         sampling: settings.aggregation === "minmax" ? "minmax" : settings.aggregation === "lttb" ? "lttb" : undefined,
-        progressive: settings.progressive ? 4000 : 0,
-        animation: !disableAnimation,
+        progressive: 0,
+        animation: false,
         connectNulls: false,
         step: tag.step || renderMode === "step" ? "end" : false,
         yAxisIndex,
@@ -134,7 +201,7 @@ export function TrendChart({
       // Keep full domain stable so wheel zoom can zoom-out after zoom-in.
       // Windowed range is controlled via dataZoom start/end values.
       backgroundColor: settings.background,
-      animation: !disableAnimation,
+      animation: false,
       textStyle: { color: TREND_WORKBENCH_THEME.text },
       grid: {
         left: 12,
@@ -152,6 +219,11 @@ export function TrendChart({
       tooltip: settings.tooltip
         ? {
             trigger: "axis",
+            axisPointer: {
+              type: "line",
+              label: { show: false },
+              animation: false,
+            },
             backgroundColor: "#1f1f1f",
             borderColor: TREND_WORKBENCH_THEME.border,
             textStyle: { color: TREND_WORKBENCH_THEME.text },
@@ -171,6 +243,8 @@ export function TrendChart({
           type: "inside",
           xAxisIndex: [0],
           filterMode: "none",
+          rangeMode: ["value", "value"],
+          brushSelect: false,
           startValue: visibleRange.from,
           endValue: visibleRange.to,
           minValueSpan: 1000,
@@ -180,9 +254,11 @@ export function TrendChart({
           show: settings.dataZoomSlider,
           xAxisIndex: [0],
           filterMode: "none",
+          rangeMode: ["value", "value"],
           startValue: visibleRange.from,
           endValue: visibleRange.to,
           minValueSpan: 1000,
+          showDataShadow: false,
           height: 20,
           bottom: 14,
           borderColor: TREND_WORKBENCH_THEME.border,
@@ -194,11 +270,12 @@ export function TrendChart({
     };
 
     optionGuardRef.current = true;
-    chart.setOption(option, { notMerge: true, lazyUpdate: true });
+    chart.setOption(option, { notMerge: false, lazyUpdate: true });
     window.setTimeout(() => {
       optionGuardRef.current = false;
     }, 0);
   };
+  renderChartRef.current = renderChart;
 
   useEffect(() => {
     if (!rootRef.current) {
@@ -212,8 +289,21 @@ export function TrendChart({
       if (optionGuardRef.current) {
         return;
       }
-      const nextFromPayload = resolveRangeFromZoomPayload(payload);
-      const nextRange = nextFromPayload ?? (() => {
+      const optionRange = (() => {
+        const option = chart.getOption() as { dataZoom?: Array<{ startValue?: unknown; endValue?: unknown }> };
+        const dataZoom = option.dataZoom?.[0];
+        if (!dataZoom) {
+          return null;
+        }
+        const startValue = Number(dataZoom.startValue);
+        const endValue = Number(dataZoom.endValue);
+        if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) {
+          return null;
+        }
+        return { from: Math.min(startValue, endValue), to: Math.max(startValue, endValue) };
+      })();
+      const nextFromPayload = optionRange ?? resolveRangeFromZoomPayload(payload);
+      const nextRangeRaw = nextFromPayload ?? (() => {
         const width = rootRef.current?.clientWidth ?? 0;
         if (width <= 0) {
           return null;
@@ -229,6 +319,7 @@ export function TrendChart({
         }
         return fallback;
       })();
+      const nextRange = nextRangeRaw ? normalizeRangeToDomain(nextRangeRaw) : null;
       if (!nextRange) {
         return;
       }
@@ -237,17 +328,17 @@ export function TrendChart({
         return;
       }
       lastZoomRangeRef.current = nextRange;
-      if (liveMode) {
+      if (liveModeRef.current) {
         // Stop live immediately on user zoom/pan to prevent jitter.
-        onVisibleRangeChange(nextRange, "interaction");
+        onVisibleRangeChangeRef.current(nextRange, "interaction");
         return;
       }
       if (zoomTimerRef.current) {
         window.clearTimeout(zoomTimerRef.current);
       }
       zoomTimerRef.current = window.setTimeout(() => {
-        onVisibleRangeChange(nextRange, "interaction");
-      }, settings.zoomDebounceMs);
+        onVisibleRangeChangeRef.current(nextRange, "interaction");
+      }, zoomDebounceMsRef.current);
     };
 
     chart.on("dataZoom", handleDataZoom);
@@ -259,7 +350,7 @@ export function TrendChart({
 
     onChartApiReady?.({
       appendLivePoints: (updates) => {
-        const active = new Set(tags.map((tag) => tag.tag));
+        const active = new Set(tagsRef.current.map((tag) => tag.tag));
         const updatedTags = new Set<string>();
         let minUpdateTs = Number.POSITIVE_INFINITY;
         let maxUpdateTs = Number.NEGATIVE_INFINITY;
@@ -278,7 +369,7 @@ export function TrendChart({
           } else {
             continue;
           }
-          current.push({
+          const nextPoint: TrendPoint = {
             t: update.timestamp,
             v: numericValue,
             q: update.quality?.toLowerCase() === "bad"
@@ -286,15 +377,34 @@ export function TrendChart({
               : update.quality?.toLowerCase() === "uncertain"
                 ? "uncertain"
                 : "good",
-          });
+          };
+          const lastPoint = current[current.length - 1];
+          if (!lastPoint || nextPoint.t > lastPoint.t) {
+            current.push(nextPoint);
+          } else if (lastPoint.t === nextPoint.t) {
+            current[current.length - 1] = nextPoint;
+          } else {
+            // Keep chronological order for stable line rendering in live mode.
+            let index = current.length - 1;
+            while (index >= 0 && current[index]!.t > nextPoint.t) {
+              index -= 1;
+            }
+            if (index >= 0 && current[index]!.t === nextPoint.t) {
+              current[index] = nextPoint;
+            } else if (index + 1 < current.length && current[index + 1]!.t === nextPoint.t) {
+              current[index + 1] = nextPoint;
+            } else {
+              current.splice(index + 1, 0, nextPoint);
+            }
+          }
           if (update.timestamp < minUpdateTs) {
             minUpdateTs = update.timestamp;
           }
           if (update.timestamp > maxUpdateTs) {
             maxUpdateTs = update.timestamp;
           }
-          if (current.length > settings.liveBufferLimit) {
-            current.splice(0, current.length - settings.liveBufferLimit);
+          if (current.length > liveBufferLimitRef.current) {
+            current.splice(0, current.length - liveBufferLimitRef.current);
           }
           seriesPointsRef.current.set(update.tag, current);
           updatedTags.add(update.tag);
@@ -311,20 +421,21 @@ export function TrendChart({
           };
         }
 
-        if (liveMode) {
+        if (liveModeRef.current) {
           const rightCandidate = Number.isFinite(maxUpdateTs) ? maxUpdateTs : Date.now();
           const right = Math.max(liveLastEmittedRightRef.current ?? rightCandidate, rightCandidate);
           if (liveLastEmittedRightRef.current === null || right - liveLastEmittedRightRef.current >= 800) {
             liveLastEmittedRightRef.current = right;
-            const left = right - liveWindowMs;
-            onVisibleRangeChange({ from: left, to: right }, "live");
+            const left = right - liveWindowMsRef.current;
+            onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
           }
         }
-        renderChart();
+        renderChartRef.current();
       },
       getWidth: () => rootRef.current?.clientWidth ?? 0,
       getPointCount: () => [...seriesPointsRef.current.values()].reduce((acc, points) => acc + points.length, 0),
     });
+    renderChartRef.current();
 
     return () => {
       chart.off("dataZoom", handleDataZoom);
@@ -336,15 +447,16 @@ export function TrendChart({
       chartRef.current = null;
       liveLastEmittedRightRef.current = null;
     };
-  }, [liveMode, liveWindowMs, onChartApiReady, onVisibleRangeChange, settings.liveBufferLimit, settings.zoomDebounceMs, tags]);
+  }, []);
 
   useEffect(() => {
     const nextMap = new Map<string, TrendPoint[]>();
     let minTs = Number.POSITIVE_INFINITY;
     let maxTs = Number.NEGATIVE_INFINITY;
     for (const series of data?.series ?? []) {
-      nextMap.set(series.tag, [...series.points]);
-      for (const point of series.points) {
+      const normalizedPoints = normalizeSeriesPoints(series.points);
+      nextMap.set(series.tag, normalizedPoints);
+      for (const point of normalizedPoints) {
         if (point.t < minTs) {
           minTs = point.t;
         }
@@ -358,7 +470,7 @@ export function TrendChart({
       ? { from: minTs, to: maxTs }
       : visibleRange;
     renderChart();
-  }, [data, visibleRange]);
+  }, [data]);
 
   useEffect(() => {
     renderChart();

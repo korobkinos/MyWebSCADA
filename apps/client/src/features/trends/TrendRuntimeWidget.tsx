@@ -14,6 +14,7 @@ import { buildAxes, clamp, computeMaxPointsFromWidth, defaultTrendSettings, form
 
 const LIVE_FLUSH_MS = 300;
 const TOO_MANY_TAGS_LIMIT = 40;
+const TREND_RUNTIME_VIEW_STATE_STORAGE_PREFIX = "mywebscada.trends.runtimeViewState.v1";
 
 function toLocalDateTimeInputValue(timestamp: number): string {
   const date = new Date(timestamp);
@@ -71,8 +72,72 @@ type TrendContextMenuState = {
 
 type LiveSocketState = "idle" | "connecting" | "open" | "closed" | "error";
 
+type TrendRuntimeViewState = {
+  rangePreset: TrendRangePreset;
+  visibleRange: TrendVisibleRange;
+  liveMode: boolean;
+  customFrom: string;
+  customTo: string;
+};
+
+function getRuntimeViewStateStorageKey(objectId: string): string {
+  return `${TREND_RUNTIME_VIEW_STATE_STORAGE_PREFIX}:${objectId}`;
+}
+
+function readRuntimeViewState(objectId: string): TrendRuntimeViewState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(getRuntimeViewStateStorageKey(objectId));
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<TrendRuntimeViewState>;
+    const from = Number(parsed.visibleRange?.from);
+    const to = Number(parsed.visibleRange?.to);
+    const isRangeValid = Number.isFinite(from) && Number.isFinite(to) && to > from;
+    const preset = parsed.rangePreset;
+    const isPresetValid = preset === "5m" || preset === "15m" || preset === "1h" || preset === "8h" || preset === "24h" || preset === "custom";
+    if (!isRangeValid || !isPresetValid) {
+      return null;
+    }
+    return {
+      rangePreset: preset,
+      visibleRange: { from, to },
+      liveMode: Boolean(parsed.liveMode),
+      customFrom: typeof parsed.customFrom === "string" ? parsed.customFrom : toLocalDateTimeInputValue(from),
+      customTo: typeof parsed.customTo === "string" ? parsed.customTo : toLocalDateTimeInputValue(to),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeRuntimeViewState(objectId: string, state: TrendRuntimeViewState): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(getRuntimeViewStateStorageKey(objectId), JSON.stringify(state));
+}
+
+function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeViewState {
+  const objectRange = resolveRangeFromObject(object);
+  const restored = readRuntimeViewState(object.id);
+  if (restored) {
+    return restored;
+  }
+  return {
+    rangePreset: objectRange.preset,
+    visibleRange: objectRange.range,
+    liveMode: Boolean(object.liveMode),
+    customFrom: toLocalDateTimeInputValue(objectRange.range.from),
+    customTo: toLocalDateTimeInputValue(objectRange.range.to),
+  };
+}
+
 export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
-  const initialRange = useMemo(() => resolveRangeFromObject(object), [object]);
+  const initialViewState = useMemo(() => resolveInitialRuntimeViewState(object), [object.id]);
   const [allTags, setAllTags] = useState<TrendTagInfo[]>([]);
   const [selectedTags, setSelectedTags] = useState<TrendTagSelection[]>(object.selectedTags ?? []);
   const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>(object.axes ?? []);
@@ -80,13 +145,13 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [response, setResponse] = useState<TrendQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [liveMode, setLiveMode] = useState(Boolean(object.liveMode));
+  const [liveMode, setLiveMode] = useState(initialViewState.liveMode);
   const [lastLoadAt, setLastLoadAt] = useState<number | undefined>(undefined);
   const [statusAggregation, setStatusAggregation] = useState<TrendQueryResponse["aggregation"]>("raw");
-  const [rangePreset, setRangePreset] = useState<TrendRangePreset>(initialRange.preset);
-  const [visibleRange, setVisibleRange] = useState<TrendVisibleRange>(initialRange.range);
-  const [customFrom, setCustomFrom] = useState(() => toLocalDateTimeInputValue(initialRange.range.from));
-  const [customTo, setCustomTo] = useState(() => toLocalDateTimeInputValue(initialRange.range.to));
+  const [rangePreset, setRangePreset] = useState<TrendRangePreset>(initialViewState.rangePreset);
+  const [visibleRange, setVisibleRange] = useState<TrendVisibleRange>(initialViewState.visibleRange);
+  const [customFrom, setCustomFrom] = useState(initialViewState.customFrom);
+  const [customTo, setCustomTo] = useState(initialViewState.customTo);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<TrendContextMenuState | null>(null);
@@ -103,6 +168,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const chartApiRef = useRef<TrendChartApi | null>(null);
   const liveBufferRef = useRef<Array<{ tag: string; value: number | boolean | string | null; quality?: string; timestamp: number }>>([]);
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
+  const historyLoadTimerRef = useRef<number | null>(null);
 
   const tagInfoMap = useMemo(() => new Map(allTags.map((tag) => [tag.name, tag])), [allTags]);
 
@@ -119,16 +185,26 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   );
 
   useEffect(() => {
-    const nextRange = resolveRangeFromObject(object);
+    const nextViewState = resolveInitialRuntimeViewState(object);
     setSelectedTags(object.selectedTags ?? []);
     setManualAxes(object.axes ?? []);
     setSettings(resolveSettingsFromObject(object));
-    setLiveMode(Boolean(object.liveMode));
-    setRangePreset(nextRange.preset);
-    setVisibleRange(nextRange.range);
-    setCustomFrom(toLocalDateTimeInputValue(nextRange.range.from));
-    setCustomTo(toLocalDateTimeInputValue(nextRange.range.to));
-  }, [object]);
+    setLiveMode(nextViewState.liveMode);
+    setRangePreset(nextViewState.rangePreset);
+    setVisibleRange(nextViewState.visibleRange);
+    setCustomFrom(nextViewState.customFrom);
+    setCustomTo(nextViewState.customTo);
+  }, [object.id]);
+
+  useEffect(() => {
+    writeRuntimeViewState(object.id, {
+      rangePreset,
+      visibleRange,
+      liveMode,
+      customFrom,
+      customTo,
+    });
+  }, [customFrom, customTo, liveMode, object.id, rangePreset, visibleRange]);
 
   const executeQuery = useCallback(async (range: TrendVisibleRange, options?: { force?: boolean }) => {
     if (selectedTags.length === 0) {
@@ -145,14 +221,16 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     }
 
     const width = chartApiRef.current?.getWidth() ?? 1200;
-    const maxPoints = computeMaxPointsFromWidth(width, settings.maxPointsPerSeries);
+    const effectiveMaxPointsSetting = liveMode ? 8000 : settings.maxPointsPerSeries;
+    const maxPoints = computeMaxPointsFromWidth(width, effectiveMaxPointsSetting);
+    const requestAggregation = liveMode ? "raw" : settings.aggregation;
     const tagNames = selectedTags.map((tag) => tag.tag);
     const key = buildTrendCacheKey({
       tags: tagNames,
       from: range.from,
       to: range.to,
       maxPoints,
-      aggregation: settings.aggregation,
+      aggregation: requestAggregation,
     });
 
     if (!options?.force && settings.cacheEnabled) {
@@ -180,7 +258,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         from: new Date(range.from).toISOString(),
         to: new Date(range.to).toISOString(),
         maxPoints,
-        aggregation: settings.aggregation,
+        aggregation: requestAggregation,
       }, controller.signal);
       if (requestId !== requestIdRef.current) {
         return;
@@ -202,7 +280,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         setLoading(false);
       }
     }
-  }, [selectedTags, settings.aggregation, settings.cacheEnabled, settings.maxPointsPerSeries]);
+  }, [liveMode, selectedTags, settings.aggregation, settings.cacheEnabled, settings.maxPointsPerSeries]);
 
   useEffect(() => {
     cacheRef.current = new TrendQueryCache(settings.cacheSize);
@@ -227,6 +305,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   useEffect(() => () => {
     requestControllerRef.current?.abort();
     liveSocketRef.current?.close();
+    if (historyLoadTimerRef.current) {
+      window.clearTimeout(historyLoadTimerRef.current);
+    }
   }, []);
 
   useEffect(() => {
@@ -341,6 +422,23 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     if (source === "interaction" && liveMode) {
       setLiveMode(false);
       setLiveAutoStopReason("Stopped by zoom/pan interaction");
+      if (selectedTags.length > 0) {
+        void executeQuery(range, { force: true });
+      }
+      return;
+    }
+    if (source === "interaction" && !liveMode && selectedTags.length > 0) {
+      if (historyLoadTimerRef.current) {
+        window.clearTimeout(historyLoadTimerRef.current);
+      }
+      const span = Math.max(1_000, range.to - range.from);
+      const queryRange: TrendVisibleRange = {
+        from: range.from - Math.floor(span * 0.35),
+        to: range.to + Math.floor(span * 0.35),
+      };
+      historyLoadTimerRef.current = window.setTimeout(() => {
+        void executeQuery(queryRange, { force: true });
+      }, 220);
     }
   };
 

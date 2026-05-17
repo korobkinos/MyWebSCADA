@@ -1171,15 +1171,14 @@ export class ArchiveRepository {
   ): Promise<TrendPointRow[]> {
     const bucketLimit = Math.max(1, Math.floor(hardLimit / 2));
     const result = await this.pool.query<{
-      min_time: Date;
-      max_time: Date;
-      min_value: number;
-      max_value: number;
+      time: Date;
+      value: number;
       quality: string;
     }>(
       `
       WITH points AS (
         SELECT
+          FLOOR(EXTRACT(EPOCH FROM s.time) * 1000 / $4)::bigint AS bucket_id,
           s.time,
           s.value_double AS value,
           LOWER(q.code) AS quality
@@ -1190,50 +1189,69 @@ export class ArchiveRepository {
           AND s.time <= $3
           AND s.value_double IS NOT NULL
       ),
-      bucketed AS (
+      buckets AS (
         SELECT
-          FLOOR(EXTRACT(EPOCH FROM time) * 1000 / $4)::bigint AS bucket_id,
-          MIN(time) AS min_time,
-          MAX(time) AS max_time,
-          MIN(value) AS min_value,
-          MAX(value) AS max_value,
-          CASE
-            WHEN BOOL_OR(quality = 'bad') THEN 'bad'
-            WHEN BOOL_OR(quality = 'uncertain') THEN 'uncertain'
-            ELSE 'good'
-          END AS quality
+          bucket_id
         FROM points
         GROUP BY bucket_id
         ORDER BY bucket_id ASC
         LIMIT $5
+      ),
+      points_limited AS (
+        SELECT p.*
+        FROM points p
+        JOIN buckets b ON b.bucket_id = p.bucket_id
+      ),
+      quality_by_bucket AS (
+        SELECT
+          p.bucket_id,
+          CASE
+            WHEN BOOL_OR(p.quality = 'bad') THEN 'bad'
+            WHEN BOOL_OR(p.quality = 'uncertain') THEN 'uncertain'
+            ELSE 'good'
+          END AS quality
+        FROM points_limited p
+        GROUP BY p.bucket_id
+      ),
+      ranked AS (
+        SELECT
+          p.bucket_id,
+          p.time,
+          p.value,
+          ROW_NUMBER() OVER (PARTITION BY p.bucket_id ORDER BY p.value ASC, p.time ASC) AS rn_min,
+          ROW_NUMBER() OVER (PARTITION BY p.bucket_id ORDER BY p.value DESC, p.time ASC) AS rn_max
+        FROM points_limited p
+      ),
+      picked AS (
+        SELECT bucket_id, time, value
+        FROM ranked
+        WHERE rn_min = 1 OR rn_max = 1
       )
-      SELECT min_time, max_time, min_value, max_value, quality
-      FROM bucketed
-      ORDER BY min_time ASC
+      SELECT p.time, p.value, q.quality
+      FROM picked p
+      JOIN quality_by_bucket q ON q.bucket_id = p.bucket_id
+      ORDER BY p.time ASC, p.value ASC
       `,
       [tagId, from, to, bucketMs, bucketLimit],
     );
 
-    const points: TrendPointRow[] = [];
-    for (const row of result.rows) {
-      const quality = this.mapTrendQuality(row.quality);
-      points.push({
-        t: row.min_time.getTime(),
-        v: row.min_value,
-        q: quality,
-      });
-      const maxTime = row.max_time.getTime();
-      const minTime = row.min_time.getTime();
-      if (maxTime !== minTime || row.max_value !== row.min_value) {
-        points.push({
-          t: maxTime,
-          v: row.max_value,
-          q: quality,
-        });
-      }
+    const points: TrendPointRow[] = result.rows.map((row) => ({
+      t: row.time.getTime(),
+      v: row.value,
+      q: this.mapTrendQuality(row.quality),
+    }));
+    if (points.length <= 1) {
+      return points;
     }
-    points.sort((left, right) => left.t - right.t);
-    return points;
+    const deduped: TrendPointRow[] = [];
+    for (const point of points) {
+      const last = deduped[deduped.length - 1];
+      if (last && last.t === point.t && last.v === point.v) {
+        continue;
+      }
+      deduped.push(point);
+    }
+    return deduped;
   }
 
   private async queryBucketedAvgTrendPoints(
