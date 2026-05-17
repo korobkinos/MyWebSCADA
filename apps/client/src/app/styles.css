@@ -2528,9 +2528,10 @@ body {
 .screen-editor-library-interface__object-io-dialog {
   display: grid;
   grid-template-columns: var(--object-io-left-width, 320px) 8px minmax(380px, 1fr);
-  gap: 12px;
+  gap: 0;
   height: 100%;
   min-height: 0;
+  background: #252526;
 }
 
 .screen-editor-object-io-picker {
@@ -2543,10 +2544,15 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border: 1px solid #3c3c3c;
+  background: #252526;
 }
 
 .screen-editor-object-io-picker__right {
   min-height: 0;
+  border: 1px solid #3c3c3c;
+  border-left: none;
+  background: #252526;
 }
 
 .screen-editor-object-io-picker .screen-editor-opc-browser-toolbar__search {
@@ -2559,24 +2565,27 @@ body {
 }
 
 .screen-editor-object-io-picker .screen-editor-opc-browser-toolbar {
-  padding: 0;
+  padding: 6px;
   gap: 0;
+  border-bottom: 1px solid #3c3c3c;
+  background: #252526;
 }
 
 .screen-editor-object-io-picker__splitter {
-  width: 8px;
+  width: 4px;
   cursor: col-resize;
-  background: transparent;
-  border-left: 1px solid #2f2f2f;
-  border-right: 1px solid #2f2f2f;
+  background: #202020;
+  border-left: 1px solid #3c3c3c;
+  border-right: 1px solid #3c3c3c;
 }
 
 .screen-editor-object-io-picker__splitter:hover {
-  background: #242f3d;
+  background: #2a2d2e;
 }
 
 .screen-editor-object-io-dialog-body {
   padding: 0;
+  background: #252526;
 }
 
 .screen-editor-library-interface__object-io-objects {
@@ -2605,10 +2614,10 @@ body {
 }
 
 .screen-editor-library-interface__object-io-editor {
-  border: 1px solid #3c3c3c;
-  border-radius: 6px;
-  background: #171717;
-  padding: 8px;
+  border: 0;
+  border-radius: 0;
+  background: #252526;
+  padding: 6px 8px;
   display: grid;
   gap: 8px;
   align-content: start;
@@ -2624,11 +2633,33 @@ body {
 
 .screen-editor-library-interface__object-io-field-card {
   border: 1px solid #2e2e2e;
-  border-radius: 4px;
-  background: #202020;
+  border-radius: 0;
+  background: #1f1f1f;
   padding: 6px;
   display: grid;
   gap: 6px;
+}
+
+.screen-editor-object-io-dialog-body.screen-editor-setproperty-picker {
+  gap: 0;
+}
+
+.screen-editor-object-io-dialog-body .screen-editor-setproperty-picker__list {
+  background: #252526;
+}
+
+.screen-editor-object-io-dialog-body .screen-editor-setproperty-picker__tree {
+  min-height: 100%;
+  border: 1px solid #3c3c3c;
+  background: #1f1f1f;
+}
+
+.screen-editor-object-io-dialog-body .screen-editor-setproperty-picker__footer {
+  border-top: 1px solid #3c3c3c;
+  padding: 6px 8px;
+  background: #252526;
+  color: #969696;
+  font-size: 11px;
 }
 
 .screen-editor-library-interface__object-io-field-row {
