@@ -764,10 +764,11 @@ export function EditorPage() {
       if (!screen) {
         return;
       }
+      const roundToTenths = (value: number) => Math.round(value * 10) / 10;
       for (const obj of selectedUnlocked) {
         if ("strokeWidth" in obj) {
           const current = (obj as { strokeWidth?: number }).strokeWidth ?? 1;
-          updateObjectWithHistory(obj.id, { strokeWidth: Math.max(0.5, current + delta) }, "Adjust stroke width");
+          updateObjectWithHistory(obj.id, { strokeWidth: roundToTenths(Math.max(0.5, current + delta)) }, "Adjust stroke width");
         }
       }
     },

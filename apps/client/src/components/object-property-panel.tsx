@@ -257,6 +257,14 @@ function scalarToText(value: string | number | boolean | undefined): string {
   return String(value);
 }
 
+function roundToTenths(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function formatNumberArrayToTenths(values: number[]): string {
+  return JSON.stringify(values.map((value) => roundToTenths(value)));
+}
+
 function extractBindingKey(tag: string | undefined): string | undefined {
   if (!tag || !tag.startsWith("$binding.")) {
     return undefined;
@@ -741,14 +749,15 @@ function FlowAnimationFields({
         />
       </Space>
       {!useBaseStrokeWidth ? (
-        <Form.Item label="Stroke Width">
-          <InputNumber
-            style={{ width: "100%" }}
-            min={0}
-            value={flowAnimation.strokeWidth ?? defaultInnerStrokeWidth}
-            onChange={(value) => patchFlowAnimation({ strokeWidth: Number(value ?? defaultInnerStrokeWidth) })}
-          />
-        </Form.Item>
+      <Form.Item label="Stroke Width">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={0}
+          step={0.1}
+          value={roundToTenths(flowAnimation.strokeWidth ?? defaultInnerStrokeWidth)}
+          onChange={(value) => patchFlowAnimation({ strokeWidth: roundToTenths(Number(value ?? defaultInnerStrokeWidth)) })}
+        />
+      </Form.Item>
       ) : null}
       <Form.Item label="Dash Length">
         <InputNumber
@@ -1525,8 +1534,9 @@ function SpecificPropertyFields({
           <InputNumber
             style={{ width: "100%" }}
             min={1}
-            value={object.strokeWidth}
-            onChange={(v) => onPatch({ strokeWidth: Math.max(1, Number(v ?? 1)) } as Partial<HmiObject>)}
+            step={0.1}
+            value={roundToTenths(object.strokeWidth)}
+            onChange={(v) => onPatch({ strokeWidth: roundToTenths(Math.max(1, Number(v ?? 1))) } as Partial<HmiObject>)}
           />
         </Form.Item>
         <Space>
@@ -1539,14 +1549,17 @@ function SpecificPropertyFields({
         <Form.Item label="Points (JSON [x1,y1,x2,y2,...])">
           <Input.TextArea
             rows={3}
-            value={JSON.stringify(object.points)}
+            value={formatNumberArrayToTenths(object.points)}
             onChange={(e) => {
               try {
                 const parsed = JSON.parse(e.target.value) as unknown;
                 if (!Array.isArray(parsed)) {
                   return;
                 }
-                const points = parsed.map((item) => Number(item)).filter((item) => Number.isFinite(item));
+                const points = parsed
+                  .map((item) => Number(item))
+                  .filter((item) => Number.isFinite(item))
+                  .map((item) => roundToTenths(item));
                 if (points.length >= 4 && points.length % 2 === 0) {
                   onPatch({ points } as Partial<HmiObject>);
                 }
@@ -1607,8 +1620,9 @@ function SpecificPropertyFields({
           <InputNumber
             style={{ width: "100%" }}
             min={0}
-            value={object.strokeWidth ?? 0}
-            onChange={(v) => onPatch({ strokeWidth: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)}
+            step={0.1}
+            value={roundToTenths(object.strokeWidth ?? 0)}
+            onChange={(v) => onPatch({ strokeWidth: roundToTenths(Math.max(0, Number(v ?? 0))) } as Partial<HmiObject>)}
           />
         </Form.Item>
         <Form.Item label="Corner Radius">

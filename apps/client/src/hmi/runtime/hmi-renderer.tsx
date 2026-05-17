@@ -162,6 +162,10 @@ function normalizeFlowSpeed(value: number, minValue: number, maxValue: number): 
   return Math.max(low, Math.min(high, value));
 }
 
+function roundToTenths(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 type PolylineSegment = {
   x1: number;
   y1: number;
@@ -1209,6 +1213,7 @@ function ObjectNode({
 
       if (resolvedObject.type === "line") {
         const scaledPoints = resolvedObject.points.map((point, index) => (index % 2 === 0 ? point * scaleX : point * scaleY));
+        const nextStrokeWidth = roundToTenths(Math.max(1, resolvedObject.strokeWidth * Math.abs(scaleY)));
         onResizeObject?.(resolvedObject.id, {
           x: node.x(),
           y: node.y(),
@@ -1216,6 +1221,7 @@ function ObjectNode({
           height: nextHeight,
           rotation: node.rotation(),
           points: scaledPoints,
+          strokeWidth: nextStrokeWidth,
         } as Partial<HmiObject>);
       } else {
         onResizeObject?.(resolvedObject.id, {
@@ -1384,6 +1390,14 @@ function ObjectNode({
     const arrowLength = Math.max(6, normalizedDashLength);
     const arrowHalfWidth = Math.max(2, Math.min(flowStrokeWidth * 0.5, arrowLength * 0.55));
     const flowMarkerPhase = flowAnimationDashOffset;
+    const flowPathIsClosed = resolvedObject.closed ?? false;
+    const isFlowMarkerInsideOpenBounds = (distance: number, padding: number): boolean => {
+      if (flowPathIsClosed || !(flowPath.totalLength > 0)) {
+        return true;
+      }
+      const wrapped = ((distance % flowPath.totalLength) + flowPath.totalLength) % flowPath.totalLength;
+      return wrapped >= padding && wrapped <= (flowPath.totalLength - padding);
+    };
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -1398,68 +1412,86 @@ function ObjectNode({
           {...lineStrokeGradientProps}
           {...lineShadowProps}
         />
-        {renderDashOverlay ? (
-          <Line
-            points={resolvedObject.points}
-            stroke={flowColor}
-            strokeWidth={flowStrokeWidth}
-            opacity={normalizedFlowOpacity}
-            closed={resolvedObject.closed ?? false}
-            dash={flowDash}
-            dashOffset={flowAnimationDashOffset}
-            fillEnabled={false}
+        {(renderDashOverlay || renderDotsOverlay || renderArrowsOverlay) ? (
+          <Group
+            clipX={0}
+            clipY={0}
+            clipWidth={resolvedObject.width}
+            clipHeight={resolvedObject.height}
             listening={false}
-            lineCap="round"
-            lineJoin="round"
-            perfectDrawEnabled={false}
-          />
-        ) : null}
-        {renderDotsOverlay && flowPath.totalLength > 0
-          ? Array.from({ length: markerCount }).map((_, markerIndex) => {
-            const sample = samplePolylineAt(flowPath, markerIndex * flowSpacing + flowMarkerPhase);
-            if (!sample) {
-              return null;
-            }
-            return (
-              <Circle
-                key={`flow-dot-${markerIndex}`}
-                x={sample.x}
-                y={sample.y}
-                radius={dotRadius}
-                fill={flowColor}
-                opacity={normalizedFlowOpacity}
-                listening={false}
-              />
-            );
-          })
-          : null}
-        {renderArrowsOverlay && flowPath.totalLength > 0
-          ? Array.from({ length: markerCount }).map((_, markerIndex) => {
-            const sample = samplePolylineAt(flowPath, markerIndex * flowSpacing + flowMarkerPhase);
-            if (!sample) {
-              return null;
-            }
-            const tipX = sample.x;
-            const tipY = sample.y;
-            const baseX = tipX - sample.ux * arrowLength;
-            const baseY = tipY - sample.uy * arrowLength;
-            const leftX = baseX + sample.nx * arrowHalfWidth;
-            const leftY = baseY + sample.ny * arrowHalfWidth;
-            const rightX = baseX - sample.nx * arrowHalfWidth;
-            const rightY = baseY - sample.ny * arrowHalfWidth;
-            return (
+          >
+            {renderDashOverlay ? (
               <Line
-                key={`flow-arrow-${markerIndex}`}
-                points={[tipX, tipY, leftX, leftY, rightX, rightY]}
-                closed
-                fill={flowColor}
+                points={resolvedObject.points}
+                stroke={flowColor}
+                strokeWidth={flowStrokeWidth}
                 opacity={normalizedFlowOpacity}
+                closed={resolvedObject.closed ?? false}
+                dash={flowDash}
+                dashOffset={flowAnimationDashOffset}
+                fillEnabled={false}
                 listening={false}
+                lineCap="round"
+                lineJoin="round"
                 perfectDrawEnabled={false}
               />
-            );
-          })
-          : null}
+            ) : null}
+            {renderDotsOverlay && flowPath.totalLength > 0
+              ? Array.from({ length: markerCount }).map((_, markerIndex) => {
+                const distance = markerIndex * flowSpacing + flowMarkerPhase;
+                if (!isFlowMarkerInsideOpenBounds(distance, dotRadius)) {
+                  return null;
+                }
+                const sample = samplePolylineAt(flowPath, distance);
+                if (!sample) {
+                  return null;
+                }
+                return (
+                  <Circle
+                    key={`flow-dot-${markerIndex}`}
+                    x={sample.x}
+                    y={sample.y}
+                    radius={dotRadius}
+                    fill={flowColor}
+                    opacity={normalizedFlowOpacity}
+                    listening={false}
+                  />
+                );
+              })
+              : null}
+            {renderArrowsOverlay && flowPath.totalLength > 0
+              ? Array.from({ length: markerCount }).map((_, markerIndex) => {
+                const distance = markerIndex * flowSpacing + flowMarkerPhase;
+                if (!isFlowMarkerInsideOpenBounds(distance, arrowLength)) {
+                  return null;
+                }
+                const sample = samplePolylineAt(flowPath, distance);
+                if (!sample) {
+                  return null;
+                }
+                const tipX = sample.x;
+                const tipY = sample.y;
+                const baseX = tipX - sample.ux * arrowLength;
+                const baseY = tipY - sample.uy * arrowLength;
+                const leftX = baseX + sample.nx * arrowHalfWidth;
+                const leftY = baseY + sample.ny * arrowHalfWidth;
+                const rightX = baseX - sample.nx * arrowHalfWidth;
+                const rightY = baseY - sample.ny * arrowHalfWidth;
+                return (
+                  <Line
+                    key={`flow-arrow-${markerIndex}`}
+                    points={[tipX, tipY, leftX, leftY, rightX, rightY]}
+                    closed
+                    fill={flowColor}
+                    opacity={normalizedFlowOpacity}
+                    listening={false}
+                    perfectDrawEnabled={false}
+                  />
+                );
+              })
+              : null}
+          </Group>
+        ) : null}
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
