@@ -325,11 +325,7 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
         defaultRect: { x: 140, y: 90, width: 1100, height: 680 },
         minWidth: 720,
         minHeight: 420,
-        render: () => (
-          <div className="screen-editor-window-content" style={{ padding: 12, overflow: "auto" }}>
-            <ArchivePage />
-          </div>
-        ),
+        render: () => <ArchivePage />,
       },
       {
         id: "macros",

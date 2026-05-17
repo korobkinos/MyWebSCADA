@@ -9221,20 +9221,21 @@
     },
     "dockLayout": {
       "panels": {
-        "tags.left": {
-          "id": "tags.left",
+        "archive.left": {
+          "id": "archive.left",
           "side": "left",
           "hidden": false,
-          "size": 370,
-          "lastVisibleSize": 370,
+          "size": 304,
+          "lastVisibleSize": 320,
           "detached": false
         },
-        "tags.right": {
-          "id": "tags.right",
+        "archive.right": {
+          "id": "archive.right",
           "side": "right",
           "hidden": false,
-          "size": 360,
-          "lastVisibleSize": 360
+          "size": 397,
+          "lastVisibleSize": 397,
+          "detached": false
         }
       }
     },

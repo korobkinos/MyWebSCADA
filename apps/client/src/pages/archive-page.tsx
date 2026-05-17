@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from "antd";
-import type { ColumnsType } from "antd/es/table";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Form, Input, InputNumber, Select, Space, Switch, Tag, message } from "antd";
 import { WorkbenchButton, WorkbenchWindow } from "../components/workbench";
 import type { WorkbenchWindowRect } from "../components/workbench";
 import { api, type ArchivePolicy, type ArchivePolicyPayload, type ArchiveStatus, type ArchiveTagConfig, type ArchiveTagOverride } from "../services/api";
 
 type PolicyFormState = ArchivePolicyPayload;
+type ArchiveColumnId = "select" | "name" | "policy" | "mode" | "period" | "retention" | "override";
+type ArchiveColumnConfig = {
+  id: ArchiveColumnId;
+  title: string;
+  defaultWidth: number;
+  minWidth: number;
+};
+type ArchiveColumnVisibility = Record<ArchiveColumnId, boolean>;
 
 type OverrideFormState = {
   enabled: "inherit" | "true" | "false";
@@ -27,6 +34,91 @@ const defaultPolicy: PolicyFormState = {
   aggregateEnabled: true,
   compressionAfterDays: 7,
 };
+
+const ARCHIVE_COLUMNS: ArchiveColumnConfig[] = [
+  { id: "select", title: "", defaultWidth: 42, minWidth: 42 },
+  { id: "name", title: "NAME", defaultWidth: 300, minWidth: 160 },
+  { id: "policy", title: "POLICY", defaultWidth: 220, minWidth: 130 },
+  { id: "mode", title: "MODE", defaultWidth: 170, minWidth: 120 },
+  { id: "period", title: "PERIOD", defaultWidth: 120, minWidth: 90 },
+  { id: "retention", title: "RETENTION", defaultWidth: 120, minWidth: 90 },
+  { id: "override", title: "OVERRIDE", defaultWidth: 90, minWidth: 70 },
+];
+
+const ARCHIVE_COLUMNS_WIDTH_STORAGE_KEY = "screenEditor.archive.columnWidths";
+const ARCHIVE_COLUMN_VISIBILITY_STORAGE_KEY = "screenEditor.archive.columnVisibility";
+
+function createDefaultArchiveColumnVisibility(): ArchiveColumnVisibility {
+  return ARCHIVE_COLUMNS.reduce<ArchiveColumnVisibility>(
+    (acc, column) => ({ ...acc, [column.id]: true }),
+    {
+      select: true,
+      name: true,
+      policy: true,
+      mode: true,
+      period: true,
+      retention: true,
+      override: true,
+    },
+  );
+}
+
+function createDefaultArchiveColumnWidths(): Record<ArchiveColumnId, number> {
+  return ARCHIVE_COLUMNS.reduce<Record<ArchiveColumnId, number>>(
+    (acc, column) => ({ ...acc, [column.id]: column.defaultWidth }),
+    {
+      select: 0,
+      name: 0,
+      policy: 0,
+      mode: 0,
+      period: 0,
+      retention: 0,
+      override: 0,
+    },
+  );
+}
+
+function parseStoredArchiveColumnWidths(raw: string | null): Record<ArchiveColumnId, number> {
+  const defaults = createDefaultArchiveColumnWidths();
+  if (!raw) {
+    return defaults;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<Record<ArchiveColumnId, unknown>>;
+    return ARCHIVE_COLUMNS.reduce<Record<ArchiveColumnId, number>>((acc, column) => {
+      const candidate = parsed[column.id];
+      acc[column.id] =
+        typeof candidate === "number" && Number.isFinite(candidate)
+          ? Math.max(column.minWidth, candidate)
+          : defaults[column.id];
+      return acc;
+    }, { ...defaults });
+  } catch {
+    return defaults;
+  }
+}
+
+function parseStoredArchiveColumnVisibility(raw: string | null): ArchiveColumnVisibility {
+  const defaults = createDefaultArchiveColumnVisibility();
+  if (!raw) {
+    return defaults;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<Record<ArchiveColumnId, unknown>>;
+    const next = ARCHIVE_COLUMNS.reduce<ArchiveColumnVisibility>((acc, column) => {
+      acc[column.id] = parsed[column.id] === false ? false : true;
+      return acc;
+    }, { ...defaults });
+    next.select = true;
+    next.name = true;
+    if (!Object.values(next).some(Boolean)) {
+      next.name = true;
+    }
+    return next;
+  } catch {
+    return defaults;
+  }
+}
 
 function boolSelectToOverride(value: "inherit" | "true" | "false"): boolean | null {
   if (value === "inherit") {
@@ -57,9 +149,27 @@ type ArchiveWorkbenchDialogProps = {
   children: ReactNode;
   onClose: () => void;
   onSubmit: () => void;
+  submitLabel?: string;
+  cancelLabel?: string;
+  submitVariant?: "primary" | "danger" | "ghost";
+  submitDisabled?: boolean;
+  cancelDisabled?: boolean;
 };
 
-function ArchiveWorkbenchDialog({ id, title, open, defaultRect, children, onClose, onSubmit }: ArchiveWorkbenchDialogProps) {
+function ArchiveWorkbenchDialog({
+  id,
+  title,
+  open,
+  defaultRect,
+  children,
+  onClose,
+  onSubmit,
+  submitLabel,
+  cancelLabel,
+  submitVariant,
+  submitDisabled,
+  cancelDisabled,
+}: ArchiveWorkbenchDialogProps) {
   const [rect, setRect] = useState<WorkbenchWindowRect>(defaultRect);
 
   useEffect(() => {
@@ -96,8 +206,8 @@ function ArchiveWorkbenchDialog({ id, title, open, defaultRect, children, onClos
         <div className="archive-workbench-dialog">
           <div className="archive-workbench-dialog__body">{children}</div>
           <div className="archive-workbench-dialog__footer">
-            <WorkbenchButton onClick={onClose}>Cancel</WorkbenchButton>
-            <WorkbenchButton variant="primary" onClick={onSubmit}>OK</WorkbenchButton>
+            <WorkbenchButton onClick={onClose} disabled={cancelDisabled}>{cancelLabel ?? "Cancel"}</WorkbenchButton>
+            <WorkbenchButton variant={submitVariant ?? "primary"} onClick={onSubmit} disabled={submitDisabled}>{submitLabel ?? "OK"}</WorkbenchButton>
           </div>
         </div>
       </WorkbenchWindow>
@@ -105,22 +215,98 @@ function ArchiveWorkbenchDialog({ id, title, open, defaultRect, children, onClos
   );
 }
 
+type ArchiveConfirmState = {
+  title: string;
+  message: string;
+  submitLabel?: string;
+  submitVariant?: "primary" | "danger" | "ghost";
+  onConfirm: () => Promise<void>;
+};
+
+const DEFAULT_DETAILS_WIDTH = 420;
+const MIN_DETAILS_WIDTH = 300;
+const MAX_DETAILS_WIDTH = 720;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatStatusCheckTime(timestamp: number | null): string {
+  if (!timestamp) {
+    return "-";
+  }
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString("ru-RU", { hour12: false });
+}
+
 export function ArchivePage() {
   const [status, setStatus] = useState<ArchiveStatus>({ enabled: false, queuedSamples: 0 });
+  const [lastLoadError, setLastLoadError] = useState<string | null>(null);
+  const [lastStatusCheckAt, setLastStatusCheckAt] = useState<number | null>(null);
   const [policies, setPolicies] = useState<ArchivePolicy[]>([]);
   const [tagConfigs, setTagConfigs] = useState<ArchiveTagConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
   const [editingPolicyId, setEditingPolicyId] = useState<number | null>(null);
   const [overrideTag, setOverrideTag] = useState<ArchiveTagConfig | null>(null);
+  const [confirmState, setConfirmState] = useState<ArchiveConfirmState | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const [policyForm] = Form.useForm<PolicyFormState>();
   const [overrideForm] = Form.useForm<OverrideFormState>();
+
+  const [search, setSearch] = useState("");
+  const [policyFilter, setPolicyFilter] = useState<number | "all">("all");
+  const [bulkPolicyId, setBulkPolicyId] = useState("0");
+  const [policyManageId, setPolicyManageId] = useState("0");
+  const [columnsPanelOpen, setColumnsPanelOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [selectedTagName, setSelectedTagName] = useState("");
+  const [selectedTagNames, setSelectedTagNames] = useState<Set<string>>(() => new Set());
+  const [detailsPolicyId, setDetailsPolicyId] = useState("0");
+  const [detailsWidth, setDetailsWidth] = useState(DEFAULT_DETAILS_WIDTH);
+  const [isDetailsResizeActive, setIsDetailsResizeActive] = useState(false);
+  const [columnWidths, setColumnWidths] = useState<Record<ArchiveColumnId, number>>(() => {
+    if (typeof window === "undefined") {
+      return createDefaultArchiveColumnWidths();
+    }
+    return parseStoredArchiveColumnWidths(window.localStorage.getItem(ARCHIVE_COLUMNS_WIDTH_STORAGE_KEY));
+  });
+  const [columnVisibility, setColumnVisibility] = useState<ArchiveColumnVisibility>(() => {
+    if (typeof window === "undefined") {
+      return createDefaultArchiveColumnVisibility();
+    }
+    return parseStoredArchiveColumnVisibility(window.localStorage.getItem(ARCHIVE_COLUMN_VISIBILITY_STORAGE_KEY));
+  });
+
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const pageSelectCheckboxRef = useRef<HTMLInputElement | null>(null);
+
+  const checkArchiveStatus = async (options?: { silent?: boolean }): Promise<ArchiveStatus | null> => {
+    try {
+      const nextStatus = await api.getArchiveStatus();
+      setStatus(nextStatus);
+      setLastLoadError(null);
+      setLastStatusCheckAt(Date.now());
+      return nextStatus;
+    } catch (error) {
+      const errorText = error instanceof Error ? error.message : "Archive status check failed";
+      setLastLoadError(errorText);
+      setLastStatusCheckAt(Date.now());
+      if (!options?.silent) {
+        void message.error(errorText);
+      }
+      return null;
+    }
+  };
 
   const load = async (): Promise<void> => {
     setLoading(true);
     try {
-      const nextStatus = await api.getArchiveStatus();
-      setStatus(nextStatus);
+      const nextStatus = await checkArchiveStatus();
+      if (!nextStatus) {
+        return;
+      }
       if (!nextStatus.enabled) {
         setPolicies([]);
         setTagConfigs([]);
@@ -130,7 +316,9 @@ export function ArchivePage() {
       setPolicies(nextPolicies);
       setTagConfigs(nextTagConfigs);
     } catch (error) {
-      void message.error(error instanceof Error ? error.message : "Archive load failed");
+      const errorText = error instanceof Error ? error.message : "Archive load failed";
+      setLastLoadError(errorText);
+      void message.error(errorText);
     } finally {
       setLoading(false);
     }
@@ -139,6 +327,41 @@ export function ArchivePage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void checkArchiveStatus({ silent: true });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (policies.length === 0) {
+      setPolicyManageId("0");
+      return;
+    }
+    if (policyManageId === "0") {
+      setPolicyManageId(String(policies[0]!.id));
+      return;
+    }
+    const exists = policies.some((item) => String(item.id) === policyManageId);
+    if (!exists) {
+      setPolicyManageId(String(policies[0]!.id));
+    }
+  }, [policies, policyManageId]);
+
+  useEffect(() => {
+    const existing = new Set(tagConfigs.map((item) => item.tagName));
+    setSelectedTagNames((prev) => {
+      const next = new Set<string>();
+      prev.forEach((name) => {
+        if (existing.has(name)) {
+          next.add(name);
+        }
+      });
+      return next.size === prev.size ? prev : next;
+    });
+  }, [tagConfigs]);
 
   const openCreatePolicy = (): void => {
     setEditingPolicyId(null);
@@ -179,12 +402,19 @@ export function ArchivePage() {
   };
 
   const deletePolicy = (policy: ArchivePolicy): void => {
-    Modal.confirm({
-      title: `Delete policy ${policy.name}?`,
-      onOk: async () => {
-        await api.deleteArchivePolicy(policy.id);
-        void message.success("Archive policy deleted");
-        await load();
+    setConfirmState({
+      title: "Delete Archive Policy",
+      message: `Delete policy "${policy.name}"?`,
+      submitLabel: "Delete",
+      submitVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.deleteArchivePolicy(policy.id);
+          void message.success("Archive policy deleted");
+          await load();
+        } catch (error) {
+          void message.error(error instanceof Error ? error.message : "Failed to delete archive policy");
+        }
       },
     });
   };
@@ -228,165 +458,623 @@ export function ArchivePage() {
     await load();
   };
 
-  const policyOptions = useMemo(
-    () => [
-      { label: "No policy", value: 0 },
-      ...policies.map((policy) => ({ label: policy.name, value: policy.id })),
-    ],
-    [policies],
+  const archiveDisabled = !status.enabled;
+  const normalizedSearch = search.trim().toLowerCase();
+
+  const searchMatchedTags = useMemo(
+    () => (
+      normalizedSearch
+        ? tagConfigs.filter((item) => item.tagName.toLowerCase().includes(normalizedSearch))
+        : []
+    ),
+    [normalizedSearch, tagConfigs],
   );
 
-  const policyColumns: ColumnsType<ArchivePolicy> = [
-    {
-      title: "Name",
-      dataIndex: "name",
-      width: 220,
-      render: (name: string, row) => (
-        <Space>
-          <Typography.Text strong>{name}</Typography.Text>
-          {row.enabled ? <Tag color="green">enabled</Tag> : <Tag>disabled</Tag>}
-        </Space>
-      ),
-    },
-    { title: "Mode", dataIndex: "mode", width: 180 },
-    { title: "Period ms", dataIndex: "periodMs", width: 110 },
-    { title: "Deadband", dataIndex: "deadband", width: 100 },
-    { title: "Retention days", dataIndex: "retentionDays", width: 130 },
-    {
-      title: "Compression after",
-      dataIndex: "compressionAfterDays",
-      width: 150,
-      render: (value: number | null | undefined) => value ?? "-",
-    },
-    {
-      title: "Actions",
-      width: 180,
-      render: (_, row) => (
-        <Space>
-          <WorkbenchButton onClick={() => openEditPolicy(row)}>Edit</WorkbenchButton>
-          <WorkbenchButton variant="danger" onClick={() => deletePolicy(row)}>Delete</WorkbenchButton>
-        </Space>
-      ),
-    },
-  ];
+  const filteredTags = useMemo(() => {
+    return tagConfigs.filter((tagConfig) => {
+      if (normalizedSearch && !tagConfig.tagName.toLowerCase().includes(normalizedSearch)) {
+        return false;
+      }
+      if (policyFilter !== "all" && (tagConfig.policyId ?? 0) !== policyFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [normalizedSearch, policyFilter, tagConfigs]);
 
-  const tagColumns: ColumnsType<ArchiveTagConfig> = [
-    { title: "Tag", dataIndex: "tagName", width: 260 },
-    {
-      title: "Policy",
-      width: 240,
-      render: (_, row) => (
-        <Select
-          size="small"
-          value={row.policyId ?? 0}
-          options={policyOptions}
-          style={{ width: 220 }}
-          onChange={async (value) => {
-            await api.assignArchiveTagPolicy(row.tagName, value === 0 ? null : value);
-            await load();
-          }}
-        />
-      ),
-    },
-    {
-      title: "Effective",
-      width: 300,
-      render: (_, row) => (
-        <Space wrap>
-          {row.enabled ? <Tag color="green">enabled</Tag> : <Tag>disabled</Tag>}
-          <Tag>{row.mode ?? "-"}</Tag>
-          <Tag>{row.periodMs ?? "-"} ms</Tag>
-          <Tag>{row.retentionDays ?? "-"} d</Tag>
-        </Space>
-      ),
-    },
-    {
-      title: "Override",
-      width: 170,
-      render: (_, row) => (
-        <Space>
-          <WorkbenchButton onClick={() => openOverride(row)}>
-            {row.override ? "Edit" : "Set"}
-          </WorkbenchButton>
-          {row.override ? <WorkbenchButton onClick={() => void clearOverride(row)}>Clear</WorkbenchButton> : null}
-        </Space>
-      ),
-    },
-  ];
+  useEffect(() => {
+    if (filteredTags.length === 0) {
+      setSelectedTagName("");
+      return;
+    }
+    const exists = filteredTags.some((item) => item.tagName === selectedTagName);
+    if (!exists) {
+      setSelectedTagName(filteredTags[0]!.tagName);
+    }
+  }, [filteredTags, selectedTagName]);
 
-  const archiveDisabled = !status.enabled;
+  const selectedTag = useMemo(
+    () => filteredTags.find((item) => item.tagName === selectedTagName) ?? null,
+    [filteredTags, selectedTagName],
+  );
+
+  useEffect(() => {
+    if (!selectedTag) {
+      setDetailsPolicyId("0");
+      return;
+    }
+    setDetailsPolicyId(String(selectedTag.policyId ?? 0));
+  }, [selectedTag]);
+
+  const totalRows = filteredTags.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePage = Math.min(page, totalPages);
+
+  useEffect(() => {
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [page, safePage]);
+
+  const pageRows = useMemo(
+    () => filteredTags.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filteredTags, pageSize, safePage],
+  );
+  const selectedCount = selectedTagNames.size;
+  const selectedInFilteredCount = useMemo(
+    () => filteredTags.reduce((acc, item) => (selectedTagNames.has(item.tagName) ? acc + 1 : acc), 0),
+    [filteredTags, selectedTagNames],
+  );
+  const selectedInPageCount = useMemo(
+    () => pageRows.reduce((acc, item) => (selectedTagNames.has(item.tagName) ? acc + 1 : acc), 0),
+    [pageRows, selectedTagNames],
+  );
+  const pageAllSelected = pageRows.length > 0 && selectedInPageCount === pageRows.length;
+  const pagePartiallySelected = selectedInPageCount > 0 && !pageAllSelected;
+
+  const selectedTags = useMemo(
+    () => tagConfigs.filter((item) => selectedTagNames.has(item.tagName)),
+    [selectedTagNames, tagConfigs],
+  );
+
+  useEffect(() => {
+    if (!pageSelectCheckboxRef.current) {
+      return;
+    }
+    pageSelectCheckboxRef.current.indeterminate = pagePartiallySelected;
+  }, [pagePartiallySelected]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(ARCHIVE_COLUMNS_WIDTH_STORAGE_KEY, JSON.stringify(columnWidths));
+  }, [columnWidths]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(ARCHIVE_COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(columnVisibility));
+  }, [columnVisibility]);
+
+  const visibleColumns = useMemo(() => {
+    const next = ARCHIVE_COLUMNS.filter((column) => columnVisibility[column.id] !== false);
+    return next.length > 0 ? next : ARCHIVE_COLUMNS.filter((column) => column.id === "select" || column.id === "name");
+  }, [columnVisibility]);
+
+  const archiveGridTemplateColumns = useMemo(
+    () => visibleColumns.map((column) => `${columnWidths[column.id] ?? column.defaultWidth}px`).join(" "),
+    [columnWidths, visibleColumns],
+  );
+
+  const toggleTagSelection = (tagName: string): void => {
+    setSelectedTagNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(tagName)) {
+        next.delete(tagName);
+      } else {
+        next.add(tagName);
+      }
+      return next;
+    });
+  };
+
+  const selectAllFiltered = (): void => {
+    setSelectedTagNames(new Set(filteredTags.map((item) => item.tagName)));
+  };
+
+  const selectCurrentPage = (): void => {
+    setSelectedTagNames((prev) => {
+      const next = new Set(prev);
+      pageRows.forEach((item) => next.add(item.tagName));
+      return next;
+    });
+  };
+
+  const clearSelected = (): void => {
+    setSelectedTagNames(new Set());
+  };
+
+  const toggleCurrentPageSelection = (): void => {
+    if (pageRows.length === 0) {
+      return;
+    }
+    setSelectedTagNames((prev) => {
+      const next = new Set(prev);
+      if (pageAllSelected) {
+        pageRows.forEach((item) => next.delete(item.tagName));
+      } else {
+        pageRows.forEach((item) => next.add(item.tagName));
+      }
+      return next;
+    });
+  };
+
+  const applyPolicyToTags = async (target: ArchiveTagConfig[], sourceLabel: string): Promise<void> => {
+    if (archiveDisabled) {
+      return;
+    }
+    if (target.length === 0) {
+      void message.warning(`No ${sourceLabel} tags`);
+      return;
+    }
+    const parsedPolicy = bulkPolicyId === "0" ? 0 : Number.parseInt(bulkPolicyId, 10);
+    if (!Number.isFinite(parsedPolicy)) {
+      void message.error("Invalid policy selected");
+      return;
+    }
+    const policyId = parsedPolicy === 0 ? null : parsedPolicy;
+    const policyLabel = policyId === null ? "No policy" : (policies.find((item) => item.id === policyId)?.name ?? `ID ${policyId}`);
+    setConfirmState({
+      title: "Assign Archive Policy",
+      message: `Apply policy "${policyLabel}" to ${target.length} ${sourceLabel} tags?`,
+      submitLabel: "Apply",
+      submitVariant: "primary",
+      onConfirm: async () => {
+        try {
+          await Promise.all(target.map((item) => api.assignArchiveTagPolicy(item.tagName, policyId)));
+          void message.success(`Policy applied to ${target.length} tags`);
+          await load();
+        } catch (error) {
+          void message.error(error instanceof Error ? error.message : "Failed to apply policy");
+        }
+      },
+    });
+  };
+
+  const clearOverridesForTags = async (target: ArchiveTagConfig[], sourceLabel: string): Promise<void> => {
+    if (archiveDisabled) {
+      return;
+    }
+    const withOverrides = target.filter((item) => Boolean(item.override));
+    if (withOverrides.length === 0) {
+      void message.warning(`No overrides in ${sourceLabel} tags`);
+      return;
+    }
+    setConfirmState({
+      title: "Clear Archive Overrides",
+      message: `Clear overrides for ${withOverrides.length} ${sourceLabel} tags?`,
+      submitLabel: "Clear",
+      submitVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await Promise.all(withOverrides.map((item) => api.deleteArchiveTagOverride(item.tagName)));
+          void message.success(`Overrides cleared for ${withOverrides.length} tags`);
+          await load();
+        } catch (error) {
+          void message.error(error instanceof Error ? error.message : "Failed to clear overrides");
+        }
+      },
+    });
+  };
+
+  const runConfirmAction = async (): Promise<void> => {
+    if (!confirmState || confirmBusy) {
+      return;
+    }
+    setConfirmBusy(true);
+    try {
+      await confirmState.onConfirm();
+      setConfirmState(null);
+    } finally {
+      setConfirmBusy(false);
+    }
+  };
+
+  const assignPolicyToSelectedTag = async (): Promise<void> => {
+    if (!selectedTag) {
+      return;
+    }
+    const parsedPolicy = detailsPolicyId === "0" ? 0 : Number.parseInt(detailsPolicyId, 10);
+    if (!Number.isFinite(parsedPolicy)) {
+      void message.error("Invalid policy selected");
+      return;
+    }
+    await api.assignArchiveTagPolicy(selectedTag.tagName, parsedPolicy === 0 ? null : parsedPolicy);
+    void message.success("Policy updated");
+    await load();
+  };
+
+  const selectedManagePolicy = policies.find((item) => String(item.id) === policyManageId) ?? null;
+
+  const startColumnResize = (
+    event: ReactMouseEvent<HTMLSpanElement>,
+    columnId: ArchiveColumnId,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const column = ARCHIVE_COLUMNS.find((item) => item.id === columnId);
+    if (!column) {
+      return;
+    }
+    const startX = event.clientX;
+    const startWidth = columnWidths[columnId] ?? column.defaultWidth;
+
+    const onMove = (moveEvent: globalThis.MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const next = Math.max(column.minWidth, startWidth + delta);
+      setColumnWidths((prev) => ({
+        ...prev,
+        [columnId]: next,
+      }));
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const startDetailsResize = (event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = detailsWidth;
+    setIsDetailsResizeActive(true);
+
+    const onMove = (moveEvent: globalThis.MouseEvent) => {
+      const delta = startX - moveEvent.clientX;
+      setDetailsWidth(clamp(startWidth + delta, MIN_DETAILS_WIDTH, MAX_DETAILS_WIDTH));
+    };
+
+    const onUp = () => {
+      setIsDetailsResizeActive(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const resetWidths = () => {
+    setDetailsWidth(DEFAULT_DETAILS_WIDTH);
+    setColumnWidths(createDefaultArchiveColumnWidths());
+  };
+
+  const policySelectOptions = [
+    { label: "No policy", value: "0" },
+    ...policies.map((policy) => ({ label: policy.name, value: String(policy.id) })),
+  ];
+  const archiveStatusView = useMemo(() => {
+    const checkTime = formatStatusCheckTime(lastStatusCheckAt);
+    if (loading) {
+      return { tone: "loading", text: `Archive status: checking... | last check ${checkTime}` };
+    }
+    if (lastLoadError) {
+      return { tone: "error", text: `Archive status: connection error - ${lastLoadError} | last check ${checkTime}` };
+    }
+    if (!status.enabled) {
+      return { tone: "warning", text: `Archive status: disabled${status.reason ? ` - ${status.reason}` : ""} | last check ${checkTime}` };
+    }
+    return { tone: "ok", text: `Archive status: running | queue ${status.queuedSamples} | last check ${checkTime}` };
+  }, [lastLoadError, lastStatusCheckAt, loading, status.enabled, status.queuedSamples, status.reason]);
 
   return (
-    <div className="archive-workbench-page">
-      <Card size="small">
-        <Space wrap>
-          {status.enabled ? <Tag color="green">Archive enabled</Tag> : <Tag color="red">Archive disabled</Tag>}
-          <Typography.Text type="secondary">Queue: {status.queuedSamples}</Typography.Text>
-          <WorkbenchButton onClick={() => void load()} disabled={loading}>{loading ? "Refreshing" : "Refresh"}</WorkbenchButton>
-          <WorkbenchButton
-            disabled={archiveDisabled}
-            onClick={async () => {
-              const result = await api.runArchiveMaintenance();
-              void message.success(`Deleted samples: ${result.deletedSamples}`);
-              await load();
-            }}
-          >
-            Run Maintenance
-          </WorkbenchButton>
-        </Space>
-      </Card>
+    <div className="screen-editor-window-content screen-editor-tags-window screen-editor-archive-window route-page-fill">
+      <div className="screen-editor-tags-window__toolbar">
+        <WorkbenchButton onClick={() => void load()} disabled={loading}>
+          {loading ? "Refreshing" : "Refresh"}
+        </WorkbenchButton>
+        <WorkbenchButton
+          variant="primary"
+          disabled={archiveDisabled}
+          onClick={async () => {
+            const result = await api.runArchiveMaintenance();
+            void message.success(`Deleted samples: ${result.deletedSamples}`);
+            await load();
+          }}
+        >
+          Run Maintenance
+        </WorkbenchButton>
+        <WorkbenchButton variant="primary" onClick={openCreatePolicy} disabled={archiveDisabled}>Add Policy</WorkbenchButton>
+        <WorkbenchButton onClick={() => selectedManagePolicy && openEditPolicy(selectedManagePolicy)} disabled={!selectedManagePolicy || archiveDisabled}>Edit Policy</WorkbenchButton>
+        <WorkbenchButton variant="danger" onClick={() => selectedManagePolicy && deletePolicy(selectedManagePolicy)} disabled={!selectedManagePolicy || archiveDisabled}>Delete Policy</WorkbenchButton>
+        <WorkbenchButton onClick={resetWidths}>Reset Widths</WorkbenchButton>
+        <WorkbenchButton onClick={() => setColumnsPanelOpen((open) => !open)}>Columns</WorkbenchButton>
 
-      {archiveDisabled ? (
-        <Card size="small">
-          <Space direction="vertical">
-            <Typography.Text type="secondary">Archive database is not configured on the server.</Typography.Text>
-            {status.reason ? <Typography.Text type="secondary">{status.reason}</Typography.Text> : null}
-          </Space>
-        </Card>
-      ) : (
-        <Tabs
-          items={[
-            {
-              key: "policies",
-              label: "Policies",
-              children: (
-                <Card
-                  size="small"
-                  title="Archive Policies"
-                  extra={<WorkbenchButton variant="primary" onClick={openCreatePolicy}>Add Policy</WorkbenchButton>}
-                >
-                  <Table
-                    rowKey="id"
-                    size="small"
-                    loading={loading}
-                    columns={policyColumns}
-                    dataSource={policies}
-                    pagination={false}
-                    scroll={{ x: 1100 }}
-                  />
-                </Card>
-              ),
-            },
-            {
-              key: "tags",
-              label: "Tag Config",
-              children: (
-                <Card size="small" title="Tag Archive Config">
-                  <Table
-                    rowKey="tagId"
-                    size="small"
-                    loading={loading}
-                    columns={tagColumns}
-                    dataSource={tagConfigs}
-                    pagination={{ pageSize: 50 }}
-                    scroll={{ x: 1100 }}
-                  />
-                </Card>
-              ),
-            },
-          ]}
+        <select className="workbench-select screen-editor-tags-window__toolbar-select" value={policyManageId} onChange={(event) => setPolicyManageId(event.target.value)}>
+          <option value="0">Policy...</option>
+          {policies.map((policy) => (
+            <option key={policy.id} value={String(policy.id)}>
+              {policy.name}
+            </option>
+          ))}
+        </select>
+
+        <div className="screen-editor-tags-window__toolbar-meta">
+          Total: {tagConfigs.length} | Filtered: {filteredTags.length} | Selected: {selectedCount} | Queue: {status.queuedSamples}
+        </div>
+      </div>
+
+      <div className="screen-editor-tags-window__toolbar screen-editor-archive-window__search-row">
+        <input
+          className="workbench-input screen-editor-tags-window__toolbar-input"
+          placeholder="Search tags"
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
         />
-      )}
+        <select
+          className="workbench-select screen-editor-tags-window__toolbar-select"
+          value={policyFilter === "all" ? "all" : String(policyFilter)}
+          onChange={(event) => setPolicyFilter(event.target.value === "all" ? "all" : Number.parseInt(event.target.value, 10))}
+        >
+          <option value="all">All policies</option>
+          <option value="0">No policy</option>
+          {policies.map((policy) => (
+            <option key={policy.id} value={String(policy.id)}>
+              {policy.name}
+            </option>
+          ))}
+        </select>
+        <WorkbenchButton
+          onClick={() => {
+            setSearch("");
+            setPolicyFilter("all");
+            setPage(1);
+          }}
+          disabled={search === "" && policyFilter === "all"}
+        >
+          Clear
+        </WorkbenchButton>
+        <WorkbenchButton onClick={selectCurrentPage} disabled={pageRows.length === 0}>Select Page</WorkbenchButton>
+        <WorkbenchButton onClick={selectAllFiltered} disabled={filteredTags.length === 0}>Select Filtered</WorkbenchButton>
+        <WorkbenchButton onClick={clearSelected} disabled={selectedCount === 0}>Clear Selected</WorkbenchButton>
+      </div>
+
+      <div className="screen-editor-tags-window__toolbar screen-editor-archive-window__group-toolbar">
+        <select className="workbench-select screen-editor-tags-window__toolbar-select" value={bulkPolicyId} onChange={(event) => setBulkPolicyId(event.target.value)}>
+          {policySelectOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <WorkbenchButton variant="primary" disabled={archiveDisabled || searchMatchedTags.length === 0} onClick={() => void applyPolicyToTags(searchMatchedTags, "found")}>
+          Assign Policy To Found
+        </WorkbenchButton>
+        <WorkbenchButton variant="primary" disabled={archiveDisabled || selectedTags.length === 0} onClick={() => void applyPolicyToTags(selectedTags, "selected")}>
+          Assign Policy To Selected
+        </WorkbenchButton>
+        <WorkbenchButton variant="danger" disabled={archiveDisabled || searchMatchedTags.length === 0} onClick={() => void clearOverridesForTags(searchMatchedTags, "found")}>
+          Clear Overrides In Found
+        </WorkbenchButton>
+        <WorkbenchButton variant="danger" disabled={archiveDisabled || selectedTags.length === 0} onClick={() => void clearOverridesForTags(selectedTags, "selected")}>
+          Clear Overrides In Selected
+        </WorkbenchButton>
+        <div className="screen-editor-tags-window__toolbar-meta">
+          Found: {searchMatchedTags.length} | Selected in filtered: {selectedInFilteredCount}
+        </div>
+      </div>
+
+      {columnsPanelOpen ? (
+        <div className="screen-editor-tags-columns-panel">
+          {ARCHIVE_COLUMNS.map((column) => (
+            <label key={column.id} className="screen-editor-tags-column-toggle">
+              <input
+                type="checkbox"
+                checked={columnVisibility[column.id] !== false}
+                disabled={column.id === "name" || column.id === "select"}
+                onChange={(event) =>
+                  setColumnVisibility((prev) => ({
+                    ...prev,
+                    [column.id]: event.target.checked,
+                    select: true,
+                    name: true,
+                  }))}
+              />
+              <span>{column.title}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+
+      <div
+        ref={bodyRef}
+        className="screen-editor-tags-window__body"
+        style={{ "--tags-details-width": `${detailsWidth}px` } as CSSProperties}
+      >
+        <div className="screen-editor-tags-window__list">
+          <div className="screen-editor-tags-table">
+            <div className="screen-editor-tags-row screen-editor-tags-row--header" style={{ gridTemplateColumns: archiveGridTemplateColumns }}>
+              {visibleColumns.map((column) => (
+                <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell">
+                  {column.id === "select" ? (
+                    <input
+                      ref={pageSelectCheckboxRef}
+                      type="checkbox"
+                      checked={pageAllSelected}
+                      onChange={() => toggleCurrentPageSelection()}
+                      aria-label="Select current page"
+                    />
+                  ) : (
+                    <span>{column.title}</span>
+                  )}
+                  {column.id !== "select" ? (
+                    <span
+                      className="screen-editor-tags-column-resize-handle"
+                      onMouseDown={(event) => startColumnResize(event, column.id)}
+                    />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            {pageRows.map((row) => {
+              const selected = selectedTag?.tagName === row.tagName;
+              const rowCells: Record<ArchiveColumnId, string> = {
+                select: selectedTagNames.has(row.tagName) ? "selected" : "",
+                name: row.tagName,
+                policy: row.policyName ?? "No policy",
+                mode: row.mode ?? "-",
+                period: row.periodMs === null ? "-" : `${row.periodMs} ms`,
+                retention: row.retentionDays === null ? "-" : `${row.retentionDays} d`,
+                override: row.override ? "Yes" : "No",
+              };
+              return (
+                <div
+                  key={row.tagName}
+                  className={["screen-editor-tags-row", selected ? "screen-editor-tags-row--selected" : ""].filter(Boolean).join(" ")}
+                  style={{ gridTemplateColumns: archiveGridTemplateColumns }}
+                  onClick={() => setSelectedTagName(row.tagName)}
+                >
+                  {visibleColumns.map((column) => {
+                    const value = rowCells[column.id];
+                    if (column.id === "select") {
+                      return (
+                        <div key={column.id} className="screen-editor-tags-cell" onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedTagNames.has(row.tagName)}
+                            onChange={() => toggleTagSelection(row.tagName)}
+                            aria-label={`Select ${row.tagName}`}
+                          />
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={column.id} className="screen-editor-tags-cell" title={value}>
+                        {value}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            {pageRows.length === 0 ? <div className="screen-editor-empty-state">No tags match the filters</div> : null}
+          </div>
+        </div>
+
+        <div
+          className={[
+            "screen-editor-tags-resize-handle",
+            isDetailsResizeActive ? "screen-editor-tags-resize-handle--active" : "",
+          ].filter(Boolean).join(" ")}
+          onMouseDown={startDetailsResize}
+        />
+
+        <div className="screen-editor-tags-window__details">
+          <div className="screen-editor-tag-editor">
+            <div className="screen-editor-tag-editor__title">Tag Details</div>
+            {selectedTag ? (
+              <>
+                <div className="screen-editor-tag-editor__kv"><span>Name</span><strong>{selectedTag.tagName}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>Policy</span><strong>{selectedTag.policyName ?? "No policy"}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>Mode</span><strong>{selectedTag.mode ?? "-"}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>Period</span><strong>{selectedTag.periodMs === null ? "-" : `${selectedTag.periodMs} ms`}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>Deadband</span><strong>{selectedTag.deadband === null ? "-" : selectedTag.deadband}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>Retention</span><strong>{selectedTag.retentionDays === null ? "-" : `${selectedTag.retentionDays} d`}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>Override</span><strong>{selectedTag.override ? "Yes" : "No"}</strong></div>
+
+                <label className="workbench-field" style={{ marginTop: 8 }}>
+                  <span className="workbench-field__label">Assign Policy</span>
+                  <select className="workbench-select" value={detailsPolicyId} onChange={(event) => setDetailsPolicyId(event.target.value)}>
+                    {policySelectOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="screen-editor-tag-editor-actions">
+                  <WorkbenchButton variant="primary" disabled={archiveDisabled} onClick={() => void assignPolicyToSelectedTag()}>
+                    Save Policy
+                  </WorkbenchButton>
+                  <WorkbenchButton disabled={archiveDisabled} onClick={() => openOverride(selectedTag)}>
+                    {selectedTag.override ? "Edit Override" : "Set Override"}
+                  </WorkbenchButton>
+                  <WorkbenchButton
+                    variant="danger"
+                    disabled={archiveDisabled || !selectedTag.override}
+                    onClick={() => void clearOverride(selectedTag)}
+                  >
+                    Clear Override
+                  </WorkbenchButton>
+                </div>
+              </>
+            ) : (
+              <div className="screen-editor-empty-state">Select a tag</div>
+            )}
+
+            {archiveDisabled && status.reason ? <div className="screen-editor-tag-editor__hint">{status.reason}</div> : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="screen-editor-tags-pagination">
+        <span>Rows: {totalRows} | Page {safePage} / {totalPages}</span>
+        <WorkbenchButton disabled={safePage <= 1} onClick={() => setPage(1)}>First</WorkbenchButton>
+        <WorkbenchButton disabled={safePage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>Prev</WorkbenchButton>
+        <WorkbenchButton disabled={safePage >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>Next</WorkbenchButton>
+        <WorkbenchButton disabled={safePage >= totalPages} onClick={() => setPage(totalPages)}>Last</WorkbenchButton>
+        <select
+          className="workbench-select screen-editor-tags-page-size"
+          value={pageSize}
+          onChange={(event) => {
+            setPageSize(Number(event.target.value));
+            setPage(1);
+          }}
+        >
+          <option value={50}>50</option>
+          <option value={100}>100</option>
+          <option value={200}>200</option>
+          <option value={500}>500</option>
+        </select>
+        <span className={`screen-editor-archive-window__status screen-editor-archive-window__status--${archiveStatusView.tone}`}>
+          {archiveStatusView.text}
+        </span>
+      </div>
+
+      <ArchiveWorkbenchDialog
+        id="archive-confirm-dialog"
+        title={confirmState?.title ?? "Confirm"}
+        open={Boolean(confirmState)}
+        defaultRect={{ x: 0, y: 0, width: 520, height: 240 }}
+        onClose={() => {
+          if (!confirmBusy) {
+            setConfirmState(null);
+          }
+        }}
+        onSubmit={() => void runConfirmAction()}
+        submitLabel={confirmBusy ? "Working..." : (confirmState?.submitLabel ?? "OK")}
+        submitVariant={confirmState?.submitVariant ?? "primary"}
+        submitDisabled={confirmBusy}
+        cancelDisabled={confirmBusy}
+      >
+        <div className="archive-workbench-confirm-text">{confirmState?.message}</div>
+      </ArchiveWorkbenchDialog>
 
       <ArchiveWorkbenchDialog
         id="archive-policy-editor"
@@ -417,7 +1105,7 @@ export function ArchivePage() {
               <InputNumber min={1} style={{ width: 130 }} />
             </Form.Item>
             <Form.Item name="deadband" label="Deadband" rules={[{ required: true }]}>
-              <InputNumber min={0} style={{ width: 130 }} />
+              <InputNumber min={0} step={0.01} precision={2} style={{ width: 130 }} />
             </Form.Item>
             <Form.Item name="retentionDays" label="Retention days" rules={[{ required: true }]}>
               <InputNumber min={1} style={{ width: 130 }} />
@@ -465,7 +1153,7 @@ export function ArchivePage() {
               <InputNumber min={1} style={{ width: 130 }} />
             </Form.Item>
             <Form.Item name="deadband" label="Deadband">
-              <InputNumber min={0} style={{ width: 130 }} />
+              <InputNumber min={0} step={0.01} precision={2} style={{ width: 130 }} />
             </Form.Item>
             <Form.Item name="retentionDays" label="Retention days">
               <InputNumber min={1} style={{ width: 130 }} />
