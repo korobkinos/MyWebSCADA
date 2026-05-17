@@ -34,6 +34,19 @@ type RuntimeTagSubscriptionInput = {
   popups: PopupSubscriptionContext[];
 };
 
+const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
+  "group",
+  "text",
+  "line",
+  "rectangle",
+  "image",
+  "stateImage",
+  "numeric-image-indicator",
+  "value-display",
+  "state-indicator",
+  "button",
+]);
+
 export function collectRuntimeTagSubscriptions(input: RuntimeTagSubscriptionInput): string[] {
   const tags = new Set<string>();
   const frameGuard = new Set<string>();
@@ -545,6 +558,9 @@ function addRotationAnimationFieldTags(
   const rotationAnimation = input.object.rotationAnimation;
   const hasTriggerTag = Boolean(rotationAnimation?.triggerTag?.trim());
   const hasSpeedTag = Boolean(rotationAnimation?.speedTag?.trim());
+  if (!ROTATION_ANIMATION_SUPPORTED_TYPES.has(input.object.type)) {
+    return;
+  }
   if (!(rotationAnimation?.enabled === true || hasTriggerTag || hasSpeedTag)) {
     return;
   }

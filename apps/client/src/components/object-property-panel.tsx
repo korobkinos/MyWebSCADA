@@ -89,6 +89,7 @@ const accessRoleOptions: Array<{ label: string; value: AccessRoleLevel }> = [
   { label: `4 - ${ACCESS_ROLE_LABELS_RU[4]}`, value: 4 },
 ];
 const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
+  "group",
   "text",
   "line",
   "rectangle",

@@ -239,4 +239,52 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).toContain("Fan_1.Run");
     expect(subscriptions).toContain("Fan_1.Speed");
   });
+
+  it("collects group rotation animation trigger/speed tags", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "group-1",
+          type: "group",
+          x: 100,
+          y: 100,
+          width: 200,
+          height: 200,
+          rotationAnimation: {
+            enabled: true,
+            triggerTag: "Motor_1.Run",
+            speedSource: "tag",
+            speedTag: "Motor_1.Speed",
+          },
+          objects: [],
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Motor_1.Run");
+    expect(subscriptions).toContain("Motor_1.Speed");
+  });
 });

@@ -639,6 +639,7 @@ const ROOT_PROPERTY_BLOCKLIST = new Set([
   "tagIndexingByField",
 ]);
 const ROTATION_ANIMATION_HINT_TYPES = new Set<HmiObject["type"]>([
+  "group",
   "text",
   "line",
   "rectangle",

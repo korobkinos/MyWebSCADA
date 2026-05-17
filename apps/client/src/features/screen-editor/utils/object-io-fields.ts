@@ -41,6 +41,7 @@ const CHECKBOX_WRITE_MODE_OPTIONS: Array<{ label: string; value: CheckboxWriteMo
   { label: "Pulse False", value: "pulseFalse" },
 ];
 const ROTATION_ANIMATION_IO_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
+  "group",
   "text",
   "line",
   "rectangle",

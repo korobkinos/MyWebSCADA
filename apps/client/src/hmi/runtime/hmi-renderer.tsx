@@ -68,6 +68,7 @@ type FormatNumericOptions = {
 type GradientDirection = "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
 type ShadowDirection = "right" | "left" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
+  "group",
   "text",
   "line",
   "rectangle",
@@ -571,6 +572,15 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
         tags.add(resolvedOwnTag);
       }
     }
+    const groupRotationAnimation = object.rotationAnimation;
+    if (groupRotationAnimation?.enabled === true || groupRotationAnimation?.triggerTag?.trim() || groupRotationAnimation?.speedTag?.trim()) {
+      for (const ownTag of [groupRotationAnimation?.triggerTag, groupRotationAnimation?.speedTag]) {
+        const resolvedOwnTag = resolveTagName(ownTag, context);
+        if (resolvedOwnTag) {
+          tags.add(resolvedOwnTag);
+        }
+      }
+    }
     for (const child of object.objects) {
       const childTags = collectWatchedTags(child, context);
       if (!childTags) {
@@ -638,7 +648,10 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
   const rotationAnimation = object.rotationAnimation;
   const hasRotationTriggerTag = Boolean(rotationAnimation?.triggerTag?.trim());
   const hasRotationSpeedTag = Boolean(rotationAnimation?.speedTag?.trim());
-  if (rotationAnimation?.enabled === true || hasRotationTriggerTag || hasRotationSpeedTag) {
+  if (
+    isRotationAnimationSupportedObjectType(object.type)
+    && (rotationAnimation?.enabled === true || hasRotationTriggerTag || hasRotationSpeedTag)
+  ) {
     candidates.push(rotationAnimation?.triggerTag, rotationAnimation?.speedTag);
   }
 

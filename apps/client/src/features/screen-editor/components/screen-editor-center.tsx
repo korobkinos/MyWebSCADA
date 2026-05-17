@@ -466,6 +466,7 @@ export function ScreenEditorCenter({
                       <WorkbenchIconButton onClick={() => addPrimitiveShape("square", getViewportCenter())} title="Add Square" icon={<SquareIcon />} />
                       <WorkbenchIconButton onClick={() => addPrimitiveShape("circle", getViewportCenter())} title="Add Circle" icon={<CircleIcon />} />
                       <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle", getViewportCenter())} title="Add Triangle" icon={<TriangleUpIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("frame"))} title="Add Frame" icon={<BorderSplitIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("image"))} title="Add Image" icon={<FileImageOutlined />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("stateImage"))} title="Add State Image" icon={<ActivityLogIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("numeric-image-indicator"))} title="Add Numeric Image Indicator" icon={<NumberOutlined />} />
