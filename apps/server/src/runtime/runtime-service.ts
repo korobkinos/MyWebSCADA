@@ -167,6 +167,7 @@ export class RuntimeService {
   }
 
   public setActiveTags(tagNames: Iterable<string>): void {
+    const previousActive = new Set(this.activeTagNames);
     this.activeTagNames.clear();
     for (const item of tagNames) {
       const trimmed = item.trim();
@@ -176,6 +177,15 @@ export class RuntimeService {
       this.activeTagNames.add(trimmed);
     }
     this.hasExternalSubscriptions = true;
+
+    if (!this.state.running) {
+      return;
+    }
+
+    const newlyActivated = [...this.activeTagNames].filter((name) => !previousActive.has(name));
+    if (newlyActivated.length > 0) {
+      void this.pollTagsNow(newlyActivated);
+    }
   }
 
   public clearActiveTags(): void {
@@ -338,6 +348,49 @@ export class RuntimeService {
       }
     } finally {
       this.inFlightRates.delete(rate);
+    }
+  }
+
+  private async pollTagsNow(tagNames: string[]): Promise<void> {
+    if (!this.state.running || tagNames.length === 0) {
+      return;
+    }
+
+    const targets: TagDefinition[] = [];
+    for (const name of tagNames) {
+      const definition = this.tagStore.getDefinition(name);
+      if (!definition || (!definition.driverId && definition.sourceType !== "simulated")) {
+        continue;
+      }
+      targets.push(definition);
+    }
+    if (targets.length === 0) {
+      return;
+    }
+
+    try {
+      const values = await this.driverManager.readTags(targets);
+      if (!this.state.running) {
+        return;
+      }
+
+      const definitionsByName = new Map(targets.map((tag) => [tag.name, tag]));
+      for (const value of values) {
+        const definition = definitionsByName.get(value.name);
+        if (!definition) {
+          continue;
+        }
+        const scaledValue = this.applyScale(definition.scale, definition.offset, value.value);
+        this.tagStore.upsertValue({
+          ...value,
+          value: scaledValue,
+        });
+      }
+    } catch (error) {
+      if (this.runtimeDebug) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[RuntimeService] immediate poll failed tagCount=${targets.length} error=${message}`);
+      }
     }
   }
 
