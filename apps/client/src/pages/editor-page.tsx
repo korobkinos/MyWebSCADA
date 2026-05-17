@@ -369,11 +369,34 @@ export function EditorPage() {
       if (!screen) {
         return;
       }
-      if ("type" in command) {
-        executeCommand(command);
-      }
+      const labelByType: Record<EditorCommand["type"], string> = {
+        groupSelected: "Group objects",
+        ungroupSelected: "Ungroup objects",
+        mergeSelectedLinesToPolyline: "Merge lines",
+        lockSelected: "Lock objects",
+        unlockSelected: "Unlock objects",
+        alignLeft: "Align left",
+        alignRight: "Align right",
+        alignTop: "Align top",
+        alignBottom: "Align bottom",
+        alignHorizontalCenter: "Align horizontal center",
+        alignVerticalCenter: "Align vertical center",
+        makeSameWidth: "Make same width",
+        makeSameHeight: "Make same height",
+        makeSameSize: "Make same size",
+        distributeHorizontally: "Distribute horizontally",
+        distributeVertically: "Distribute vertically",
+        spaceEvenlyHorizontally: "Space evenly horizontally",
+        spaceEvenlyVertically: "Space evenly vertically",
+      };
+      runWithHistory(labelByType[command.type] ?? "Editor command", () => {
+        const warnings = executeCommand(command);
+        if (warnings.length > 0) {
+          void message.warning(warnings.join(" | "));
+        }
+      });
     },
-    [executeCommand, screen],
+    [executeCommand, runWithHistory, screen],
   );
 
   const addPrimitiveShape = (kind: PrimitiveShapeKind, center?: { x: number; y: number }) => {
@@ -952,6 +975,7 @@ export function EditorPage() {
   const canAlign = selectedUnlocked.length >= 2;
   const canSameSize = selectedUnlocked.length >= 2;
   const canDistribute = selectedUnlocked.length >= 2;
+  const canMergeLines = selectedUnlocked.filter((obj) => obj.type === "line").length >= 2;
 
   const { windowDefinitions, openDefinedWindow } = useEditorWindowDefinitions({
     project,
@@ -1243,6 +1267,7 @@ export function EditorPage() {
             setCloneOpen={setCloneOpen}
             canGroup={canGroup}
             canUngroup={canUngroup}
+            canMergeLines={canMergeLines}
             canLock={canLock}
             canUnlock={canUnlock}
             canAlign={canAlign}

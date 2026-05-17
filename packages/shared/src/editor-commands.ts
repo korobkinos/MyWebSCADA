@@ -1,4 +1,4 @@
-import type { GroupObject, HmiObject } from "./hmi-object-types";
+import type { GroupObject, HmiObject, LineObject } from "./hmi-object-types";
 import type { HmiScreen } from "./project-types";
 
 export type Rect = {
@@ -18,9 +18,15 @@ export type SpacingOptions = {
   gap?: number;
 };
 
+export type Point = {
+  x: number;
+  y: number;
+};
+
 export type EditorCommand =
   | { type: "groupSelected" }
   | { type: "ungroupSelected" }
+  | { type: "mergeSelectedLinesToPolyline" }
   | { type: "lockSelected" }
   | { type: "unlockSelected" }
   | { type: "alignLeft" }
@@ -181,6 +187,8 @@ export function executeEditorCommand(
   command: EditorCommand,
 ): EditorCommandResult {
   switch (command.type) {
+    case "mergeSelectedLinesToPolyline":
+      return mergeSelectedLinesToPolyline(screen, selection);
     case "groupSelected":
       return groupSelected(screen, selection);
     case "ungroupSelected":
@@ -246,6 +254,81 @@ export function groupSelected(screen: HmiScreen, selection: EditorSelectionState
       activeObjectId: group.id,
     },
     warnings,
+  };
+}
+
+export function mergeSelectedLinesToPolyline(screen: HmiScreen, selection: EditorSelectionState): EditorCommandResult {
+  const selectedObjects = selection.selectedObjectIds
+    .map((id) => screen.objects.find((obj) => obj.id === id))
+    .filter((obj): obj is HmiObject => Boolean(obj));
+
+  if (selectedObjects.length < 2) {
+    return { screen, selection, warnings: ["Select at least 2 line objects to merge."] };
+  }
+
+  if (selectedObjects.some((obj) => obj.locked)) {
+    return { screen, selection, warnings: ["Locked lines cannot be merged."] };
+  }
+
+  if (selectedObjects.some((obj) => obj.type !== "line")) {
+    return { screen, selection, warnings: ["Merge Lines supports line objects only."] };
+  }
+
+  const selectedLines = selectedObjects.filter((obj): obj is LineObject => obj.type === "line");
+  const source = selectedLines[0];
+  if (!source) {
+    return { screen, selection, warnings: ["Select at least 2 line objects to merge."] };
+  }
+  const connected = buildConnectedPolyline(selectedLines, 4);
+  if ("error" in connected) {
+    return { screen, selection, warnings: [connected.error] };
+  }
+
+  const mergedAbsolutePoints = connected.points;
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const point of mergedAbsolutePoints) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return { screen, selection, warnings: ["Selected lines are not connected into one continuous path."] };
+  }
+
+  const normalizedPoints: number[] = [];
+  for (const point of mergedAbsolutePoints) {
+    normalizedPoints.push(point.x - minX, point.y - minY);
+  }
+
+  const mergedLine: LineObject = {
+    ...source,
+    type: "line",
+    id: createId("line"),
+    name: source.name?.trim() || "Merged Line",
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+    points: normalizedPoints,
+    closed: false,
+    cornerRadius: source.cornerRadius ?? 0,
+    rotation: 0,
+    locked: false,
+  };
+
+  const selectedIdSet = new Set(selectedObjects.map((obj) => obj.id));
+  const nextObjects = [...screen.objects.filter((obj) => !selectedIdSet.has(obj.id)), mergedLine];
+
+  return {
+    screen: { ...screen, objects: nextObjects },
+    selection: {
+      selectedObjectIds: [mergedLine.id],
+      activeObjectId: mergedLine.id,
+    },
   };
 }
 
@@ -554,6 +637,172 @@ function selectedUnlocked(objects: HmiObject[], selectedIds: string[]): HmiObjec
   return objects.filter((obj) => idSet.has(obj.id) && !obj.locked);
 }
 
+export function getLineAbsolutePoints(line: LineObject): Point[] {
+  const output: Point[] = [];
+  const rotation = line.rotation ?? 0;
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  for (let index = 0; index + 1 < line.points.length; index += 2) {
+    const localX = line.points[index] ?? 0;
+    const localY = line.points[index + 1] ?? 0;
+    const rotatedX = localX * cos - localY * sin;
+    const rotatedY = localX * sin + localY * cos;
+    output.push({
+      x: line.x + rotatedX,
+      y: line.y + rotatedY,
+    });
+  }
+  return output;
+}
+
+export function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+export function arePointsClose(a: Point, b: Point, tolerance: number): boolean {
+  return distance(a, b) <= tolerance;
+}
+
+export function reversePoints(points: Point[]): Point[] {
+  return [...points].reverse();
+}
+
+export function buildConnectedPolyline(
+  lines: LineObject[],
+  tolerance: number,
+): { points: Point[] } | { error: string } {
+  if (lines.length < 2) {
+    return { error: "Select at least 2 line objects to merge." };
+  }
+
+  const lineSegments = lines.map((line, lineIndex) => {
+    const absolutePoints = getLineAbsolutePoints(line);
+    return {
+      lineIndex,
+      absolutePoints,
+      startCluster: -1,
+      endCluster: -1,
+    };
+  });
+  if (lineSegments.some((segment) => segment.absolutePoints.length < 2)) {
+    return { error: "Selected lines are not connected into one continuous path." };
+  }
+
+  const endpoints = lineSegments.flatMap((segment, segmentIndex) => {
+    const first = segment.absolutePoints[0];
+    const last = segment.absolutePoints[segment.absolutePoints.length - 1];
+    if (!first || !last) {
+      return [];
+    }
+    return [
+      { segmentIndex, isStart: true, point: first },
+      { segmentIndex, isStart: false, point: last },
+    ];
+  });
+  if (endpoints.length !== lineSegments.length * 2) {
+    return { error: "Selected lines are not connected into one continuous path." };
+  }
+
+  const parent = endpoints.map((_, index) => index);
+  const find = (index: number): number => {
+    let cursor = index;
+    while (parent[cursor] !== cursor) {
+      parent[cursor] = parent[parent[cursor]!]!;
+      cursor = parent[cursor]!;
+    }
+    return cursor;
+  };
+  const unite = (a: number, b: number) => {
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) {
+      parent[rootB] = rootA;
+    }
+  };
+  for (let i = 0; i < endpoints.length; i += 1) {
+    for (let j = i + 1; j < endpoints.length; j += 1) {
+      if (arePointsClose(endpoints[i]!.point, endpoints[j]!.point, tolerance)) {
+        unite(i, j);
+      }
+    }
+  }
+
+  const clusterByRoot = new Map<number, number>();
+  const endpointCluster = endpoints.map((_, index) => {
+    const root = find(index);
+    let clusterId = clusterByRoot.get(root);
+    if (clusterId === undefined) {
+      clusterId = clusterByRoot.size;
+      clusterByRoot.set(root, clusterId);
+    }
+    return clusterId;
+  });
+
+  for (let endpointIndex = 0; endpointIndex < endpoints.length; endpointIndex += 1) {
+    const endpoint = endpoints[endpointIndex]!;
+    const clusterId = endpointCluster[endpointIndex]!;
+    const segment = lineSegments[endpoint.segmentIndex]!;
+    if (endpoint.isStart) {
+      segment.startCluster = clusterId;
+    } else {
+      segment.endCluster = clusterId;
+    }
+  }
+  if (lineSegments.some((segment) => segment.startCluster < 0 || segment.endCluster < 0 || segment.startCluster === segment.endCluster)) {
+    return { error: "Selected lines are not connected into one continuous path." };
+  }
+
+  const adjacency = new Map<number, number[]>();
+  lineSegments.forEach((segment, segmentIndex) => {
+    const startEdges = adjacency.get(segment.startCluster) ?? [];
+    startEdges.push(segmentIndex);
+    adjacency.set(segment.startCluster, startEdges);
+    const endEdges = adjacency.get(segment.endCluster) ?? [];
+    endEdges.push(segmentIndex);
+    adjacency.set(segment.endCluster, endEdges);
+  });
+
+  for (const edges of adjacency.values()) {
+    if (edges.length > 2) {
+      return { error: "Selected lines form a branch. Merge supports one continuous path only." };
+    }
+  }
+
+  const degreeOneNodes = [...adjacency.entries()]
+    .filter(([, edges]) => edges.length === 1)
+    .map(([cluster]) => cluster);
+  if (degreeOneNodes.length !== 2) {
+    return { error: "Selected lines are not connected into one continuous path." };
+  }
+
+  const merged: Point[] = [];
+  const visitedEdges = new Set<number>();
+  let currentCluster = degreeOneNodes[0]!;
+  let previousEdge = -1;
+  while (true) {
+    const edges = adjacency.get(currentCluster) ?? [];
+    const nextEdgeCandidates = edges.filter((edgeIndex) => edgeIndex !== previousEdge && !visitedEdges.has(edgeIndex));
+    const nextEdge = nextEdgeCandidates[0];
+    if (nextEdge === undefined) {
+      break;
+    }
+    visitedEdges.add(nextEdge);
+    const segment = lineSegments[nextEdge]!;
+    const traversingForward = segment.startCluster === currentCluster;
+    const orientedPoints = traversingForward ? segment.absolutePoints : reversePoints(segment.absolutePoints);
+    appendPoints(merged, orientedPoints, tolerance);
+    previousEdge = nextEdge;
+    currentCluster = traversingForward ? segment.endCluster : segment.startCluster;
+  }
+
+  if (visitedEdges.size !== lineSegments.length || merged.length < 2) {
+    return { error: "Selected lines are not connected into one continuous path." };
+  }
+
+  return { points: merged };
+}
+
 function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -563,4 +812,29 @@ function rotatePoint(x: number, y: number, cos: number, sin: number): { x: numbe
     x: x * cos - y * sin,
     y: x * sin + y * cos,
   };
+}
+
+function appendPoints(output: Point[], nextPoints: Point[], tolerance: number): void {
+  if (nextPoints.length === 0) {
+    return;
+  }
+  if (output.length === 0) {
+    output.push(...nextPoints);
+    return;
+  }
+  const lastIndex = output.length - 1;
+  const lastPoint = output[lastIndex];
+  const firstPoint = nextPoints[0];
+  if (!lastPoint || !firstPoint) {
+    return;
+  }
+  if (arePointsClose(lastPoint, firstPoint, tolerance)) {
+    output[lastIndex] = {
+      x: (lastPoint.x + firstPoint.x) / 2,
+      y: (lastPoint.y + firstPoint.y) / 2,
+    };
+    output.push(...nextPoints.slice(1));
+    return;
+  }
+  output.push(...nextPoints);
 }

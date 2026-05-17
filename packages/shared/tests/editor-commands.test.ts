@@ -22,6 +22,28 @@ function rectObject(id: string, x: number, y: number, width: number, height: num
   };
 }
 
+function lineObject(
+  id: string,
+  x: number,
+  y: number,
+  points: number[],
+  options?: { locked?: boolean; name?: string; stroke?: string; strokeWidth?: number },
+): HmiObject {
+  return {
+    id,
+    type: "line",
+    x,
+    y,
+    width: 100,
+    height: 100,
+    points,
+    stroke: options?.stroke ?? "#d9d9d9",
+    strokeWidth: options?.strokeWidth ?? 3,
+    locked: options?.locked ?? false,
+    name: options?.name,
+  };
+}
+
 function screenWith(objects: HmiObject[]): HmiScreen {
   return {
     id: "s1",
@@ -255,5 +277,87 @@ describe("locked behavior", () => {
     expect(byId(result.screen, "a").width).toBe(10);
     expect(byId(result.screen, "c").width).toBe(10);
     expect(byId(result.screen, "b").width).toBe(25);
+  });
+});
+
+describe("merge lines", () => {
+  it("merges two connected lines into one polyline", () => {
+    const lineA = lineObject("line_a", 10, 10, [0, 0, 40, 0], { name: "Pipe A", stroke: "#abcdef", strokeWidth: 5 });
+    const lineB = lineObject("line_b", 50, 10, [0, 0, 0, 30], { stroke: "#123456", strokeWidth: 2 });
+    const screen = screenWith([lineA, lineB]);
+
+    const result = executeEditorCommand(screen, selection(["line_a", "line_b"], "line_b"), {
+      type: "mergeSelectedLinesToPolyline",
+    });
+
+    expect(result.warnings ?? []).toHaveLength(0);
+    expect(result.screen.objects).toHaveLength(1);
+    const merged = result.screen.objects[0];
+    expect(merged?.type).toBe("line");
+    if (!merged || merged.type !== "line") {
+      return;
+    }
+    expect(merged.stroke).toBe("#abcdef");
+    expect(merged.strokeWidth).toBe(5);
+    expect(merged.name).toBe("Pipe A");
+    expect(merged.closed).toBe(false);
+    expect(merged.points).toEqual([0, 0, 40, 0, 40, 30]);
+    expect(result.selection.selectedObjectIds).toEqual([merged.id]);
+  });
+
+  it("returns warning for disconnected lines", () => {
+    const lineA = lineObject("line_a", 0, 0, [0, 0, 20, 0]);
+    const lineB = lineObject("line_b", 200, 200, [0, 0, 20, 0]);
+    const screen = screenWith([lineA, lineB]);
+
+    const result = executeEditorCommand(screen, selection(["line_a", "line_b"]), {
+      type: "mergeSelectedLinesToPolyline",
+    });
+
+    expect(result.screen.objects).toHaveLength(2);
+    expect(result.warnings).toContain("Selected lines are not connected into one continuous path.");
+  });
+
+  it("returns warning for branch topology", () => {
+    const horizontal = lineObject("a", 100, 100, [0, 0, 40, 0]);
+    const vertical = lineObject("b", 140, 100, [0, 0, 0, 40]);
+    const reverseHorizontal = lineObject("c", 140, 100, [0, 0, -40, 0]);
+    const screen = screenWith([horizontal, vertical, reverseHorizontal]);
+
+    const result = executeEditorCommand(screen, selection(["a", "b", "c"]), {
+      type: "mergeSelectedLinesToPolyline",
+    });
+
+    expect(result.screen.objects).toHaveLength(3);
+    expect(result.warnings).toContain("Selected lines form a branch. Merge supports one continuous path only.");
+  });
+
+  it("merges connected lines with rotation applied", () => {
+    const horizontal = lineObject("a", 100, 100, [0, 0, 40, 0], { name: "Pipe A" });
+    const verticalRotated: HmiObject = {
+      ...lineObject("b", 140, 100, [0, 0, 40, 0]),
+      rotation: 90,
+    };
+    const screen = screenWith([horizontal, verticalRotated]);
+
+    const result = executeEditorCommand(screen, selection(["a", "b"]), {
+      type: "mergeSelectedLinesToPolyline",
+    });
+
+    expect(result.warnings ?? []).toHaveLength(0);
+    expect(result.screen.objects).toHaveLength(1);
+    const merged = result.screen.objects[0];
+    expect(merged?.type).toBe("line");
+    if (!merged || merged.type !== "line") {
+      return;
+    }
+    expect(merged.rotation ?? 0).toBe(0);
+    expect(merged.points.length).toBe(6);
+    expect(merged.points[0]).toBeCloseTo(0, 6);
+    expect(merged.points[1]).toBeCloseTo(0, 6);
+    expect(merged.points[2]).toBeCloseTo(40, 6);
+    expect(merged.points[3]).toBeCloseTo(0, 6);
+    expect(merged.points[4]).toBeCloseTo(40, 6);
+    expect(merged.points[5]).toBeCloseTo(40, 6);
   });
 });

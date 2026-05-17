@@ -172,6 +172,7 @@ export type ScreenEditorCenterProps = {
   setCloneOpen: (v: boolean) => void;
   canGroup: boolean;
   canUngroup: boolean;
+  canMergeLines: boolean;
   canLock: boolean;
   canUnlock: boolean;
   canAlign: boolean;
@@ -234,6 +235,7 @@ export function ScreenEditorCenter({
   setCloneOpen,
   canGroup,
   canUngroup,
+  canMergeLines,
   canLock,
   canUnlock,
   canAlign,
@@ -580,6 +582,7 @@ export function ScreenEditorCenter({
                       />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup} title="Group selected objects" icon={<GroupIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup} title="Ungroup selected objects" icon={<BorderSplitIcon />} />
+                      <WorkbenchButton onClick={() => runCommand({ type: "mergeSelectedLinesToPolyline" })} disabled={!canMergeLines} title="Merge selected lines to polyline">Merge Lines</WorkbenchButton>
                       <WorkbenchIconButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length} title="Clone selected objects" icon={<CopyIcon />} />
                       <WorkbenchIconButton onClick={onBringToFront} disabled={!hasSelection} title="Bring to Front" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2912;</span>} />
                       <WorkbenchIconButton onClick={onSendToBack} disabled={!hasSelection} title="Send to Back" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2913;</span>} />

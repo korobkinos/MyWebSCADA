@@ -163,6 +163,9 @@ export type LineObject = HmiObjectBase & {
   points: number[];
   stroke: string;
   strokeWidth: number;
+  lineCap?: "butt" | "round" | "square";
+  lineJoin?: "miter" | "round" | "bevel";
+  cornerRadius?: number;
   closed?: boolean;
   fill?: string;
   stateTag?: string;

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Circle, Group, Image as KonvaImage, Line, Rect, Text } from "react-konva";
+import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type Konva from "konva";
 import { message } from "antd";
@@ -200,6 +200,158 @@ type RgbaColor = {
   b: number;
   a: number;
 };
+
+type LinePoint = {
+  x: number;
+  y: number;
+};
+
+function toLinePoints(points: number[]): LinePoint[] {
+  const output: LinePoint[] = [];
+  for (let index = 0; index + 1 < points.length; index += 2) {
+    output.push({
+      x: points[index] ?? 0,
+      y: points[index + 1] ?? 0,
+    });
+  }
+  return output;
+}
+
+function toFlatPoints(points: LinePoint[]): number[] {
+  const output: number[] = [];
+  for (const point of points) {
+    output.push(point.x, point.y);
+  }
+  return output;
+}
+
+function buildRoundedCorners(points: number[], radius: number): Array<{
+  before: LinePoint;
+  control: LinePoint;
+  after: LinePoint;
+  actualRadius: number;
+}> {
+  const vertices = toLinePoints(points);
+  const corners: Array<{
+    before: LinePoint;
+    control: LinePoint;
+    after: LinePoint;
+    actualRadius: number;
+  }> = [];
+  if (vertices.length < 3 || !(radius > 0)) {
+    return corners;
+  }
+
+  for (let index = 1; index < vertices.length - 1; index += 1) {
+    const prev = vertices[index - 1]!;
+    const curr = vertices[index]!;
+    const next = vertices[index + 1]!;
+    const prevDx = prev.x - curr.x;
+    const prevDy = prev.y - curr.y;
+    const nextDx = next.x - curr.x;
+    const nextDy = next.y - curr.y;
+    const prevDistance = Math.hypot(prevDx, prevDy);
+    const nextDistance = Math.hypot(nextDx, nextDy);
+    if (!(prevDistance > 1e-6) || !(nextDistance > 1e-6)) {
+      continue;
+    }
+    const actualRadius = Math.min(radius, prevDistance / 2, nextDistance / 2);
+    if (!(actualRadius > 0)) {
+      continue;
+    }
+
+    const before: LinePoint = {
+      x: curr.x + (prevDx / prevDistance) * actualRadius,
+      y: curr.y + (prevDy / prevDistance) * actualRadius,
+    };
+    const after: LinePoint = {
+      x: curr.x + (nextDx / nextDistance) * actualRadius,
+      y: curr.y + (nextDy / nextDistance) * actualRadius,
+    };
+    corners.push({ before, control: curr, after, actualRadius });
+  }
+  return corners;
+}
+
+function buildRoundedPolylinePath(points: number[], radius: number, closed: boolean): string {
+  if (closed) {
+    return "";
+  }
+  const vertices = toLinePoints(points);
+  if (vertices.length < 2) {
+    return "";
+  }
+  if (vertices.length < 3 || !(radius > 0)) {
+    let path = `M ${vertices[0]!.x} ${vertices[0]!.y}`;
+    for (let index = 1; index < vertices.length; index += 1) {
+      const point = vertices[index]!;
+      path += ` L ${point.x} ${point.y}`;
+    }
+    return path;
+  }
+
+  const corners = buildRoundedCorners(points, radius);
+  const first = vertices[0]!;
+  let path = `M ${first.x} ${first.y}`;
+  for (let index = 1; index < vertices.length - 1; index += 1) {
+    const corner = corners[index - 1];
+    const point = vertices[index]!;
+    if (!corner) {
+      path += ` L ${point.x} ${point.y}`;
+      continue;
+    }
+    path += ` L ${corner.before.x} ${corner.before.y}`;
+    path += ` Q ${corner.control.x} ${corner.control.y} ${corner.after.x} ${corner.after.y}`;
+  }
+  const last = vertices[vertices.length - 1]!;
+  path += ` L ${last.x} ${last.y}`;
+  return path;
+}
+
+function buildRoundedPolylinePoints(points: number[], radius: number, closed: boolean): number[] {
+  if (closed) {
+    return points;
+  }
+  const vertices = toLinePoints(points);
+  if (vertices.length < 3 || !(radius > 0)) {
+    return points;
+  }
+
+  const corners = buildRoundedCorners(points, radius);
+  const output: LinePoint[] = [];
+  const pushPoint = (point: LinePoint) => {
+    const last = output[output.length - 1];
+    if (last && Math.hypot(last.x - point.x, last.y - point.y) < 1e-6) {
+      return;
+    }
+    output.push(point);
+  };
+
+  pushPoint(vertices[0]!);
+  for (let index = 1; index < vertices.length - 1; index += 1) {
+    const corner = corners[index - 1];
+    const point = vertices[index]!;
+    if (!corner) {
+      pushPoint(point);
+      continue;
+    }
+    pushPoint(corner.before);
+    const segmentCount = Math.max(2, Math.min(24, Math.ceil(corner.actualRadius / 3)));
+    for (let step = 1; step <= segmentCount; step += 1) {
+      const t = step / segmentCount;
+      const oneMinusT = 1 - t;
+      const x = oneMinusT * oneMinusT * corner.before.x
+        + 2 * oneMinusT * t * corner.control.x
+        + t * t * corner.after.x;
+      const y = oneMinusT * oneMinusT * corner.before.y
+        + 2 * oneMinusT * t * corner.control.y
+        + t * t * corner.after.y;
+      pushPoint({ x, y });
+    }
+  }
+  pushPoint(vertices[vertices.length - 1]!);
+  return toFlatPoints(output);
+}
 
 function buildPolylinePath(points: number[], closed: boolean): PolylinePath {
   const segments: PolylineSegment[] = [];
@@ -1117,11 +1269,27 @@ function ObjectNode({
   const normalizedDashLength = Number.isFinite(flowDashLength) && flowDashLength > 0 ? flowDashLength : 12;
   const normalizedGapLength = Number.isFinite(flowGapLength) && flowGapLength > 0 ? flowGapLength : 8;
   const flowSpacing = Math.max(2, normalizedDashLength + normalizedGapLength);
+  const lineFlowPoints = useMemo(() => {
+    if (resolvedObject.type !== "line") {
+      return [];
+    }
+    const radius = Math.max(0, resolvedObject.cornerRadius ?? 0);
+    const closed = resolvedObject.closed ?? false;
+    if (radius > 0 && !closed && resolvedObject.points.length >= 6) {
+      return buildRoundedPolylinePoints(resolvedObject.points, radius, closed);
+    }
+    return resolvedObject.points;
+  }, [
+    resolvedObject.type,
+    resolvedObject.type === "line" ? resolvedObject.cornerRadius : undefined,
+    resolvedObject.type === "line" ? resolvedObject.closed : undefined,
+    resolvedObject.type === "line" ? resolvedObject.points : undefined,
+  ]);
   const lineFlowRuntimeData = useMemo(() => {
     if (resolvedObject.type !== "line") {
       return null;
     }
-    const flowPath = buildPolylinePath(resolvedObject.points, resolvedObject.closed ?? false);
+    const flowPath = buildPolylinePath(lineFlowPoints, resolvedObject.closed ?? false);
     const markerCount = Math.min(400, Math.max(1, Math.ceil((flowPath.totalLength || 0) / flowSpacing) + 1));
     const defaultInnerStrokeWidth = Math.max(1, Math.min(resolvedObject.strokeWidth, Math.max(2, resolvedObject.strokeWidth * 0.35)));
     const useBaseStrokeWidth = flowAnimation?.useBaseStrokeWidth ?? false;
@@ -1146,7 +1314,7 @@ function ObjectNode({
     normalizedDashLength,
     resolvedObject.type,
     resolvedObject.type === "line" ? resolvedObject.closed : undefined,
-    resolvedObject.type === "line" ? resolvedObject.points : undefined,
+    lineFlowPoints,
     resolvedObject.type === "line" ? resolvedObject.strokeWidth : undefined,
   ]);
 
@@ -1633,6 +1801,13 @@ function ObjectNode({
         })
       : {};
     const lineShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
+    const lineCap = resolvedObject.lineCap ?? "round";
+    const lineJoin = resolvedObject.lineJoin ?? "round";
+    const cornerRadius = Math.max(0, resolvedObject.cornerRadius ?? 0);
+    const renderRoundedLine = cornerRadius > 0 && !(resolvedObject.closed ?? false) && resolvedObject.points.length >= 6;
+    const roundedLinePath = renderRoundedLine
+      ? buildRoundedPolylinePath(resolvedObject.points, cornerRadius, resolvedObject.closed ?? false)
+      : "";
     const flowDash = flowEffectType === "dots" ? [Math.max(1, Math.round(normalizedDashLength * 0.25)), normalizedGapLength] : [normalizedDashLength, normalizedGapLength];
     const flowColor = flowAnimation?.color ?? resolvedObject.activeStroke ?? resolvedObject.stroke ?? "#00bfff";
     const flowOpacity = Number(flowAnimation?.opacity ?? 1);
@@ -1680,17 +1855,34 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Line
-          points={resolvedObject.points}
-          stroke={lineStroke}
-          strokeWidth={resolvedObject.strokeWidth}
-          closed={resolvedObject.closed ?? false}
-          fill={resolvedObject.fill}
-          perfectDrawEnabled={false}
-          {...lineFillGradientProps}
-          {...lineStrokeGradientProps}
-          {...lineShadowProps}
-        />
+        {renderRoundedLine && roundedLinePath
+          ? (
+            <Path
+              data={roundedLinePath}
+              stroke={lineStroke}
+              strokeWidth={resolvedObject.strokeWidth}
+              lineCap={lineCap}
+              lineJoin={lineJoin}
+              perfectDrawEnabled={false}
+              {...lineStrokeGradientProps}
+              {...lineShadowProps}
+            />
+            )
+          : (
+            <Line
+              points={resolvedObject.points}
+              stroke={lineStroke}
+              strokeWidth={resolvedObject.strokeWidth}
+              lineCap={lineCap}
+              lineJoin={lineJoin}
+              closed={resolvedObject.closed ?? false}
+              fill={resolvedObject.fill}
+              perfectDrawEnabled={false}
+              {...lineFillGradientProps}
+              {...lineStrokeGradientProps}
+              {...lineShadowProps}
+            />
+            )}
         {(renderDashOverlay || renderDotsOverlay || renderArrowsOverlay || renderGradientOverlay) ? (
           <Group
             clipX={0}
@@ -1704,7 +1896,7 @@ function ObjectNode({
                 ref={(node) => {
                   flowGradientLineRef.current = node;
                 }}
-                points={resolvedObject.points}
+                points={lineFlowPoints}
                 stroke={gradientMidColor}
                 strokeWidth={flowStrokeWidth}
                 opacity={normalizedFlowOpacity}
@@ -1720,8 +1912,8 @@ function ObjectNode({
                 ]}
                 fillEnabled={false}
                 listening={false}
-                lineCap="round"
-                lineJoin="round"
+                lineCap={lineCap}
+                lineJoin={lineJoin}
                 perfectDrawEnabled={false}
               />
             ) : null}
@@ -1730,7 +1922,7 @@ function ObjectNode({
                 ref={(node) => {
                   flowDashLineRef.current = node;
                 }}
-                points={resolvedObject.points}
+                points={lineFlowPoints}
                 stroke={flowColor}
                 strokeWidth={flowStrokeWidth}
                 opacity={normalizedFlowOpacity}
@@ -1739,8 +1931,8 @@ function ObjectNode({
                 dashOffset={flowMarkerPhase}
                 fillEnabled={false}
                 listening={false}
-                lineCap="round"
-                lineJoin="round"
+                lineCap={lineCap}
+                lineJoin={lineJoin}
                 perfectDrawEnabled={false}
               />
             ) : null}

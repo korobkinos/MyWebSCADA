@@ -1753,6 +1753,39 @@ function SpecificPropertyFields({
             onChange={(v) => onPatch({ strokeWidth: roundToTenths(Math.max(1, Number(v ?? 1))) } as Partial<HmiObject>)}
           />
         </Form.Item>
+        <Form.Item label="Line Cap">
+          <Select
+            value={object.lineCap ?? "round"}
+            options={[
+              { label: "butt", value: "butt" },
+              { label: "round", value: "round" },
+              { label: "square", value: "square" },
+            ]}
+            onChange={(value) => onPatch({ lineCap: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Line Join">
+          <Select
+            value={object.lineJoin ?? "round"}
+            options={[
+              { label: "miter", value: "miter" },
+              { label: "round", value: "round" },
+              { label: "bevel", value: "bevel" },
+            ]}
+            onChange={(value) => onPatch({ lineJoin: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Corner Radius / Connection Radius">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            step={0.5}
+            value={Math.max(0, object.cornerRadius ?? 0)}
+            onChange={(v) => onPatch({ cornerRadius: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Typography.Text type="secondary">Use Merge Lines to convert connected line segments into one pipe/polyline.</Typography.Text>
+        <Divider style={{ margin: "10px 0" }} />
         <Space>
           <span>Closed</span>
           <Switch checked={object.closed ?? false} onChange={(checked) => onPatch({ closed: checked } as Partial<HmiObject>)} />
