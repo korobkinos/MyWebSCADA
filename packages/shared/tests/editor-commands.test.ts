@@ -4,6 +4,7 @@ import {
   alignSelected,
   distributeSelected,
   executeEditorCommand,
+  getObjectBounds,
   makeSameSize,
   spaceSelected,
   type EditorSelectionState,
@@ -97,6 +98,48 @@ describe("alignment", () => {
     const result = alignSelected(screen, selection(["a", "b"]), "alignVerticalCenter");
     expect(byId(result.screen, "a").y).toBe(30);
     expect(byId(result.screen, "b").y).toBe(20);
+  });
+
+  it("aligns horizontal center for rotated triangles (line objects)", () => {
+    const triangleA: HmiObject = {
+      id: "tri-a",
+      type: "line",
+      x: 100,
+      y: 100,
+      width: 90,
+      height: 80,
+      points: [45, 0, 90, 80, 0, 80],
+      stroke: "#8c8c8c",
+      strokeWidth: 2,
+      closed: true,
+      fill: "#262626",
+      rotation: 28,
+    };
+    const triangleB: HmiObject = {
+      id: "tri-b",
+      type: "line",
+      x: 220,
+      y: 150,
+      width: 90,
+      height: 80,
+      points: [45, 0, 90, 80, 0, 80],
+      stroke: "#8c8c8c",
+      strokeWidth: 2,
+      closed: true,
+      fill: "#262626",
+      rotation: -17,
+    };
+    const screen = screenWith([triangleA, triangleB]);
+
+    const result = alignSelected(screen, selection(["tri-a", "tri-b"]), "alignHorizontalCenter");
+    const a = byId(result.screen, "tri-a");
+    const b = byId(result.screen, "tri-b");
+    const boundsA = getObjectBounds(a);
+    const boundsB = getObjectBounds(b);
+    const centerA = boundsA.x + boundsA.width / 2;
+    const centerB = boundsB.x + boundsB.width / 2;
+
+    expect(Math.abs(centerA - centerB)).toBeLessThan(1e-6);
   });
 });
 

@@ -44,13 +44,14 @@ export type EditorCommandResult = {
 };
 
 export function getObjectBounds(object: HmiObject): Rect {
+  const localBounds = getObjectLocalBounds(object);
   const rotation = object.rotation ?? 0;
   if (rotation === 0) {
     return {
-      x: object.x,
-      y: object.y,
-      width: object.width,
-      height: object.height,
+      x: object.x + localBounds.x,
+      y: object.y + localBounds.y,
+      width: localBounds.width,
+      height: localBounds.height,
     };
   }
 
@@ -58,10 +59,10 @@ export function getObjectBounds(object: HmiObject): Rect {
   const cos = Math.cos(radians);
   const sin = Math.sin(radians);
   const points = [
-    rotatePoint(0, 0, cos, sin),
-    rotatePoint(object.width, 0, cos, sin),
-    rotatePoint(object.width, object.height, cos, sin),
-    rotatePoint(0, object.height, cos, sin),
+    rotatePoint(localBounds.x, localBounds.y, cos, sin),
+    rotatePoint(localBounds.x + localBounds.width, localBounds.y, cos, sin),
+    rotatePoint(localBounds.x + localBounds.width, localBounds.y + localBounds.height, cos, sin),
+    rotatePoint(localBounds.x, localBounds.y + localBounds.height, cos, sin),
   ];
   const xs = points.map((point) => object.x + point.x);
   const ys = points.map((point) => object.y + point.y);
@@ -74,6 +75,56 @@ export function getObjectBounds(object: HmiObject): Rect {
     y: top,
     width: right - left,
     height: bottom - top,
+  };
+}
+
+function getObjectLocalBounds(object: HmiObject): Rect {
+  if (object.type !== "line") {
+    return {
+      x: 0,
+      y: 0,
+      width: object.width,
+      height: object.height,
+    };
+  }
+
+  const points = object.points ?? [];
+  if (points.length < 2) {
+    return {
+      x: 0,
+      y: 0,
+      width: object.width,
+      height: object.height,
+    };
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < points.length - 1; index += 2) {
+    const x = points[index] ?? 0;
+    const y = points[index + 1] ?? 0;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return {
+      x: 0,
+      y: 0,
+      width: object.width,
+      height: object.height,
+    };
+  }
+
+  const strokePadding = Math.max(0, object.strokeWidth ?? 0) / 2;
+  return {
+    x: minX - strokePadding,
+    y: minY - strokePadding,
+    width: (maxX - minX) + strokePadding * 2,
+    height: (maxY - minY) + strokePadding * 2,
   };
 }
 
