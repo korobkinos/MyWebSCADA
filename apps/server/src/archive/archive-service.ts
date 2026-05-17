@@ -2,9 +2,12 @@ import type { DriverConfig, TagDefinition, TagValue } from "@web-scada/shared";
 import { TagStore } from "../tags/tag-store.js";
 import {
   ArchiveRepository,
+  type ArchivePurgePreviewRow,
+  type ArchivePurgeResultRow,
   type ArchiveLogger,
   type ArchivePolicyInput,
   type ArchivePolicyRow,
+  type ArchiveRuntimeSettingsRow,
   type ArchiveSampleRow,
   type ArchiveTagConfigRow,
   type ArchiveTagOverrideInput,
@@ -125,8 +128,11 @@ export class ArchiveService {
   }
 
   public async runMaintenance(): Promise<{ deletedSamples: number }> {
+    const runtimeSettings = await this.repository.getRuntimeSettings();
+    const runtimeCleanup = await this.repository.enforceRuntimeLimits(runtimeSettings);
+    const deletedByRetention = await this.repository.applyRetention();
     return {
-      deletedSamples: await this.repository.applyRetention(),
+      deletedSamples: deletedByRetention + runtimeCleanup.deletedByAge + runtimeCleanup.deletedBySize,
     };
   }
 
@@ -152,6 +158,26 @@ export class ArchiveService {
 
   public isEnabled(): boolean {
     return this.initialized;
+  }
+
+  public async getRuntimeSettings(): Promise<ArchiveRuntimeSettingsRow> {
+    return this.repository.getRuntimeSettings();
+  }
+
+  public async updateRuntimeSettings(settings: {
+    autoCleanupEnabled: boolean;
+    maxDbSizeMb: number | null;
+    maxDataAgeMonths: number | null;
+  }): Promise<ArchiveRuntimeSettingsRow> {
+    return this.repository.updateRuntimeSettings(settings);
+  }
+
+  public async previewArchiveDataPurge(): Promise<ArchivePurgePreviewRow> {
+    return this.repository.previewArchiveDataPurge();
+  }
+
+  public async clearArchiveData(): Promise<ArchivePurgeResultRow> {
+    return this.repository.clearArchiveData();
   }
 
   public async close(): Promise<void> {

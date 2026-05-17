@@ -80,6 +80,30 @@ export type ArchiveStorageStatsRow = {
   dbSizeMb: number;
 };
 
+export type ArchiveRuntimeSettingsRow = {
+  autoCleanupEnabled: boolean;
+  maxDbSizeMb: number | null;
+  maxDataAgeMonths: number | null;
+  updatedAt: string;
+};
+
+export type ArchivePurgePreviewRow = {
+  scope: "archive_data";
+  tables: string[];
+  samplesCount: number;
+  samplesSizeMb: number;
+  totalSizeMb: number;
+  oldestSampleTime: string | null;
+  newestSampleTime: string | null;
+};
+
+export type ArchivePurgeResultRow = {
+  scope: "archive_data";
+  clearedSamples: number;
+  clearedTotalSizeMb: number;
+  tables: string[];
+};
+
 type ArchiveRepositoryOptions = {
   connectionString: string;
   maxPoolSize?: number;
@@ -602,6 +626,181 @@ export class ArchiveRepository {
       recordsCount: Number.isFinite(recordsCount) ? Math.max(0, Math.round(recordsCount)) : 0,
       dbSizeMb: Number.isFinite(dbSizeBytes) ? Math.max(0, dbSizeBytes / (1024 * 1024)) : 0,
     };
+  }
+
+  public async getRuntimeSettings(): Promise<ArchiveRuntimeSettingsRow> {
+    const result = await this.pool.query<{
+      auto_cleanup_enabled: boolean;
+      max_db_size_mb: number | null;
+      max_data_age_months: number | null;
+      updated_at: Date;
+    }>(
+      `
+      SELECT auto_cleanup_enabled, max_db_size_mb, max_data_age_months, updated_at
+      FROM archive_runtime_settings
+      WHERE id = 1
+      `,
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return {
+        autoCleanupEnabled: true,
+        maxDbSizeMb: 5120,
+        maxDataAgeMonths: 12,
+        updatedAt: new Date(0).toISOString(),
+      };
+    }
+    return {
+      autoCleanupEnabled: row.auto_cleanup_enabled,
+      maxDbSizeMb: row.max_db_size_mb,
+      maxDataAgeMonths: row.max_data_age_months,
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  public async updateRuntimeSettings(settings: {
+    autoCleanupEnabled: boolean;
+    maxDbSizeMb: number | null;
+    maxDataAgeMonths: number | null;
+  }): Promise<ArchiveRuntimeSettingsRow> {
+    const result = await this.pool.query<{
+      auto_cleanup_enabled: boolean;
+      max_db_size_mb: number | null;
+      max_data_age_months: number | null;
+      updated_at: Date;
+    }>(
+      `
+      INSERT INTO archive_runtime_settings (id, auto_cleanup_enabled, max_db_size_mb, max_data_age_months, updated_at)
+      VALUES (1, $1, $2, $3, now())
+      ON CONFLICT (id) DO UPDATE
+      SET auto_cleanup_enabled = EXCLUDED.auto_cleanup_enabled,
+          max_db_size_mb = EXCLUDED.max_db_size_mb,
+          max_data_age_months = EXCLUDED.max_data_age_months,
+          updated_at = now()
+      RETURNING auto_cleanup_enabled, max_db_size_mb, max_data_age_months, updated_at
+      `,
+      [settings.autoCleanupEnabled, settings.maxDbSizeMb, settings.maxDataAgeMonths],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Failed to update archive runtime settings");
+    }
+    return {
+      autoCleanupEnabled: row.auto_cleanup_enabled,
+      maxDbSizeMb: row.max_db_size_mb,
+      maxDataAgeMonths: row.max_data_age_months,
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  public async previewArchiveDataPurge(): Promise<ArchivePurgePreviewRow> {
+    const result = await this.pool.query<{
+      samples_count: string | number;
+      samples_size_bytes: string | number;
+      total_size_bytes: string | number;
+      oldest_sample_time: Date | null;
+      newest_sample_time: Date | null;
+    }>(
+      `
+      SELECT
+          (SELECT COUNT(*)::bigint FROM archive_samples) AS samples_count,
+          COALESCE(pg_total_relation_size('archive_samples'), 0) AS samples_size_bytes,
+          (
+            COALESCE(pg_total_relation_size('archive_samples'), 0)
+            + COALESCE(pg_total_relation_size('archive_aggregates_1m'), 0)
+            + COALESCE(pg_total_relation_size('archive_events'), 0)
+            + COALESCE(pg_total_relation_size('archive_alarms'), 0)
+          ) AS total_size_bytes,
+          (SELECT MIN(time) FROM archive_samples) AS oldest_sample_time,
+          (SELECT MAX(time) FROM archive_samples) AS newest_sample_time
+      `,
+    );
+    const row = result.rows[0];
+    const samplesCountRaw = row?.samples_count ?? 0;
+    const samplesSizeBytesRaw = row?.samples_size_bytes ?? 0;
+    const totalSizeBytesRaw = row?.total_size_bytes ?? 0;
+    const samplesCount = typeof samplesCountRaw === "string" ? Number.parseInt(samplesCountRaw, 10) : Number(samplesCountRaw);
+    const samplesSizeBytes = typeof samplesSizeBytesRaw === "string" ? Number.parseInt(samplesSizeBytesRaw, 10) : Number(samplesSizeBytesRaw);
+    const totalSizeBytes = typeof totalSizeBytesRaw === "string" ? Number.parseInt(totalSizeBytesRaw, 10) : Number(totalSizeBytesRaw);
+    return {
+      scope: "archive_data",
+      tables: ["archive_samples", "archive_aggregates_1m", "archive_events", "archive_alarms"],
+      samplesCount: Number.isFinite(samplesCount) ? Math.max(0, Math.round(samplesCount)) : 0,
+      samplesSizeMb: Number.isFinite(samplesSizeBytes) ? Math.max(0, samplesSizeBytes / (1024 * 1024)) : 0,
+      totalSizeMb: Number.isFinite(totalSizeBytes) ? Math.max(0, totalSizeBytes / (1024 * 1024)) : 0,
+      oldestSampleTime: row?.oldest_sample_time ? row.oldest_sample_time.toISOString() : null,
+      newestSampleTime: row?.newest_sample_time ? row.newest_sample_time.toISOString() : null,
+    };
+  }
+
+  public async clearArchiveData(): Promise<ArchivePurgeResultRow> {
+    const preview = await this.previewArchiveDataPurge();
+    await this.pool.query(
+      "TRUNCATE TABLE archive_samples, archive_aggregates_1m, archive_events, archive_alarms RESTART IDENTITY",
+    );
+    return {
+      scope: "archive_data",
+      clearedSamples: preview.samplesCount,
+      clearedTotalSizeMb: preview.totalSizeMb,
+      tables: preview.tables,
+    };
+  }
+
+  public async enforceRuntimeLimits(settings: {
+    autoCleanupEnabled: boolean;
+    maxDbSizeMb: number | null;
+    maxDataAgeMonths: number | null;
+  }): Promise<{ deletedByAge: number; deletedBySize: number }> {
+    if (!settings.autoCleanupEnabled) {
+      return { deletedByAge: 0, deletedBySize: 0 };
+    }
+    let deletedByAge = 0;
+    let deletedBySize = 0;
+
+    if ((settings.maxDataAgeMonths ?? 0) > 0) {
+      const result = await this.pool.query(
+        `
+        DELETE FROM archive_samples
+        WHERE time < now() - make_interval(months => $1)
+        `,
+        [settings.maxDataAgeMonths],
+      );
+      deletedByAge = result.rowCount ?? 0;
+    }
+
+    if ((settings.maxDbSizeMb ?? 0) > 0) {
+      const maxBytes = (settings.maxDbSizeMb ?? 0) * 1024 * 1024;
+      let safetyCounter = 0;
+      while (safetyCounter < 100) {
+        safetyCounter += 1;
+        const sizeResult = await this.pool.query<{ size_bytes: string | number }>(
+          "SELECT COALESCE(pg_total_relation_size('archive_samples'), 0) AS size_bytes",
+        );
+        const sizeRaw = sizeResult.rows[0]?.size_bytes ?? 0;
+        const currentBytes = typeof sizeRaw === "string" ? Number.parseInt(sizeRaw, 10) : Number(sizeRaw);
+        if (!Number.isFinite(currentBytes) || currentBytes <= maxBytes) {
+          break;
+        }
+        const deleteResult = await this.pool.query(
+          `
+          DELETE FROM archive_samples
+          WHERE ctid IN (
+            SELECT ctid
+            FROM archive_samples
+            ORDER BY time ASC
+            LIMIT 100000
+          )
+          `,
+        );
+        const chunkDeleted = deleteResult.rowCount ?? 0;
+        deletedBySize += chunkDeleted;
+        if (chunkDeleted === 0) {
+          break;
+        }
+      }
+    }
+
+    return { deletedByAge, deletedBySize };
   }
 
   private async tryEnableTimescale(): Promise<void> {

@@ -140,6 +140,11 @@ const archiveTagOverrideSchema = z.object({
   aggregateEnabled: z.boolean().nullable().optional(),
   compressionAfterDays: z.number().int().positive().nullable().optional(),
 });
+const archiveRuntimeSettingsSchema = z.object({
+  autoCleanupEnabled: z.boolean(),
+  maxDbSizeMb: z.number().int().positive().max(1024 * 1024).nullable(),
+  maxDataAgeMonths: z.number().int().positive().max(1200).nullable(),
+});
 const permissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>((value) => typeof value === "string");
 const loginSchema: z.ZodType<AuthLoginRequest> = z.object({
   username: z.string().min(1),
@@ -1038,6 +1043,51 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.code(503).send({ message: "Archive database is not configured" });
     }
     return reply.send(await deps.archiveService.runMaintenance());
+  });
+
+  app.get("/api/archive/settings", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.getRuntimeSettings());
+  });
+
+  app.put("/api/archive/settings", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const payload = archiveRuntimeSettingsSchema.parse(request.body ?? {});
+    return reply.send(await deps.archiveService.updateRuntimeSettings(payload));
+  });
+
+  app.post("/api/archive/purge/preview", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.previewArchiveDataPurge());
+  });
+
+  app.post("/api/archive/purge/run", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.clearArchiveData());
   });
 
   app.get("/api/archive/tags/:name/samples", async (request, reply) => {

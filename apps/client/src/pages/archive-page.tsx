@@ -2,7 +2,15 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEve
 import { Form, Input, InputNumber, Select, Space, Switch, Tag, message } from "antd";
 import { WorkbenchButton, WorkbenchWindow } from "../components/workbench";
 import type { WorkbenchWindowRect } from "../components/workbench";
-import { api, type ArchivePolicy, type ArchivePolicyPayload, type ArchiveStatus, type ArchiveTagConfig, type ArchiveTagOverride } from "../services/api";
+import {
+  api,
+  type ArchivePolicy,
+  type ArchivePolicyPayload,
+  type ArchiveRuntimeSettings,
+  type ArchiveStatus,
+  type ArchiveTagConfig,
+  type ArchiveTagOverride,
+} from "../services/api";
 
 type PolicyFormState = ArchivePolicyPayload;
 type ArchiveColumnId = "select" | "name" | "policy" | "mode" | "period" | "retention" | "override";
@@ -146,6 +154,7 @@ type ArchiveWorkbenchDialogProps = {
   title: string;
   open: boolean;
   defaultRect: WorkbenchWindowRect;
+  zIndex?: number;
   children: ReactNode;
   onClose: () => void;
   onSubmit: () => void;
@@ -161,6 +170,7 @@ function ArchiveWorkbenchDialog({
   title,
   open,
   defaultRect,
+  zIndex,
   children,
   onClose,
   onSubmit,
@@ -190,12 +200,12 @@ function ArchiveWorkbenchDialog({
   }
 
   return (
-    <div className="archive-workbench-dialog-layer">
+    <div className="archive-workbench-dialog-layer" style={{ zIndex: zIndex ?? 1800 }}>
       <WorkbenchWindow
         id={id}
         title={title}
         rect={rect}
-        zIndex={1800}
+        zIndex={zIndex ?? 1800}
         minWidth={520}
         minHeight={320}
         onClose={onClose}
@@ -221,6 +231,12 @@ type ArchiveConfirmState = {
   submitLabel?: string;
   submitVariant?: "primary" | "danger" | "ghost";
   onConfirm: () => Promise<void>;
+};
+
+type ArchiveSettingsDraft = {
+  autoCleanupEnabled: boolean;
+  maxDbSizeMb: number | null;
+  maxDataAgeMonths: number | null;
 };
 
 const DEFAULT_DETAILS_WIDTH = 420;
@@ -257,12 +273,20 @@ export function ArchivePage() {
   const [status, setStatus] = useState<ArchiveStatus>({ enabled: false, queuedSamples: 0 });
   const [lastLoadError, setLastLoadError] = useState<string | null>(null);
   const [lastStatusCheckAt, setLastStatusCheckAt] = useState<number | null>(null);
+  const [runtimeSettings, setRuntimeSettings] = useState<ArchiveRuntimeSettings | null>(null);
   const [policies, setPolicies] = useState<ArchivePolicy[]>([]);
   const [tagConfigs, setTagConfigs] = useState<ArchiveTagConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
   const [editingPolicyId, setEditingPolicyId] = useState<number | null>(null);
   const [overrideTag, setOverrideTag] = useState<ArchiveTagConfig | null>(null);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState<ArchiveSettingsDraft>({
+    autoCleanupEnabled: true,
+    maxDbSizeMb: 5120,
+    maxDataAgeMonths: 12,
+  });
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [confirmState, setConfirmState] = useState<ArchiveConfirmState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [policyForm] = Form.useForm<PolicyFormState>();
@@ -324,11 +348,22 @@ export function ArchivePage() {
       if (!nextStatus.enabled) {
         setPolicies([]);
         setTagConfigs([]);
+        setRuntimeSettings(null);
         return;
       }
-      const [nextPolicies, nextTagConfigs] = await Promise.all([api.listArchivePolicies(), api.listArchiveTagConfigs()]);
+      const [nextPolicies, nextTagConfigs, nextSettings] = await Promise.all([
+        api.listArchivePolicies(),
+        api.listArchiveTagConfigs(),
+        api.getArchiveSettings(),
+      ]);
       setPolicies(nextPolicies);
       setTagConfigs(nextTagConfigs);
+      setRuntimeSettings(nextSettings);
+      setSettingsDraft({
+        autoCleanupEnabled: nextSettings.autoCleanupEnabled,
+        maxDbSizeMb: nextSettings.maxDbSizeMb,
+        maxDataAgeMonths: nextSettings.maxDataAgeMonths,
+      });
     } catch (error) {
       const errorText = error instanceof Error ? error.message : "Archive load failed";
       setLastLoadError(errorText);
@@ -781,6 +816,76 @@ export function ArchivePage() {
     { label: "No policy", value: "0" },
     ...policies.map((policy) => ({ label: policy.name, value: String(policy.id) })),
   ];
+  const openSettings = (): void => {
+    const source = runtimeSettings ?? {
+      autoCleanupEnabled: true,
+      maxDbSizeMb: 5120,
+      maxDataAgeMonths: 12,
+    };
+    setSettingsDraft({
+      autoCleanupEnabled: source.autoCleanupEnabled,
+      maxDbSizeMb: source.maxDbSizeMb,
+      maxDataAgeMonths: source.maxDataAgeMonths,
+    });
+    setSettingsModalOpen(true);
+  };
+
+  const saveSettings = async (): Promise<void> => {
+    setSettingsBusy(true);
+    try {
+      const payload: ArchiveSettingsDraft = {
+        autoCleanupEnabled: settingsDraft.autoCleanupEnabled,
+        maxDbSizeMb: settingsDraft.maxDbSizeMb && settingsDraft.maxDbSizeMb > 0 ? Math.round(settingsDraft.maxDbSizeMb) : null,
+        maxDataAgeMonths: settingsDraft.maxDataAgeMonths && settingsDraft.maxDataAgeMonths > 0 ? Math.round(settingsDraft.maxDataAgeMonths) : null,
+      };
+      const saved = await api.updateArchiveSettings(payload);
+      setRuntimeSettings(saved);
+      setSettingsDraft({
+        autoCleanupEnabled: saved.autoCleanupEnabled,
+        maxDbSizeMb: saved.maxDbSizeMb,
+        maxDataAgeMonths: saved.maxDataAgeMonths,
+      });
+      setSettingsModalOpen(false);
+      void message.success("Archive settings saved");
+      await load();
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : "Failed to save archive settings");
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
+  const openPurgePreviewConfirm = async (): Promise<void> => {
+    setSettingsBusy(true);
+    try {
+      const preview = await api.previewArchivePurge();
+      const whereText = preview.tables.join(", ");
+      const oldest = preview.oldestSampleTime ? new Date(preview.oldestSampleTime).toLocaleString("ru-RU") : "-";
+      const newest = preview.newestSampleTime ? new Date(preview.newestSampleTime).toLocaleString("ru-RU") : "-";
+      setConfirmState({
+        title: "Clear Archive Database",
+        submitLabel: "Delete Data",
+        submitVariant: "danger",
+        message:
+          `Scope: ${preview.scope}\n`
+          + `Where: ${whereText}\n`
+          + `Records to delete: ${preview.samplesCount.toLocaleString("ru-RU")}\n`
+          + `Estimated size to delete: ${preview.totalSizeMb.toFixed(2)} MB\n`
+          + `Time range: ${oldest} .. ${newest}`,
+        onConfirm: async () => {
+          const result = await api.runArchivePurge();
+          void message.success(
+            `Archive data cleared: ${result.clearedSamples.toLocaleString("ru-RU")} records, ${result.clearedTotalSizeMb.toFixed(2)} MB`,
+          );
+          await load();
+        },
+      });
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : "Failed to preview archive purge");
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
   const archiveStatusView = useMemo(() => {
     const checkTime = formatStatusCheckTime(lastStatusCheckAt);
     const details = `DB: ${formatDbSizeMb(status.dbSizeMb)} MB | Records: ${formatRecordsCount(status.recordsCount)}`;
@@ -818,6 +923,7 @@ export function ArchivePage() {
         <WorkbenchButton variant="danger" onClick={() => selectedManagePolicy && deletePolicy(selectedManagePolicy)} disabled={!selectedManagePolicy || archiveDisabled}>Delete Policy</WorkbenchButton>
         <WorkbenchButton onClick={resetWidths}>Reset Widths</WorkbenchButton>
         <WorkbenchButton onClick={() => setColumnsPanelOpen((open) => !open)}>Columns</WorkbenchButton>
+        <WorkbenchButton onClick={openSettings} disabled={archiveDisabled}>Settings</WorkbenchButton>
 
         <select className="workbench-select screen-editor-tags-window__toolbar-select" value={policyManageId} onChange={(event) => setPolicyManageId(event.target.value)}>
           <option value="0">Policy...</option>
@@ -1078,6 +1184,7 @@ export function ArchivePage() {
         title={confirmState?.title ?? "Confirm"}
         open={Boolean(confirmState)}
         defaultRect={{ x: 0, y: 0, width: 520, height: 240 }}
+        zIndex={2100}
         onClose={() => {
           if (!confirmBusy) {
             setConfirmState(null);
@@ -1090,6 +1197,69 @@ export function ArchivePage() {
         cancelDisabled={confirmBusy}
       >
         <div className="archive-workbench-confirm-text">{confirmState?.message}</div>
+      </ArchiveWorkbenchDialog>
+
+      <ArchiveWorkbenchDialog
+        id="archive-settings-dialog"
+        title="Archive Settings"
+        open={settingsModalOpen}
+        defaultRect={{ x: 0, y: 0, width: 700, height: 520 }}
+        zIndex={2000}
+        onClose={() => {
+          if (!settingsBusy) {
+            setSettingsModalOpen(false);
+          }
+        }}
+        onSubmit={() => void saveSettings()}
+        submitLabel={settingsBusy ? "Saving..." : "Save Settings"}
+        submitDisabled={settingsBusy}
+        cancelDisabled={settingsBusy}
+      >
+        <div className="archive-workbench-settings">
+          <label className="workbench-field">
+            <span className="workbench-field__label">Auto Cleanup Enabled</span>
+            <label className="screen-editor-tags-checkbox-field">
+              <input
+                type="checkbox"
+                checked={settingsDraft.autoCleanupEnabled}
+                onChange={(event) => setSettingsDraft((prev) => ({ ...prev, autoCleanupEnabled: event.target.checked }))}
+              />
+              <span>Automatically apply overflow protection on maintenance cycle</span>
+            </label>
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Max Database Size (MB)</span>
+            <InputNumber
+              min={1}
+              value={settingsDraft.maxDbSizeMb ?? null}
+              onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxDbSizeMb: value === null ? null : Number(value) }))}
+              style={{ width: 220 }}
+            />
+            <span className="screen-editor-tag-editor__hint">When exceeded, oldest archive samples are deleted first.</span>
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Max Data Age (months)</span>
+            <InputNumber
+              min={1}
+              value={settingsDraft.maxDataAgeMonths ?? null}
+              onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxDataAgeMonths: value === null ? null : Number(value) }))}
+              style={{ width: 220 }}
+            />
+            <span className="screen-editor-tag-editor__hint">Samples older than this age are removed automatically.</span>
+          </label>
+
+          <div className="archive-workbench-settings__danger-zone">
+            <div className="screen-editor-tag-editor__title">Danger Zone</div>
+            <span className="screen-editor-tag-editor__hint">
+              Clear all archive data tables (samples, aggregates, events, alarms).
+            </span>
+            <WorkbenchButton variant="danger" onClick={() => void openPurgePreviewConfirm()} disabled={settingsBusy}>
+              Clear Archive Database...
+            </WorkbenchButton>
+          </div>
+        </div>
       </ArchiveWorkbenchDialog>
 
       <ArchiveWorkbenchDialog

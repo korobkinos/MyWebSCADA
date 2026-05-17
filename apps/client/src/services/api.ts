@@ -135,6 +135,30 @@ export type ArchiveTagConfig = {
   override: ArchiveTagOverride | null;
 };
 
+export type ArchiveRuntimeSettings = {
+  autoCleanupEnabled: boolean;
+  maxDbSizeMb: number | null;
+  maxDataAgeMonths: number | null;
+  updatedAt: string;
+};
+
+export type ArchivePurgePreview = {
+  scope: "archive_data";
+  tables: string[];
+  samplesCount: number;
+  samplesSizeMb: number;
+  totalSizeMb: number;
+  oldestSampleTime: string | null;
+  newestSampleTime: string | null;
+};
+
+export type ArchivePurgeResult = {
+  scope: "archive_data";
+  clearedSamples: number;
+  clearedTotalSizeMb: number;
+  tables: string[];
+};
+
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
 const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, "");
@@ -314,6 +338,14 @@ export const api = {
   deleteArchiveTagOverride: (tagName: string) =>
     request<{ ok: boolean }>(`/api/archive/tags/${encodeURIComponent(tagName)}/override`, { method: "DELETE" }),
   runArchiveMaintenance: () => request<{ deletedSamples: number }>("/api/archive/maintenance/run", { method: "POST" }),
+  getArchiveSettings: () => request<ArchiveRuntimeSettings>("/api/archive/settings"),
+  updateArchiveSettings: (payload: Omit<ArchiveRuntimeSettings, "updatedAt">) =>
+    request<ArchiveRuntimeSettings>("/api/archive/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  previewArchivePurge: () => request<ArchivePurgePreview>("/api/archive/purge/preview", { method: "POST" }),
+  runArchivePurge: () => request<ArchivePurgeResult>("/api/archive/purge/run", { method: "POST" }),
   getDrivers: () => request<DriverStatus[]>("/api/drivers"),
   opcUaTest: (config: OpcUaDriverConfigInput) =>
     request<{ ok: boolean; message?: string }>("/api/drivers/opcua/test", {
