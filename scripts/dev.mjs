@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import http from "node:http";
 import process from "node:process";
 
 const isWindows = process.platform === "win32";
@@ -144,6 +145,53 @@ process.once("SIGTERM", () => {
   void shutdown("SIGTERM", 0);
 });
 
-for (const command of commands) {
-  startChild(command.name, command.args);
+function waitForHttp(url, timeoutMs) {
+  const startedAt = Date.now();
+  const frames = ["-", "\\", "|", "/"];
+  let frameIndex = 0;
+  const timer = setInterval(() => {
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    process.stdout.write(`\rPreparing backend ${frames[frameIndex % frames.length]} ${elapsed}s`);
+    frameIndex += 1;
+  }, 500);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearInterval(timer);
+      process.stdout.write("\rPreparing backend done.          \n");
+      resolve(value);
+    };
+    const check = () => {
+      const request = http.get(url, (response) => {
+        response.resume();
+        finish(true);
+      });
+      request.once("error", () => {
+        if (Date.now() - startedAt >= timeoutMs || shuttingDown) {
+          finish(false);
+          return;
+        }
+        setTimeout(check, 500);
+      });
+      request.setTimeout(1500, () => {
+        request.destroy();
+      });
+    };
+    check();
+  });
 }
+
+async function startDev() {
+  startChild(commands[0].name, commands[0].args);
+  process.stdout.write("Waiting for backend on http://127.0.0.1:3001...\n");
+  await waitForHttp("http://127.0.0.1:3001/", 180000);
+  if (!shuttingDown) {
+    startChild(commands[1].name, commands[1].args);
+  }
+}
+
+void startDev();

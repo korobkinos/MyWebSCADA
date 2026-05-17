@@ -6,6 +6,7 @@ import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { registerApiRoutes } from "./api/routes.js";
+import { configureArchiveEnvironment } from "./archive/archive-dev-database.js";
 import { ArchiveService } from "./archive/archive-service.js";
 import { AuthService } from "./auth/auth-service.js";
 import { AssetService } from "./assets/asset-service.js";
@@ -67,6 +68,11 @@ async function bootstrap(): Promise<void> {
     legacyUsersFile,
   );
   const wsGateway = new WebSocketGateway(tagStore, commandService, runtimeService);
+  await configureArchiveEnvironment({
+    info: (message) => app.log.info(message),
+    warn: (message) => app.log.warn(message),
+    error: (message) => app.log.error(message),
+  });
   let archiveService = ArchiveService.fromEnvironment(tagStore, {
     info: (message) => app.log.info(message),
     warn: (message) => app.log.warn(message),

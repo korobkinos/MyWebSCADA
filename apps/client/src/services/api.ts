@@ -88,6 +88,7 @@ export type OpcUaDriverImpactResponse = {
 export type ArchiveStatus = {
   enabled: boolean;
   queuedSamples: number;
+  reason?: string;
 };
 
 export type ArchivePolicyPayload = {

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from "antd";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { WorkbenchButton, WorkbenchWindow } from "../components/workbench";
+import type { WorkbenchWindowRect } from "../components/workbench";
 import { api, type ArchivePolicy, type ArchivePolicyPayload, type ArchiveStatus, type ArchiveTagConfig, type ArchiveTagOverride } from "../services/api";
 
 type PolicyFormState = ArchivePolicyPayload;
@@ -45,6 +47,62 @@ function boolToSelect(value: boolean | null | undefined): "inherit" | "true" | "
 
 function cleanOptionalNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+type ArchiveWorkbenchDialogProps = {
+  id: string;
+  title: string;
+  open: boolean;
+  defaultRect: WorkbenchWindowRect;
+  children: ReactNode;
+  onClose: () => void;
+  onSubmit: () => void;
+};
+
+function ArchiveWorkbenchDialog({ id, title, open, defaultRect, children, onClose, onSubmit }: ArchiveWorkbenchDialogProps) {
+  const [rect, setRect] = useState<WorkbenchWindowRect>(defaultRect);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const viewportWidth = typeof window === "undefined" ? 1280 : window.innerWidth;
+    const viewportHeight = typeof window === "undefined" ? 800 : window.innerHeight;
+    setRect({
+      ...defaultRect,
+      x: Math.max(24, Math.round((viewportWidth - defaultRect.width) / 2)),
+      y: Math.max(24, Math.round((viewportHeight - defaultRect.height) / 2)),
+    });
+  }, [defaultRect.height, defaultRect.width, open]);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="archive-workbench-dialog-layer">
+      <WorkbenchWindow
+        id={id}
+        title={title}
+        rect={rect}
+        zIndex={1800}
+        minWidth={520}
+        minHeight={320}
+        onClose={onClose}
+        onFocus={() => undefined}
+        onMove={(x, y) => setRect((prev) => ({ ...prev, x, y }))}
+        onResize={setRect}
+      >
+        <div className="archive-workbench-dialog">
+          <div className="archive-workbench-dialog__body">{children}</div>
+          <div className="archive-workbench-dialog__footer">
+            <WorkbenchButton onClick={onClose}>Cancel</WorkbenchButton>
+            <WorkbenchButton variant="primary" onClick={onSubmit}>OK</WorkbenchButton>
+          </div>
+        </div>
+      </WorkbenchWindow>
+    </div>
+  );
 }
 
 export function ArchivePage() {
@@ -205,8 +263,8 @@ export function ArchivePage() {
       width: 180,
       render: (_, row) => (
         <Space>
-          <Button size="small" onClick={() => openEditPolicy(row)}>Edit</Button>
-          <Button size="small" danger onClick={() => deletePolicy(row)}>Delete</Button>
+          <WorkbenchButton onClick={() => openEditPolicy(row)}>Edit</WorkbenchButton>
+          <WorkbenchButton variant="danger" onClick={() => deletePolicy(row)}>Delete</WorkbenchButton>
         </Space>
       ),
     },
@@ -247,10 +305,10 @@ export function ArchivePage() {
       width: 170,
       render: (_, row) => (
         <Space>
-          <Button size="small" onClick={() => openOverride(row)}>
+          <WorkbenchButton onClick={() => openOverride(row)}>
             {row.override ? "Edit" : "Set"}
-          </Button>
-          {row.override ? <Button size="small" onClick={() => void clearOverride(row)}>Clear</Button> : null}
+          </WorkbenchButton>
+          {row.override ? <WorkbenchButton onClick={() => void clearOverride(row)}>Clear</WorkbenchButton> : null}
         </Space>
       ),
     },
@@ -259,13 +317,13 @@ export function ArchivePage() {
   const archiveDisabled = !status.enabled;
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <div className="archive-workbench-page">
       <Card size="small">
         <Space wrap>
           {status.enabled ? <Tag color="green">Archive enabled</Tag> : <Tag color="red">Archive disabled</Tag>}
           <Typography.Text type="secondary">Queue: {status.queuedSamples}</Typography.Text>
-          <Button onClick={() => void load()} loading={loading}>Refresh</Button>
-          <Button
+          <WorkbenchButton onClick={() => void load()} disabled={loading}>{loading ? "Refreshing" : "Refresh"}</WorkbenchButton>
+          <WorkbenchButton
             disabled={archiveDisabled}
             onClick={async () => {
               const result = await api.runArchiveMaintenance();
@@ -274,13 +332,16 @@ export function ArchivePage() {
             }}
           >
             Run Maintenance
-          </Button>
+          </WorkbenchButton>
         </Space>
       </Card>
 
       {archiveDisabled ? (
         <Card size="small">
-          <Typography.Text type="secondary">Archive database is not configured on the server.</Typography.Text>
+          <Space direction="vertical">
+            <Typography.Text type="secondary">Archive database is not configured on the server.</Typography.Text>
+            {status.reason ? <Typography.Text type="secondary">{status.reason}</Typography.Text> : null}
+          </Space>
         </Card>
       ) : (
         <Tabs
@@ -292,7 +353,7 @@ export function ArchivePage() {
                 <Card
                   size="small"
                   title="Archive Policies"
-                  extra={<Button type="primary" onClick={openCreatePolicy}>Add Policy</Button>}
+                  extra={<WorkbenchButton variant="primary" onClick={openCreatePolicy}>Add Policy</WorkbenchButton>}
                 >
                   <Table
                     rowKey="id"
@@ -327,12 +388,13 @@ export function ArchivePage() {
         />
       )}
 
-      <Modal
+      <ArchiveWorkbenchDialog
+        id="archive-policy-editor"
         title={editingPolicyId ? "Edit Archive Policy" : "Add Archive Policy"}
         open={policyModalOpen}
-        onCancel={() => setPolicyModalOpen(false)}
-        onOk={() => void savePolicy()}
-        width={620}
+        defaultRect={{ x: 0, y: 0, width: 620, height: 440 }}
+        onClose={() => setPolicyModalOpen(false)}
+        onSubmit={() => void savePolicy()}
       >
         <Form form={policyForm} layout="vertical" size="small">
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
@@ -368,14 +430,15 @@ export function ArchivePage() {
             <Switch />
           </Form.Item>
         </Form>
-      </Modal>
+      </ArchiveWorkbenchDialog>
 
-      <Modal
+      <ArchiveWorkbenchDialog
+        id="archive-tag-override-editor"
         title={overrideTag ? `Override: ${overrideTag.tagName}` : "Tag Override"}
         open={Boolean(overrideTag)}
-        onCancel={() => setOverrideTag(null)}
-        onOk={() => void saveOverride()}
-        width={620}
+        defaultRect={{ x: 0, y: 0, width: 620, height: 420 }}
+        onClose={() => setOverrideTag(null)}
+        onSubmit={() => void saveOverride()}
       >
         <Form form={overrideForm} layout="vertical" size="small">
           <Form.Item name="enabled" label="Enabled">
@@ -421,7 +484,7 @@ export function ArchivePage() {
             />
           </Form.Item>
         </Form>
-      </Modal>
-    </Space>
+      </ArchiveWorkbenchDialog>
+    </div>
   );
 }

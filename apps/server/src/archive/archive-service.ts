@@ -130,10 +130,11 @@ export class ArchiveService {
     };
   }
 
-  public getStatus(): { enabled: boolean; queuedSamples: number } {
+  public getStatus(): { enabled: boolean; queuedSamples: number; reason: string } {
     return {
       enabled: this.initialized,
       queuedSamples: this.queue.length,
+      reason: process.env.ARCHIVE_STATUS_REASON ?? "Archive service is initialized",
     };
   }
 

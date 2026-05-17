@@ -1,14 +1,29 @@
 version: "3.9"
 
 services:
+  archive-db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mywebscada_archive
+    ports:
+      - "55432:5432"
+    volumes:
+      - archive-db-data:/var/lib/postgresql/data
+
   server:
     image: node:20
     working_dir: /workspace
     volumes:
       - ..:/workspace
+    environment:
+      ARCHIVE_DATABASE_URL: postgres://postgres:postgres@archive-db:5432/mywebscada_archive
+      ARCHIVE_DEFAULT_ENABLED: "1"
     command: sh -c "corepack enable && pnpm install && pnpm --filter @web-scada/server dev"
     ports:
       - "3001:3001"
+    depends_on:
+      - archive-db
 
   client:
     image: node:20
@@ -20,3 +35,6 @@ services:
       - "3000:3000"
     depends_on:
       - server
+
+volumes:
+  archive-db-data:
