@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ACCESS_ROLE_LABELS_RU } from "@web-scada/shared";
 import type {
   AccessRoleLevel,
@@ -23,6 +24,7 @@ import {
 import { Button, ColorPicker, Divider, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Typography } from "antd";
 import { TagPicker } from "./tag-picker";
 import { IndexedAddressEditorWindow } from "./indexed-address-editor-window";
+import { WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
 import { getAssetDisplayPath } from "../utils/asset-path";
 import {
   buildIndexedAddressRuntimeValues,
@@ -558,6 +560,7 @@ function FlowAnimationFields({
   };
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
+  const ADVANCED_RECT_DEFAULT: WorkbenchWindowRect = { x: 220, y: 110, width: 560, height: 760 };
   const flowAnimation = object.flowAnimation ?? {};
   const triggerMode = flowAnimation.triggerMode ?? "truthy";
   const speedSource = flowAnimation.speedSource ?? "fixed";
@@ -568,6 +571,9 @@ function FlowAnimationFields({
   const showSpeedTag = speedSource === "tag";
   const showDashSettings = effectType === "dash" || effectType === "dots" || effectType === "arrows";
   const showGradientSettings = effectType === "gradientShift";
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedRect, setAdvancedRect] = useState<WorkbenchWindowRect>(ADVANCED_RECT_DEFAULT);
+  const [advancedZIndex, setAdvancedZIndex] = useState(() => nextGlobalZIndex());
 
   const hasFlowAnimationSettings = (candidate: typeof flowAnimation): boolean => (
     candidate.triggerTag !== undefined
@@ -610,15 +616,66 @@ function FlowAnimationFields({
     } as Partial<HmiObject>);
   };
 
-  return (
+  useEffect(() => {
+    setAdvancedOpen(false);
+  }, [object.id]);
+
+  const openAdvancedWindow = () => {
+    setAdvancedZIndex(nextGlobalZIndex());
+    setAdvancedOpen(true);
+  };
+
+  const focusAdvancedWindow = () => {
+    setAdvancedZIndex(nextGlobalZIndex());
+  };
+
+  const applyFlowPreset = (preset: "pipeSoft" | "energySharp" | "airFast") => {
+    if (preset === "pipeSoft") {
+      patchFlowAnimation({
+        enabled: true,
+        effectType: "gradientShift",
+        gradientStartColor: "#557a2c",
+        gradientMidColor: "#d5ff62",
+        gradientEndColor: "#557a2c",
+        gradientSpanPx: 90,
+        gapLength: 34,
+        fixedSpeedPxPerSec: 70,
+        direction: "forward",
+        opacity: 0.95,
+      });
+      return;
+    }
+    if (preset === "energySharp") {
+      patchFlowAnimation({
+        enabled: true,
+        effectType: "gradientShift",
+        gradientStartColor: "#1f5f8f",
+        gradientMidColor: "#7ce8ff",
+        gradientEndColor: "#1f5f8f",
+        gradientSpanPx: 68,
+        gapLength: 24,
+        fixedSpeedPxPerSec: 110,
+        direction: "forward",
+        opacity: 1,
+      });
+      return;
+    }
+    patchFlowAnimation({
+      enabled: true,
+      effectType: "gradientShift",
+      gradientStartColor: "#6f6f6f",
+      gradientMidColor: "#f0f0f0",
+      gradientEndColor: "#6f6f6f",
+      gradientSpanPx: 72,
+      gapLength: 48,
+      fixedSpeedPxPerSec: 140,
+      direction: "forward",
+      opacity: 0.85,
+    });
+  };
+
+  const renderDetailedControls = () => (
     <>
-      <Space style={{ marginBottom: 8 }}>
-        <span>Enable Flow Animation</span>
-        <Switch
-          checked={flowAnimation.enabled === true}
-          onChange={(checked) => patchFlowAnimation({ enabled: checked })}
-        />
-      </Space>
       <TagFieldWithBindingSource
         project={project}
         bindings={bindings}
@@ -711,28 +768,6 @@ function FlowAnimationFields({
           onChange={(value) => patchFlowAnimation({ maxSpeedPxPerSec: Number(value ?? 500) })}
         />
       </Form.Item>
-      <Form.Item label="Direction">
-        <Select
-          value={flowAnimation.direction ?? "forward"}
-          options={[
-            { label: "forward", value: "forward" },
-            { label: "reverse", value: "reverse" },
-          ]}
-          onChange={(value) => patchFlowAnimation({ direction: value })}
-        />
-      </Form.Item>
-      <Form.Item label="Effect Type">
-        <Select
-          value={effectType}
-          options={[
-            { label: "dash", value: "dash" },
-            { label: "arrows", value: "arrows" },
-            { label: "dots", value: "dots" },
-            { label: "gradientShift", value: "gradientShift" },
-          ]}
-          onChange={(value) => patchFlowAnimation({ effectType: value })}
-        />
-      </Form.Item>
       <ColorField
         label="Effect Color"
         value={flowAnimation.color}
@@ -757,78 +792,151 @@ function FlowAnimationFields({
         />
       </Space>
       {!useBaseStrokeWidth ? (
-      <Form.Item label="Stroke Width">
+        <Form.Item label="Stroke Width">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            step={0.1}
+            value={roundToTenths(flowAnimation.strokeWidth ?? defaultInnerStrokeWidth)}
+            onChange={(value) => patchFlowAnimation({ strokeWidth: roundToTenths(Number(value ?? defaultInnerStrokeWidth)) })}
+          />
+        </Form.Item>
+      ) : null}
+      <Form.Item label="Dash Length">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1}
+          value={flowAnimation.dashLength ?? 12}
+          onChange={(value) => patchFlowAnimation({ dashLength: Number(value ?? 12) })}
+        />
+      </Form.Item>
+      <Form.Item label="Gap Length / Wave Gap (px)">
         <InputNumber
           style={{ width: "100%" }}
           min={0}
-          step={0.1}
-          value={roundToTenths(flowAnimation.strokeWidth ?? defaultInnerStrokeWidth)}
-          onChange={(value) => patchFlowAnimation({ strokeWidth: roundToTenths(Number(value ?? defaultInnerStrokeWidth)) })}
+          value={flowAnimation.gapLength ?? 8}
+          onChange={(value) => patchFlowAnimation({ gapLength: Number(value ?? 8) })}
         />
       </Form.Item>
-      ) : null}
+      <ColorField
+        label="Gradient Start Color"
+        value={flowAnimation.gradientStartColor}
+        fallback={object.stroke ?? "#d9d9d9"}
+        onChange={(next) => patchFlowAnimation({ gradientStartColor: next })}
+      />
+      <ColorField
+        label="Gradient Mid Color"
+        value={flowAnimation.gradientMidColor}
+        fallback={flowAnimation.color ?? object.activeStroke ?? "#00bfff"}
+        onChange={(next) => patchFlowAnimation({ gradientMidColor: next })}
+      />
+      <ColorField
+        label="Gradient End Color"
+        value={flowAnimation.gradientEndColor}
+        fallback={object.stroke ?? "#d9d9d9"}
+        onChange={(next) => patchFlowAnimation({ gradientEndColor: next })}
+      />
+      <Form.Item label="Gradient Span (px)">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={8}
+          value={flowAnimation.gradientSpanPx ?? 120}
+          onChange={(value) => patchFlowAnimation({ gradientSpanPx: Number(value ?? 120) })}
+        />
+      </Form.Item>
+    </>
+  );
+
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }}>
+        <span>Enable Flow Animation</span>
+        <Switch
+          checked={flowAnimation.enabled === true}
+          onChange={(checked) => patchFlowAnimation({ enabled: checked })}
+        />
+      </Space>
+      <Form.Item label="Effect Type">
+        <Select
+          value={effectType}
+          options={[
+            { label: "dash", value: "dash" },
+            { label: "arrows", value: "arrows" },
+            { label: "dots", value: "dots" },
+            { label: "gradientShift", value: "gradientShift" },
+          ]}
+          onChange={(value) => patchFlowAnimation({ effectType: value })}
+        />
+      </Form.Item>
+      <Form.Item label="Direction">
+        <Select
+          value={flowAnimation.direction ?? "forward"}
+          options={[
+            { label: "forward", value: "forward" },
+            { label: "reverse", value: "reverse" },
+          ]}
+          onChange={(value) => patchFlowAnimation({ direction: value })}
+        />
+      </Form.Item>
       {showDashSettings ? (
-        <>
-          <Form.Item label="Dash Length">
-            <InputNumber
-              style={{ width: "100%" }}
-              min={1}
-              value={flowAnimation.dashLength ?? 12}
-              onChange={(value) => patchFlowAnimation({ dashLength: Number(value ?? 12) })}
-            />
-          </Form.Item>
-          <Form.Item label="Gap Length">
-            <InputNumber
-              style={{ width: "100%" }}
-              min={1}
-              value={flowAnimation.gapLength ?? 8}
-              onChange={(value) => patchFlowAnimation({ gapLength: Number(value ?? 8) })}
-            />
-          </Form.Item>
-        </>
+        <Form.Item label="Dash Length">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1}
+            value={flowAnimation.dashLength ?? 12}
+            onChange={(value) => patchFlowAnimation({ dashLength: Number(value ?? 12) })}
+          />
+        </Form.Item>
       ) : null}
       {showGradientSettings ? (
-        <>
-          <ColorField
-            label="Gradient Start Color"
-            value={flowAnimation.gradientStartColor}
-            fallback={object.stroke ?? "#d9d9d9"}
-            onChange={(next) => patchFlowAnimation({ gradientStartColor: next })}
+        <Form.Item label="Gradient Span (px)">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={8}
+            value={flowAnimation.gradientSpanPx ?? 120}
+            onChange={(value) => patchFlowAnimation({ gradientSpanPx: Number(value ?? 120) })}
           />
-          <ColorField
-            label="Gradient Mid Color"
-            value={flowAnimation.gradientMidColor}
-            fallback={flowAnimation.color ?? object.activeStroke ?? "#00bfff"}
-            onChange={(next) => patchFlowAnimation({ gradientMidColor: next })}
-          />
-          <ColorField
-            label="Gradient End Color"
-            value={flowAnimation.gradientEndColor}
-            fallback={object.stroke ?? "#d9d9d9"}
-            onChange={(next) => patchFlowAnimation({ gradientEndColor: next })}
-          />
-          <Form.Item label="Gradient Span (px)">
-            <InputNumber
-              style={{ width: "100%" }}
-              min={8}
-              value={flowAnimation.gradientSpanPx ?? 120}
-              onChange={(value) => patchFlowAnimation({ gradientSpanPx: Number(value ?? 120) })}
-            />
-          </Form.Item>
-          <Form.Item label="Wave Gap (px)">
-            <InputNumber
-              style={{ width: "100%" }}
-              min={0}
-              value={flowAnimation.gapLength ?? 40}
-              onChange={(value) => patchFlowAnimation({ gapLength: Number(value ?? 40) })}
-            />
-          </Form.Item>
-        </>
+        </Form.Item>
       ) : null}
+      <Form.Item>
+        <Button size="small" onClick={openAdvancedWindow}>Open Flow Animation Tuner</Button>
+      </Form.Item>
+
+      {advancedOpen && typeof document !== "undefined"
+        ? createPortal(
+          <div className="workbench-window-layer" onMouseDown={(event) => event.stopPropagation()}>
+            <WorkbenchWindow
+              id="flowAnimationTuner"
+              title={`Flow Animation Tuner (${object.name?.trim() || object.id})`}
+              rect={advancedRect}
+              zIndex={advancedZIndex}
+              minWidth={460}
+              minHeight={520}
+              onClose={() => setAdvancedOpen(false)}
+              onFocus={focusAdvancedWindow}
+              onMove={(x, y) => setAdvancedRect((prev) => ({ ...prev, x: Math.max(0, x), y: Math.max(0, y) }))}
+              onResize={(nextRect) => setAdvancedRect(nextRect)}
+            >
+              <Form layout="vertical" size="small">
+                <Typography.Text type="secondary" style={{ marginBottom: 8, display: "block" }}>
+                  Tune flow visuals live on selected line.
+                </Typography.Text>
+                <Space style={{ marginBottom: 8, width: "100%", justifyContent: "space-between" }}>
+                  <Button size="small" onClick={() => applyFlowPreset("pipeSoft")}>Pipe Soft</Button>
+                  <Button size="small" onClick={() => applyFlowPreset("energySharp")}>Energy Sharp</Button>
+                  <Button size="small" onClick={() => applyFlowPreset("airFast")}>Air Fast</Button>
+                </Space>
+                <Divider style={{ margin: "10px 0" }} />
+                {renderDetailedControls()}
+              </Form>
+            </WorkbenchWindow>
+          </div>,
+          document.body,
+        )
+        : null}
     </>
   );
 }
-
 function buildEditorRuntimeTagValues(project: ScadaProject): Record<string, unknown> {
   const tagValues: Record<string, unknown> = {};
   for (const variable of project.variables ?? []) {
@@ -2996,7 +3104,7 @@ function SpecificPropertyFields({
               aria-label="Delete state"
               onClick={() => onPatch({ states: normalizedStates.filter((_, index) => index !== rowIndex) } as Partial<HmiObject>)}
             >
-              ×
+              ?
             </button>
           </div>
         ))}
@@ -4285,6 +4393,11 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
+
+
+
+
+
 
 
 
