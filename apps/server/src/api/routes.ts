@@ -21,6 +21,7 @@ import {
   projectSchema,
 } from "@web-scada/shared";
 import { z } from "zod";
+import { ArchiveService } from "../archive/archive-service.js";
 import { AuthService, AuthValidationError } from "../auth/auth-service.js";
 import { AssetService } from "../assets/asset-service.js";
 import { DriverManager } from "../drivers/driver-manager.js";
@@ -51,6 +52,7 @@ type ApiDeps = {
   internalVariableService: InternalVariableService;
   macroService: MacroService;
   authService: AuthService;
+  archiveService?: ArchiveService;
 };
 
 type LibraryElementUsage = {
@@ -107,6 +109,11 @@ const commandMetaSchema = z.object({
 const writeSchema = z.object({
   value: z.union([z.boolean(), z.number(), z.string(), z.null()]),
   commandMeta: commandMetaSchema.optional(),
+});
+const archiveSamplesQuerySchema = z.object({
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  limit: z.coerce.number().int().positive().max(10000).optional(),
 });
 const permissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>((value) => typeof value === "string");
 const loginSchema: z.ZodType<AuthLoginRequest> = z.object({
@@ -566,6 +573,7 @@ async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): P
   deps.tagStore.setDefinitions([...(saved.tags ?? []), ...variableDefinitions]);
   deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
   deps.macroService.configure(saved);
+  await deps.archiveService?.syncMetadata([...(saved.tags ?? []), ...variableDefinitions], saved.drivers);
 
   if (deps.runtimeService.getState().running) {
     await deps.runtimeService.stop();
@@ -816,16 +824,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return;
     }
     const parsed = projectSchema.parse(request.body);
-    const saved = await deps.projectService.saveProject(parsed);
-    const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
-    deps.tagStore.setDefinitions([...(saved.tags ?? []), ...variableDefinitions]);
-    deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
-    deps.macroService.configure(saved);
-
-    if (deps.runtimeService.getState().running) {
-      await deps.runtimeService.stop();
-      await deps.runtimeService.start(saved);
-    }
+    const saved = await persistProjectUpdate(deps, parsed);
 
     return reply.send(saved);
   });
@@ -871,6 +870,20 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       }
       throw error;
     }
+  });
+
+  app.get("/api/archive/status", async () => ({
+    enabled: deps.archiveService?.isEnabled() ?? false,
+  }));
+
+  app.get("/api/archive/tags/:name/samples", async (request, reply) => {
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const params = request.params as { name: string };
+    const query = archiveSamplesQuerySchema.parse(request.query);
+    const rows = await deps.archiveService.querySamples(params.name, query.from, query.to, query.limit ?? 5000);
+    return reply.send(rows);
   });
 
   app.get("/api/variables", async () => deps.internalVariableService.getAll());
@@ -1500,15 +1513,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       ...project,
       tags: nextTags,
     };
-    const saved = await deps.projectService.saveProject(nextProject);
-    const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
-    deps.tagStore.setDefinitions([...(saved.tags ?? []), ...variableDefinitions]);
-    deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
-    deps.macroService.configure(saved);
-    if (deps.runtimeService.getState().running) {
-      await deps.runtimeService.stop();
-      await deps.runtimeService.start(saved);
-    }
+    await persistProjectUpdate(deps, nextProject);
     return reply.send({ ok: true, created, updated, total: payload.items.length });
   });
 
@@ -1577,15 +1582,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       ...project,
       tags: nextTags,
     };
-    const saved = await deps.projectService.saveProject(nextProject);
-    const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
-    deps.tagStore.setDefinitions([...(saved.tags ?? []), ...variableDefinitions]);
-    deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
-    deps.macroService.configure(saved);
-    if (deps.runtimeService.getState().running) {
-      await deps.runtimeService.stop();
-      await deps.runtimeService.start(saved);
-    }
+    await persistProjectUpdate(deps, nextProject);
 
     return reply.send({
       ok: true,

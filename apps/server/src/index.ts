@@ -6,6 +6,7 @@ import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { registerApiRoutes } from "./api/routes.js";
+import { ArchiveService } from "./archive/archive-service.js";
 import { AuthService } from "./auth/auth-service.js";
 import { AssetService } from "./assets/asset-service.js";
 import { DriverManager } from "./drivers/driver-manager.js";
@@ -66,6 +67,11 @@ async function bootstrap(): Promise<void> {
     legacyUsersFile,
   );
   const wsGateway = new WebSocketGateway(tagStore, commandService, runtimeService);
+  let archiveService = ArchiveService.fromEnvironment(tagStore, {
+    info: (message) => app.log.info(message),
+    warn: (message) => app.log.warn(message),
+    error: (message) => app.log.error(message),
+  });
 
   const project = await projectService.loadProject();
   await authService.initialize();
@@ -73,6 +79,17 @@ async function bootstrap(): Promise<void> {
   tagStore.setDefinitions([...project.tags, ...variableDefinitions]);
   internalVariableService.setup(project.variables ?? [], project.lwStore);
   macroService.configure(project);
+  if (archiveService) {
+    try {
+      await archiveService.initialize([...project.tags, ...variableDefinitions], project.drivers);
+      app.log.info("Archive service initialized");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      app.log.warn(`Archive service disabled: ${message}`);
+      await archiveService.close().catch(() => undefined);
+      archiveService = undefined;
+    }
+  }
 
   await registerApiRoutes(app, {
     projectService,
@@ -85,6 +102,7 @@ async function bootstrap(): Promise<void> {
     internalVariableService,
     macroService,
     authService,
+    archiveService,
   });
 
   await wsGateway.register(app);
@@ -92,6 +110,7 @@ async function bootstrap(): Promise<void> {
   app.addHook("onClose", async () => {
     await wsGateway.close();
     await runtimeService.stop();
+    await archiveService?.close();
   });
 
   await app.listen({ host: "0.0.0.0", port });
