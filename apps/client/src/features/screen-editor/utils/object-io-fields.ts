@@ -206,6 +206,13 @@ export function getObjectIoFields(object: HmiObject): ObjectIoFieldDefinition[] 
     return fields;
   }
 
+  if (object.type === "numeric-image-indicator") {
+    fields.push(
+      { fieldPath: "tag", label: "Read Tag", direction: "read", dataTypeHint: "REAL", control: "tag" },
+    );
+    return fields;
+  }
+
   if (object.type === "stateImage") {
     fields.push(
       { fieldPath: "tag", label: "State Tag", direction: "read", dataTypeHint: "ANY", control: "tag" },

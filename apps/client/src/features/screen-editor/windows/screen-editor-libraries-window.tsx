@@ -659,6 +659,7 @@ const TYPE_PROPERTY_HINTS: Partial<Record<HmiObject["type"], Array<{ path: strin
   select: [{ path: "visible", kind: "boolean" }, { path: "placeholder", kind: "string" }, { path: "backgroundColor", kind: "color" }, { path: "textColor", kind: "color" }, { path: "fontSize", kind: "number" }],
   "radio-group": [{ path: "visible", kind: "boolean" }, { path: "selectedColor", kind: "color" }, { path: "unselectedColor", kind: "color" }, { path: "labelColor", kind: "color" }, { path: "fontSize", kind: "number" }],
   "numeric-input": [{ path: "visible", kind: "boolean" }, { path: "placeholder", kind: "string" }, { path: "textColor", kind: "color" }, { path: "backgroundColor", kind: "color" }, { path: "fontSize", kind: "number" }],
+  "numeric-image-indicator": [{ path: "visible", kind: "boolean" }, { path: "defaultAssetId", kind: "asset" }, { path: "badQualityAssetId", kind: "asset" }, { path: "fit", kind: "string" }],
   valve: [{ path: "visible", kind: "boolean" }, { path: "label", kind: "string" }],
   pump: [{ path: "visible", kind: "boolean" }, { path: "label", kind: "string" }],
 };

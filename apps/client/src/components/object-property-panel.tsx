@@ -82,11 +82,11 @@ const roleOptions: Array<{ label: string; value: AppRole }> = [
   { label: "viewer", value: "viewer" },
 ];
 const accessRoleOptions: Array<{ label: string; value: AccessRoleLevel }> = [
-  { label: `0 вЂ” ${ACCESS_ROLE_LABELS_RU[0]}`, value: 0 },
-  { label: `1 вЂ” ${ACCESS_ROLE_LABELS_RU[1]}`, value: 1 },
-  { label: `2 вЂ” ${ACCESS_ROLE_LABELS_RU[2]}`, value: 2 },
-  { label: `3 вЂ” ${ACCESS_ROLE_LABELS_RU[3]}`, value: 3 },
-  { label: `4 вЂ” ${ACCESS_ROLE_LABELS_RU[4]}`, value: 4 },
+  { label: `0 - ${ACCESS_ROLE_LABELS_RU[0]}`, value: 0 },
+  { label: `1 - ${ACCESS_ROLE_LABELS_RU[1]}`, value: 1 },
+  { label: `2 - ${ACCESS_ROLE_LABELS_RU[2]}`, value: 2 },
+  { label: `3 - ${ACCESS_ROLE_LABELS_RU[3]}`, value: 3 },
+  { label: `4 - ${ACCESS_ROLE_LABELS_RU[4]}`, value: 4 },
 ];
 
 function getBindingKindLabel(kind: ElementBindingDefinition["kind"] | undefined): string {
@@ -422,6 +422,8 @@ function objectTypeLabel(type: HmiObject["type"]): string {
       return "ValueDisplay";
     case "value-input":
       return "ValueInput";
+    case "numeric-image-indicator":
+      return "NumericImageIndicator";
     default:
       return type.slice(0, 1).toUpperCase() + type.slice(1);
   }
@@ -2364,6 +2366,137 @@ function SpecificPropertyFields({
             })()}
           </>
         ) : null}
+      </>
+    );
+  }
+
+  if (object.type === "numeric-image-indicator") {
+    const normalizedStates = (object.states ?? [])
+      .slice(0, 100)
+      .map((state) => ({
+        index: Math.max(0, Math.floor(Number(state.index) || 0)),
+        assetId: state.assetId,
+      }))
+      .sort((left, right) => left.index - right.index);
+    const stateLimitReached = normalizedStates.length >= 100;
+    const lastIndex = normalizedStates.length > 0 ? normalizedStates[normalizedStates.length - 1]!.index : -1;
+
+    return (
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag ?? ""}
+          bindingLabel="Source Binding"
+          tagLabel="Source Tag"
+          indexControl={buildIndexControl("tag", "Source Tag", object.tag)}
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
+        />
+        <Form.Item label="Default Asset">
+          <Select
+            value={object.defaultAssetId}
+            allowClear
+            options={assetOptions}
+            onChange={(value) => onPatch({ defaultAssetId: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Bad Quality Asset">
+          <Select
+            value={object.badQualityAssetId}
+            allowClear
+            options={assetOptions}
+            onChange={(value) => onPatch({ badQualityAssetId: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Fit">
+          <Select
+            value={object.fit}
+            options={[
+              { label: "contain", value: "contain" },
+              { label: "cover", value: "cover" },
+              { label: "stretch", value: "stretch" },
+              { label: "none", value: "none" },
+            ]}
+            onChange={(value) => onPatch({ fit: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Preserve Aspect Ratio</span>
+          <Switch
+            checked={object.preserveAspectRatio ?? true}
+            onChange={(checked) => onPatch({ preserveAspectRatio: checked } as Partial<HmiObject>)}
+          />
+        </Space>
+        <Form.Item label="Out of Range Mode">
+          <Select
+            value={object.outOfRangeMode ?? "default"}
+            options={[
+              { label: "default", value: "default" },
+              { label: "clamp", value: "clamp" },
+            ]}
+            onChange={(value) => onPatch({ outOfRangeMode: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Typography.Text strong>States (max 100)</Typography.Text>
+        <Button
+          size="small"
+          disabled={stateLimitReached}
+          onClick={() =>
+            onPatch({
+              states: [
+                ...normalizedStates,
+                {
+                  index: lastIndex + 1,
+                  assetId: undefined,
+                },
+              ],
+            } as Partial<HmiObject>)
+          }
+        >
+          Add State
+        </Button>
+        {stateLimitReached ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Maximum number of states reached.
+          </Typography.Text>
+        ) : null}
+        {normalizedStates.map((state, rowIndex) => (
+          <Space key={`${state.index}-${rowIndex}`} wrap style={{ width: "100%", marginBottom: 8 }}>
+            <InputNumber
+              style={{ width: 130 }}
+              min={0}
+              step={1}
+              precision={0}
+              value={state.index}
+              onChange={(value) => {
+                const nextStates = normalizedStates.map((item, index) => (index === rowIndex
+                  ? { ...item, index: Math.max(0, Math.floor(Number(value ?? 0))) }
+                  : item));
+                onPatch({ states: nextStates.sort((left, right) => left.index - right.index) } as Partial<HmiObject>);
+              }}
+            />
+            <Select
+              style={{ minWidth: 260 }}
+              allowClear
+              value={state.assetId}
+              placeholder="Select asset"
+              options={assetOptions}
+              onChange={(value) => {
+                const nextStates = normalizedStates.map((item, index) => (index === rowIndex
+                  ? { ...item, assetId: value }
+                  : item));
+                onPatch({ states: nextStates } as Partial<HmiObject>);
+              }}
+            />
+            <Button
+              danger
+              size="small"
+              onClick={() => onPatch({ states: normalizedStates.filter((_, index) => index !== rowIndex) } as Partial<HmiObject>)}
+            >
+              Delete
+            </Button>
+          </Space>
+        ))}
       </>
     );
   }

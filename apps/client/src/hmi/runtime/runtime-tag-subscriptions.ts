@@ -138,7 +138,8 @@ function collectObjectTags(
     case "value-input":
     case "state-indicator":
     case "switch":
-    case "stateImage": {
+    case "stateImage":
+    case "numeric-image-indicator": {
       addResolvedFieldTag(out, {
         project,
         object: resolvedObject,

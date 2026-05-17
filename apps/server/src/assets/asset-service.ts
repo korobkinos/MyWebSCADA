@@ -180,6 +180,13 @@ function isAssetUsedInObject(object: HmiObject, assetId: string): boolean {
     return object.states.some((state) => state.assetId === assetId);
   }
 
+  if (object.type === "numeric-image-indicator") {
+    if (object.defaultAssetId === assetId || object.badQualityAssetId === assetId) {
+      return true;
+    }
+    return object.states.some((state) => state.assetId === assetId);
+  }
+
   if (object.type === "button") {
     return (
       object.backgroundAssetId === assetId ||

@@ -3,9 +3,13 @@ import {
   AppstoreOutlined,
   CopyOutlined,
   DeleteOutlined,
+  FileImageOutlined,
   FontSizeOutlined,
   MinusOutlined,
+  NumberOutlined,
   RedoOutlined,
+  RotateLeftOutlined,
+  RotateRightOutlined,
   SaveOutlined,
   SettingOutlined,
   SnippetsOutlined,
@@ -21,7 +25,6 @@ import {
   AlignRightIcon,
   AlignTopIcon,
   BorderSplitIcon,
-  BoxIcon,
   ButtonIcon,
   CircleIcon,
   CopyIcon,
@@ -37,7 +40,6 @@ import {
   SpaceBetweenVerticallyIcon,
   SwitchIcon,
   TriangleUpIcon,
-  ValueIcon,
   WidthIcon,
   BarChartIcon,
   ChevronDownIcon,
@@ -140,6 +142,7 @@ export type ScreenEditorCenterProps = {
   onSendToBack: () => void;
   onMoveForward: () => void;
   onMoveBackward: () => void;
+  onRotateSelectedBy: (deltaDeg: number) => void;
   onViewportCenterChange?: (center: { x: number; y: number }) => void;
 };
 
@@ -201,6 +204,7 @@ export function ScreenEditorCenter({
   onSendToBack,
   onMoveForward,
   onMoveBackward,
+  onRotateSelectedBy,
   onViewportCenterChange,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
@@ -459,13 +463,15 @@ export function ScreenEditorCenter({
                     <div className="screen-editor-toolbar-tabs__actions">
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("text"))} title="Add Text" icon={<FontSizeOutlined />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("line"))} title="Add Line" icon={<MinusOutlined />} />
-                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("rectangle"))} title="Add Rectangle" icon={<BoxIcon />} />
                       <WorkbenchIconButton onClick={() => addPrimitiveShape("square", getViewportCenter())} title="Add Square" icon={<SquareIcon />} />
                       <WorkbenchIconButton onClick={() => addPrimitiveShape("circle", getViewportCenter())} title="Add Circle" icon={<CircleIcon />} />
                       <WorkbenchIconButton onClick={() => addPrimitiveShape("triangle", getViewportCenter())} title="Add Triangle" icon={<TriangleUpIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("image"))} title="Add Image" icon={<FileImageOutlined />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("stateImage"))} title="Add State Image" icon={<ActivityLogIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("numeric-image-indicator"))} title="Add Numeric Image Indicator" icon={<NumberOutlined />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("button"))} title="Add Button" icon={<ButtonIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("switch"))} title="Add Switch" icon={<SwitchIcon />} />
-                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("value-display"))} title="Add Value Display" icon={<ValueIcon />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("value-display"))} title="Add Value Display" icon={<NumberOutlined />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("state-indicator"))} title="Add State Indicator" icon={<ActivityLogIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("checkbox"))} title="Add Checkbox" icon={<CheckIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("slider"))} title="Add Slider" icon={<SliderIcon />} />
@@ -486,6 +492,8 @@ export function ScreenEditorCenter({
                       <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size" icon={<SizeIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute} title="Distribute horizontally" icon={<SpaceBetweenHorizontallyIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
+                      <WorkbenchIconButton onClick={() => onRotateSelectedBy(-90)} disabled={!selectedUnlocked.length} title="Rotate 90° Counterclockwise" icon={<RotateLeftOutlined />} />
+                      <WorkbenchIconButton onClick={() => onRotateSelectedBy(90)} disabled={!selectedUnlocked.length} title="Rotate 90° Clockwise" icon={<RotateRightOutlined />} />
                       <input
                         className="workbench-input screen-editor-toolbar__gap-input"
                         type="number"

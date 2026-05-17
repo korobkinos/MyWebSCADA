@@ -164,6 +164,19 @@ function collectObjectAssetIds(object: HmiObject, out: Set<string>): void {
       }
     }
   }
+  if (object.type === "numeric-image-indicator") {
+    if (object.defaultAssetId) {
+      out.add(object.defaultAssetId);
+    }
+    if (object.badQualityAssetId) {
+      out.add(object.badQualityAssetId);
+    }
+    for (const state of object.states) {
+      if (state.assetId) {
+        out.add(state.assetId);
+      }
+    }
+  }
   if (object.type === "button") {
     if (object.backgroundAssetId) {
       out.add(object.backgroundAssetId);

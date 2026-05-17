@@ -501,6 +501,22 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         dialogSetButtonBackgroundColor: "#0e639c",
         dialogSetButtonBorderColor: "#007acc",
       };
+    case "numeric-image-indicator":
+      return {
+        id: id("num_img"),
+        type,
+        x: 100,
+        y: 100,
+        width: 140,
+        height: 100,
+        minWidth: 40,
+        minHeight: 40,
+        tag: "",
+        states: [],
+        fit: "contain",
+        preserveAspectRatio: true,
+        outOfRangeMode: "default",
+      };
     default:
       return {
         id: id("obj"),

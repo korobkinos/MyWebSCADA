@@ -10268,6 +10268,58 @@
               ]
             }
           ]
+        },
+        {
+          "id": "state_img_whi0su",
+          "type": "stateImage",
+          "x": 653.8594374257788,
+          "y": 617.7487169246326,
+          "width": 140,
+          "height": 100,
+          "minWidth": 40,
+          "minHeight": 40,
+          "tagIndexingByField": {
+            "tag": {
+              "enabled": false,
+              "template": "Counter2",
+              "bindings": []
+            }
+          },
+          "tagIndexing": {
+            "enabled": false,
+            "template": "Counter2",
+            "bindings": []
+          },
+          "tag": "Counter2",
+          "states": [],
+          "defaultAssetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0",
+          "badQualityAssetId": "edd18c1b-b49b-4269-85bc-a51c9786d8f8",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "num_img_zkc99c",
+          "type": "numeric-image-indicator",
+          "x": 174.72011208791793,
+          "y": 578.9389801374025,
+          "width": 140,
+          "height": 100,
+          "minWidth": 40,
+          "minHeight": 40,
+          "tag": "Counter2",
+          "states": [
+            {
+              "index": 0,
+              "assetId": "edd18c1b-b49b-4269-85bc-a51c9786d8f8"
+            },
+            {
+              "index": 1,
+              "assetId": "2fdfe33c-47d0-403c-b846-9bd699dea9f0"
+            }
+          ],
+          "fit": "contain",
+          "preserveAspectRatio": true,
+          "outOfRangeMode": "default"
         }
       ]
     },

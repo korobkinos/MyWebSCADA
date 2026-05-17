@@ -774,6 +774,34 @@ export function EditorPage() {
     [screen, selectedUnlocked, updateObjectWithHistory],
   );
 
+  const rotateSelectedBy = useCallback(
+    (deltaDeg: number) => {
+      if (!screen || !selectedUnlocked.length) {
+        return;
+      }
+      const selectedIds = new Set(selectedUnlocked.map((item) => item.id));
+      const normalizeRotation = (value: number): number => {
+        const rounded = Math.round(value);
+        return ((rounded % 360) + 360) % 360;
+      };
+      runWithHistory(deltaDeg > 0 ? "Rotate objects +90°" : "Rotate objects -90°", () => {
+        const nextObjects = screen.objects.map((item) => {
+          if (!selectedIds.has(item.id) || item.locked) {
+            return item;
+          }
+          const current = Number(item.rotation ?? 0);
+          const base = Number.isFinite(current) ? current : 0;
+          return {
+            ...item,
+            rotation: normalizeRotation(base + deltaDeg),
+          };
+        });
+        setScreenObjects(screen.id, nextObjects);
+      });
+    },
+    [runWithHistory, screen, selectedUnlocked, setScreenObjects],
+  );
+
   const applyClone = useCallback(() => {
     if (!screen) {
       return;
@@ -1180,6 +1208,7 @@ export function EditorPage() {
             onSendToBack={() => zOrderWithHistory("sendToBack")}
             onMoveForward={() => zOrderWithHistory("moveForward")}
             onMoveBackward={() => zOrderWithHistory("moveBackward")}
+            onRotateSelectedBy={rotateSelectedBy}
             onViewportCenterChange={(center) => {
               viewportCenterRef.current = center;
             }}

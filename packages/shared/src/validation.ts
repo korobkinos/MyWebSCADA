@@ -720,6 +720,24 @@ const numericInputObjectSchema = hmiBaseSchema.extend({
   dialogSetButtonBorderColor: z.string().optional(),
 });
 
+const numericImageIndicatorObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("numeric-image-indicator"),
+  tag: z.string().optional(),
+  states: z
+    .array(
+      z.object({
+        index: z.number().int().min(0),
+        assetId: z.string().optional(),
+      }),
+    )
+    .max(100),
+  defaultAssetId: z.string().optional(),
+  badQualityAssetId: z.string().optional(),
+  fit: z.enum(["contain", "cover", "stretch", "none"]),
+  preserveAspectRatio: z.boolean().optional(),
+  outOfRangeMode: z.enum(["default", "clamp"]).optional(),
+});
+
 export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
   z.discriminatedUnion("type", [
     groupObjectSchema,
@@ -744,6 +762,7 @@ export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
     selectObjectSchema,
     radioGroupObjectSchema,
     numericInputObjectSchema,
+    numericImageIndicatorObjectSchema,
   ]) as z.ZodType<HmiObject>,
 );
 

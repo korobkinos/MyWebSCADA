@@ -573,6 +573,7 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
     case "state-indicator":
     case "switch":
     case "stateImage":
+    case "numeric-image-indicator":
       candidates.push(object.tag);
       break;
     case "image":
@@ -1415,6 +1416,61 @@ function ObjectNode({
         runtimeDisabled={runtimeDisabled}
         shadowDisabled={effectiveShadowDisabled}
         nodeIdPrefix={nodeIdPrefix}
+      />
+    );
+  }
+
+  if (resolvedObject.type === "numeric-image-indicator") {
+    const resolvedTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+    const runtimeTag = resolvedTag?.value;
+    const noTagConfigured = (resolvedObject.tag ?? "").trim() === "";
+    const isBad = runtimeMode && Boolean(
+      noTagConfigured
+      || resolvedTag?.missingBindingReference
+      || resolvedTag?.missingIndexedTag
+      || !runtimeTag
+      || runtimeTag.quality === "Bad"
+    );
+    const editorFallbackStateAssetId = resolvedObject.states
+      .slice()
+      .sort((left, right) => left.index - right.index)
+      .find((state) => state.assetId)?.assetId;
+    const stateAssetId = runtimeMode && !isBad
+      ? selectNumericImageIndicatorAssetId(
+          resolvedObject.states,
+          Number(runtimeTag?.value),
+          resolvedObject.outOfRangeMode ?? "default",
+        )
+      : undefined;
+    const activeAssetId = !runtimeMode
+      ? (resolvedObject.defaultAssetId ?? editorFallbackStateAssetId)
+      : isBad
+        ? (resolvedObject.badQualityAssetId ?? resolvedObject.defaultAssetId)
+        : (stateAssetId ?? resolvedObject.defaultAssetId);
+
+    return (
+      <ImageNode
+        object={{
+          ...resolvedObject,
+          type: "image",
+          assetId: activeAssetId,
+          src: undefined,
+          stateTag: undefined,
+          stateImages: undefined,
+        }}
+        groupProps={commonGroupProps}
+        selected={selected}
+        project={project}
+        libraries={libraries}
+        scopedAssets={scopedAssets}
+        stateValue={undefined}
+        interactive={interactive}
+        onSelectObject={onSelectObject}
+        onAction={onAction}
+        renderContext={renderContext}
+        runtimeDisabled={runtimeDisabled}
+        forceFrame={showObjectFrames}
+        shadowDisabled={effectiveShadowDisabled}
       />
     );
   }
@@ -3681,7 +3737,8 @@ function collectMissingBindingReferencesFromObjects(
       object.type === "value-input" ||
       object.type === "state-indicator" ||
       object.type === "switch" ||
-      object.type === "stateImage"
+      object.type === "stateImage" ||
+      object.type === "numeric-image-indicator"
     ) {
       collectMissingBindingReference(object.tag, resolvedBindings, output);
     }
@@ -3911,6 +3968,34 @@ function selectStateImageAssetId(
     }
   }
   return undefined;
+}
+
+function selectNumericImageIndicatorAssetId(
+  states: Array<{ index: number; assetId?: string }>,
+  value: number,
+  mode: "default" | "clamp",
+): string | undefined {
+  if (!Number.isFinite(value) || states.length === 0) {
+    return undefined;
+  }
+
+  const uniqueIndices = [...new Set(
+    states
+      .map((state) => Math.floor(Number(state.index)))
+      .filter((stateIndex) => Number.isFinite(stateIndex)),
+  )].sort((left, right) => left - right);
+  if (!uniqueIndices.length) {
+    return undefined;
+  }
+
+  let targetIndex = Math.floor(value);
+  if (mode === "clamp") {
+    const minIndex = uniqueIndices[0]!;
+    const maxIndex = uniqueIndices[uniqueIndices.length - 1]!;
+    targetIndex = Math.max(minIndex, Math.min(maxIndex, targetIndex));
+  }
+
+  return states.find((state) => Math.floor(state.index) === targetIndex)?.assetId;
 }
 
 function toInternalRuntimeTag(name: string): string {

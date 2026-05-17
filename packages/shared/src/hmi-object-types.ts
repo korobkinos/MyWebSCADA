@@ -59,7 +59,8 @@ export type HmiObjectBase = {
     | "progress-bar"
     | "select"
     | "radio-group"
-    | "numeric-input";
+    | "numeric-input"
+    | "numeric-image-indicator";
   name?: string;
 
   x: number;
@@ -618,6 +619,22 @@ export type NumericInputObject = HmiObjectBase & {
   dialogSetButtonBorderColor?: string;
 };
 
+export type NumericImageIndicatorState = {
+  index: number;
+  assetId?: string;
+};
+
+export type NumericImageIndicatorObject = HmiObjectBase & {
+  type: "numeric-image-indicator";
+  tag?: string;
+  states: NumericImageIndicatorState[];
+  defaultAssetId?: string;
+  badQualityAssetId?: string;
+  fit: "contain" | "cover" | "stretch" | "none";
+  preserveAspectRatio?: boolean;
+  outOfRangeMode?: "default" | "clamp";
+};
+
 export type HmiObject =
   | GroupObject
   | TextObject
@@ -640,4 +657,5 @@ export type HmiObject =
   | ProgressBarObject
   | SelectObject
   | RadioGroupObject
-  | NumericInputObject;
+  | NumericInputObject
+  | NumericImageIndicatorObject;
