@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ScadaProject } from "@web-scada/shared";
+import { ColorPicker, Input, InputNumber, Select, Space } from "antd";
 import {
   WorkbenchButton,
   WorkbenchCollapsibleSection,
@@ -14,6 +15,35 @@ function readStoredTool(): EditorTool {
   }
   const raw = window.localStorage.getItem(ACTIVE_TOOL_STORAGE_KEY);
   return raw === "pan" ? "pan" : "select";
+}
+
+function normalizeGridColor(value: string | undefined): string {
+  const fallback = "#bfc7d5";
+  const token = (value ?? "").trim();
+  if (!token) {
+    return fallback;
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(token)) {
+    return token.toLowerCase();
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(token)) {
+    return `#${token.slice(1).split("").map((ch) => ch + ch).join("").toLowerCase()}`;
+  }
+  return fallback;
+}
+
+function normalizeGridLineWidth(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.min(6, Math.max(0.5, value ?? 1));
+}
+
+function normalizeGridOpacity(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 0.08;
+  }
+  return Math.min(1, Math.max(0, value ?? 0.08));
 }
 
 type ScreenEditorProjectSettingsWindowProps = {
@@ -132,6 +162,79 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
               onChange={(event) => updateEditorSettings({ showObjectFrames: event.target.checked })}
             />
             <span>Show object frames</span>
+          </label>
+          <label className="screen-editor-settings-check">
+            <input
+              type="checkbox"
+              checked={project.editorSettings?.showEditorGrid ?? true}
+              onChange={(event) => updateEditorSettings({ showEditorGrid: event.target.checked })}
+            />
+            <span>Show subtle editor grid</span>
+          </label>
+          <label className="screen-editor-settings-field">
+            <span>Editor grid color</span>
+            <Space.Compact style={{ width: "100%" }}>
+              <ColorPicker
+                value={normalizeGridColor(project.editorSettings?.editorGridColor)}
+                onChangeComplete={(color) => updateEditorSettings({ editorGridColor: color.toHexString() })}
+              />
+              <Input
+                value={project.editorSettings?.editorGridColor ?? "#bfc7d5"}
+                onChange={(event) => updateEditorSettings({ editorGridColor: event.target.value })}
+                placeholder="#bfc7d5"
+              />
+            </Space.Compact>
+          </label>
+          <label className="screen-editor-settings-field">
+            <span>Editor grid opacity (0..1)</span>
+            <InputNumber
+              className="screen-editor-settings-input-number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={normalizeGridOpacity(project.editorSettings?.editorGridOpacity)}
+              onChange={(value) => updateEditorSettings({ editorGridOpacity: normalizeGridOpacity(Number(value)) })}
+            />
+          </label>
+          <label className="screen-editor-settings-field">
+            <span>Editor grid line width (px)</span>
+            <InputNumber
+              className="screen-editor-settings-input-number"
+              min={0.5}
+              max={6}
+              step={0.5}
+              value={normalizeGridLineWidth(project.editorSettings?.editorGridLineWidth)}
+              onChange={(value) => updateEditorSettings({ editorGridLineWidth: normalizeGridLineWidth(Number(value)) })}
+            />
+          </label>
+          <label className="screen-editor-settings-field">
+            <span>Editor grid line style</span>
+            <Select
+              value={project.editorSettings?.editorGridLineStyle ?? "solid"}
+              options={[
+                { label: "Solid", value: "solid" },
+                { label: "Dashed", value: "dashed" },
+                { label: "Dotted", value: "dotted" },
+                { label: "Dash-dot", value: "dashDot" },
+              ]}
+              onChange={(value) => updateEditorSettings({ editorGridLineStyle: value })}
+            />
+          </label>
+          <label className="screen-editor-settings-field">
+            <span>Arrow key move step (px)</span>
+            <input
+              className="workbench-input"
+              type="number"
+              min={0.1}
+              step={0.1}
+              value={project.editorSettings?.keyboardNudgeStepPx ?? 1}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                updateEditorSettings({
+                  keyboardNudgeStepPx: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
+                });
+              }}
+            />
           </label>
           <label className="screen-editor-settings-field">
             <span>Default Tool</span>

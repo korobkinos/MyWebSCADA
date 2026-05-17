@@ -84,6 +84,46 @@ function clampZoom(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
+function toGridLineColor(rawColor: string | undefined, opacity: number): string {
+  const safeOpacity = Math.min(1, Math.max(0, opacity));
+  const fallback = `rgba(255, 255, 255, ${safeOpacity})`;
+  const value = (rawColor ?? "").trim();
+  if (!value.startsWith("#")) {
+    return fallback;
+  }
+  const hex = value.slice(1);
+  const expandHex = (token: string): string => token.split("").map((ch) => ch + ch).join("");
+  const normalized = hex.length === 3 ? expandHex(hex) : hex.length === 6 ? hex : "";
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return fallback;
+  }
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${safeOpacity})`;
+}
+
+function normalizeGridLineWidth(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.min(6, Math.max(0.5, value ?? 1));
+}
+
+function normalizeGridOpacity(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 0.08;
+  }
+  return Math.min(1, Math.max(0, value ?? 0.08));
+}
+
+function normalizeGridLineStyle(value: string | undefined): "solid" | "dashed" | "dotted" | "dashDot" {
+  if (value === "dashed" || value === "dotted" || value === "dashDot") {
+    return value;
+  }
+  return "solid";
+}
+
 export type ScreenEditorCenterProps = {
   screen: HmiScreen;
   project: ScadaProject | null;
@@ -268,12 +308,17 @@ export function ScreenEditorCenter({
     return preset.has(editorZoom) ? ZOOM_OPTIONS : [...ZOOM_OPTIONS, editorZoom].sort((a, b) => a - b);
   }, [editorZoom]);
   const wheelZoomEnabled = project?.uiSettings?.editorWheelZoomEnabled ?? true;
+  const showEditorGrid = project?.editorSettings?.showEditorGrid ?? true;
+  const gridLineOpacity = normalizeGridOpacity(project?.editorSettings?.editorGridOpacity);
+  const gridLineColor = toGridLineColor(project?.editorSettings?.editorGridColor, gridLineOpacity);
+  const gridLineWidth = normalizeGridLineWidth(project?.editorSettings?.editorGridLineWidth);
+  const gridLineStyle = normalizeGridLineStyle(project?.editorSettings?.editorGridLineStyle);
   const stageMode = previewMode ? "runtime" : "editor";
   const stageTags = previewMode ? tags : EMPTY_STAGE_TAGS;
   const viewportBackground =
     screen?.backgroundFillMode === "viewport"
       ? screen.background ?? "#111111"
-      : undefined;
+      : "#111111";
   const applyAutoFitZoom = useCallback(() => {
     if (previewMode) {
       return;
@@ -582,7 +627,7 @@ export function ScreenEditorCenter({
       </div>
       <div
         className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${!previewMode && activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${!previewMode && isPanning ? " screen-editor-canvas-host--panning" : ""}`}
-        style={viewportBackground ? { background: viewportBackground } : undefined}
+        style={{ ["--screen-editor-viewport-bg" as string]: viewportBackground } as Record<string, string>}
         onWheel={(event) => {
           // Task 4: zoom is handled by the native non-passive listener (useEffect above).
           // React's onWheel is passive by default and cannot preventDefault reliably.
@@ -643,7 +688,9 @@ export function ScreenEditorCenter({
         <div
           ref={canvasScrollRef}
           className="screen-editor-canvas-scroll"
-          style={viewportBackground ? { background: viewportBackground } : undefined}
+          style={{
+            ["--screen-editor-viewport-bg" as string]: viewportBackground,
+          } as Record<string, string>}
         >
           {screen ? (
             <HmiStage
@@ -698,6 +745,10 @@ export function ScreenEditorCenter({
               onMoveObjectEnd={commitLiveMoveWithHistory}
               onResizeObject={resizeObjectWithHistory}
               editorZoom={editorZoom}
+              showEditorGrid={!previewMode && showEditorGrid}
+              editorGridColor={gridLineColor}
+              editorGridLineWidth={gridLineWidth}
+              editorGridLineStyle={gridLineStyle}
             />
           ) : (
             <div className="screen-editor-empty-state">Select or create a screen</div>

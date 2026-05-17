@@ -393,16 +393,27 @@ export function distributeSelected(
   if (unlocked.length < 3) {
     return { screen, selection };
   }
+  const boundsById = new Map(unlocked.map((item) => [item.id, getObjectBounds(item)]));
+
   if (mode === "distributeHorizontally") {
-    const sorted = [...unlocked].sort((a, b) => a.x - b.x);
+    const sorted = [...unlocked].sort((a, b) => {
+      const left = boundsById.get(a.id);
+      const right = boundsById.get(b.id);
+      return (left?.x ?? a.x) - (right?.x ?? b.x);
+    });
     const bounds = getObjectsBounds(sorted);
-    const total = sorted.reduce((sum, item) => sum + item.width, 0);
+    const total = sorted.reduce((sum, item) => sum + (boundsById.get(item.id)?.width ?? item.width), 0);
     const gap = (bounds.width - total) / (sorted.length - 1);
     let cursor = bounds.x;
     const updates = new Map<string, { x: number }>();
     for (const object of sorted) {
-      updates.set(object.id, { x: cursor });
-      cursor += object.width + gap;
+      const objectBounds = boundsById.get(object.id);
+      if (!objectBounds) {
+        continue;
+      }
+      const dx = cursor - objectBounds.x;
+      updates.set(object.id, { x: object.x + dx });
+      cursor += objectBounds.width + gap;
     }
     return {
       screen: {
@@ -413,15 +424,24 @@ export function distributeSelected(
     };
   }
 
-  const sorted = [...unlocked].sort((a, b) => a.y - b.y);
+  const sorted = [...unlocked].sort((a, b) => {
+    const top = boundsById.get(a.id);
+    const bottom = boundsById.get(b.id);
+    return (top?.y ?? a.y) - (bottom?.y ?? b.y);
+  });
   const bounds = getObjectsBounds(sorted);
-  const total = sorted.reduce((sum, item) => sum + item.height, 0);
+  const total = sorted.reduce((sum, item) => sum + (boundsById.get(item.id)?.height ?? item.height), 0);
   const gap = (bounds.height - total) / (sorted.length - 1);
   let cursor = bounds.y;
   const updates = new Map<string, { y: number }>();
   for (const object of sorted) {
-    updates.set(object.id, { y: cursor });
-    cursor += object.height + gap;
+    const objectBounds = boundsById.get(object.id);
+    if (!objectBounds) {
+      continue;
+    }
+    const dy = cursor - objectBounds.y;
+    updates.set(object.id, { y: object.y + dy });
+    cursor += objectBounds.height + gap;
   }
   return {
     screen: {
@@ -442,26 +462,41 @@ export function spaceSelected(
   if (unlocked.length < 3) {
     return { screen, selection };
   }
+  const boundsById = new Map(unlocked.map((item) => [item.id, getObjectBounds(item)]));
 
   if (mode === "spaceEvenlyHorizontally") {
-    const sorted = [...unlocked].sort((a, b) => a.x - b.x);
+    const sorted = [...unlocked].sort((a, b) => {
+      const left = boundsById.get(a.id);
+      const right = boundsById.get(b.id);
+      return (left?.x ?? a.x) - (right?.x ?? b.x);
+    });
     const first = sorted[0];
     const second = sorted[1];
     if (!first || !second) {
       return { screen, selection };
     }
-    const inferredGap = second.x - (first.x + first.width);
+    const firstBounds = boundsById.get(first.id);
+    const secondBounds = boundsById.get(second.id);
+    if (!firstBounds || !secondBounds) {
+      return { screen, selection };
+    }
+    const inferredGap = secondBounds.x - (firstBounds.x + firstBounds.width);
     const gap = options?.gap ?? inferredGap;
     const updates = new Map<string, { x: number }>();
     updates.set(first.id, { x: first.x });
-    let cursor = first.x + first.width + gap;
+    let cursor = firstBounds.x + firstBounds.width + gap;
     for (let i = 1; i < sorted.length; i += 1) {
       const object = sorted[i];
       if (!object) {
         continue;
       }
-      updates.set(object.id, { x: cursor });
-      cursor += object.width + gap;
+      const objectBounds = boundsById.get(object.id);
+      if (!objectBounds) {
+        continue;
+      }
+      const dx = cursor - objectBounds.x;
+      updates.set(object.id, { x: object.x + dx });
+      cursor += objectBounds.width + gap;
     }
     return {
       screen: {
@@ -472,24 +507,38 @@ export function spaceSelected(
     };
   }
 
-  const sorted = [...unlocked].sort((a, b) => a.y - b.y);
+  const sorted = [...unlocked].sort((a, b) => {
+    const top = boundsById.get(a.id);
+    const bottom = boundsById.get(b.id);
+    return (top?.y ?? a.y) - (bottom?.y ?? b.y);
+  });
   const first = sorted[0];
   const second = sorted[1];
   if (!first || !second) {
     return { screen, selection };
   }
-  const inferredGap = second.y - (first.y + first.height);
+  const firstBounds = boundsById.get(first.id);
+  const secondBounds = boundsById.get(second.id);
+  if (!firstBounds || !secondBounds) {
+    return { screen, selection };
+  }
+  const inferredGap = secondBounds.y - (firstBounds.y + firstBounds.height);
   const gap = options?.gap ?? inferredGap;
   const updates = new Map<string, { y: number }>();
   updates.set(first.id, { y: first.y });
-  let cursor = first.y + first.height + gap;
+  let cursor = firstBounds.y + firstBounds.height + gap;
   for (let i = 1; i < sorted.length; i += 1) {
     const object = sorted[i];
     if (!object) {
       continue;
     }
-    updates.set(object.id, { y: cursor });
-    cursor += object.height + gap;
+    const objectBounds = boundsById.get(object.id);
+    if (!objectBounds) {
+      continue;
+    }
+    const dy = cursor - objectBounds.y;
+    updates.set(object.id, { y: object.y + dy });
+    cursor += objectBounds.height + gap;
   }
   return {
     screen: {

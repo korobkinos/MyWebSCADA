@@ -1770,7 +1770,7 @@ body {
   min-height: 0;
   position: relative;
   overflow: hidden;
-  background: #111111;
+  background: var(--screen-editor-viewport-bg, #111111);
 }
 
 .screen-editor-canvas-host--pan {
@@ -1787,6 +1787,7 @@ body {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  background: var(--screen-editor-viewport-bg, #111111);
 }
 
 .screen-editor-pan-overlay {
@@ -2345,18 +2346,23 @@ body {
   color: #cccccc;
 }
 
-.screen-editor-settings-color-row {
-  display: grid;
-  grid-template-columns: 1fr 40px;
-  gap: 6px;
+.screen-editor-settings-field .ant-space-compact {
+  width: 100%;
 }
 
-.screen-editor-settings-color-picker {
+.screen-editor-settings-field .ant-color-picker-trigger {
   width: 40px;
-  height: 24px;
-  border: 1px solid #3c3c3c;
-  background: #1e1e1e;
-  padding: 0;
+  min-width: 40px;
+}
+
+.screen-editor-settings-field .ant-input {
+  min-width: 0;
+}
+
+.screen-editor-settings-input-number,
+.screen-editor-settings-input-number .ant-input-number-input-wrap,
+.screen-editor-settings-input-number .ant-input-number-input {
+  width: 100%;
 }
 
 .screen-editor-settings-actions {

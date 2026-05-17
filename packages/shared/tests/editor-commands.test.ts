@@ -171,6 +171,35 @@ describe("distribution", () => {
     expect(byId(result.screen, "b").y).toBe(50);
     expect(byId(result.screen, "c").y).toBe(100);
   });
+
+  it("distributes rotated triangles horizontally by transformed bounds", () => {
+    const mkTriangle = (id: string, x: number, y: number, rotation: number): HmiObject => ({
+      id,
+      type: "line",
+      x,
+      y,
+      width: 90,
+      height: 80,
+      points: [45, 0, 90, 80, 0, 80],
+      stroke: "#8c8c8c",
+      strokeWidth: 2,
+      closed: true,
+      fill: "#262626",
+      rotation,
+    });
+    const screen = screenWith([
+      mkTriangle("a", 0, 0, 20),
+      mkTriangle("b", 140, 0, -15),
+      mkTriangle("c", 280, 0, 8),
+    ]);
+    const result = distributeSelected(screen, selection(["a", "b", "c"]), "distributeHorizontally");
+    const a = getObjectBounds(byId(result.screen, "a"));
+    const b = getObjectBounds(byId(result.screen, "b"));
+    const c = getObjectBounds(byId(result.screen, "c"));
+    const gap1 = b.x - (a.x + a.width);
+    const gap2 = c.x - (b.x + b.width);
+    expect(Math.abs(gap1 - gap2)).toBeLessThan(1e-6);
+  });
 });
 
 describe("spacing", () => {
@@ -188,6 +217,34 @@ describe("spacing", () => {
     expect(byId(result.screen, "a").y).toBe(10);
     expect(byId(result.screen, "b").y).toBe(30);
     expect(byId(result.screen, "c").y).toBe(50);
+  });
+
+  it("spaces rotated triangles horizontally with explicit gap by bounds", () => {
+    const mkTriangle = (id: string, x: number, y: number, rotation: number): HmiObject => ({
+      id,
+      type: "line",
+      x,
+      y,
+      width: 90,
+      height: 80,
+      points: [45, 0, 90, 80, 0, 80],
+      stroke: "#8c8c8c",
+      strokeWidth: 2,
+      closed: true,
+      fill: "#262626",
+      rotation,
+    });
+    const screen = screenWith([
+      mkTriangle("a", 10, 0, 28),
+      mkTriangle("b", 90, 0, -17),
+      mkTriangle("c", 170, 0, 5),
+    ]);
+    const result = spaceSelected(screen, selection(["a", "b", "c"]), "spaceEvenlyHorizontally", { gap: 25 });
+    const a = getObjectBounds(byId(result.screen, "a"));
+    const b = getObjectBounds(byId(result.screen, "b"));
+    const c = getObjectBounds(byId(result.screen, "c"));
+    expect(Math.abs((b.x - (a.x + a.width)) - 25)).toBeLessThan(1e-6);
+    expect(Math.abs((c.x - (b.x + b.width)) - 25)).toBeLessThan(1e-6);
   });
 });
 

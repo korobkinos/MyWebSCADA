@@ -802,6 +802,26 @@ export function EditorPage() {
     [runWithHistory, screen, selectedUnlocked, setScreenObjects],
   );
 
+  const nudgeSelectedBy = useCallback((dx: number, dy: number) => {
+    if (!screen || !selectedUnlocked.length || (dx === 0 && dy === 0)) {
+      return;
+    }
+    const selectedIds = new Set(selectedUnlocked.map((item) => item.id));
+    runWithHistory("Nudge objects", () => {
+      const nextObjects = screen.objects.map((item) => {
+        if (!selectedIds.has(item.id) || item.locked) {
+          return item;
+        }
+        return {
+          ...item,
+          x: item.x + dx,
+          y: item.y + dy,
+        };
+      });
+      setScreenObjects(screen.id, nextObjects);
+    });
+  }, [runWithHistory, screen, selectedUnlocked, setScreenObjects]);
+
   const applyClone = useCallback(() => {
     if (!screen) {
       return;
@@ -1112,6 +1132,30 @@ export function EditorPage() {
         }
         return;
       }
+      if (!editing && !ctrlOrMeta && !event.altKey && !event.shiftKey) {
+        const nudgeStep = project?.editorSettings?.keyboardNudgeStepPx ?? 1;
+        const step = Number.isFinite(nudgeStep) && nudgeStep > 0 ? nudgeStep : 1;
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          nudgeSelectedBy(-step, 0);
+          return;
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          nudgeSelectedBy(step, 0);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          nudgeSelectedBy(0, -step);
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          nudgeSelectedBy(0, step);
+          return;
+        }
+      }
       if (!editing && (event.key === "Delete" || event.key === "Backspace")) {
         event.preventDefault();
         deleteSelectionWithHistory();
@@ -1122,7 +1166,7 @@ export function EditorPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [copySelectionToClipboard, deleteSelectionWithHistory, handleSaveProject, pasteFromClipboard, redo, screen, undo]);
+  }, [copySelectionToClipboard, deleteSelectionWithHistory, handleSaveProject, nudgeSelectedBy, pasteFromClipboard, project?.editorSettings?.keyboardNudgeStepPx, redo, screen, undo]);
 
   if (!project || !screen) {
     return (

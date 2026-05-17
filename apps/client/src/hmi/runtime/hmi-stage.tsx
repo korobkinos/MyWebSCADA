@@ -46,6 +46,10 @@ type HmiStageProps = {
   showObjectFrames?: boolean;
   fullscreenRuntime?: boolean;
   editorZoom?: number;
+  showEditorGrid?: boolean;
+  editorGridColor?: string;
+  editorGridLineWidth?: number;
+  editorGridLineStyle?: "solid" | "dashed" | "dotted" | "dashDot";
   currentUserRoleLevel?: number;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
 };
@@ -73,6 +77,10 @@ export function HmiStage({
   showObjectFrames = false,
   fullscreenRuntime = false,
   editorZoom = 1,
+  showEditorGrid = false,
+  editorGridColor = "rgba(255, 255, 255, 0.08)",
+  editorGridLineWidth = 1,
+  editorGridLineStyle = "solid",
   currentUserRoleLevel,
   onRequestNumericInput,
 }: HmiStageProps) {
@@ -165,6 +173,39 @@ export function HmiStage({
   const stageScale = mode === "runtime" ? runtimeScale : effectiveEditorZoom;
   const stageWidth = mode === "editor" ? screen.width * effectiveEditorZoom : screen.width;
   const stageHeight = mode === "editor" ? screen.height * effectiveEditorZoom : screen.height;
+  const gridPatternImage = useMemo(() => {
+    if (mode !== "editor" || !showEditorGrid) {
+      return null;
+    }
+    const dashByStyle: Record<NonNullable<HmiStageProps["editorGridLineStyle"]>, number[]> = {
+      solid: [],
+      dashed: [6, 4],
+      dotted: [1, 3],
+      dashDot: [8, 3, 1, 3],
+    };
+    const lineWidth = Number.isFinite(editorGridLineWidth) ? Math.min(6, Math.max(0.5, editorGridLineWidth)) : 1;
+    const step = 24;
+    const canvas = document.createElement("canvas");
+    canvas.width = step;
+    canvas.height = step;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return null;
+    }
+    ctx.clearRect(0, 0, step, step);
+    ctx.strokeStyle = editorGridColor;
+    ctx.lineWidth = lineWidth;
+    ctx.setLineDash(dashByStyle[editorGridLineStyle] ?? dashByStyle.solid);
+    ctx.lineCap = "butt";
+    const offset = lineWidth / 2;
+    ctx.beginPath();
+    ctx.moveTo(step - offset, 0);
+    ctx.lineTo(step - offset, step);
+    ctx.moveTo(0, step - offset);
+    ctx.lineTo(step, step - offset);
+    ctx.stroke();
+    return canvas;
+  }, [editorGridColor, editorGridLineStyle, editorGridLineWidth, mode, showEditorGrid]);
 
   const selectedObjects = screen.objects.filter((item) => selectedObjectIds.includes(item.id));
   const minWidth = Math.min(...selectedObjects.map((item) => item.minWidth ?? 8), 8);
@@ -322,6 +363,17 @@ export function HmiStage({
       >
         <Layer>
           <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
+          {mode === "editor" && showEditorGrid && gridPatternImage ? (
+            <Rect
+              x={0}
+              y={0}
+              width={screen.width}
+              height={screen.height}
+              fillPatternImage={gridPatternImage as unknown as HTMLImageElement}
+              fillPatternRepeat="repeat"
+              listening={false}
+            />
+          ) : null}
           <HmiRenderer
             project={project}
             screen={screen}

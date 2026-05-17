@@ -9204,7 +9204,10 @@
     },
     "leftPanelWidth": 373,
     "rightPanelWidth": 260,
-    "showObjectFrames": false,
+    "showObjectFrames": true,
+    "editorGridColor": "#000000",
+    "editorGridLineWidth": 2,
+    "editorGridLineStyle": "dashed",
     "panels": [
       {
         "id": "screens",
@@ -10135,8 +10138,8 @@
         {
           "id": "nmin_8x7e1y",
           "type": "numeric-input",
-          "x": 633.7240184286115,
-          "y": 489.9125952428491,
+          "x": 649.481371358245,
+          "y": 492.7785583350846,
           "width": 154.8253814876562,
           "height": 56.20142123557006,
           "rotation": 0,

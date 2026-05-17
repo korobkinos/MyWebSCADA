@@ -237,6 +237,12 @@ export type EditorSettings = {
   leftPanelWidth?: number;
   rightPanelWidth?: number;
   showObjectFrames?: boolean;
+  keyboardNudgeStepPx?: number;
+  showEditorGrid?: boolean;
+  editorGridColor?: string;
+  editorGridOpacity?: number;
+  editorGridLineWidth?: number;
+  editorGridLineStyle?: "solid" | "dashed" | "dotted" | "dashDot";
 };
 
 export type EditorLayoutSettings = {

@@ -1216,6 +1216,12 @@ export const projectSchema = z.object({
       leftPanelWidth: z.number().positive().optional(),
       rightPanelWidth: z.number().positive().optional(),
       showObjectFrames: z.boolean().optional(),
+      keyboardNudgeStepPx: z.number().positive().optional(),
+      showEditorGrid: z.boolean().optional(),
+      editorGridColor: z.string().optional(),
+      editorGridOpacity: z.number().min(0).max(1).optional(),
+      editorGridLineWidth: z.number().positive().optional(),
+      editorGridLineStyle: z.enum(["solid", "dashed", "dotted", "dashDot"]).optional(),
       panels: z
         .array(
           z.object({
