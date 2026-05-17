@@ -7,6 +7,9 @@ import {
   type ArchiveLogger,
   type ArchivePolicyInput,
   type ArchivePolicyRow,
+  type TrendAggregationMode,
+  type TrendQueryRow,
+  type TrendTagInfoRow,
   type ArchiveRuntimeSettingsRow,
   type ArchiveSampleRow,
   type ArchiveTagConfigRow,
@@ -87,6 +90,25 @@ export class ArchiveService {
 
   public async querySamples(tagName: string, from: Date, to: Date, limit: number): Promise<ArchiveSampleRow[]> {
     return this.repository.querySamples(tagName, from, to, limit);
+  }
+
+  public async listTrendTags(): Promise<TrendTagInfoRow[]> {
+    return this.repository.listTrendTags();
+  }
+
+  public async queryTrendsRange(tags: string[]): Promise<{ from: string | null; to: string | null }> {
+    return this.repository.queryTrendsRange(tags);
+  }
+
+  public async queryTrends(request: {
+    tags: string[];
+    from: Date;
+    to: Date;
+    maxPoints: number;
+    aggregation: TrendAggregationMode;
+    hardLimitPerSeries: number;
+  }): Promise<TrendQueryRow> {
+    return this.repository.queryTrends(request);
   }
 
   public async listPolicies(): Promise<ArchivePolicyRow[]> {

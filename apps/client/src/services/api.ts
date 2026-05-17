@@ -159,6 +159,50 @@ export type ArchivePurgeResult = {
   tables: string[];
 };
 
+export type TrendDataType = "number" | "boolean" | "string" | "enum";
+export type TrendAggregationMode = "auto" | "raw" | "minmax" | "avg" | "lttb";
+export type TrendTagInfo = {
+  id: string;
+  name: string;
+  displayName?: string;
+  unit?: string;
+  dataType?: TrendDataType;
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+};
+export type TrendPoint = {
+  t: number;
+  v: number | null;
+  q?: "good" | "bad" | "uncertain";
+};
+export type TrendSeriesResponse = {
+  tag: string;
+  displayName?: string;
+  unit?: string;
+  color?: string;
+  axisId?: string;
+  points: TrendPoint[];
+};
+export type TrendQueryRequest = {
+  tags: string[];
+  from: string;
+  to: string;
+  maxPoints: number;
+  aggregation: TrendAggregationMode;
+};
+export type TrendQueryResponse = {
+  from: string;
+  to: string;
+  aggregation: Exclude<TrendAggregationMode, "auto">;
+  series: TrendSeriesResponse[];
+};
+export type TrendRangeResponse = {
+  from: string | null;
+  to: string | null;
+};
+
 const ENGINEER_TOKEN_KEY = "scada_engineer_token";
 const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, "");
@@ -317,6 +361,19 @@ export const api = {
       body: JSON.stringify(project),
     }),
   getTags: () => request<TagSnapshot[]>("/api/tags"),
+  getTrendTags: () => request<TrendTagInfo[]>("/api/trends/tags"),
+  getTrendsRange: (tags: string[]) =>
+    request<TrendRangeResponse>(
+      tags.length > 0
+        ? `/api/trends/range?${new URLSearchParams({ tags: tags.join(",") }).toString()}`
+        : "/api/trends/range",
+    ),
+  queryTrends: (payload: TrendQueryRequest, options?: { signal?: AbortSignal }) =>
+    request<TrendQueryResponse>("/api/trends/query", {
+      method: "POST",
+      signal: options?.signal,
+      body: JSON.stringify(payload),
+    }),
   getArchiveStatus: () => request<ArchiveStatus>("/api/archive/status"),
   listArchivePolicies: () => request<ArchivePolicy[]>("/api/archive/policies"),
   createArchivePolicy: (payload: ArchivePolicyPayload) =>

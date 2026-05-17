@@ -104,6 +104,65 @@ export type ArchivePurgeResultRow = {
   tables: string[];
 };
 
+export type TrendAggregationMode = "auto" | "raw" | "minmax" | "avg" | "lttb";
+export type TrendResolvedAggregation = "raw" | "minmax" | "avg" | "lttb";
+export type TrendDataType = "number" | "boolean" | "string" | "enum";
+export type TrendQuality = "good" | "bad" | "uncertain";
+
+export type TrendTagInfoRow = {
+  id: string;
+  name: string;
+  displayName?: string;
+  unit?: string;
+  dataType?: TrendDataType;
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+};
+
+export type TrendPointRow = {
+  t: number;
+  v: number | null;
+  q?: TrendQuality;
+};
+
+export type TrendSeriesRow = {
+  tag: string;
+  displayName?: string;
+  unit?: string;
+  points: TrendPointRow[];
+};
+
+export type TrendQueryRow = {
+  from: string;
+  to: string;
+  aggregation: TrendResolvedAggregation;
+  series: TrendSeriesRow[];
+};
+
+type TrendTagMetaRow = {
+  id: number;
+  name: string;
+  displayName: string;
+  unit: string | null;
+  dataTypeCode: string;
+  description: string | null;
+  group: string | null;
+  min: number | null;
+  max: number | null;
+  archiveEnabled: boolean;
+};
+
+type TrendQueryParams = {
+  tags: string[];
+  from: Date;
+  to: Date;
+  maxPoints: number;
+  aggregation: TrendAggregationMode;
+  hardLimitPerSeries: number;
+};
+
 type ArchiveRepositoryOptions = {
   connectionString: string;
   maxPoolSize?: number;
@@ -305,6 +364,117 @@ export class ArchiveRepository {
       quality: row.quality,
       source: row.source,
     }));
+  }
+
+  public async listTrendTags(): Promise<TrendTagInfoRow[]> {
+    const rows = await this.loadTrendTagMeta();
+    return rows.map((row) => ({
+      id: String(row.id),
+      name: row.name,
+      displayName: row.displayName || row.name,
+      unit: row.unit ?? undefined,
+      dataType: this.mapTrendDataType(row.dataTypeCode),
+      description: row.description ?? undefined,
+      group: row.group ?? undefined,
+      min: row.min ?? undefined,
+      max: row.max ?? undefined,
+    }));
+  }
+
+  public async queryTrendsRange(tags: string[]): Promise<{ from: string | null; to: string | null }> {
+    if (tags.length > 0) {
+      const rows = await this.loadTrendTagMeta(tags);
+      if (rows.length === 0) {
+        return { from: null, to: null };
+      }
+      const result = await this.pool.query<{
+        min_time: Date | null;
+        max_time: Date | null;
+      }>(
+        `
+        SELECT MIN(s.time) AS min_time, MAX(s.time) AS max_time
+        FROM archive_samples s
+        WHERE s.tag_id = ANY($1::bigint[])
+        `,
+        [rows.map((row) => row.id)],
+      );
+      const range = result.rows[0];
+      return {
+        from: range?.min_time ? range.min_time.toISOString() : null,
+        to: range?.max_time ? range.max_time.toISOString() : null,
+      };
+    }
+
+    const result = await this.pool.query<{
+      min_time: Date | null;
+      max_time: Date | null;
+    }>(
+      `
+      SELECT MIN(s.time) AS min_time, MAX(s.time) AS max_time
+      FROM archive_samples s
+      JOIN tags t ON t.id = s.tag_id
+      LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
+      LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
+      WHERE COALESCE(o.enabled, p.enabled, false) = true
+      `,
+    );
+    const range = result.rows[0];
+    return {
+      from: range?.min_time ? range.min_time.toISOString() : null,
+      to: range?.max_time ? range.max_time.toISOString() : null,
+    };
+  }
+
+  public async queryTrends(params: TrendQueryParams): Promise<TrendQueryRow> {
+    const requestedFrom = params.from;
+    const requestedTo = params.to;
+    const maxPoints = Math.max(100, params.maxPoints);
+    const hardLimit = Math.max(200, params.hardLimitPerSeries);
+    const rangeMs = Math.max(1, requestedTo.getTime() - requestedFrom.getTime());
+    const bucketMs = Math.max(1, Math.ceil(rangeMs / maxPoints));
+
+    const metaRows = await this.loadTrendTagMeta(params.tags);
+    const series: TrendSeriesRow[] = [];
+    let resolvedAggregation: TrendResolvedAggregation = "raw";
+
+    for (const meta of metaRows) {
+      const dataType = this.mapTrendDataType(meta.dataTypeCode);
+      const rawCount = await this.estimateTrendCount(meta.id, requestedFrom, requestedTo);
+      const effectiveAggregation = this.resolveTrendAggregation({
+        requested: params.aggregation,
+        dataType,
+        rawCount,
+        maxPoints,
+      });
+      resolvedAggregation = this.pickWiderAggregation(resolvedAggregation, effectiveAggregation);
+
+      let points: TrendPointRow[] = [];
+      if (dataType === "string") {
+        points = [];
+      } else if (effectiveAggregation === "raw") {
+        points = await this.queryRawTrendPoints(meta.id, requestedFrom, requestedTo, hardLimit, dataType);
+      } else if (dataType === "boolean" || dataType === "enum") {
+        points = await this.queryBucketedDiscreteTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
+      } else if (effectiveAggregation === "minmax") {
+        points = await this.queryBucketedMinMaxTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
+      } else {
+        points = await this.queryBucketedAvgTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
+      }
+
+      series.push({
+        tag: meta.name,
+        displayName: meta.displayName || meta.name,
+        unit: meta.unit ?? undefined,
+        points: this.enforceTrendPointLimit(points, hardLimit),
+      });
+    }
+
+    return {
+      from: requestedFrom.toISOString(),
+      to: requestedTo.toISOString(),
+      aggregation: resolvedAggregation,
+      series,
+    };
   }
 
   public async listPolicies(): Promise<ArchivePolicyRow[]> {
@@ -801,6 +971,386 @@ export class ArchiveRepository {
     }
 
     return { deletedByAge, deletedBySize };
+  }
+
+  private async loadTrendTagMeta(tagNames?: string[]): Promise<TrendTagMetaRow[]> {
+    const hasFilter = Array.isArray(tagNames) && tagNames.length > 0;
+    const result = await this.pool.query<{
+      id: number;
+      name: string;
+      display_name: string;
+      unit: string | null;
+      data_type_code: string;
+      description: string | null;
+      group_name: string | null;
+      min_value: number | null;
+      max_value: number | null;
+      archive_enabled: boolean;
+    }>(
+      `
+      SELECT
+          t.id,
+          t.name,
+          t.name AS display_name,
+          u.code AS unit,
+          dt.code AS data_type_code,
+          t.description,
+          grp.group_name,
+          NULL::double precision AS min_value,
+          NULL::double precision AS max_value,
+          COALESCE(o.enabled, p.enabled, false) AS archive_enabled
+      FROM tags t
+      JOIN tag_data_types dt ON dt.id = t.data_type_id
+      LEFT JOIN units u ON u.id = t.unit_id
+      LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
+      LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
+      LEFT JOIN LATERAL (
+          SELECT g.name AS group_name
+          FROM tag_group_members gm
+          JOIN tag_groups g ON g.id = gm.group_id
+          WHERE gm.tag_id = t.id
+          ORDER BY g.name ASC
+          LIMIT 1
+      ) grp ON true
+      WHERE COALESCE(o.enabled, p.enabled, false) = true
+        AND ($1::bool = false OR t.name = ANY($2::text[]))
+      ORDER BY t.name ASC
+      `,
+      [hasFilter, hasFilter ? tagNames : []],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      displayName: row.display_name,
+      unit: row.unit,
+      dataTypeCode: row.data_type_code,
+      description: row.description,
+      group: row.group_name,
+      min: row.min_value,
+      max: row.max_value,
+      archiveEnabled: row.archive_enabled,
+    }));
+  }
+
+  private async estimateTrendCount(tagId: number, from: Date, to: Date): Promise<number> {
+    const result = await this.pool.query<{ cnt: string | number }>(
+      `
+      SELECT COUNT(*)::bigint AS cnt
+      FROM archive_samples s
+      WHERE s.tag_id = $1
+        AND s.time >= $2
+        AND s.time <= $3
+      `,
+      [tagId, from, to],
+    );
+    const raw = result.rows[0]?.cnt ?? 0;
+    const numeric = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
+    return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+  }
+
+  private resolveTrendAggregation(input: {
+    requested: TrendAggregationMode;
+    dataType: TrendDataType;
+    rawCount: number;
+    maxPoints: number;
+  }): TrendResolvedAggregation {
+    if (input.dataType === "string") {
+      return "raw";
+    }
+    if (input.requested === "raw") {
+      return input.rawCount <= input.maxPoints ? "raw" : "minmax";
+    }
+    if (input.requested !== "auto") {
+      return input.requested;
+    }
+    if (input.rawCount <= input.maxPoints) {
+      return "raw";
+    }
+    if (input.dataType === "boolean" || input.dataType === "enum") {
+      return "avg";
+    }
+    return "minmax";
+  }
+
+  private pickWiderAggregation(a: TrendResolvedAggregation, b: TrendResolvedAggregation): TrendResolvedAggregation {
+    const order: TrendResolvedAggregation[] = ["raw", "avg", "lttb", "minmax"];
+    const aIndex = order.indexOf(a);
+    const bIndex = order.indexOf(b);
+    return order[Math.max(aIndex, bIndex)] ?? b;
+  }
+
+  private mapTrendQuality(value: string | null | undefined): TrendQuality {
+    const normalized = (value ?? "").toLowerCase();
+    if (normalized === "bad") {
+      return "bad";
+    }
+    if (normalized === "uncertain") {
+      return "uncertain";
+    }
+    return "good";
+  }
+
+  private mapTrendDataType(code: string): TrendDataType {
+    const normalized = code.trim().toUpperCase();
+    if (normalized === "BOOL") {
+      return "boolean";
+    }
+    if (normalized === "STRING") {
+      return "string";
+    }
+    return "number";
+  }
+
+  private enforceTrendPointLimit(points: TrendPointRow[], hardLimit: number): TrendPointRow[] {
+    if (points.length <= hardLimit) {
+      return points;
+    }
+    const step = Math.ceil(points.length / hardLimit);
+    const compact: TrendPointRow[] = [];
+    for (let index = 0; index < points.length; index += step) {
+      const point = points[index];
+      if (point) {
+        compact.push(point);
+      }
+    }
+    const last = points[points.length - 1];
+    if (last && compact[compact.length - 1]?.t !== last.t) {
+      compact.push(last);
+    }
+    return compact.slice(0, hardLimit);
+  }
+
+  private async queryRawTrendPoints(
+    tagId: number,
+    from: Date,
+    to: Date,
+    limit: number,
+    dataType: TrendDataType,
+  ): Promise<TrendPointRow[]> {
+    const valueExpr = dataType === "boolean"
+      ? "CASE WHEN s.value_bool IS NULL THEN NULL WHEN s.value_bool THEN 1::double precision ELSE 0::double precision END"
+      : "s.value_double";
+    const valueFilter = dataType === "boolean" ? "s.value_bool IS NOT NULL" : "s.value_double IS NOT NULL";
+
+    const result = await this.pool.query<{
+      time: Date;
+      value: number | null;
+      quality: string;
+    }>(
+      `
+      SELECT
+          s.time,
+          ${valueExpr} AS value,
+          LOWER(q.code) AS quality
+      FROM archive_samples s
+      JOIN archive_qualities q ON q.id = s.quality_id
+      WHERE s.tag_id = $1
+        AND s.time >= $2
+        AND s.time <= $3
+        AND ${valueFilter}
+      ORDER BY s.time ASC
+      LIMIT $4
+      `,
+      [tagId, from, to, limit],
+    );
+
+    return result.rows.map((row) => ({
+      t: row.time.getTime(),
+      v: row.value,
+      q: this.mapTrendQuality(row.quality),
+    }));
+  }
+
+  private async queryBucketedMinMaxTrendPoints(
+    tagId: number,
+    from: Date,
+    to: Date,
+    bucketMs: number,
+    hardLimit: number,
+  ): Promise<TrendPointRow[]> {
+    const bucketLimit = Math.max(1, Math.floor(hardLimit / 2));
+    const result = await this.pool.query<{
+      min_time: Date;
+      max_time: Date;
+      min_value: number;
+      max_value: number;
+      quality: string;
+    }>(
+      `
+      WITH points AS (
+        SELECT
+          s.time,
+          s.value_double AS value,
+          LOWER(q.code) AS quality
+        FROM archive_samples s
+        JOIN archive_qualities q ON q.id = s.quality_id
+        WHERE s.tag_id = $1
+          AND s.time >= $2
+          AND s.time <= $3
+          AND s.value_double IS NOT NULL
+      ),
+      bucketed AS (
+        SELECT
+          FLOOR(EXTRACT(EPOCH FROM time) * 1000 / $4)::bigint AS bucket_id,
+          MIN(time) AS min_time,
+          MAX(time) AS max_time,
+          MIN(value) AS min_value,
+          MAX(value) AS max_value,
+          CASE
+            WHEN BOOL_OR(quality = 'bad') THEN 'bad'
+            WHEN BOOL_OR(quality = 'uncertain') THEN 'uncertain'
+            ELSE 'good'
+          END AS quality
+        FROM points
+        GROUP BY bucket_id
+        ORDER BY bucket_id ASC
+        LIMIT $5
+      )
+      SELECT min_time, max_time, min_value, max_value, quality
+      FROM bucketed
+      ORDER BY min_time ASC
+      `,
+      [tagId, from, to, bucketMs, bucketLimit],
+    );
+
+    const points: TrendPointRow[] = [];
+    for (const row of result.rows) {
+      const quality = this.mapTrendQuality(row.quality);
+      points.push({
+        t: row.min_time.getTime(),
+        v: row.min_value,
+        q: quality,
+      });
+      const maxTime = row.max_time.getTime();
+      const minTime = row.min_time.getTime();
+      if (maxTime !== minTime || row.max_value !== row.min_value) {
+        points.push({
+          t: maxTime,
+          v: row.max_value,
+          q: quality,
+        });
+      }
+    }
+    points.sort((left, right) => left.t - right.t);
+    return points;
+  }
+
+  private async queryBucketedAvgTrendPoints(
+    tagId: number,
+    from: Date,
+    to: Date,
+    bucketMs: number,
+    hardLimit: number,
+  ): Promise<TrendPointRow[]> {
+    const result = await this.pool.query<{
+      bucket_time: Date;
+      avg_value: number;
+      quality: string;
+    }>(
+      `
+      WITH points AS (
+        SELECT
+          s.time,
+          s.value_double AS value,
+          LOWER(q.code) AS quality
+        FROM archive_samples s
+        JOIN archive_qualities q ON q.id = s.quality_id
+        WHERE s.tag_id = $1
+          AND s.time >= $2
+          AND s.time <= $3
+          AND s.value_double IS NOT NULL
+      ),
+      bucketed AS (
+        SELECT
+          FLOOR(EXTRACT(EPOCH FROM time) * 1000 / $4)::bigint AS bucket_id,
+          MIN(time) + (MAX(time) - MIN(time)) / 2 AS bucket_time,
+          AVG(value) AS avg_value,
+          CASE
+            WHEN BOOL_OR(quality = 'bad') THEN 'bad'
+            WHEN BOOL_OR(quality = 'uncertain') THEN 'uncertain'
+            ELSE 'good'
+          END AS quality
+        FROM points
+        GROUP BY bucket_id
+        ORDER BY bucket_id ASC
+        LIMIT $5
+      )
+      SELECT bucket_time, avg_value, quality
+      FROM bucketed
+      ORDER BY bucket_time ASC
+      `,
+      [tagId, from, to, bucketMs, hardLimit],
+    );
+
+    return result.rows.map((row) => ({
+      t: row.bucket_time.getTime(),
+      v: row.avg_value,
+      q: this.mapTrendQuality(row.quality),
+    }));
+  }
+
+  private async queryBucketedDiscreteTrendPoints(
+    tagId: number,
+    from: Date,
+    to: Date,
+    bucketMs: number,
+    hardLimit: number,
+  ): Promise<TrendPointRow[]> {
+    const result = await this.pool.query<{
+      bucket_time: Date;
+      value: number | null;
+      quality: string;
+    }>(
+      `
+      WITH points AS (
+        SELECT
+          s.time,
+          CASE
+            WHEN s.value_bool IS NULL THEN NULL
+            WHEN s.value_bool THEN 1::double precision
+            ELSE 0::double precision
+          END AS value,
+          LOWER(q.code) AS quality
+        FROM archive_samples s
+        JOIN archive_qualities q ON q.id = s.quality_id
+        WHERE s.tag_id = $1
+          AND s.time >= $2
+          AND s.time <= $3
+          AND s.value_bool IS NOT NULL
+      ),
+      bucketed AS (
+        SELECT
+          FLOOR(EXTRACT(EPOCH FROM time) * 1000 / $4)::bigint AS bucket_id,
+          MAX(time) AS bucket_time,
+          (ARRAY_AGG(value ORDER BY time DESC))[1] AS value,
+          (ARRAY_AGG(quality ORDER BY time DESC))[1] AS quality
+        FROM points
+        GROUP BY bucket_id
+        ORDER BY bucket_id ASC
+        LIMIT $5
+      )
+      SELECT bucket_time, value, quality
+      FROM bucketed
+      ORDER BY bucket_time ASC
+      `,
+      [tagId, from, to, bucketMs, hardLimit],
+    );
+
+    const points: TrendPointRow[] = [];
+    let previousValue: number | null | undefined;
+    for (const row of result.rows) {
+      if (row.value === previousValue && points.length > 0) {
+        continue;
+      }
+      previousValue = row.value;
+      points.push({
+        t: row.bucket_time.getTime(),
+        v: row.value,
+        q: this.mapTrendQuality(row.quality),
+      });
+    }
+    return points;
   }
 
   private async tryEnableTimescale(): Promise<void> {

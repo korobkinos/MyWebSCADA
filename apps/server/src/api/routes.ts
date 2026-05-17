@@ -115,6 +115,17 @@ const archiveSamplesQuerySchema = z.object({
   to: z.coerce.date(),
   limit: z.coerce.number().int().positive().max(10000).optional(),
 });
+const trendAggregationSchema = z.enum(["auto", "raw", "minmax", "avg", "lttb"]);
+const trendQuerySchema = z.object({
+  tags: z.array(z.string().min(1)).min(1).max(200),
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  maxPoints: z.coerce.number().int().positive().max(10000),
+  aggregation: trendAggregationSchema.default("auto"),
+});
+const trendRangeQuerySchema = z.object({
+  tags: z.union([z.array(z.string().min(1)), z.string().min(1)]).optional(),
+});
 const numericIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
@@ -595,6 +606,14 @@ function validateMacroOnSave(macro: MacroDefinition, project: ScadaProject): Mac
       updatedAt: new Date().toISOString(),
     },
   };
+}
+
+function normalizeTrendTags(input: string[] | string | undefined): string[] {
+  if (!input) {
+    return [];
+  }
+  const source = Array.isArray(input) ? input : input.split(",");
+  return [...new Set(source.map((item) => item.trim()).filter(Boolean))];
 }
 
 async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): Promise<ScadaProject> {
@@ -1098,6 +1117,54 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     const query = archiveSamplesQuerySchema.parse(request.query);
     const rows = await deps.archiveService.querySamples(params.name, query.from, query.to, query.limit ?? 5000);
     return reply.send(rows);
+  });
+
+  app.get("/api/trends/tags", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.listTrendTags());
+  });
+
+  app.get("/api/trends/range", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const query = trendRangeQuerySchema.parse(request.query ?? {});
+    const tags = normalizeTrendTags(query.tags);
+    return reply.send(await deps.archiveService.queryTrendsRange(tags));
+  });
+
+  app.post("/api/trends/query", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const payload = trendQuerySchema.parse(request.body ?? {});
+    if (payload.to.getTime() <= payload.from.getTime()) {
+      return reply.code(400).send({ message: "Invalid range: `to` must be greater than `from`" });
+    }
+    const maxPoints = Math.max(1000, Math.min(8000, payload.maxPoints));
+    const result = await deps.archiveService.queryTrends({
+      tags: payload.tags,
+      from: payload.from,
+      to: payload.to,
+      maxPoints,
+      aggregation: payload.aggregation,
+      hardLimitPerSeries: 10000,
+    });
+    return reply.send(result);
   });
 
   app.get("/api/variables", async () => deps.internalVariableService.getAll());
