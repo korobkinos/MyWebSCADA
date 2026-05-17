@@ -531,6 +531,244 @@ function RotationAnimationFields({
   );
 }
 
+function FlowAnimationFields({
+  project,
+  object,
+  bindings,
+  buildIndexControl,
+  onPatch,
+}: {
+  project: ScadaProject;
+  object: Extract<HmiObject, { type: "line" }>;
+  bindings: ElementBindingDefinition[];
+  buildIndexControl: (fieldName: string, fieldLabel: string, rawTagName: string | undefined) => {
+    enabled: boolean;
+    status: string;
+    configureDisabled?: boolean;
+    onConfigure: () => void;
+    onToggleEnabled: (checked: boolean) => void;
+  };
+  onPatch: (patch: Partial<HmiObject>) => void;
+}) {
+  const flowAnimation = object.flowAnimation ?? {};
+  const triggerMode = flowAnimation.triggerMode ?? "truthy";
+  const speedSource = flowAnimation.speedSource ?? "fixed";
+  const useBaseStrokeWidth = flowAnimation.useBaseStrokeWidth ?? true;
+  const showTriggerValue = triggerMode === "equals" || triggerMode === "notEquals";
+  const showSpeedTag = speedSource === "tag";
+
+  const hasFlowAnimationSettings = (candidate: typeof flowAnimation): boolean => (
+    candidate.triggerTag !== undefined
+    || candidate.triggerMode !== undefined
+    || candidate.triggerValue !== undefined
+    || candidate.triggerInvert !== undefined
+    || candidate.speedSource !== undefined
+    || candidate.fixedSpeedPxPerSec !== undefined
+    || candidate.speedTag !== undefined
+    || candidate.minSpeedPxPerSec !== undefined
+    || candidate.maxSpeedPxPerSec !== undefined
+    || candidate.direction !== undefined
+    || candidate.effectType !== undefined
+    || candidate.color !== undefined
+    || candidate.opacity !== undefined
+    || candidate.strokeWidth !== undefined
+    || candidate.useBaseStrokeWidth !== undefined
+    || candidate.dashLength !== undefined
+    || candidate.gapLength !== undefined
+  );
+
+  const patchFlowAnimation = (patch: Record<string, unknown>) => {
+    const next = {
+      ...flowAnimation,
+      ...patch,
+    };
+    if (typeof next.triggerTag === "string" && next.triggerTag.trim() === "") {
+      next.triggerTag = undefined;
+    }
+    if (typeof next.speedTag === "string" && next.speedTag.trim() === "") {
+      next.speedTag = undefined;
+    }
+    const shouldKeep = next.enabled === true || hasFlowAnimationSettings(next);
+    onPatch({
+      flowAnimation: shouldKeep ? next : undefined,
+    } as Partial<HmiObject>);
+  };
+
+  return (
+    <>
+      <Space style={{ marginBottom: 8 }}>
+        <span>Enable Flow Animation</span>
+        <Switch
+          checked={flowAnimation.enabled === true}
+          onChange={(checked) => patchFlowAnimation({ enabled: checked })}
+        />
+      </Space>
+      <TagFieldWithBindingSource
+        project={project}
+        bindings={bindings}
+        value={flowAnimation.triggerTag ?? ""}
+        bindingLabel="Flow Trigger Binding"
+        tagLabel="Flow Trigger Tag"
+        indexControl={buildIndexControl(
+          "flowAnimation.triggerTag",
+          "Flow Trigger Tag",
+          flowAnimation.triggerTag,
+        )}
+        onChange={(nextValue) => patchFlowAnimation({ triggerTag: nextValue })}
+      />
+      <Form.Item label="Trigger Mode">
+        <Select
+          value={triggerMode}
+          options={[
+            { label: "truthy", value: "truthy" },
+            { label: "equals", value: "equals" },
+            { label: "notEquals", value: "notEquals" },
+          ]}
+          onChange={(value) => patchFlowAnimation({ triggerMode: value })}
+        />
+      </Form.Item>
+      {showTriggerValue ? (
+        <Form.Item label="Trigger Value">
+          <Input
+            value={scalarToText(flowAnimation.triggerValue)}
+            onChange={(event) => {
+              const raw = event.target.value;
+              if (raw.trim() === "") {
+                patchFlowAnimation({ triggerValue: undefined });
+                return;
+              }
+              patchFlowAnimation({ triggerValue: parseScalarToken(raw) });
+            }}
+          />
+        </Form.Item>
+      ) : null}
+      <Space style={{ marginBottom: 8 }}>
+        <span>Trigger Invert</span>
+        <Switch
+          checked={flowAnimation.triggerInvert ?? false}
+          onChange={(checked) => patchFlowAnimation({ triggerInvert: checked })}
+        />
+      </Space>
+      <Form.Item label="Speed Source">
+        <Select
+          value={speedSource}
+          options={[
+            { label: "fixed", value: "fixed" },
+            { label: "tag", value: "tag" },
+          ]}
+          onChange={(value) => patchFlowAnimation({ speedSource: value })}
+        />
+      </Form.Item>
+      <Form.Item label="Fixed Speed (px/s)">
+        <InputNumber
+          style={{ width: "100%" }}
+          value={flowAnimation.fixedSpeedPxPerSec ?? 80}
+          onChange={(value) => patchFlowAnimation({ fixedSpeedPxPerSec: Number(value ?? 80) })}
+        />
+      </Form.Item>
+      {showSpeedTag ? (
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={bindings}
+          value={flowAnimation.speedTag ?? ""}
+          bindingLabel="Flow Speed Binding"
+          tagLabel="Flow Speed Tag"
+          indexControl={buildIndexControl(
+            "flowAnimation.speedTag",
+            "Flow Speed Tag",
+            flowAnimation.speedTag,
+          )}
+          onChange={(nextValue) => patchFlowAnimation({ speedTag: nextValue })}
+        />
+      ) : null}
+      <Form.Item label="Min Speed (px/s)">
+        <InputNumber
+          style={{ width: "100%" }}
+          value={flowAnimation.minSpeedPxPerSec ?? 0}
+          onChange={(value) => patchFlowAnimation({ minSpeedPxPerSec: Number(value ?? 0) })}
+        />
+      </Form.Item>
+      <Form.Item label="Max Speed (px/s)">
+        <InputNumber
+          style={{ width: "100%" }}
+          value={flowAnimation.maxSpeedPxPerSec ?? 500}
+          onChange={(value) => patchFlowAnimation({ maxSpeedPxPerSec: Number(value ?? 500) })}
+        />
+      </Form.Item>
+      <Form.Item label="Direction">
+        <Select
+          value={flowAnimation.direction ?? "forward"}
+          options={[
+            { label: "forward", value: "forward" },
+            { label: "reverse", value: "reverse" },
+          ]}
+          onChange={(value) => patchFlowAnimation({ direction: value })}
+        />
+      </Form.Item>
+      <Form.Item label="Effect Type">
+        <Select
+          value={flowAnimation.effectType ?? "dash"}
+          options={[
+            { label: "dash", value: "dash" },
+            { label: "arrows", value: "arrows" },
+            { label: "dots", value: "dots" },
+          ]}
+          onChange={(value) => patchFlowAnimation({ effectType: value })}
+        />
+      </Form.Item>
+      <ColorField
+        label="Effect Color"
+        value={flowAnimation.color}
+        fallback={object.activeStroke ?? object.stroke ?? "#00bfff"}
+        onChange={(next) => patchFlowAnimation({ color: next })}
+      />
+      <Form.Item label="Opacity">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={0}
+          max={1}
+          step={0.05}
+          value={flowAnimation.opacity ?? 1}
+          onChange={(value) => patchFlowAnimation({ opacity: Number(value ?? 1) })}
+        />
+      </Form.Item>
+      <Space style={{ marginBottom: 8 }}>
+        <span>Use Base Stroke Width</span>
+        <Switch
+          checked={useBaseStrokeWidth}
+          onChange={(checked) => patchFlowAnimation({ useBaseStrokeWidth: checked })}
+        />
+      </Space>
+      {!useBaseStrokeWidth ? (
+        <Form.Item label="Stroke Width">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            value={flowAnimation.strokeWidth ?? object.strokeWidth}
+            onChange={(value) => patchFlowAnimation({ strokeWidth: Number(value ?? object.strokeWidth) })}
+          />
+        </Form.Item>
+      ) : null}
+      <Form.Item label="Dash Length">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1}
+          value={flowAnimation.dashLength ?? 12}
+          onChange={(value) => patchFlowAnimation({ dashLength: Number(value ?? 12) })}
+        />
+      </Form.Item>
+      <Form.Item label="Gap Length">
+        <InputNumber
+          style={{ width: "100%" }}
+          min={1}
+          value={flowAnimation.gapLength ?? 8}
+          onChange={(value) => patchFlowAnimation({ gapLength: Number(value ?? 8) })}
+        />
+      </Form.Item>
+    </>
+  );
+}
+
 function buildEditorRuntimeTagValues(project: ScadaProject): Record<string, unknown> {
   const tagValues: Record<string, unknown> = {};
   for (const variable of project.variables ?? []) {
@@ -1337,6 +1575,19 @@ function SpecificPropertyFields({
                 endColor={object.gradientEndColor ?? object.activeStroke ?? object.stroke}
                 startFallback={object.inactiveStroke ?? object.stroke ?? "#d9d9d9"}
                 endFallback={object.activeStroke ?? object.stroke ?? "#0e639c"}
+                onPatch={onPatch}
+              />
+            ),
+          },
+          {
+            key: "flowAnimation",
+            label: "Flow Animation",
+            children: (
+              <FlowAnimationFields
+                project={project}
+                object={object}
+                bindings={templateBindings}
+                buildIndexControl={buildIndexControl}
                 onPatch={onPatch}
               />
             ),

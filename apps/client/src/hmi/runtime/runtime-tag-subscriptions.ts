@@ -152,6 +152,12 @@ function collectObjectTags(
         context,
         runtimeTagValues,
       });
+      addFlowAnimationFieldTags(out, {
+        project,
+        object: resolvedObject,
+        context,
+        runtimeTagValues,
+      });
       return;
     case "value-display":
     case "value-input":
@@ -577,6 +583,42 @@ function addRotationAnimationFieldTags(
     object: input.object,
     fieldName: "rotationAnimation.speedTag",
     rawTagName: rotationAnimation?.speedTag,
+    context: input.context,
+    runtimeTagValues: input.runtimeTagValues,
+  });
+}
+
+function addFlowAnimationFieldTags(
+  out: Set<string>,
+  input: {
+    project: ScadaProject;
+    object: HmiObject;
+    context: RenderContext;
+    runtimeTagValues?: TagMap;
+  },
+): void {
+  if (input.object.type !== "line") {
+    return;
+  }
+  const flowAnimation = input.object.flowAnimation;
+  const hasTriggerTag = Boolean(flowAnimation?.triggerTag?.trim());
+  const hasSpeedTag = Boolean(flowAnimation?.speedTag?.trim());
+  if (!(flowAnimation?.enabled === true || hasTriggerTag || hasSpeedTag)) {
+    return;
+  }
+  addResolvedFieldTag(out, {
+    project: input.project,
+    object: input.object,
+    fieldName: "flowAnimation.triggerTag",
+    rawTagName: flowAnimation?.triggerTag,
+    context: input.context,
+    runtimeTagValues: input.runtimeTagValues,
+  });
+  addResolvedFieldTag(out, {
+    project: input.project,
+    object: input.object,
+    fieldName: "flowAnimation.speedTag",
+    rawTagName: flowAnimation?.speedTag,
     context: input.context,
     runtimeTagValues: input.runtimeTagValues,
   });

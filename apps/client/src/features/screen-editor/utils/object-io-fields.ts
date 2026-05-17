@@ -269,7 +269,11 @@ export function getObjectIoFields(object: HmiObject): ObjectIoFieldDefinition[] 
   }
 
   if (object.type === "line") {
-    fields.push({ fieldPath: "stateTag", label: "State Tag", direction: "read", dataTypeHint: "ANY", control: "tag" });
+    fields.push(
+      { fieldPath: "stateTag", label: "State Tag", direction: "read", dataTypeHint: "ANY", control: "tag" },
+      { fieldPath: "flowAnimation.triggerTag", label: "Flow Trigger Tag", direction: "read", dataTypeHint: "BOOL", control: "tag" },
+      { fieldPath: "flowAnimation.speedTag", label: "Flow Speed Tag", direction: "read", dataTypeHint: "REAL", control: "tag" },
+    );
     return fields;
   }
 

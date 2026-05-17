@@ -287,4 +287,54 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).toContain("Motor_1.Run");
     expect(subscriptions).toContain("Motor_1.Speed");
   });
+
+  it("collects line flow animation trigger/speed tags", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "line-1",
+          type: "line",
+          x: 50,
+          y: 50,
+          width: 200,
+          height: 40,
+          points: [0, 20, 200, 20],
+          stroke: "#d9d9d9",
+          strokeWidth: 4,
+          flowAnimation: {
+            enabled: true,
+            triggerTag: "Pipe_1.FlowRun",
+            speedSource: "tag",
+            speedTag: "Pipe_1.FlowSpeed",
+          },
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Pipe_1.FlowRun");
+    expect(subscriptions).toContain("Pipe_1.FlowSpeed");
+  });
 });

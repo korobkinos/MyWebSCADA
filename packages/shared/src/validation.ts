@@ -46,6 +46,27 @@ const rotationAnimationSchema = z.object({
   pivot: z.enum(["center", "origin"]).optional(),
 });
 
+const flowAnimationSchema = z.object({
+  enabled: z.boolean().optional(),
+  triggerTag: z.string().optional(),
+  triggerMode: z.enum(["truthy", "equals", "notEquals"]).optional(),
+  triggerValue: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  triggerInvert: z.boolean().optional(),
+  speedSource: z.enum(["fixed", "tag"]).optional(),
+  fixedSpeedPxPerSec: z.number().optional(),
+  speedTag: z.string().optional(),
+  minSpeedPxPerSec: z.number().optional(),
+  maxSpeedPxPerSec: z.number().optional(),
+  direction: z.enum(["forward", "reverse"]).optional(),
+  effectType: z.enum(["dash", "arrows", "dots"]).optional(),
+  color: z.string().optional(),
+  opacity: z.number().min(0).max(1).optional(),
+  strokeWidth: z.number().optional(),
+  useBaseStrokeWidth: z.boolean().optional(),
+  dashLength: z.number().optional(),
+  gapLength: z.number().optional(),
+});
+
 const hmiBaseSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1),
@@ -264,6 +285,7 @@ const lineObjectSchema = hmiBaseSchema.extend({
   gradientStartColor: z.string().optional(),
   gradientEndColor: z.string().optional(),
   gradientDirection: z.enum(["horizontal", "vertical", "diagonal", "center-outward", "outside-inward"]).optional(),
+  flowAnimation: flowAnimationSchema.optional(),
 });
 
 const rectangleObjectSchema = hmiBaseSchema.extend({

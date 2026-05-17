@@ -38,6 +38,10 @@ export type TextLayout = {
 export type RotationAnimationMode = "truthy" | "equals" | "notEquals";
 export type RotationAnimationDirection = "clockwise" | "counterclockwise";
 export type RotationAnimationPivot = "center" | "origin";
+export type FlowAnimationMode = "truthy" | "equals" | "notEquals";
+export type FlowAnimationDirection = "forward" | "reverse";
+export type FlowAnimationSpeedSource = "fixed" | "tag";
+export type FlowAnimationEffectType = "dash" | "arrows" | "dots";
 
 export type RotationAnimationConfig = {
   enabled?: boolean;
@@ -52,6 +56,32 @@ export type RotationAnimationConfig = {
   maxSpeedDegPerSec?: number;
   direction?: RotationAnimationDirection;
   pivot?: RotationAnimationPivot;
+};
+
+export type FlowAnimationConfig = {
+  enabled?: boolean;
+
+  triggerTag?: string;
+  triggerMode?: FlowAnimationMode;
+  triggerValue?: string | number | boolean;
+  triggerInvert?: boolean;
+
+  speedSource?: FlowAnimationSpeedSource;
+  fixedSpeedPxPerSec?: number;
+  speedTag?: string;
+  minSpeedPxPerSec?: number;
+  maxSpeedPxPerSec?: number;
+
+  direction?: FlowAnimationDirection;
+
+  effectType?: FlowAnimationEffectType;
+  color?: string;
+  opacity?: number;
+  strokeWidth?: number;
+  useBaseStrokeWidth?: boolean;
+
+  dashLength?: number;
+  gapLength?: number;
 };
 
 export type HmiObjectBase = {
@@ -139,6 +169,7 @@ export type LineObject = HmiObjectBase & {
   gradientStartColor?: string;
   gradientEndColor?: string;
   gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
+  flowAnimation?: FlowAnimationConfig;
 };
 
 export type GroupObject = HmiObjectBase & {

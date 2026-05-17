@@ -98,6 +98,42 @@
       "updatedAt": "2026-05-14T05:36:01.303Z",
       "storagePath": "assets/e2fb9382-5624-4dbf-a639-d4dec2484f7b.jpg",
       "previewUrl": "/api/assets/e2fb9382-5624-4dbf-a639-d4dec2484f7b/file"
+    },
+    {
+      "id": "74833278-14a0-4c31-9873-99766385d846",
+      "name": "free-icon-jet-engine-16842207",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "74833278-14a0-4c31-9873-99766385d846.png",
+      "size": 32853,
+      "createdAt": "2026-05-17T09:48:29.198Z",
+      "updatedAt": "2026-05-17T09:48:29.198Z",
+      "storagePath": "assets/74833278-14a0-4c31-9873-99766385d846.png",
+      "previewUrl": "/api/assets/74833278-14a0-4c31-9873-99766385d846/file"
+    },
+    {
+      "id": "90ac3862-eb46-46f3-89ad-91c7bcc477f1",
+      "name": "free-icon-propeller-3391972",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "90ac3862-eb46-46f3-89ad-91c7bcc477f1.png",
+      "size": 11311,
+      "createdAt": "2026-05-17T09:51:49.817Z",
+      "updatedAt": "2026-05-17T09:51:49.817Z",
+      "storagePath": "assets/90ac3862-eb46-46f3-89ad-91c7bcc477f1.png",
+      "previewUrl": "/api/assets/90ac3862-eb46-46f3-89ad-91c7bcc477f1/file"
+    },
+    {
+      "id": "2d07b91d-8bd2-4c63-b127-a2b7615b78c0",
+      "name": "free-icon-propeller-9328028",
+      "type": "png",
+      "mimeType": "image/png",
+      "fileName": "2d07b91d-8bd2-4c63-b127-a2b7615b78c0.png",
+      "size": 10195,
+      "createdAt": "2026-05-17T09:53:17.391Z",
+      "updatedAt": "2026-05-17T09:53:17.391Z",
+      "storagePath": "assets/2d07b91d-8bd2-4c63-b127-a2b7615b78c0.png",
+      "previewUrl": "/api/assets/2d07b91d-8bd2-4c63-b127-a2b7615b78c0/file"
     }
   ],
   "libraries": [
@@ -9488,11 +9524,11 @@
         {
           "id": "line_3wkwka",
           "type": "line",
-          "x": 366.99998189290466,
-          "y": 311.52379664539217,
+          "x": 528.1410398831327,
+          "y": 775.0192841169294,
           "width": 139.99999999999994,
           "height": 40.95238095238105,
-          "rotation": 0,
+          "rotation": 270,
           "minWidth": 20,
           "minHeight": 10,
           "points": [
@@ -10043,7 +10079,7 @@
           "tag": "speed",
           "writeTag": "speed",
           "min": 0,
-          "max": 10000,
+          "max": 1000,
           "step": 10,
           "orientation": "horizontal",
           "showValue": true,
@@ -10105,8 +10141,8 @@
         {
           "id": "lib_3lrfc7",
           "type": "libraryElementInstance",
-          "x": 375.5338537124581,
-          "y": 629.9827851091821,
+          "x": 1729.2337190309613,
+          "y": 609.9210434635334,
           "width": 154.82538148765616,
           "height": 163.21902324907887,
           "minWidth": 60,
@@ -10321,7 +10357,7 @@
         {
           "id": "num_img_zkc99c",
           "type": "numeric-image-indicator",
-          "x": 174.72011208791793,
+          "x": 50.09377528081766,
           "y": 578.9389801374025,
           "width": 140,
           "height": 100,
@@ -10481,6 +10517,112 @@
               ]
             }
           ]
+        },
+        {
+          "id": "img_yfhtyh",
+          "type": "image",
+          "x": 396.5405918062794,
+          "y": 857.4924401448113,
+          "width": 149.36478488642067,
+          "height": 149.36478488642075,
+          "rotation": 0,
+          "rotationAnimation": {
+            "enabled": true,
+            "triggerTag": "speed",
+            "speedSource": "tag",
+            "speedTag": "speed",
+            "maxSpeedDegPerSec": 10000
+          },
+          "opacity": 1,
+          "minWidth": 40,
+          "minHeight": 40,
+          "assetId": "74833278-14a0-4c31-9873-99766385d846",
+          "fit": "contain",
+          "preserveAspectRatio": true
+        },
+        {
+          "id": "group_d8k0vv",
+          "type": "group",
+          "x": 23.03908565328181,
+          "y": 916.7633423666465,
+          "width": 90,
+          "height": 90,
+          "visible": true,
+          "locked": false,
+          "minWidth": 8,
+          "minHeight": 8,
+          "objects": [
+            {
+              "id": "circle_cbddtu",
+              "type": "rectangle",
+              "x": 0,
+              "y": 0,
+              "width": 90,
+              "height": 90,
+              "opacity": 1,
+              "minWidth": 20,
+              "minHeight": 20,
+              "fill": "#262626",
+              "stroke": "#8c8c8c",
+              "strokeWidth": 2,
+              "cornerRadius": 45
+            },
+            {
+              "id": "img_c0eot1",
+              "type": "image",
+              "x": 5,
+              "y": 5,
+              "width": 80,
+              "height": 80,
+              "rotationAnimation": {
+                "enabled": true,
+                "triggerTag": "speed",
+                "speedSource": "tag",
+                "speedTag": "speed",
+                "maxSpeedDegPerSec": 10000
+              },
+              "opacity": 1,
+              "minWidth": 40,
+              "minHeight": 40,
+              "assetId": "2d07b91d-8bd2-4c63-b127-a2b7615b78c0",
+              "fit": "contain",
+              "preserveAspectRatio": true
+            }
+          ]
+        },
+        {
+          "id": "line_edhw84",
+          "type": "line",
+          "x": 44.27035465659885,
+          "y": 770.1334771156492,
+          "width": 432.56789680539123,
+          "height": 40.95238095238103,
+          "rotation": 0,
+          "minWidth": 20,
+          "minHeight": 10,
+          "points": [
+            0,
+            20.476190476190514,
+            432.56789680539123,
+            20.476190476190514
+          ],
+          "stroke": "#d2b7b7",
+          "strokeWidth": 25,
+          "closed": true,
+          "fill": "#0a0a0a",
+          "gradientEnabled": false,
+          "gradientEndColor": "#130202",
+          "gradientDirection": "vertical",
+          "flowAnimation": {
+            "enabled": true,
+            "triggerTag": "speed",
+            "speedSource": "tag",
+            "speedTag": "speed",
+            "maxSpeedPxPerSec": 5000,
+            "effectType": "dots",
+            "color": "#313030",
+            "dashLength": 8
+          }
         }
       ]
     },

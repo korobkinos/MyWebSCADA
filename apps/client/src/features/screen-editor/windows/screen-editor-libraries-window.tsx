@@ -664,6 +664,26 @@ const ROTATION_ANIMATION_PROPERTY_HINTS: Array<{ path: string; kind: VisualRuleV
   { path: "rotationAnimation.direction", kind: "string" },
   { path: "rotationAnimation.pivot", kind: "string" },
 ];
+const FLOW_ANIMATION_PROPERTY_HINTS: Array<{ path: string; kind: VisualRuleValueKind }> = [
+  { path: "flowAnimation.enabled", kind: "boolean" },
+  { path: "flowAnimation.triggerTag", kind: "string" },
+  { path: "flowAnimation.triggerMode", kind: "string" },
+  { path: "flowAnimation.triggerValue", kind: "string" },
+  { path: "flowAnimation.triggerInvert", kind: "boolean" },
+  { path: "flowAnimation.speedSource", kind: "string" },
+  { path: "flowAnimation.fixedSpeedPxPerSec", kind: "number" },
+  { path: "flowAnimation.speedTag", kind: "string" },
+  { path: "flowAnimation.minSpeedPxPerSec", kind: "number" },
+  { path: "flowAnimation.maxSpeedPxPerSec", kind: "number" },
+  { path: "flowAnimation.direction", kind: "string" },
+  { path: "flowAnimation.effectType", kind: "string" },
+  { path: "flowAnimation.color", kind: "color" },
+  { path: "flowAnimation.opacity", kind: "number" },
+  { path: "flowAnimation.strokeWidth", kind: "number" },
+  { path: "flowAnimation.useBaseStrokeWidth", kind: "boolean" },
+  { path: "flowAnimation.dashLength", kind: "number" },
+  { path: "flowAnimation.gapLength", kind: "number" },
+];
 
 const TYPE_PROPERTY_HINTS: Partial<Record<HmiObject["type"], Array<{ path: string; kind: VisualRuleValueKind }>>> = {
   group: [{ path: "visible", kind: "boolean" }, { path: "opacity", kind: "number" }],
@@ -894,8 +914,15 @@ function getObjectPropertyOptions(object: HmiObject | undefined): VisualRuleProp
       kind: item.kind,
     }))
     : [];
+  const flowAnimationHinted = object.type === "line"
+    ? FLOW_ANIMATION_PROPERTY_HINTS.map((item) => ({
+      path: item.path,
+      label: item.path,
+      kind: item.kind,
+    }))
+    : [];
   const map = new Map<string, VisualRulePropertyOption>();
-  for (const option of [...hinted, ...rotationAnimationHinted, ...dynamic]) {
+  for (const option of [...hinted, ...rotationAnimationHinted, ...flowAnimationHinted, ...dynamic]) {
     if (!map.has(option.path)) {
       map.set(option.path, option);
     }
@@ -2347,7 +2374,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     const allBindings = selectedElement?.bindings ?? [];
     const preferred = allBindings.filter((binding) => preferredKinds.has(binding.kind));
     const secondary = allBindings.filter((binding) => !preferredKinds.has(binding.kind));
-    const preferNumericDataType = field.fieldPath === "rotationAnimation.speedTag";
+    const preferNumericDataType = field.fieldPath === "rotationAnimation.speedTag" || field.fieldPath === "flowAnimation.speedTag";
     const numericTypes = new Set<NonNullable<ElementBindingDefinition["dataType"]>>(["REAL", "INT", "DINT", "UINT", "UDINT"]);
     const sortPreferred = (rows: ElementBindingDefinition[]) => {
       if (!preferNumericDataType) {

@@ -156,6 +156,12 @@ function normalizeRotationSpeed(value: number, minValue: number, maxValue: numbe
   return Math.max(low, Math.min(high, value));
 }
 
+function normalizeFlowSpeed(value: number, minValue: number, maxValue: number): number {
+  const low = Math.min(minValue, maxValue);
+  const high = Math.max(minValue, maxValue);
+  return Math.max(low, Math.min(high, value));
+}
+
 function resolveFillGradientProps(args: {
   enabled: boolean;
   direction: GradientDirection;
@@ -598,6 +604,9 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
   switch (object.type) {
     case "line":
       candidates.push(object.stateTag);
+      if (object.flowAnimation?.enabled === true || object.flowAnimation?.triggerTag?.trim() || object.flowAnimation?.speedTag?.trim()) {
+        candidates.push(object.flowAnimation?.triggerTag, object.flowAnimation?.speedTag);
+      }
       break;
     case "value-display":
     case "value-input":
@@ -692,9 +701,13 @@ function ObjectNode({
   const runtimeMode = mode === "runtime";
   const [isDragging, setIsDragging] = useState(false);
   const [rotationAnimationOffset, setRotationAnimationOffset] = useState(0);
+  const [flowAnimationDashOffset, setFlowAnimationDashOffset] = useState(0);
   const rotationAnimationOffsetRef = useRef(0);
+  const flowAnimationDashOffsetRef = useRef(0);
   const rotationFrameRef = useRef<number | null>(null);
+  const flowAnimationFrameRef = useRef<number | null>(null);
   const rotationLastFrameRef = useRef<number | null>(null);
+  const flowAnimationLastFrameRef = useRef<number | null>(null);
   const effectiveShadowDisabled = shadowDisabled || (mode === "editor" && isDragging);
   const debugPerformance =
     import.meta.env.DEV &&
@@ -831,6 +844,81 @@ function ObjectNode({
     rotationAnimationSpeedDegPerSec = clampedSpeed;
   }
 
+  const flowAnimation = resolvedObject.type === "line" ? resolvedObject.flowAnimation : undefined;
+  const flowAnimationConfigActive = runtimeMode && resolvedObject.type === "line" && flowAnimation?.enabled === true;
+  let flowAnimationIsActive = false;
+  let flowAnimationSpeedPxPerSec = 0;
+  if (flowAnimationConfigActive) {
+    const triggerTagRaw = flowAnimation?.triggerTag?.trim() ?? "";
+    if (!triggerTagRaw) {
+      flowAnimationIsActive = true;
+    } else {
+      const trigger = tagValue(flowAnimation?.triggerTag, {
+        useObjectIndexing: true,
+        fieldName: "flowAnimation.triggerTag",
+      });
+      if (
+        trigger.resolvedName
+        && !trigger.missingBindingReference
+        && !trigger.missingIndexedTag
+        && trigger.value
+        && trigger.value.quality !== "Bad"
+      ) {
+        const triggerMode = flowAnimation?.triggerMode ?? "truthy";
+        const triggerRawValue = trigger.value.value;
+        if (triggerMode === "equals") {
+          if (flowAnimation?.triggerValue !== undefined) {
+            flowAnimationIsActive = matchesStateValue(triggerRawValue, flowAnimation.triggerValue);
+          } else {
+            flowAnimationIsActive = false;
+          }
+        } else if (triggerMode === "notEquals") {
+          if (flowAnimation?.triggerValue !== undefined) {
+            flowAnimationIsActive = !matchesStateValue(triggerRawValue, flowAnimation.triggerValue);
+          } else {
+            flowAnimationIsActive = false;
+          }
+        } else {
+          flowAnimationIsActive = Boolean(triggerRawValue);
+        }
+      } else {
+        flowAnimationIsActive = false;
+      }
+    }
+    if (flowAnimation?.triggerInvert) {
+      flowAnimationIsActive = !flowAnimationIsActive;
+    }
+
+    const fixedSpeed = Number(flowAnimation?.fixedSpeedPxPerSec ?? 80);
+    const fallbackSpeed = Number.isFinite(fixedSpeed) ? fixedSpeed : 80;
+    let resolvedSpeed = fallbackSpeed;
+    if ((flowAnimation?.speedSource ?? "fixed") === "tag") {
+      const speed = tagValue(flowAnimation?.speedTag, {
+        useObjectIndexing: true,
+        fieldName: "flowAnimation.speedTag",
+      });
+      const numericSpeed = Number(speed.value?.value);
+      if (
+        speed.resolvedName
+        && !speed.missingBindingReference
+        && !speed.missingIndexedTag
+        && speed.value?.quality !== "Bad"
+        && Number.isFinite(numericSpeed)
+      ) {
+        resolvedSpeed = numericSpeed;
+      }
+    }
+    const minSpeed = Number(flowAnimation?.minSpeedPxPerSec ?? 0);
+    const maxSpeed = Number(flowAnimation?.maxSpeedPxPerSec ?? 500);
+    const normalizedMin = Number.isFinite(minSpeed) ? minSpeed : 0;
+    const normalizedMax = Number.isFinite(maxSpeed) ? maxSpeed : 500;
+    let clampedSpeed = normalizeFlowSpeed(resolvedSpeed, normalizedMin, normalizedMax);
+    if ((flowAnimation?.direction ?? "forward") === "reverse") {
+      clampedSpeed = -clampedSpeed;
+    }
+    flowAnimationSpeedPxPerSec = clampedSpeed;
+  }
+
   useEffect(() => {
     if (rotationFrameRef.current !== null) {
       cancelAnimationFrame(rotationFrameRef.current);
@@ -863,6 +951,38 @@ function ObjectNode({
       rotationLastFrameRef.current = null;
     };
   }, [rotationAnimationIsActive, rotationAnimationSpeedDegPerSec]);
+
+  useEffect(() => {
+    if (flowAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(flowAnimationFrameRef.current);
+      flowAnimationFrameRef.current = null;
+    }
+    flowAnimationLastFrameRef.current = null;
+    if (!flowAnimationIsActive || !Number.isFinite(flowAnimationSpeedPxPerSec) || flowAnimationSpeedPxPerSec === 0) {
+      return;
+    }
+
+    const step = (time: number) => {
+      const previousTime = flowAnimationLastFrameRef.current ?? time;
+      const deltaSeconds = Math.max(0, (time - previousTime) / 1000);
+      flowAnimationLastFrameRef.current = time;
+      if (deltaSeconds > 0) {
+        const rawOffset = flowAnimationDashOffsetRef.current + flowAnimationSpeedPxPerSec * deltaSeconds;
+        flowAnimationDashOffsetRef.current = rawOffset;
+        setFlowAnimationDashOffset(rawOffset);
+      }
+      flowAnimationFrameRef.current = requestAnimationFrame(step);
+    };
+
+    flowAnimationFrameRef.current = requestAnimationFrame(step);
+    return () => {
+      if (flowAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(flowAnimationFrameRef.current);
+        flowAnimationFrameRef.current = null;
+      }
+      flowAnimationLastFrameRef.current = null;
+    };
+  }, [flowAnimationIsActive, flowAnimationSpeedPxPerSec]);
 
   const animatedRotationOffset = rotationAnimationConfigActive ? rotationAnimationOffset : 0;
   const effectiveRotation = baseRotation + animatedRotationOffset;
@@ -1122,6 +1242,19 @@ function ObjectNode({
         })
       : {};
     const lineShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
+    const flowEffectType = flowAnimation?.effectType ?? "dash";
+    const flowDashLength = Number(flowAnimation?.dashLength ?? 12);
+    const flowGapLength = Number(flowAnimation?.gapLength ?? 8);
+    const normalizedDashLength = Number.isFinite(flowDashLength) && flowDashLength > 0 ? flowDashLength : 12;
+    const normalizedGapLength = Number.isFinite(flowGapLength) && flowGapLength > 0 ? flowGapLength : 8;
+    const flowDash = flowEffectType === "dots" ? [Math.max(1, Math.round(normalizedDashLength * 0.25)), normalizedGapLength] : [normalizedDashLength, normalizedGapLength];
+    const flowColor = flowAnimation?.color ?? resolvedObject.activeStroke ?? resolvedObject.stroke ?? "#00bfff";
+    const flowOpacity = Number(flowAnimation?.opacity ?? 1);
+    const normalizedFlowOpacity = Number.isFinite(flowOpacity) ? Math.max(0, Math.min(1, flowOpacity)) : 1;
+    const useBaseStrokeWidth = flowAnimation?.useBaseStrokeWidth ?? true;
+    const flowStrokeWidthRaw = Number(useBaseStrokeWidth ? resolvedObject.strokeWidth : (flowAnimation?.strokeWidth ?? resolvedObject.strokeWidth));
+    const flowStrokeWidth = Number.isFinite(flowStrokeWidthRaw) ? Math.max(0, flowStrokeWidthRaw) : Math.max(0, resolvedObject.strokeWidth);
+    const showFlowOverlay = flowAnimationConfigActive && flowAnimationIsActive && flowStrokeWidth > 0 && (flowEffectType === "dash" || flowEffectType === "arrows" || flowEffectType === "dots");
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
@@ -1136,6 +1269,20 @@ function ObjectNode({
           {...lineStrokeGradientProps}
           {...lineShadowProps}
         />
+        {showFlowOverlay ? (
+          <Line
+            points={resolvedObject.points}
+            stroke={flowColor}
+            strokeWidth={flowStrokeWidth}
+            opacity={normalizedFlowOpacity}
+            closed={resolvedObject.closed ?? false}
+            dash={flowDash}
+            dashOffset={flowAnimationDashOffset}
+            fillEnabled={false}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        ) : null}
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
@@ -3908,6 +4055,8 @@ function collectMissingBindingReferencesFromObjects(
     }
     if (object.type === "line") {
       collectMissingBindingReference(object.stateTag, resolvedBindings, output);
+      collectMissingBindingReference(object.flowAnimation?.triggerTag, resolvedBindings, output);
+      collectMissingBindingReference(object.flowAnimation?.speedTag, resolvedBindings, output);
     }
     if (object.type === "image") {
       collectMissingBindingReference(object.stateTag, resolvedBindings, output);
