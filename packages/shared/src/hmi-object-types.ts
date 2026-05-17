@@ -41,7 +41,7 @@ export type RotationAnimationPivot = "center" | "origin";
 export type FlowAnimationMode = "truthy" | "equals" | "notEquals";
 export type FlowAnimationDirection = "forward" | "reverse";
 export type FlowAnimationSpeedSource = "fixed" | "tag";
-export type FlowAnimationEffectType = "dash" | "arrows" | "dots";
+export type FlowAnimationEffectType = "dash" | "arrows" | "dots" | "gradientShift";
 
 export type RotationAnimationConfig = {
   enabled?: boolean;
@@ -79,6 +79,10 @@ export type FlowAnimationConfig = {
   opacity?: number;
   strokeWidth?: number;
   useBaseStrokeWidth?: boolean;
+  gradientStartColor?: string;
+  gradientMidColor?: string;
+  gradientEndColor?: string;
+  gradientSpanPx?: number;
 
   dashLength?: number;
   gapLength?: number;

@@ -10606,22 +10606,29 @@
             432.5678968053898,
             7.2582000398238735
           ],
-          "stroke": "#d2b7b7",
+          "stroke": "#060606",
           "strokeWidth": 24,
           "closed": true,
           "fill": "#0a0a0a",
           "gradientEnabled": false,
-          "gradientEndColor": "#130202",
-          "gradientDirection": "vertical",
+          "gradientEndColor": "#483434",
+          "gradientDirection": "diagonal",
           "flowAnimation": {
             "enabled": true,
             "triggerTag": "speed",
             "speedSource": "tag",
             "speedTag": "speed",
             "maxSpeedPxPerSec": 5000,
-            "effectType": "arrows",
+            "direction": "forward",
+            "effectType": "gradientShift",
             "color": "#ffffff",
-            "dashLength": 8
+            "opacity": 0.5,
+            "strokeWidth": 10,
+            "useBaseStrokeWidth": false,
+            "gradientMidColor": "#cac715",
+            "gradientSpanPx": 50,
+            "dashLength": 8,
+            "gapLength": 20
           }
         }
       ]

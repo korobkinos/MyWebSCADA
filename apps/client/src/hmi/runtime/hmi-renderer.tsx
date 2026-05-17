@@ -193,6 +193,13 @@ type PathSample = {
   ny: number;
 };
 
+type RgbaColor = {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+};
+
 function buildPolylinePath(points: number[], closed: boolean): PolylinePath {
   const segments: PolylineSegment[] = [];
   if (points.length < 4) {
@@ -251,11 +258,25 @@ function buildPolylinePath(points: number[], closed: boolean): PolylinePath {
   return { segments, totalLength: cursor };
 }
 
-function samplePolylineAt(path: PolylinePath, distance: number): PathSample | null {
+function samplePolylineAt(
+  path: PolylinePath,
+  distance: number,
+  options?: { wrap?: boolean },
+): PathSample | null {
   if (!(path.totalLength > 0) || path.segments.length === 0) {
     return null;
   }
-  const wrappedDistance = ((distance % path.totalLength) + path.totalLength) % path.totalLength;
+  const wrap = options?.wrap ?? true;
+  let wrappedDistance: number;
+  if (wrap) {
+    wrappedDistance = ((distance % path.totalLength) + path.totalLength) % path.totalLength;
+    // Keep exact cycle boundaries on path end to avoid end->start long segment on open lines.
+    if (wrappedDistance === 0 && Math.abs(distance) > 1e-9) {
+      wrappedDistance = path.totalLength;
+    }
+  } else {
+    wrappedDistance = Math.max(0, Math.min(path.totalLength, distance));
+  }
   for (const segment of path.segments) {
     if (wrappedDistance > segment.start + segment.length) {
       continue;
@@ -282,6 +303,47 @@ function samplePolylineAt(path: PolylinePath, distance: number): PathSample | nu
     nx: last.nx,
     ny: last.ny,
   };
+}
+
+function parseHexColorToRgba(input: string): RgbaColor | null {
+  const value = input.trim().toLowerCase();
+  if (!value.startsWith("#")) {
+    return null;
+  }
+  const hex = value.slice(1);
+  if (hex.length === 3) {
+    const r = Number.parseInt(hex[0]! + hex[0], 16);
+    const g = Number.parseInt(hex[1]! + hex[1], 16);
+    const b = Number.parseInt(hex[2]! + hex[2], 16);
+    return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)
+      ? { r, g, b, a: 1 }
+      : null;
+  }
+  if (hex.length === 6 || hex.length === 8) {
+    const r = Number.parseInt(hex.slice(0, 2), 16);
+    const g = Number.parseInt(hex.slice(2, 4), 16);
+    const b = Number.parseInt(hex.slice(4, 6), 16);
+    const a = hex.length === 8 ? (Number.parseInt(hex.slice(6, 8), 16) / 255) : 1;
+    return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b) && Number.isFinite(a)
+      ? { r, g, b, a }
+      : null;
+  }
+  return null;
+}
+
+function mixRgba(left: RgbaColor, right: RgbaColor, t: number): RgbaColor {
+  const k = Math.max(0, Math.min(1, t));
+  return {
+    r: Math.round(left.r + (right.r - left.r) * k),
+    g: Math.round(left.g + (right.g - left.g) * k),
+    b: Math.round(left.b + (right.b - left.b) * k),
+    a: left.a + (right.a - left.a) * k,
+  };
+}
+
+function rgbaToCss(color: RgbaColor): string {
+  const alpha = Math.max(0, Math.min(1, color.a));
+  return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
 }
 
 function resolveFillGradientProps(args: {
@@ -1379,17 +1441,37 @@ function ObjectNode({
     const useBaseStrokeWidth = flowAnimation?.useBaseStrokeWidth ?? false;
     const flowStrokeWidthRaw = Number(useBaseStrokeWidth ? resolvedObject.strokeWidth : (flowAnimation?.strokeWidth ?? defaultInnerStrokeWidth));
     const flowStrokeWidth = Number.isFinite(flowStrokeWidthRaw) ? Math.max(0, flowStrokeWidthRaw) : Math.max(0, resolvedObject.strokeWidth);
-    const showFlowOverlay = flowAnimationConfigActive && flowAnimationIsActive && flowStrokeWidth > 0 && (flowEffectType === "dash" || flowEffectType === "arrows" || flowEffectType === "dots");
+    const showFlowOverlay = flowAnimationConfigActive && flowAnimationIsActive && flowStrokeWidth > 0
+      && (flowEffectType === "dash" || flowEffectType === "arrows" || flowEffectType === "dots" || flowEffectType === "gradientShift");
     const flowPath = buildPolylinePath(resolvedObject.points, resolvedObject.closed ?? false);
     const flowSpacing = Math.max(2, normalizedDashLength + normalizedGapLength);
     const markerCount = Math.min(400, Math.max(1, Math.ceil((flowPath.totalLength || 0) / flowSpacing) + 1));
     const renderDashOverlay = showFlowOverlay && flowEffectType === "dash";
     const renderDotsOverlay = showFlowOverlay && flowEffectType === "dots";
     const renderArrowsOverlay = showFlowOverlay && flowEffectType === "arrows";
+    const renderGradientOverlay = showFlowOverlay && flowEffectType === "gradientShift";
     const dotRadius = Math.max(1, Math.min(flowStrokeWidth * 0.5, normalizedDashLength * 0.5));
     const arrowLength = Math.max(6, normalizedDashLength);
     const arrowHalfWidth = Math.max(2, Math.min(flowStrokeWidth * 0.5, arrowLength * 0.55));
     const flowMarkerPhase = flowAnimationDashOffset;
+    const gradientSpanRaw = Number(flowAnimation?.gradientSpanPx ?? 120);
+    const gradientSpan = Number.isFinite(gradientSpanRaw) && gradientSpanRaw > 0 ? gradientSpanRaw : 120;
+    const gradientGapRaw = Number(flowAnimation?.gapLength ?? 40);
+    const gradientGap = Number.isFinite(gradientGapRaw) && gradientGapRaw >= 0 ? gradientGapRaw : 40;
+    const gradientPeriod = Math.max(1, gradientSpan + gradientGap);
+    const gradientStartColor = flowAnimation?.gradientStartColor ?? resolvedObject.stroke ?? "#d9d9d9";
+    const gradientMidColor = flowAnimation?.gradientMidColor ?? flowColor;
+    const gradientEndColor = flowAnimation?.gradientEndColor ?? resolvedObject.stroke ?? "#d9d9d9";
+    const parsedGradientStart = parseHexColorToRgba(gradientStartColor);
+    const parsedGradientMid = parseHexColorToRgba(gradientMidColor);
+    const parsedGradientEnd = parseHexColorToRgba(gradientEndColor);
+    const gradientStartTransparent = parsedGradientStart ? rgbaToCss({ ...parsedGradientStart, a: 0 }) : "rgba(0, 0, 0, 0)";
+    const gradientStartShoulder = parsedGradientStart ? rgbaToCss({ ...parsedGradientStart, a: 0.45 }) : gradientStartColor;
+    const gradientMidStrong = parsedGradientMid ? rgbaToCss({ ...parsedGradientMid, a: 1 }) : gradientMidColor;
+    const gradientEndShoulder = parsedGradientEnd ? rgbaToCss({ ...parsedGradientEnd, a: 0.45 }) : gradientEndColor;
+    const gradientEndTransparent = parsedGradientEnd ? rgbaToCss({ ...parsedGradientEnd, a: 0 }) : "rgba(0, 0, 0, 0)";
+    const gradientSampleStep = Math.max(2, Math.min(10, Math.max(3, flowStrokeWidth * 0.5)));
+    const gradientPacketPhase = ((flowMarkerPhase % gradientPeriod) + gradientPeriod) % gradientPeriod;
     const flowPathIsClosed = resolvedObject.closed ?? false;
     const isFlowMarkerInsideOpenBounds = (distance: number, padding: number): boolean => {
       if (flowPathIsClosed || !(flowPath.totalLength > 0)) {
@@ -1412,7 +1494,7 @@ function ObjectNode({
           {...lineStrokeGradientProps}
           {...lineShadowProps}
         />
-        {(renderDashOverlay || renderDotsOverlay || renderArrowsOverlay) ? (
+        {(renderDashOverlay || renderDotsOverlay || renderArrowsOverlay || renderGradientOverlay) ? (
           <Group
             clipX={0}
             clipY={0}
@@ -1420,6 +1502,64 @@ function ObjectNode({
             clipHeight={resolvedObject.height}
             listening={false}
           >
+            {renderGradientOverlay && flowPath.totalLength > 0
+              ? Array.from({ length: Math.min(256, Math.ceil((flowPath.totalLength + gradientPeriod * 3) / gradientPeriod)) }).map((_, packetIndex) => {
+                const rawStart = (packetIndex - 2) * gradientPeriod + gradientPacketPhase;
+                const rawEnd = rawStart + gradientSpan;
+                if (!flowPathIsClosed && (rawEnd <= 0 || rawStart >= flowPath.totalLength)) {
+                  return null;
+                }
+                const startDistance = flowPathIsClosed ? rawStart : Math.max(0, rawStart);
+                const endDistance = flowPathIsClosed ? rawEnd : Math.min(flowPath.totalLength, rawEnd);
+                const packetLength = endDistance - startDistance;
+                if (!(packetLength > 0)) {
+                  return null;
+                }
+                const sampleCount = Math.max(2, Math.ceil(packetLength / gradientSampleStep) + 1);
+                const packetPoints: number[] = [];
+                for (let i = 0; i < sampleCount; i += 1) {
+                  const t = sampleCount <= 1 ? 0 : (i / (sampleCount - 1));
+                  const sample = samplePolylineAt(
+                    flowPath,
+                    startDistance + packetLength * t,
+                    { wrap: flowPathIsClosed },
+                  );
+                  if (!sample) {
+                    continue;
+                  }
+                  packetPoints.push(sample.x, sample.y);
+                }
+                if (packetPoints.length < 4) {
+                  return null;
+                }
+                const sx = packetPoints[0] ?? 0;
+                const sy = packetPoints[1] ?? 0;
+                const ex = packetPoints[packetPoints.length - 2] ?? sx;
+                const ey = packetPoints[packetPoints.length - 1] ?? sy;
+                return (
+                  <Line
+                    key={`flow-gradient-packet-${packetIndex}`}
+                    points={packetPoints}
+                    stroke={gradientMidColor}
+                    strokeWidth={flowStrokeWidth}
+                    opacity={normalizedFlowOpacity}
+                    strokeLinearGradientStartPoint={{ x: sx, y: sy }}
+                    strokeLinearGradientEndPoint={{ x: ex, y: ey }}
+                    strokeLinearGradientColorStops={[
+                      0, gradientStartTransparent,
+                      0.22, gradientStartShoulder,
+                      0.5, gradientMidStrong,
+                      0.78, gradientEndShoulder,
+                      1, gradientEndTransparent,
+                    ]}
+                    listening={false}
+                    lineCap="round"
+                    lineJoin="round"
+                    perfectDrawEnabled={false}
+                  />
+                );
+              })
+              : null}
             {renderDashOverlay ? (
               <Line
                 points={resolvedObject.points}

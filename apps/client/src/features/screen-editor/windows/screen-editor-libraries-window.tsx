@@ -681,6 +681,10 @@ const FLOW_ANIMATION_PROPERTY_HINTS: Array<{ path: string; kind: VisualRuleValue
   { path: "flowAnimation.opacity", kind: "number" },
   { path: "flowAnimation.strokeWidth", kind: "number" },
   { path: "flowAnimation.useBaseStrokeWidth", kind: "boolean" },
+  { path: "flowAnimation.gradientStartColor", kind: "color" },
+  { path: "flowAnimation.gradientMidColor", kind: "color" },
+  { path: "flowAnimation.gradientEndColor", kind: "color" },
+  { path: "flowAnimation.gradientSpanPx", kind: "number" },
   { path: "flowAnimation.dashLength", kind: "number" },
   { path: "flowAnimation.gapLength", kind: "number" },
 ];

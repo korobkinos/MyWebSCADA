@@ -563,8 +563,11 @@ function FlowAnimationFields({
   const speedSource = flowAnimation.speedSource ?? "fixed";
   const defaultInnerStrokeWidth = Math.max(1, Math.min(object.strokeWidth, Math.max(2, object.strokeWidth * 0.35)));
   const useBaseStrokeWidth = flowAnimation.useBaseStrokeWidth ?? false;
+  const effectType = flowAnimation.effectType ?? "dash";
   const showTriggerValue = triggerMode === "equals" || triggerMode === "notEquals";
   const showSpeedTag = speedSource === "tag";
+  const showDashSettings = effectType === "dash" || effectType === "dots" || effectType === "arrows";
+  const showGradientSettings = effectType === "gradientShift";
 
   const hasFlowAnimationSettings = (candidate: typeof flowAnimation): boolean => (
     candidate.triggerTag !== undefined
@@ -582,6 +585,10 @@ function FlowAnimationFields({
     || candidate.opacity !== undefined
     || candidate.strokeWidth !== undefined
     || candidate.useBaseStrokeWidth !== undefined
+    || candidate.gradientStartColor !== undefined
+    || candidate.gradientMidColor !== undefined
+    || candidate.gradientEndColor !== undefined
+    || candidate.gradientSpanPx !== undefined
     || candidate.dashLength !== undefined
     || candidate.gapLength !== undefined
   );
@@ -716,11 +723,12 @@ function FlowAnimationFields({
       </Form.Item>
       <Form.Item label="Effect Type">
         <Select
-          value={flowAnimation.effectType ?? "dash"}
+          value={effectType}
           options={[
             { label: "dash", value: "dash" },
             { label: "arrows", value: "arrows" },
             { label: "dots", value: "dots" },
+            { label: "gradientShift", value: "gradientShift" },
           ]}
           onChange={(value) => patchFlowAnimation({ effectType: value })}
         />
@@ -759,22 +767,64 @@ function FlowAnimationFields({
         />
       </Form.Item>
       ) : null}
-      <Form.Item label="Dash Length">
-        <InputNumber
-          style={{ width: "100%" }}
-          min={1}
-          value={flowAnimation.dashLength ?? 12}
-          onChange={(value) => patchFlowAnimation({ dashLength: Number(value ?? 12) })}
-        />
-      </Form.Item>
-      <Form.Item label="Gap Length">
-        <InputNumber
-          style={{ width: "100%" }}
-          min={1}
-          value={flowAnimation.gapLength ?? 8}
-          onChange={(value) => patchFlowAnimation({ gapLength: Number(value ?? 8) })}
-        />
-      </Form.Item>
+      {showDashSettings ? (
+        <>
+          <Form.Item label="Dash Length">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={1}
+              value={flowAnimation.dashLength ?? 12}
+              onChange={(value) => patchFlowAnimation({ dashLength: Number(value ?? 12) })}
+            />
+          </Form.Item>
+          <Form.Item label="Gap Length">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={1}
+              value={flowAnimation.gapLength ?? 8}
+              onChange={(value) => patchFlowAnimation({ gapLength: Number(value ?? 8) })}
+            />
+          </Form.Item>
+        </>
+      ) : null}
+      {showGradientSettings ? (
+        <>
+          <ColorField
+            label="Gradient Start Color"
+            value={flowAnimation.gradientStartColor}
+            fallback={object.stroke ?? "#d9d9d9"}
+            onChange={(next) => patchFlowAnimation({ gradientStartColor: next })}
+          />
+          <ColorField
+            label="Gradient Mid Color"
+            value={flowAnimation.gradientMidColor}
+            fallback={flowAnimation.color ?? object.activeStroke ?? "#00bfff"}
+            onChange={(next) => patchFlowAnimation({ gradientMidColor: next })}
+          />
+          <ColorField
+            label="Gradient End Color"
+            value={flowAnimation.gradientEndColor}
+            fallback={object.stroke ?? "#d9d9d9"}
+            onChange={(next) => patchFlowAnimation({ gradientEndColor: next })}
+          />
+          <Form.Item label="Gradient Span (px)">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={8}
+              value={flowAnimation.gradientSpanPx ?? 120}
+              onChange={(value) => patchFlowAnimation({ gradientSpanPx: Number(value ?? 120) })}
+            />
+          </Form.Item>
+          <Form.Item label="Wave Gap (px)">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={0}
+              value={flowAnimation.gapLength ?? 40}
+              onChange={(value) => patchFlowAnimation({ gapLength: Number(value ?? 40) })}
+            />
+          </Form.Item>
+        </>
+      ) : null}
     </>
   );
 }
