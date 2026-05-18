@@ -193,6 +193,14 @@ export function App() {
     } as const;
   }, [effectiveUiTheme]);
 
+  useEffect(() => {
+    ConfigProvider.config({
+      holderRender: (children) => (
+        <ConfigProvider theme={themeConfig}>{children}</ConfigProvider>
+      ),
+    });
+  }, [themeConfig]);
+
   if (!authResolved) {
     return <CenteredSpinner />;
   }
