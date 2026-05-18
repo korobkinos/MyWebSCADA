@@ -305,6 +305,8 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     () => response?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0,
     [response],
   );
+  const selectedTagNames = useMemo(() => selectedTags.map((tag) => tag.tag), [selectedTags]);
+  const selectedTagNamesKey = useMemo(() => selectedTagNames.join("|"), [selectedTagNames]);
 
   useEffect(() => {
     const nextViewState = resolveInitialRuntimeViewState(object);
@@ -355,12 +357,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   }, [customFrom, customTo, liveMode, manualAxes, object.id, rangePreset, selectedTags, seriesColumnWidths, settings, tagPickerFilters, visibleRange]);
 
   const executeQuery = useCallback(async (range: TrendVisibleRange, options?: { force?: boolean }) => {
-    if (selectedTags.length === 0) {
+    if (selectedTagNames.length === 0) {
       setResponse(null);
       return;
     }
-    if (selectedTags.length > TOO_MANY_TAGS_LIMIT) {
-      setError(`Too many tags selected (${selectedTags.length}). Limit is ${TOO_MANY_TAGS_LIMIT}.`);
+    if (selectedTagNames.length > TOO_MANY_TAGS_LIMIT) {
+      setError(`Too many tags selected (${selectedTagNames.length}). Limit is ${TOO_MANY_TAGS_LIMIT}.`);
       return;
     }
     if (range.to <= range.from) {
@@ -371,7 +373,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     const effectiveMaxPointsSetting = liveMode ? 8000 : settings.maxPointsPerSeries;
     const maxPoints = clamp(Math.round(effectiveMaxPointsSetting), 1000, 8000);
     const requestAggregation = liveMode ? "raw" : settings.aggregation;
-    const tagNames = selectedTags.map((tag) => tag.tag);
+    const tagNames = selectedTagNames;
     const key = buildTrendCacheKey({
       tags: tagNames,
       from: range.from,
@@ -524,7 +526,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         setLoading(false);
       }
     }
-  }, [liveMode, selectedTags, settings.aggregation, settings.cacheEnabled, settings.maxPointsPerSeries]);
+  }, [liveMode, selectedTagNamesKey, settings.aggregation, settings.cacheEnabled, settings.maxPointsPerSeries]);
 
   useEffect(() => {
     cacheRef.current = new TrendQueryCache(settings.cacheSize);
@@ -559,18 +561,18 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   }, []);
 
   useEffect(() => {
-    if (selectedTags.length === 0 || liveMode) {
+    if (selectedTagNames.length === 0 || liveMode) {
       return;
     }
     void executeQuery(visibleRange, { force: true });
-  }, [executeQuery, liveMode, screenRevision, selectedTags, visibleRange]);
+  }, [executeQuery, liveMode, screenRevision, selectedTagNamesKey, visibleRange]);
 
   useEffect(() => {
-    if (!liveMode || selectedTags.length === 0) {
+    if (!liveMode || selectedTagNames.length === 0) {
       return;
     }
     void executeQuery(visibleRange, { force: true });
-  }, [executeQuery, liveMode, screenRevision, selectedTags]);
+  }, [executeQuery, liveMode, screenRevision, selectedTagNamesKey]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -582,14 +584,14 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   }, [contextMenu]);
 
   useEffect(() => {
-    if (!liveMode || selectedTags.length === 0) {
+    if (!liveMode || selectedTagNames.length === 0) {
       liveSocketRef.current?.close();
       liveSocketRef.current = null;
       setLiveSocketState("idle");
       return;
     }
 
-    const selected = new Set(selectedTags.map((tag) => tag.tag));
+    const selected = new Set(selectedTagNames);
     liveBufferRef.current = [];
     const socket = createRuntimeSocket({
       onTagValues: (values: TagValue[]) => {
@@ -653,7 +655,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         liveSocketRef.current = null;
       }
     };
-  }, [liveMode, selectedTags]);
+  }, [liveMode, selectedTagNamesKey]);
 
   useEffect(() => {
     if (!liveMode) {
