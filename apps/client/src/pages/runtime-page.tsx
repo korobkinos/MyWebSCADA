@@ -1369,7 +1369,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   const popupOverlay = (
     <>
-      {modalOpen ? <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 1000 }} /> : null}
+      {modalOpen ? <div style={{ position: "fixed", inset: 0, background: "transparent", zIndex: 1000 }} /> : null}
       {popupScreens.map(({ item, screen: popupScreen }) => (
         <div
           key={item.id}
