@@ -349,7 +349,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       return;
     }
     void executeQuery(visibleRange, { force: true });
-  }, [executeQuery, selectedTags.length]);
+  }, [executeQuery, selectedTags, visibleRange]);
 
   useEffect(() => {
     if (!contextMenu) {

@@ -127,10 +127,6 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
     }
   }, [filtered, open, selectedTagName]);
 
-  if (!open) {
-    return null;
-  }
-
   const toggleTag = (tag: TrendTagInfo) => {
     const exists = draftTagMap.get(tag.name);
     if (exists) {
@@ -210,8 +206,15 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
   };
 
   const clearSelected = () => {
-    setDraftTags([]);
-    setSelectedTagName("");
+    if (!selectedTagName) {
+      setDraftTags([]);
+      return;
+    }
+    const next = draftTags.filter((item) => item.tag !== selectedTagName);
+    setDraftTags(next);
+    if (!next.some((item) => item.tag === selectedTagName)) {
+      setSelectedTagName(next[0]?.tag ?? filtered[0]?.name ?? "");
+    }
   };
 
   const startDetailsResize = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -253,6 +256,10 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
       // ignore storage failures for dialog-only preference
     }
   }, [detailsWidth]);
+
+  if (!open) {
+    return null;
+  }
 
   return (
     <TrendWorkbenchDialog
@@ -360,12 +367,14 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                         </label>
                         <label className="workbench-field">
                           <span className="workbench-field__label">Color</span>
-                          <Space.Compact style={{ width: "100%" }}>
+                          <Space.Compact className="trends-tag-picker-color-row" style={{ width: "100%" }}>
                             <ColorPicker
+                              size="small"
                               value={normalizePickerColor(current.color, "#4FC3F7")}
                               onChangeComplete={(color) => updateCurrent({ color: color.toHexString() })}
                             />
                             <Input
+                              className="trends-tag-picker-color-input"
                               value={current.color || ""}
                               onChange={(event) => updateCurrent({ color: event.target.value })}
                               placeholder="#4FC3F7"
