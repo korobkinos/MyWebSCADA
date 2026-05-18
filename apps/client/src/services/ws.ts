@@ -19,6 +19,7 @@ let activeSocketController: RuntimeSocketController | null = null;
 let pendingGlobalSubscriptions: string[] | null = null;
 const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.trim();
 const RUNTIME_WS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimeWs";
+const RUNTIME_WS_HEALTHCHECK_PATH = "/api/runtime/status";
 
 function shouldLogRuntimeWsWarnings(): boolean {
   if (!import.meta.env.DEV || typeof window === "undefined") {
@@ -43,29 +44,62 @@ function resolveSocketUrl(): string {
   return `${protocol}://${window.location.host}/ws`;
 }
 
+function resolveHealthcheckUrl(wsUrl: string): string | null {
+  try {
+    const parsed = new URL(wsUrl);
+    const httpProtocol = parsed.protocol === "wss:" ? "https:" : "http:";
+    return `${httpProtocol}//${parsed.host}${RUNTIME_WS_HEALTHCHECK_PATH}`;
+  } catch {
+    return null;
+  }
+}
+
 export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSocketOptions): RuntimeSocketController {
   const url = resolveSocketUrl();
+  const healthcheckUrl = resolveHealthcheckUrl(url);
   const participateInGlobalSubscriptions = options?.participateInGlobalSubscriptions !== false;
   let socket: WebSocket | null = null;
   let closedByUser = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let reconnectAttempt = 0;
+  let connectAttemptId = 0;
+  let connectInFlight = false;
   let isOpen = false;
   let pendingTags: string[] | null = null;
   let lastSentSignature = "";
   const queuedMessages: RuntimeWsClientMessage[] = [];
 
-  const scheduleReconnect = () => {
+  const scheduleReconnect = (minimumDelayMs = 0) => {
     if (closedByUser || reconnectTimer) {
       return;
     }
     reconnectAttempt += 1;
     const baseDelay = Math.min(10_000, 500 * Math.pow(2, Math.min(reconnectAttempt, 6)));
     const jitter = Math.floor(Math.random() * 250);
+    const delay = Math.max(minimumDelayMs, baseDelay + jitter);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined;
-      connect();
-    }, baseDelay + jitter);
+      void connect();
+    }, delay);
+  };
+
+  const probeBackendAvailability = async (): Promise<boolean> => {
+    if (!healthcheckUrl || typeof fetch !== "function") {
+      return true;
+    }
+    try {
+      const abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timeoutId = window.setTimeout(() => abortController?.abort(), 1500);
+      const response = await fetch(healthcheckUrl, {
+        method: "GET",
+        cache: "no-store",
+        signal: abortController?.signal,
+      });
+      window.clearTimeout(timeoutId);
+      return response.ok;
+    } catch {
+      return false;
+    }
   };
 
   const sendWhenOpen = (payload: RuntimeWsClientMessage, options?: { queueWhenClosed?: boolean }) => {
@@ -123,12 +157,41 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     }
   };
 
-  const connect = () => {
+  const connect = async () => {
+    if (closedByUser || connectInFlight) {
+      return;
+    }
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
     callbacks.onSocketStateChange?.("connecting");
-    socket = new WebSocket(url);
+    connectInFlight = true;
+    const currentAttemptId = ++connectAttemptId;
+
+    const backendAvailable = await probeBackendAvailability();
+    if (closedByUser || currentAttemptId !== connectAttemptId) {
+      connectInFlight = false;
+      return;
+    }
+    if (!backendAvailable) {
+      connectInFlight = false;
+      callbacks.onSocketStateChange?.("closed");
+      scheduleReconnect(2000);
+      return;
+    }
+
+    try {
+      socket = new WebSocket(url);
+    } catch {
+      connectInFlight = false;
+      callbacks.onSocketStateChange?.("error");
+      scheduleReconnect(2000);
+      return;
+    }
 
     socket.onmessage = onSocketMessage;
     socket.onopen = () => {
+      connectInFlight = false;
       isOpen = true;
       callbacks.onSocketStateChange?.("open");
       reconnectAttempt = 0;
@@ -139,7 +202,9 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     };
 
     socket.onclose = () => {
+      connectInFlight = false;
       isOpen = false;
+      socket = null;
       callbacks.onSocketStateChange?.("closed");
       if (closedByUser) {
         if (activeSocketController === controller) {
@@ -151,6 +216,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     };
 
     socket.onerror = () => {
+      connectInFlight = false;
       callbacks.onSocketStateChange?.("error");
       // Let onclose handle reconnect scheduling.
     };
@@ -178,6 +244,8 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
         clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
       }
+      connectAttemptId += 1;
+      connectInFlight = false;
       if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
         socket.close();
       }
@@ -203,7 +271,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     },
   };
 
-  connect();
+  void connect();
   if (participateInGlobalSubscriptions) {
     activeSocketController = controller;
   }

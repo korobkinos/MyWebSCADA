@@ -46,6 +46,7 @@ const RUNTIME_AUTH_WINDOW_ID = "runtimeAuthorization";
 const COMMAND_WARNING_COOLDOWN_MS = 1200;
 const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
 const INDEXED_ADDRESS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugIndexedAddress";
+const RUNTIME_LAYOUT_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimeLayout";
 const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
 const COMMAND_WARNING_RETENTION_MS = 30_000;
 const FAST_INTERNAL_MACRO_TIMEOUT_MS = 1000;
@@ -155,7 +156,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const modalOpen = popupState.items.some((item) => item.modal);
 
   useEffect(() => {
-    if (!import.meta.env.DEV || fullscreen !== true || !screen) {
+    if (!import.meta.env.DEV || fullscreen !== true || !screen || typeof window === "undefined") {
+      return;
+    }
+    if (window.localStorage.getItem(RUNTIME_LAYOUT_DEBUG_LOCAL_STORAGE_KEY) !== "1") {
       return;
     }
     const root = runtimeRootRef.current;

@@ -1579,6 +1579,7 @@ function ObjectNode({
   const useAnimatedCenterPivot = rotationAnimationConfigActive && rotationPivot === "center";
   const centerOffsetX = resolvedObject.width * 0.5;
   const centerOffsetY = resolvedObject.height * 0.5;
+  const flowOnlyPass = renderFlowMode === "only";
 
   const selectable = interactive;
   const visibleByRole = isObjectVisibleByRole(resolvedObject, mode, renderContext);
@@ -1718,6 +1719,9 @@ function ObjectNode({
   };
 
   useEffect(() => {
+    if (flowOnlyPass) {
+      return;
+    }
     if (resolvedObject.type !== "trendChart") {
       return;
     }
@@ -1734,6 +1738,7 @@ function ObjectNode({
       content: <TrendRuntimeWidget object={resolvedObject} />,
     });
   }, [
+    flowOnlyPass,
     onRemoveWidgetOverlay,
     onUpsertWidgetOverlay,
     resolvedObject,
@@ -1741,16 +1746,28 @@ function ObjectNode({
   ]);
 
   useEffect(() => {
+    if (flowOnlyPass) {
+      return;
+    }
     if (resolvedObject.type !== "trendChart") {
       return;
     }
     return () => {
       onRemoveWidgetOverlay?.(resolvedObject.id);
     };
-  }, [onRemoveWidgetOverlay, resolvedObject.id, resolvedObject.type]);
+  }, [flowOnlyPass, onRemoveWidgetOverlay, resolvedObject.id, resolvedObject.type]);
 
   if (shouldHideInRuntime) {
     return null;
+  }
+
+  if (flowOnlyPass) {
+    if (resolvedObject.type !== "line") {
+      return null;
+    }
+    if (resolvedObject.flowAnimation?.enabled !== true) {
+      return null;
+    }
   }
 
   if (resolvedObject.type === "group") {
@@ -3597,6 +3614,7 @@ function SliderObjectNode({
   renderContext,
   triggerObjectMacroEvent,
 }: SliderObjectNodeProps) {
+  const [sliderIsDragging, setSliderIsDragging] = useState(false);
   const sliderTag = runtimeMode ? resolveTagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
   const sliderBad = runtimeMode && Boolean(
     sliderTag?.missingBindingReference
@@ -3722,6 +3740,7 @@ function SliderObjectNode({
 
   const finalizeSliderDrag = useCallback((allowWrite = true) => {
     sliderDragRef.current = false;
+    setSliderIsDragging(false);
     const fraction = Math.max(0, Math.min(1, sliderLastFractionRef.current));
     commitSliderValue(fraction, true, allowWrite);
     sliderReleaseAtRef.current = Date.now();
@@ -3799,6 +3818,12 @@ function SliderObjectNode({
 
   const sliderRenderValue = sliderDragValue !== null ? sliderDragValue : sliderValue;
   const sliderRenderRatio = sliderMax > sliderMin ? (sliderRenderValue - sliderMin) / (sliderMax - sliderMin) : 0;
+  const thumbCenterX = isSliderVertical
+    ? resolvedObject.width * 0.5
+    : (sliderThumbRadius + (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio);
+  const thumbCenterY = isSliderVertical
+    ? (resolvedObject.height - sliderThumbRadius - (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio)
+    : (resolvedObject.height * 0.5);
 
   const sliderValueText = sliderShowValue
     ? (sliderBad
@@ -3869,6 +3894,7 @@ function SliderObjectNode({
         }
         triggerObjectMacroEvent("press");
         sliderDragRef.current = true;
+        setSliderIsDragging(true);
         sliderReleaseAtRef.current = null;
         sliderReleaseSourceValueRef.current = null;
         const groupNode = evt.currentTarget;
@@ -3894,6 +3920,7 @@ function SliderObjectNode({
       onMouseUp={(evt: KonvaEventObject<MouseEvent>) => {
         if (interactive || runtimeDisabled) {
           sliderDragRef.current = false;
+          setSliderIsDragging(false);
           setSliderDragValue(null);
           sliderReleaseAtRef.current = null;
           sliderReleaseSourceValueRef.current = null;
@@ -3911,6 +3938,7 @@ function SliderObjectNode({
       onMouseLeave={() => {
         if (interactive || runtimeDisabled) {
           sliderDragRef.current = false;
+          setSliderIsDragging(false);
           setSliderDragValue(null);
           sliderReleaseAtRef.current = null;
           sliderReleaseSourceValueRef.current = null;
@@ -3952,8 +3980,8 @@ function SliderObjectNode({
             cornerRadius={sliderTrackThickness / 2}
           />
           <Circle
-            x={resolvedObject.width * 0.5}
-            y={resolvedObject.height - sliderThumbRadius - (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio}
+            x={thumbCenterX}
+            y={thumbCenterY}
             radius={sliderThumbRadius}
             fill={renderThumbColor}
             stroke={sliderThumbBorderColor}
@@ -3981,8 +4009,8 @@ function SliderObjectNode({
             cornerRadius={sliderTrackThickness / 2}
           />
           <Circle
-            x={sliderThumbRadius + (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio}
-            y={resolvedObject.height * 0.5}
+            x={thumbCenterX}
+            y={thumbCenterY}
             radius={sliderThumbRadius}
             fill={renderThumbColor}
             stroke={sliderThumbBorderColor}
@@ -4030,6 +4058,17 @@ function SliderObjectNode({
           width: resolvedObject.width,
           height: resolvedObject.height,
         })
+      ) : null}
+      {sliderIsDragging ? (
+        <Circle
+          x={thumbCenterX}
+          y={thumbCenterY}
+          radius={sliderThumbRadius}
+          fill={renderThumbColor}
+          stroke={sliderThumbBorderColor}
+          strokeWidth={1.5}
+          perfectDrawEnabled={false}
+        />
       ) : null}
       <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
     </Group>
