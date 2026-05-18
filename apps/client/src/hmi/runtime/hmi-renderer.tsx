@@ -1284,6 +1284,7 @@ function ObjectNode({
   }
 
   const flowEffectType = flowAnimation?.effectType ?? "dash";
+  const flowUsesMarkerNodes = flowEffectType === "dots" || flowEffectType === "arrows";
   const flowDashLength = Number(flowAnimation?.dashLength ?? 12);
   const flowGapLength = Number(flowAnimation?.gapLength ?? 8);
   const normalizedDashLength = Number.isFinite(flowDashLength) && flowDashLength > 0 ? flowDashLength : 12;
@@ -1534,13 +1535,13 @@ function ObjectNode({
 
     const step = (time: number) => {
       const previousTime = flowAnimationLastFrameRef.current ?? time;
-      const deltaSeconds = Math.max(0, (time - previousTime) / 1000);
+      const deltaSeconds = Math.min(0.05, Math.max(0, (time - previousTime) / 1000));
       flowAnimationLastFrameRef.current = time;
       if (deltaSeconds > 0 && flowActiveRef.current && flowSpeedRef.current !== 0) {
         flowAnimationPhaseRef.current += flowSpeedRef.current * deltaSeconds;
       }
       applyFlowDashOffset(flowAnimationPhaseRef.current);
-      const markerChanged = updateFlowMarkerNodes(flowAnimationPhaseRef.current);
+      const markerChanged = flowUsesMarkerNodes ? updateFlowMarkerNodes(flowAnimationPhaseRef.current) : false;
       if (flowDashLineRef.current || flowGradientLineRef.current || markerChanged) {
         const layer = flowDashLineRef.current?.getLayer()
           ?? flowGradientLineRef.current?.getLayer()
@@ -1559,7 +1560,7 @@ function ObjectNode({
       }
       flowAnimationLastFrameRef.current = null;
     };
-  }, [applyFlowDashOffset, flowAnimationConfigActive, updateFlowMarkerNodes]);
+  }, [applyFlowDashOffset, flowAnimationConfigActive, flowUsesMarkerNodes, updateFlowMarkerNodes]);
 
   const effectiveRotation = baseRotation;
   const useAnimatedCenterPivot = rotationAnimationConfigActive && rotationPivot === "center";
