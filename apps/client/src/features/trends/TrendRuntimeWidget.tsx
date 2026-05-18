@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Spin } from "antd";
+import { ColorPicker, Space, Spin } from "antd";
 import type { TagValue, TrendChartObject } from "@web-scada/shared";
 import { createRuntimeSocket } from "../../services/ws";
 import type { TrendTagInfo } from "../../services/api";
@@ -18,6 +18,35 @@ const TREND_RUNTIME_VIEW_STATE_STORAGE_PREFIX = "mywebscada.trends.runtimeViewSt
 const TREND_ZOOM_MIN_SPAN_MS = 15_000;
 const TREND_ZOOM_MAX_SPAN_MS = 24 * 60 * 60 * 1000;
 
+type TrendSeriesColumnId = "visible" | "tag" | "color" | "value";
+
+type TrendSeriesColumnState = {
+  id: TrendSeriesColumnId;
+  label: string;
+  visible: boolean;
+};
+
+const DEFAULT_SERIES_COLUMNS: TrendSeriesColumnState[] = [
+  { id: "visible", label: "Visible", visible: true },
+  { id: "tag", label: "Tag", visible: true },
+  { id: "color", label: "Color", visible: true },
+  { id: "value", label: "Value", visible: true },
+];
+
+const DEFAULT_SERIES_COLUMN_WIDTHS: Record<TrendSeriesColumnId, number> = {
+  visible: 72,
+  tag: 340,
+  color: 270,
+  value: 120,
+};
+
+const MIN_SERIES_COLUMN_WIDTHS: Record<TrendSeriesColumnId, number> = {
+  visible: 56,
+  tag: 180,
+  color: 200,
+  value: 90,
+};
+
 function toLocalDateTimeInputValue(timestamp: number): string {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -32,6 +61,31 @@ function toLocalDateTimeInputValue(timestamp: number): string {
 function fromLocalDateTimeInputValue(value: string): number {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function normalizeHexColor(value: string | undefined, fallback: string): string {
+  const trimmed = (value ?? "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    const body = trimmed.slice(1);
+    return `#${body[0]}${body[0]}${body[1]}${body[1]}${body[2]}${body[2]}`;
+  }
+  return fallback;
+}
+
+function formatTrendValue(value: number | boolean | string | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(Math.round(value * 1000) / 1000) : "-";
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  return String(value);
 }
 
 function resolveRangeFromObject(object: TrendChartObject): { preset: TrendRangePreset; range: TrendVisibleRange } {
@@ -195,6 +249,10 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [liveAutoStopReason, setLiveAutoStopReason] = useState<string | null>(null);
   const [screenRevision, setScreenRevision] = useState(0);
   const [pendingToolbarRange, setPendingToolbarRange] = useState<TrendVisibleRange | null>(null);
+  const [seriesLatestValues, setSeriesLatestValues] = useState<Record<string, string>>({});
+  const [hoverSeriesValues, setHoverSeriesValues] = useState<Record<string, string> | null>(null);
+  const [hoverTimestamp, setHoverTimestamp] = useState<number | null>(null);
+  const [seriesColumnWidths, setSeriesColumnWidths] = useState<Record<TrendSeriesColumnId, number>>(DEFAULT_SERIES_COLUMN_WIDTHS);
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -203,6 +261,11 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const liveBufferRef = useRef<Array<{ tag: string; value: number | boolean | string | null; quality?: string; timestamp: number }>>([]);
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
   const historyLoadTimerRef = useRef<number | null>(null);
+  const columnResizeStateRef = useRef<{ id: TrendSeriesColumnId | null; startX: number; startWidth: number }>({
+    id: null,
+    startX: 0,
+    startWidth: 0,
+  });
 
   const tagInfoMap = useMemo(() => new Map(allTags.map((tag) => [tag.name, tag])), [allTags]);
 
@@ -232,6 +295,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setVisibleRange(nextViewState.visibleRange);
     setCustomFrom(nextViewState.customFrom);
     setCustomTo(nextViewState.customTo);
+    setSeriesLatestValues({});
+    setHoverSeriesValues(null);
+    setHoverTimestamp(null);
     setScreenRevision((prev) => prev + 1);
   }, [object.id]);
 
@@ -311,6 +377,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       setResponse(next);
       setStatusAggregation(next.aggregation);
       setLastLoadAt(Date.now());
+      const nextLatest: Record<string, string> = {};
+      for (const series of next.series) {
+        const lastPoint = series.points[series.points.length - 1];
+        nextLatest[series.tag] = formatTrendValue(lastPoint?.v);
+      }
+      setSeriesLatestValues(nextLatest);
     } catch (queryError) {
       if (controller.signal.aborted) {
         return;
@@ -424,6 +496,13 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       if (batchMaxTs !== null) {
         setLiveLastPointTs(batchMaxTs);
       }
+      setSeriesLatestValues((prev) => {
+        const next = { ...prev };
+        for (const item of batch) {
+          next[item.tag] = formatTrendValue(item.value);
+        }
+        return next;
+      });
       chartApiRef.current?.appendLivePoints(batch);
     }, LIVE_FLUSH_MS);
 
@@ -551,6 +630,72 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     void executeQuery(visibleRange, { force: true });
   };
 
+  const setSeriesPatch = (tagName: string, patch: Partial<TrendTagSelection>) => {
+    setSelectedTags((prev) => prev.map((tag) => (tag.tag === tagName ? { ...tag, ...patch } : tag)));
+  };
+
+  const visibleSeriesColumns = DEFAULT_SERIES_COLUMNS;
+  const visibleSeriesColumnTemplate = useMemo(
+    () => visibleSeriesColumns.map((column) => `${Math.round(seriesColumnWidths[column.id])}px`).join(" "),
+    [seriesColumnWidths],
+  );
+  const loadedPointCountByTag = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const series of response?.series ?? []) {
+      map.set(series.tag, series.points.length);
+    }
+    return map;
+  }, [response]);
+  const loadedSeriesCount = useMemo(
+    () => selectedTags.filter((tag) => (loadedPointCountByTag.get(tag.tag) ?? 0) > 0).length,
+    [loadedPointCountByTag, selectedTags],
+  );
+
+  useEffect(() => {
+    const handleMove = (event: MouseEvent) => {
+      const state = columnResizeStateRef.current;
+      if (!state.id) {
+        return;
+      }
+      const delta = event.clientX - state.startX;
+      const minWidth = MIN_SERIES_COLUMN_WIDTHS[state.id];
+      const next = Math.max(minWidth, Math.round(state.startWidth + delta));
+      setSeriesColumnWidths((prev) => ({ ...prev, [state.id as TrendSeriesColumnId]: next }));
+    };
+    const handleUp = () => {
+      if (!columnResizeStateRef.current.id) {
+        return;
+      }
+      columnResizeStateRef.current = { id: null, startX: 0, startWidth: 0 };
+      if (typeof document !== "undefined") {
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      }
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("blur", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("blur", handleUp);
+    };
+  }, []);
+
+  const startColumnResize = (event: ReactMouseEvent<HTMLDivElement>, columnId: TrendSeriesColumnId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    columnResizeStateRef.current = {
+      id: columnId,
+      startX: event.clientX,
+      startWidth: seriesColumnWidths[columnId],
+    };
+    if (typeof document !== "undefined") {
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    }
+  };
+
   const aggregationLabel = settings.aggregation === "auto" ? `auto -> ${statusAggregation}` : statusAggregation;
   const openContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -613,17 +758,90 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             axes={axes}
             axisIdByTag={resolvedAxisIdByTag}
             settings={settings}
+            showLegend={false}
+            showTooltip={false}
             showDataZoomSlider={false}
             interactiveZoomEnabled={false}
             visibleRange={visibleRange}
             liveMode={liveMode}
             liveWindowMs={liveWindowMs}
             onVisibleRangeChange={handleChartRangeChange}
+            onHoverSnapshotChange={(snapshot) => {
+              if (!snapshot) {
+                setHoverSeriesValues(null);
+                setHoverTimestamp(null);
+                return;
+              }
+              const next: Record<string, string> = {};
+              for (const [tagName, value] of Object.entries(snapshot.values)) {
+                next[tagName] = formatTrendValue(value);
+              }
+              setHoverSeriesValues(next);
+              setHoverTimestamp(snapshot.timestamp);
+            }}
             onChartApiReady={(api) => {
               chartApiRef.current = api;
             }}
           />
         )}
+      </div>
+
+      <div className="trends-series-table-wrap">
+        <div className="trends-series-table">
+          <div className="screen-editor-tags-row screen-editor-tags-row--header trends-series-table__row trends-series-table__row--head" style={{ gridTemplateColumns: visibleSeriesColumnTemplate }}>
+            {visibleSeriesColumns.map((column, index) => (
+              <div key={column.id} className={`screen-editor-tags-cell screen-editor-tags-header-cell trends-series-table__cell trends-series-table__cell--${column.id} trends-series-table__cell--header`}>
+                <span>{column.label}</span>
+                {index < visibleSeriesColumns.length - 1 ? (
+                  <div className="screen-editor-tags-column-resize-handle trends-series-table__resize-handle" onMouseDown={(event) => startColumnResize(event, column.id)} />
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {selectedTags.map((tag) => (
+            <div key={tag.tag} className="screen-editor-tags-row trends-series-table__row" style={{ gridTemplateColumns: visibleSeriesColumnTemplate }}>
+              {visibleSeriesColumns.map((column) => {
+                if (column.id === "visible") {
+                  return (
+                    <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--visible">
+                      <input
+                        type="checkbox"
+                        checked={tag.visible !== false}
+                        onChange={(event) => setSeriesPatch(tag.tag, { visible: event.target.checked })}
+                      />
+                    </div>
+                  );
+                }
+                if (column.id === "tag") {
+                  return (
+                    <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--tag" title={tag.displayName || tag.tag}>
+                      {tag.displayName || tag.tag}
+                    </div>
+                  );
+                }
+                if (column.id === "color") {
+                  const colorValue = normalizeHexColor(tag.color, "#4FC3F7");
+                  return (
+                    <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--color">
+                      <Space.Compact className="trends-series-table__color-row">
+                        <ColorPicker
+                          size="small"
+                          value={colorValue}
+                          onChangeComplete={(color) => setSeriesPatch(tag.tag, { color: color.toHexString() })}
+                        />
+                      </Space.Compact>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--value">
+                    {hoverSeriesValues?.[tag.tag] ?? seriesLatestValues[tag.tag] ?? ((loadedPointCountByTag.get(tag.tag) ?? 0) === 0 ? "No data" : "-")}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
       {contextMenu ? (
         <div className="trends-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
@@ -664,6 +882,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         <div className="trends-status-bar">
           <span>Range: {formatRangeLabel(visibleRange.from, visibleRange.to)}</span>
           <span>Series: {selectedTags.length}</span>
+          <span>Loaded: {loadedSeriesCount}/{selectedTags.length}</span>
           <span>Points: {pointCount.toLocaleString()}</span>
           <span>Aggregation: {aggregationLabel}</span>
           <span>Last load: {lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : "-"}</span>

@@ -15,12 +15,15 @@ type TrendChartProps = {
   axes: TrendAxisConfig[];
   axisIdByTag: Map<string, string>;
   settings: TrendSettings;
+  showLegend?: boolean;
+  showTooltip?: boolean;
   showDataZoomSlider?: boolean;
   interactiveZoomEnabled?: boolean;
   visibleRange: TrendVisibleRange;
   liveMode: boolean;
   liveWindowMs: number;
   onVisibleRangeChange: (range: TrendVisibleRange, source: "interaction" | "live") => void;
+  onHoverSnapshotChange?: (snapshot: { timestamp: number; values: Record<string, number | boolean | string | null> } | null) => void;
   onChartApiReady?: (api: TrendChartApi) => void;
 };
 
@@ -30,12 +33,15 @@ export function TrendChart({
   axes,
   axisIdByTag,
   settings,
+  showLegend = true,
+  showTooltip = true,
   showDataZoomSlider = true,
   interactiveZoomEnabled = true,
   visibleRange,
   liveMode,
   liveWindowMs,
   onVisibleRangeChange,
+  onHoverSnapshotChange,
   onChartApiReady,
 }: TrendChartProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -50,6 +56,7 @@ export function TrendChart({
   const liveModeRef = useRef(liveMode);
   const liveWindowMsRef = useRef(liveWindowMs);
   const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
+  const onHoverSnapshotChangeRef = useRef(onHoverSnapshotChange);
   const zoomDebounceMsRef = useRef(settings.zoomDebounceMs);
   const tagsRef = useRef(tags);
   const liveBufferLimitRef = useRef(settings.liveBufferLimit);
@@ -127,6 +134,10 @@ export function TrendChart({
   useEffect(() => {
     onVisibleRangeChangeRef.current = onVisibleRangeChange;
   }, [onVisibleRangeChange]);
+
+  useEffect(() => {
+    onHoverSnapshotChangeRef.current = onHoverSnapshotChange;
+  }, [onHoverSnapshotChange]);
 
   useEffect(() => {
     zoomDebounceMsRef.current = settings.zoomDebounceMs;
@@ -225,14 +236,21 @@ export function TrendChart({
         containLabel: true,
       },
       legend: {
-        show: settings.legend,
+        show: showLegend && settings.legend,
         type: "scroll",
         top: 4,
         textStyle: { color: TREND_WORKBENCH_THEME.text },
       },
-      tooltip: settings.tooltip
+      axisPointer: {
+        show: true,
+        triggerTooltip: showTooltip && settings.tooltip,
+        type: "line",
+        lineStyle: { color: "#8a8a8a", width: 1, type: "dashed" },
+      },
+      tooltip: showTooltip && settings.tooltip
         ? {
             trigger: "axis",
+            triggerOn: "mousemove|click",
             axisPointer: {
               type: "line",
               label: { show: false },
@@ -248,6 +266,7 @@ export function TrendChart({
         min: fullRangeRef.current.from,
         max: fullRangeRef.current.to,
         axisLine: { lineStyle: { color: TREND_WORKBENCH_THEME.border } },
+        axisPointer: { show: true, label: { show: false } },
         axisLabel: { show: settings.axisLabels, color: TREND_WORKBENCH_THEME.mutedText },
         splitLine: { show: settings.gridLines, lineStyle: { color: TREND_WORKBENCH_THEME.gridLine } },
       },
@@ -297,7 +316,7 @@ export function TrendChart({
     };
 
     optionGuardRef.current = true;
-    chart.setOption(option, { notMerge: false, lazyUpdate: true });
+    chart.setOption(option, { notMerge: true, lazyUpdate: true });
     window.setTimeout(() => {
       optionGuardRef.current = false;
     }, 0);
@@ -368,9 +387,71 @@ export function TrendChart({
       }, zoomDebounceMsRef.current);
     };
 
+    const resolveSeriesValueAtTimestamp = (points: TrendPoint[], timestamp: number): number | null => {
+      if (points.length === 0) {
+        return null;
+      }
+      let low = 0;
+      let high = points.length - 1;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const midPoint = points[mid];
+        if (!midPoint) {
+          break;
+        }
+        if (midPoint.t === timestamp) {
+          return midPoint.v;
+        }
+        if (midPoint.t < timestamp) {
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+      const prevIndex = Math.max(0, Math.min(points.length - 1, high));
+      const nextIndex = Math.max(0, Math.min(points.length - 1, low));
+      const prevPoint = points[prevIndex];
+      const nextPoint = points[nextIndex];
+      if (!prevPoint) {
+        return nextPoint?.v ?? null;
+      }
+      if (!nextPoint) {
+        return prevPoint.v;
+      }
+      if (prevIndex === nextIndex) {
+        return prevPoint.v;
+      }
+      return Math.abs(nextPoint.t - timestamp) < Math.abs(timestamp - prevPoint.t) ? nextPoint.v : prevPoint.v;
+    };
+
+    const handleAxisPointer = (payload: unknown) => {
+      const source = payload && typeof payload === "object"
+        ? (Array.isArray((payload as { axesInfo?: unknown[] }).axesInfo)
+          ? (payload as { axesInfo?: Array<{ value?: unknown }> }).axesInfo?.[0]
+          : null)
+        : null;
+      const timestamp = Number(source?.value);
+      if (!Number.isFinite(timestamp)) {
+        onHoverSnapshotChangeRef.current?.(null);
+        return;
+      }
+      const values: Record<string, number | boolean | string | null> = {};
+      for (const tag of tagsRef.current) {
+        const points = seriesPointsRef.current.get(tag.tag) ?? [];
+        values[tag.tag] = resolveSeriesValueAtTimestamp(points, timestamp);
+      }
+      onHoverSnapshotChangeRef.current?.({ timestamp, values });
+    };
+
+    const handleMouseOut = () => {
+      onHoverSnapshotChangeRef.current?.(null);
+    };
+
     if (interactiveZoomEnabled) {
       chart.on("dataZoom", handleDataZoom);
     }
+    chart.on("updateAxisPointer", handleAxisPointer);
+    chart.on("mouseout", handleMouseOut);
 
     const resizeObserver = new ResizeObserver(() => {
       chart.resize();
@@ -472,6 +553,8 @@ export function TrendChart({
       if (interactiveZoomEnabled) {
         chart.off("dataZoom", handleDataZoom);
       }
+      chart.off("updateAxisPointer", handleAxisPointer);
+      chart.off("mouseout", handleMouseOut);
       resizeObserver.disconnect();
       if (zoomTimerRef.current) {
         window.clearTimeout(zoomTimerRef.current);
