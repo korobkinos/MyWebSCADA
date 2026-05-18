@@ -216,7 +216,7 @@ export function TrendSettingsPanel({
               </label>
               <label className="workbench-field">
                 <span className="workbench-field__label">Axis offset step</span>
-                <input className="workbench-input" type="number" min={24} max={120} value={draftSettings.axisOffsetStep} onChange={(event) => onNumericInput(event, (value) => patchSettings({ axisOffsetStep: value }))} />
+                <input className="workbench-input" type="number" min={8} max={220} value={draftSettings.axisOffsetStep} onChange={(event) => onNumericInput(event, (value) => patchSettings({ axisOffsetStep: value }))} />
               </label>
             </div>
             <div className="trends-axis-table">

@@ -4035,6 +4035,17 @@ function SpecificPropertyFields({
 
         <Divider style={{ margin: "10px 0" }} />
         <Typography.Text strong>Appearance</Typography.Text>
+        <Form.Item label="Theme">
+          <Select
+            value={settings.theme}
+            options={[
+              { value: "workbench-dark", label: "Workbench dark" },
+              { value: "echarts-dark", label: "ECharts dark" },
+              { value: "custom", label: "Custom" },
+            ]}
+            onChange={(value) => onPatch({ settings: { ...settings, theme: value } } as Partial<HmiObject>)}
+          />
+        </Form.Item>
         <ColorField label="Background" value={settings.background} fallback="#1e1e1e" onChange={(next) => onPatch({ settings: { ...settings, background: next } } as Partial<HmiObject>)} />
         <Space style={{ marginBottom: 8 }}>
           <span>Legend</span>
@@ -4055,6 +4066,33 @@ function SpecificPropertyFields({
         <Space style={{ marginBottom: 8 }}>
           <span>DataZoom Slider</span>
           <Switch checked={settings.dataZoomSlider} onChange={(checked) => onPatch({ settings: { ...settings, dataZoomSlider: checked } } as Partial<HmiObject>)} />
+        </Space>
+
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Axes & Layout</Typography.Text>
+        <Form.Item label="Axis Placement">
+          <Select
+            value={settings.axisPlacement}
+            options={[
+              { value: "split", label: "Split left/right" },
+              { value: "left", label: "Left only" },
+              { value: "right", label: "Right only" },
+            ]}
+            onChange={(value) => onPatch({ settings: { ...settings, axisPlacement: value } } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Axis Offset Step">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={8}
+            max={220}
+            value={settings.axisOffsetStep}
+            onChange={(value) => onPatch({ settings: { ...settings, axisOffsetStep: Math.max(8, Math.min(220, Number(value ?? 46))) } } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Space style={{ marginBottom: 8 }}>
+          <span>Auto Scale</span>
+          <Switch checked={settings.autoScale} onChange={(checked) => onPatch({ settings: { ...settings, autoScale: checked } } as Partial<HmiObject>)} />
         </Space>
       </>
     );

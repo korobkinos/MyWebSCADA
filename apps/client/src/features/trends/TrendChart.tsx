@@ -187,16 +187,41 @@ export function TrendChart({
       : uiTheme.background;
 
     const activeTags = tags.filter((tag) => tag.visible !== false);
-    const safeAxes: TrendAxisConfig[] = axes.length > 0
-      ? axes
-      : [{
-          id: "axis:default",
-          name: "default",
-          position: "left",
-          offset: 0,
-          min: "auto",
-          max: "auto",
-        }];
+    const fallbackAxis: TrendAxisConfig = {
+      id: "axis:default",
+      name: "default",
+      position: "left",
+      offset: 0,
+      min: "auto",
+      max: "auto",
+    };
+    const baseAxes: TrendAxisConfig[] = axes.length > 0 ? axes : [fallbackAxis];
+    const knownAxisIds = new Set(baseAxes.map((axis) => axis.id));
+    const usedAxisIds = new Set<string>();
+    for (const tag of activeTags) {
+      const axisId = axisIdByTag.get(tag.tag);
+      if (axisId && knownAxisIds.has(axisId)) {
+        usedAxisIds.add(axisId);
+      } else if (baseAxes[0]?.id) {
+        usedAxisIds.add(baseAxes[0].id);
+      }
+    }
+    const axisOffsetStepPx = Math.max(14, Math.round(settings.axisOffsetStep * 0.6));
+    const positionOffsetIndex: Record<"left" | "right", number> = { left: 0, right: 0 };
+    let safeAxes: TrendAxisConfig[] = baseAxes.filter((axis) => usedAxisIds.has(axis.id));
+    if (safeAxes.length === 0 && activeTags.length > 0) {
+      safeAxes = [baseAxes[0] ?? fallbackAxis];
+    }
+    safeAxes = safeAxes.map((axis) => {
+      const axisPosition = axis.position === "right" ? "right" : "left";
+      const positionIndex = positionOffsetIndex[axisPosition];
+      positionOffsetIndex[axisPosition] += 1;
+      return {
+        ...axis,
+        position: axisPosition,
+        offset: positionIndex * axisOffsetStepPx,
+      };
+    });
     const axisIndexById = new Map<string, number>(safeAxes.map((axis, index) => [axis.id, index]));
     const axisRangeById = new Map<string, { min: number; max: number }>();
     for (const tag of activeTags) {
@@ -223,11 +248,13 @@ export function TrendChart({
       }
     }
 
-    const yAxis = safeAxes.map((axis) => ({
+    const yAxis = safeAxes.map((axis) => {
+      const axisName = axis.name || axis.unit || axis.id;
+      return ({
       type: "value" as const,
-      name: axis.name || axis.unit || axis.id,
+      name: `{axisName|${axisName}}`,
       position: axis.position,
-      offset: Math.round((axis.offset ?? 0) * 0.45),
+      offset: axis.offset ?? 0,
       scale: settings.autoScale,
       min: (() => {
         if (axis.min !== "auto") {
@@ -263,14 +290,28 @@ export function TrendChart({
         }
         return null;
       })(),
-      nameLocation: "end" as const,
+      nameLocation: "middle" as const,
       nameRotate: axis.position === "left" ? 90 : -90,
-      nameGap: 8,
-      nameTextStyle: { color: axis.color ?? uiTheme.text, align: axis.position === "left" ? "left" : "right" },
+      nameGap: 30,
+      nameTextStyle: {
+        rich: {
+          axisName: {
+            color: axis.color ?? uiTheme.text,
+            align: "center",
+            verticalAlign: "middle",
+            backgroundColor: uiTheme.toolbarBg,
+            borderColor: uiTheme.border,
+            borderWidth: 1,
+            padding: [3, 6, 3, 6],
+            borderRadius: 3,
+          },
+        },
+      },
       axisLine: { show: true, lineStyle: { color: axis.color ?? uiTheme.border } },
-      axisLabel: { show: settings.axisLabels, color: uiTheme.mutedText, hideOverlap: false, showMinLabel: true, showMaxLabel: true },
+      axisLabel: { show: settings.axisLabels, color: uiTheme.mutedText, hideOverlap: false, showMinLabel: true, showMaxLabel: true, margin: 6 },
       splitLine: { show: settings.gridLines, lineStyle: { color: uiTheme.gridLine, type: "dashed" } },
-    }));
+    });
+    });
 
     const totalPointCount = activeTags.reduce((acc, tag) => acc + (seriesPointsRef.current.get(tag.tag)?.length ?? 0), 0);
     const isLargeDataset = totalPointCount >= 5000;
@@ -357,8 +398,8 @@ export function TrendChart({
       animation: animationEnabled,
       textStyle: { color: uiTheme.text },
       grid: {
-        left: 14 + Math.max(0, (safeAxes.filter((axis) => axis.position === "left").length - 1) * (Math.round(settings.axisOffsetStep * 0.45) + 2)),
-        right: 40 + Math.max(0, (safeAxes.filter((axis) => axis.position === "right").length - 1) * (settings.axisOffsetStep + 2)),
+        left: 0 + Math.max(0, (safeAxes.filter((axis) => axis.position === "left").length - 1) * (axisOffsetStepPx + 2)),
+        right: 18 + Math.max(0, (safeAxes.filter((axis) => axis.position === "right").length - 1) * (axisOffsetStepPx + 6)),
         top: 34,
         bottom: interactiveZoomEnabled && showDataZoomSlider ? 74 : 20,
         containLabel: true,

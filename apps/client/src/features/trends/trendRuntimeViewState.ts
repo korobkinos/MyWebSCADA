@@ -68,7 +68,7 @@ function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
     liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
-    axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 24, 120),
+    axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
   };
 }
 
@@ -186,3 +186,4 @@ export function writeRuntimeViewState({ objectId, state }: RuntimeViewStateWrite
   };
   window.localStorage.setItem(getRuntimeViewStateStorageKey(objectId), JSON.stringify(payload));
 }
+

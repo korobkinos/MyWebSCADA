@@ -68,7 +68,7 @@ export function loadTrendSettings(): TrendSettings {
       liveBufferLimit: clamp(Number(parsed.liveBufferLimit ?? fallback.liveBufferLimit), 200, 20000),
       zoomDebounceMs: clamp(Number(parsed.zoomDebounceMs ?? fallback.zoomDebounceMs), 100, 1200),
       defaultLineWidth: clamp(Number(parsed.defaultLineWidth ?? fallback.defaultLineWidth), 1, 5),
-      axisOffsetStep: clamp(Number(parsed.axisOffsetStep ?? fallback.axisOffsetStep), 24, 120),
+      axisOffsetStep: clamp(Number(parsed.axisOffsetStep ?? fallback.axisOffsetStep), 8, 220),
     };
   } catch {
     return fallback;
@@ -206,3 +206,4 @@ export function buildAxes(
 export function formatRangeLabel(from: number, to: number): string {
   return `${new Date(from).toLocaleString()} - ${new Date(to).toLocaleString()}`;
 }
+

@@ -186,7 +186,7 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
     liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
-    axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 24, 120),
+    axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
   };
 }
 
@@ -1283,7 +1283,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             zoomDebounceMs: clamp(next.zoomDebounceMs, 100, 1200),
             cacheSize: clamp(next.cacheSize, 8, 256),
             liveBufferLimit: clamp(next.liveBufferLimit, 200, 20000),
-            axisOffsetStep: clamp(next.axisOffsetStep, 24, 120),
+            axisOffsetStep: clamp(next.axisOffsetStep, 8, 220),
           });
         }}
         onAxesChange={setManualAxes}
@@ -1292,3 +1292,4 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     </div>
   );
 }
+

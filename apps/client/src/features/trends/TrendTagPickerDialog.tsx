@@ -16,11 +16,20 @@ type TrendTagPickerDialogProps = {
   onFiltersChange?: (next: TrendTagPickerFilters) => void;
 };
 
-const TABLE_COLUMNS = "34px minmax(220px, 1fr) 90px 90px 120px";
 const TREND_TAG_PICKER_DETAILS_WIDTH_STORAGE_KEY = "mywebscada.trends.tagPicker.detailsWidth";
+const TREND_TAG_PICKER_COLUMNS_WIDTH_STORAGE_KEY = "mywebscada.trends.tagPicker.columnsWidth";
 const DEFAULT_DETAILS_WIDTH = 360;
 const MIN_DETAILS_WIDTH = 300;
 const MAX_DETAILS_WIDTH = 760;
+const TAG_PICKER_COLUMNS = [
+  { id: "sel", label: "", width: 34, min: 30 },
+  { id: "tag", label: "TAG", width: 320, min: 180 },
+  { id: "unit", label: "UNIT", width: 90, min: 70 },
+  { id: "type", label: "TYPE", width: 90, min: 70 },
+  { id: "group", label: "GROUP", width: 120, min: 90 },
+] as const;
+type TagPickerColumnId = (typeof TAG_PICKER_COLUMNS)[number]["id"];
+type TagPickerColumnWidths = Record<TagPickerColumnId, number>;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -36,6 +45,22 @@ function normalizePickerColor(value: string | undefined, fallback: string): stri
     return `#${body[0]}${body[0]}${body[1]}${body[1]}${body[2]}${body[2]}`;
   }
   return fallback;
+}
+
+function defaultTagPickerColumnWidths(): TagPickerColumnWidths {
+  return TAG_PICKER_COLUMNS.reduce<TagPickerColumnWidths>((acc, column) => {
+    acc[column.id] = column.width;
+    return acc;
+  }, {} as TagPickerColumnWidths);
+}
+
+function nextManualAxisId(existingAxes: TrendAxisConfig[]): string {
+  const used = new Set(existingAxes.map((axis) => axis.id));
+  let index = existingAxes.length + 1;
+  while (used.has(`axis:manual:${index}`)) {
+    index += 1;
+  }
+  return `axis:manual:${index}`;
 }
 
 export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFilters, onClose, onApply, onFiltersChange }: TrendTagPickerDialogProps) {
@@ -61,9 +86,37 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
     }
   });
   const [isDetailsResizeActive, setIsDetailsResizeActive] = useState(false);
+  const [columnWidths, setColumnWidths] = useState<TagPickerColumnWidths>(() => {
+    const fallback = defaultTagPickerColumnWidths();
+    if (typeof window === "undefined") {
+      return fallback;
+    }
+    try {
+      const raw = window.localStorage.getItem(TREND_TAG_PICKER_COLUMNS_WIDTH_STORAGE_KEY);
+      if (!raw) {
+        return fallback;
+      }
+      const parsed = JSON.parse(raw) as Partial<Record<TagPickerColumnId, unknown>>;
+      const next = { ...fallback };
+      for (const column of TAG_PICKER_COLUMNS) {
+        const value = Number(parsed[column.id]);
+        if (Number.isFinite(value)) {
+          next[column.id] = Math.max(column.min, Math.round(value));
+        }
+      }
+      return next;
+    } catch {
+      return fallback;
+    }
+  });
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(0);
+  const columnResizeStateRef = useRef<{ id: TagPickerColumnId | null; startX: number; startWidth: number }>({
+    id: null,
+    startX: 0,
+    startWidth: 0,
+  });
 
   useEffect(() => {
     if (!open) {
@@ -117,6 +170,20 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
   const selectedTagInfo = tagsByName.get(selectedTagName);
   const current = selectedTagInfo ? draftTagMap.get(selectedTagInfo.name) : undefined;
   const currentInfo = selectedTagInfo;
+  const tableColumnsTemplate = useMemo(
+    () => TAG_PICKER_COLUMNS.map((column) => `${Math.round(columnWidths[column.id])}px`).join(" "),
+    [columnWidths],
+  );
+  const axisUsageCount = useMemo(() => {
+    const usage = new Map<string, number>();
+    for (const tag of draftTags) {
+      if (tag.axisMode !== "manual" || !tag.axisId) {
+        continue;
+      }
+      usage.set(tag.axisId, (usage.get(tag.axisId) ?? 0) + 1);
+    }
+    return usage;
+  }, [draftTags]);
 
   useEffect(() => {
     if (!open || filtered.length === 0) {
@@ -154,17 +221,17 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
   };
 
   const updateCurrent = (patch: Partial<TrendTagSelection>) => {
-    if (!current) {
+    if (!selectedTagName || !draftTagMap.has(selectedTagName)) {
       return;
     }
-    setDraftTags((prev) => prev.map((item) => (item.tag === current.tag ? { ...item, ...patch } : item)));
+    setDraftTags((prev) => prev.map((item) => (item.tag === selectedTagName ? { ...item, ...patch } : item)));
   };
 
   const createNewAxisForCurrent = () => {
-    if (!current) {
+    if (!selectedTagName || !current) {
       return;
     }
-    const id = `axis:manual:${draftAxes.length + 1}`;
+    const id = nextManualAxisId(draftAxes);
     const newAxis: TrendAxisConfig = {
       id,
       name: current.unit || current.displayName || current.tag,
@@ -173,8 +240,21 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
       min: "auto",
       max: "auto",
     };
-    setDraftAxes([...draftAxes, newAxis]);
-    updateCurrent({ axisMode: "manual", axisId: id });
+    setDraftAxes((prev) => [...prev, newAxis]);
+    setDraftTags((prev) => prev.map((item) => (item.tag === selectedTagName ? { ...item, axisMode: "manual", axisId: id } : item)));
+  };
+
+  const updateAxis = (axisId: string, patch: Partial<TrendAxisConfig>) => {
+    setDraftAxes((prev) => prev.map((axis) => (axis.id === axisId ? { ...axis, ...patch } : axis)));
+  };
+
+  const removeAxis = (axisId: string) => {
+    setDraftAxes((prev) => prev.filter((axis) => axis.id !== axisId));
+    setDraftTags((prev) => prev.map((tag) => (
+      tag.axisMode === "manual" && tag.axisId === axisId
+        ? { ...tag, axisMode: "auto", axisId: undefined }
+        : tag
+    )));
   };
 
   const selectFiltered = () => {
@@ -224,6 +304,16 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
     setIsDetailsResizeActive(true);
   };
 
+  const startColumnResize = (event: ReactMouseEvent<HTMLDivElement>, columnId: TagPickerColumnId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    columnResizeStateRef.current = {
+      id: columnId,
+      startX: event.clientX,
+      startWidth: columnWidths[columnId],
+    };
+  };
+
   useEffect(() => {
     if (!isDetailsResizeActive) {
       return;
@@ -247,6 +337,34 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
   }, [isDetailsResizeActive]);
 
   useEffect(() => {
+    const handleMove = (event: MouseEvent) => {
+      const state = columnResizeStateRef.current;
+      if (!state.id) {
+        return;
+      }
+      const config = TAG_PICKER_COLUMNS.find((column) => column.id === state.id);
+      if (!config) {
+        return;
+      }
+      const delta = event.clientX - state.startX;
+      const nextWidth = Math.max(config.min, Math.round(state.startWidth + delta));
+      setColumnWidths((prev) => ({ ...prev, [state.id as TagPickerColumnId]: nextWidth }));
+    };
+    const handleUp = () => {
+      if (!columnResizeStateRef.current.id) {
+        return;
+      }
+      columnResizeStateRef.current = { id: null, startX: 0, startWidth: 0 };
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
@@ -256,6 +374,17 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
       // ignore storage failures for dialog-only preference
     }
   }, [detailsWidth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(TREND_TAG_PICKER_COLUMNS_WIDTH_STORAGE_KEY, JSON.stringify(columnWidths));
+    } catch {
+      // ignore storage failures for dialog-only preference
+    }
+  }, [columnWidths]);
 
   if (!open) {
     return null;
@@ -304,12 +433,15 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
           >
             <div className="screen-editor-tags-window__list">
               <div className="screen-editor-tags-table">
-                <div className="screen-editor-tags-row screen-editor-tags-row--header" style={{ gridTemplateColumns: TABLE_COLUMNS }}>
-                  <div className="screen-editor-tags-cell screen-editor-tags-header-cell" />
-                  <div className="screen-editor-tags-cell screen-editor-tags-header-cell">TAG</div>
-                  <div className="screen-editor-tags-cell screen-editor-tags-header-cell">UNIT</div>
-                  <div className="screen-editor-tags-cell screen-editor-tags-header-cell">TYPE</div>
-                  <div className="screen-editor-tags-cell screen-editor-tags-header-cell">GROUP</div>
+                <div className="screen-editor-tags-row screen-editor-tags-row--header" style={{ gridTemplateColumns: tableColumnsTemplate }}>
+                  {TAG_PICKER_COLUMNS.map((column, index) => (
+                    <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell">
+                      {column.label}
+                      {index < TAG_PICKER_COLUMNS.length - 1 ? (
+                        <div className="screen-editor-tags-column-resize-handle" onMouseDown={(event) => startColumnResize(event, column.id)} />
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
                 {filtered.map((tag) => {
                   const active = draftTagMap.has(tag.name);
@@ -319,7 +451,7 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                     <div
                       key={tag.name}
                       className={["screen-editor-tags-row", rowSelected ? "screen-editor-tags-row--selected" : ""].filter(Boolean).join(" ")}
-                      style={{ gridTemplateColumns: TABLE_COLUMNS }}
+                      style={{ gridTemplateColumns: tableColumnsTemplate }}
                       onClick={() => setSelectedTagName(tag.name)}
                     >
                       <div className="screen-editor-tags-cell" onClick={(event) => event.stopPropagation()}>
@@ -405,7 +537,7 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                           <span className="workbench-field__label">Axis</span>
                           <select
                             className="workbench-select"
-                            value={current.axisMode === "manual" ? (current.axisId || "") : "auto"}
+                            value={current.axisMode === "manual" && current.axisId && draftAxes.some((axis) => axis.id === current.axisId) ? current.axisId : "auto"}
                             onChange={(event) => {
                               const value = event.target.value;
                               if (value === "auto") {
@@ -422,6 +554,33 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                           </select>
                         </label>
                         <WorkbenchButton onClick={createNewAxisForCurrent}>Create New Axis</WorkbenchButton>
+                        <div className="trends-tag-picker-axis-table">
+                          {draftAxes.map((axis) => (
+                            <div key={axis.id} className="trends-tag-picker-axis-row">
+                              <input
+                                className="workbench-input"
+                                value={axis.name ?? ""}
+                                onChange={(event) => updateAxis(axis.id, { name: event.target.value })}
+                                placeholder={axis.id}
+                                title={axis.id}
+                              />
+                              <select
+                                className="workbench-select"
+                                value={axis.position}
+                                onChange={(event) => updateAxis(axis.id, { position: event.target.value as TrendAxisConfig["position"] })}
+                              >
+                                <option value="left">left</option>
+                                <option value="right">right</option>
+                              </select>
+                              <WorkbenchButton onClick={() => removeAxis(axis.id)} variant="danger">
+                                Delete
+                              </WorkbenchButton>
+                              <span className="trends-tag-picker-axis-row__meta" title={axis.id}>
+                                {axisUsageCount.get(axis.id) ?? 0} used
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </>
                     ) : (
                       <WorkbenchButton variant="primary" onClick={() => toggleTag(currentInfo)} style={{ marginTop: 8 }}>Add To Chart</WorkbenchButton>
