@@ -15,6 +15,8 @@ type TrendChartProps = {
   axes: TrendAxisConfig[];
   axisIdByTag: Map<string, string>;
   settings: TrendSettings;
+  showDataZoomSlider?: boolean;
+  interactiveZoomEnabled?: boolean;
   visibleRange: TrendVisibleRange;
   liveMode: boolean;
   liveWindowMs: number;
@@ -28,6 +30,8 @@ export function TrendChart({
   axes,
   axisIdByTag,
   settings,
+  showDataZoomSlider = true,
+  interactiveZoomEnabled = true,
   visibleRange,
   liveMode,
   liveWindowMs,
@@ -143,9 +147,19 @@ export function TrendChart({
     }
 
     const activeTags = tags.filter((tag) => tag.visible !== false);
-    const axisIndexById = new Map<string, number>(axes.map((axis, index) => [axis.id, index]));
+    const safeAxes: TrendAxisConfig[] = axes.length > 0
+      ? axes
+      : [{
+          id: "axis:default",
+          name: "default",
+          position: "left",
+          offset: 0,
+          min: "auto",
+          max: "auto",
+        }];
+    const axisIndexById = new Map<string, number>(safeAxes.map((axis, index) => [axis.id, index]));
 
-    const yAxis = axes.map((axis) => ({
+    const yAxis = safeAxes.map((axis) => ({
       type: "value" as const,
       name: axis.name || axis.unit || axis.id,
       position: axis.position,
@@ -170,7 +184,7 @@ export function TrendChart({
         const value = settings.showBadQualityGaps && invalidQuality ? null : point.v;
         return [point.t, value];
       });
-      const axisId = axisIdByTag.get(tag.tag) ?? axes[0]?.id;
+      const axisId = axisIdByTag.get(tag.tag) ?? safeAxes[0]?.id;
       const yAxisIndex = axisId ? (axisIndexById.get(axisId) ?? 0) : 0;
 
       return {
@@ -204,10 +218,10 @@ export function TrendChart({
       animation: false,
       textStyle: { color: TREND_WORKBENCH_THEME.text },
       grid: {
-        left: 56 + Math.max(0, (axes.filter((axis) => axis.position === "left").length - 1) * (settings.axisOffsetStep + 10)),
-        right: 56 + Math.max(0, (axes.filter((axis) => axis.position === "right").length - 1) * (settings.axisOffsetStep + 10)),
+        left: 56 + Math.max(0, (safeAxes.filter((axis) => axis.position === "left").length - 1) * (settings.axisOffsetStep + 10)),
+        right: 56 + Math.max(0, (safeAxes.filter((axis) => axis.position === "right").length - 1) * (settings.axisOffsetStep + 10)),
         top: 34,
-        bottom: settings.dataZoomSlider ? 74 : 20,
+        bottom: interactiveZoomEnabled && showDataZoomSlider ? 74 : 20,
         containLabel: true,
       },
       legend: {
@@ -238,34 +252,47 @@ export function TrendChart({
         splitLine: { show: settings.gridLines, lineStyle: { color: TREND_WORKBENCH_THEME.gridLine } },
       },
       yAxis,
-      dataZoom: [
-        {
-          type: "inside",
-          xAxisIndex: [0],
-          filterMode: "none",
-          rangeMode: ["value", "value"],
-          brushSelect: false,
-          startValue: visibleRange.from,
-          endValue: visibleRange.to,
-          minValueSpan: 1000,
-        },
-        {
-          type: "slider",
-          show: settings.dataZoomSlider,
-          xAxisIndex: [0],
-          filterMode: "none",
-          rangeMode: ["value", "value"],
-          startValue: visibleRange.from,
-          endValue: visibleRange.to,
-          minValueSpan: 1000,
-          showDataShadow: false,
-          height: 20,
-          bottom: 14,
-          borderColor: TREND_WORKBENCH_THEME.border,
-          fillerColor: "rgba(0, 122, 204, 0.24)",
-          backgroundColor: "rgba(255,255,255,0.03)",
-        },
-      ],
+      dataZoom: interactiveZoomEnabled
+        ? [
+            {
+              type: "inside",
+              xAxisIndex: [0],
+              filterMode: "none",
+              rangeMode: ["value", "value"],
+              brushSelect: false,
+              startValue: visibleRange.from,
+              endValue: visibleRange.to,
+              minValueSpan: 1000,
+            },
+            {
+              type: "slider",
+              show: showDataZoomSlider,
+              xAxisIndex: [0],
+              filterMode: "none",
+              rangeMode: ["value", "value"],
+              startValue: visibleRange.from,
+              endValue: visibleRange.to,
+              minValueSpan: 1000,
+              showDataShadow: false,
+              height: 20,
+              bottom: 14,
+              borderColor: TREND_WORKBENCH_THEME.border,
+              fillerColor: "rgba(0, 122, 204, 0.24)",
+              backgroundColor: "rgba(255,255,255,0.03)",
+            },
+          ]
+        : [
+            {
+              type: "slider",
+              show: false,
+              xAxisIndex: [0],
+              filterMode: "none",
+              rangeMode: ["value", "value"],
+              startValue: visibleRange.from,
+              endValue: visibleRange.to,
+              minValueSpan: 1000,
+            },
+          ],
       series,
     };
 
@@ -341,7 +368,9 @@ export function TrendChart({
       }, zoomDebounceMsRef.current);
     };
 
-    chart.on("dataZoom", handleDataZoom);
+    if (interactiveZoomEnabled) {
+      chart.on("dataZoom", handleDataZoom);
+    }
 
     const resizeObserver = new ResizeObserver(() => {
       chart.resize();
@@ -440,7 +469,9 @@ export function TrendChart({
     renderChartRef.current();
 
     return () => {
-      chart.off("dataZoom", handleDataZoom);
+      if (interactiveZoomEnabled) {
+        chart.off("dataZoom", handleDataZoom);
+      }
       resizeObserver.disconnect();
       if (zoomTimerRef.current) {
         window.clearTimeout(zoomTimerRef.current);
@@ -449,7 +480,7 @@ export function TrendChart({
       chartRef.current = null;
       liveLastEmittedRightRef.current = null;
     };
-  }, []);
+  }, [interactiveZoomEnabled]);
 
   useEffect(() => {
     const nextMap = new Map<string, TrendPoint[]>();

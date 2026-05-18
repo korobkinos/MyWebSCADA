@@ -335,6 +335,7 @@ function TagFieldWithBindingSource({
   bindingLabel = "Binding Source",
   tagLabel = "Tag",
   indexControl,
+  allowClear = false,
   onChange,
 }: {
   project: ScadaProject;
@@ -349,8 +350,10 @@ function TagFieldWithBindingSource({
     onConfigure: () => void;
     onToggleEnabled: (checked: boolean) => void;
   };
+  allowClear?: boolean;
   onChange: (nextValue: string) => void;
 }) {
+  const canClear = (value ?? "").trim().length > 0;
   return (
     <>
       <BindingQuickSelect bindings={bindings} value={value} label={bindingLabel} onChange={onChange} />
@@ -371,6 +374,16 @@ function TagFieldWithBindingSource({
               disabled={indexControl.configureDisabled}
             >
               <span className="workbench-button__label"># Indexes</span>
+            </button>
+          ) : null}
+          {allowClear ? (
+            <button
+              type="button"
+              className="workbench-button"
+              onClick={() => onChange("")}
+              disabled={!canClear}
+            >
+              <span className="workbench-button__label">Clear</span>
             </button>
           ) : null}
         </div>
@@ -1508,9 +1521,10 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
         bindingLabel="Visible Binding"
         tagLabel="Visible Tag"
         indexControl={buildIndexControl("visibleTag", "Visible Tag", object.visibleTag)}
+        allowClear
         onChange={(nextValue) => onPatch({ visibleTag: nextValue } as Partial<HmiObject>)}
       />
-      <Space style={{ marginBottom: 8 }}>
+      <Space className="object-property-panel__runtime-switch-row">
         <span>Invert Visible</span>
         <Switch checked={object.visibleInvert ?? false} onChange={(checked) => onPatch({ visibleInvert: checked } as Partial<HmiObject>)} />
       </Space>
@@ -1521,16 +1535,19 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
         bindingLabel="Disabled Binding"
         tagLabel="Disabled Tag"
         indexControl={buildIndexControl("disabledTag", "Disabled Tag", object.disabledTag)}
+        allowClear
         onChange={(nextValue) => onPatch({ disabledTag: nextValue } as Partial<HmiObject>)}
       />
-      <Space style={{ marginBottom: 8 }}>
+      <Space className="object-property-panel__runtime-switch-row">
         <span>Invert Disabled</span>
         <Switch checked={object.disabledInvert ?? false} onChange={(checked) => onPatch({ disabledInvert: checked } as Partial<HmiObject>)} />
       </Space>
       {hasRuntimeStateBinding ? (
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          Runtime visibility/disabled bindings are active for this object.
-        </Typography.Text>
+        <div className="object-property-panel__runtime-hint">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Runtime visibility/disabled bindings are active for this object.
+          </Typography.Text>
+        </div>
       ) : null}
     </>
   );
@@ -1717,7 +1734,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           onClose={() => setTrendTagPickerOpen(false)}
           onApply={(nextTags, nextAxes) => {
             onPatch({
-              selectedTags: nextTags,
+              selectedTags: nextTags.map((tag) => ({ ...tag, visible: true })),
               axes: nextAxes,
             } as Partial<HmiObject>);
             setTrendTagPickerOpen(false);

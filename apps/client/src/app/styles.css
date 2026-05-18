@@ -5383,6 +5383,15 @@ body {
   height: 2px !important;
 }
 
+.object-property-panel__runtime-switch-row {
+  margin-bottom: 8px;
+}
+
+.object-property-panel__runtime-hint {
+  display: block;
+  margin-top: 6px;
+}
+
 .object-property-panel__state-row {
   width: 100%;
   display: grid;
@@ -6071,8 +6080,8 @@ body {
   height: 100%;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   background: #1e1e1e;
   color: #d4d4d4;
@@ -6112,6 +6121,7 @@ body {
 }
 
 .trends-chart-wrap {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   border: 1px solid #3c3c3c;

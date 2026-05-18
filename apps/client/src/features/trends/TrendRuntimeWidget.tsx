@@ -15,6 +15,8 @@ import { buildAxes, clamp, computeMaxPointsFromWidth, defaultTrendSettings, form
 const LIVE_FLUSH_MS = 300;
 const TOO_MANY_TAGS_LIMIT = 40;
 const TREND_RUNTIME_VIEW_STATE_STORAGE_PREFIX = "mywebscada.trends.runtimeViewState.v1";
+const TREND_ZOOM_MIN_SPAN_MS = 15_000;
+const TREND_ZOOM_MAX_SPAN_MS = 24 * 60 * 60 * 1000;
 
 function toLocalDateTimeInputValue(timestamp: number): string {
   const date = new Date(timestamp);
@@ -192,6 +194,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [liveLastPointTs, setLiveLastPointTs] = useState<number | null>(null);
   const [liveAutoStopReason, setLiveAutoStopReason] = useState<string | null>(null);
   const [screenRevision, setScreenRevision] = useState(0);
+  const [pendingToolbarRange, setPendingToolbarRange] = useState<TrendVisibleRange | null>(null);
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -448,19 +451,75 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const applyPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
     const next = parseQuickRange(preset);
     setRangePreset(preset);
-    setVisibleRange(next);
     setCustomFrom(toLocalDateTimeInputValue(next.from));
     setCustomTo(toLocalDateTimeInputValue(next.to));
-    void executeQuery(next, { force: true });
+    applyRangeAndQuery(next);
   };
 
   const applyCustom = () => {
     const from = fromLocalDateTimeInputValue(customFrom);
     const to = fromLocalDateTimeInputValue(customTo);
     const next = { from, to };
+    applyRangeAndQuery(next);
+  };
+
+  const applyRangeAndQuery = (next: TrendVisibleRange, options?: { keepLive?: boolean }) => {
+    const normalized: TrendVisibleRange = {
+      from: Math.min(next.from, next.to),
+      to: Math.max(next.from, next.to),
+    };
+    if (!options?.keepLive && liveMode) {
+      setLiveMode(false);
+      setLiveAutoStopReason("Stopped by toolbar history navigation");
+      setPendingToolbarRange(normalized);
+      return;
+    }
+    setRangePreset("custom");
+    setVisibleRange(normalized);
+    setCustomFrom(toLocalDateTimeInputValue(normalized.from));
+    setCustomTo(toLocalDateTimeInputValue(normalized.to));
+    void executeQuery(normalized, { force: true });
+  };
+
+  useEffect(() => {
+    if (liveMode || !pendingToolbarRange) {
+      return;
+    }
+    const next = pendingToolbarRange;
+    setPendingToolbarRange(null);
     setRangePreset("custom");
     setVisibleRange(next);
+    setCustomFrom(toLocalDateTimeInputValue(next.from));
+    setCustomTo(toLocalDateTimeInputValue(next.to));
     void executeQuery(next, { force: true });
+  }, [executeQuery, liveMode, pendingToolbarRange]);
+
+  const zoomBy = (factor: number) => {
+    const currentSpan = Math.max(TREND_ZOOM_MIN_SPAN_MS, visibleRange.to - visibleRange.from);
+    const nextSpan = clamp(Math.round(currentSpan * factor), TREND_ZOOM_MIN_SPAN_MS, TREND_ZOOM_MAX_SPAN_MS);
+    const center = (visibleRange.from + visibleRange.to) / 2;
+    applyRangeAndQuery({
+      from: Math.round(center - nextSpan / 2),
+      to: Math.round(center + nextSpan / 2),
+    });
+  };
+
+  const panBy = (direction: -1 | 1) => {
+    const span = Math.max(TREND_ZOOM_MIN_SPAN_MS, visibleRange.to - visibleRange.from);
+    const shift = Math.round(span * 0.25 * direction);
+    applyRangeAndQuery({
+      from: visibleRange.from + shift,
+      to: visibleRange.to + shift,
+    });
+  };
+
+  const backToLive = () => {
+    const span = Math.max(60_000, visibleRange.to - visibleRange.from);
+    const right = Date.now();
+    const next = { from: right - span, to: right };
+    setLiveAutoStopReason(null);
+    setLiveMode(true);
+    applyRangeAndQuery(next, { keepLive: true });
   };
 
   const handleChartRangeChange = (range: TrendVisibleRange, source: "interaction" | "live") => {
@@ -515,6 +574,14 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           <WorkbenchButton variant={liveMode ? "danger" : "default"} onClick={() => setLiveMode((prev) => !prev)} disabled={selectedTags.length === 0}>
             {liveMode ? "Pause" : "Live"}
           </WorkbenchButton>
+          <WorkbenchButton onClick={() => applyPreset("5m")} disabled={selectedTags.length === 0}>5m</WorkbenchButton>
+          <WorkbenchButton onClick={() => applyPreset("15m")} disabled={selectedTags.length === 0}>15m</WorkbenchButton>
+          <WorkbenchButton onClick={() => applyPreset("1h")} disabled={selectedTags.length === 0}>1h</WorkbenchButton>
+          <WorkbenchButton onClick={() => panBy(-1)} disabled={selectedTags.length === 0}>Left</WorkbenchButton>
+          <WorkbenchButton onClick={() => panBy(1)} disabled={selectedTags.length === 0}>Right</WorkbenchButton>
+          <WorkbenchButton onClick={() => zoomBy(0.7)} disabled={selectedTags.length === 0}>Zoom In</WorkbenchButton>
+          <WorkbenchButton onClick={() => zoomBy(1.4)} disabled={selectedTags.length === 0}>Zoom Out</WorkbenchButton>
+          <WorkbenchButton onClick={backToLive} disabled={selectedTags.length === 0 || liveMode}>Back to Live</WorkbenchButton>
           <WorkbenchButton onClick={refresh} disabled={selectedTags.length === 0}>Refresh</WorkbenchButton>
           <WorkbenchButton onClick={() => setSettingsOpen(true)}>Settings</WorkbenchButton>
 
@@ -546,6 +613,8 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             axes={axes}
             axisIdByTag={resolvedAxisIdByTag}
             settings={settings}
+            showDataZoomSlider={false}
+            interactiveZoomEnabled={false}
             visibleRange={visibleRange}
             liveMode={liveMode}
             liveWindowMs={liveWindowMs}
@@ -616,7 +685,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         onClose={() => setTagDialogOpen(false)}
         onFiltersChange={setTagPickerFilters}
         onApply={(nextTags, nextAxes) => {
-          setSelectedTags(nextTags);
+          setSelectedTags(nextTags.map((tag) => ({ ...tag, visible: true })));
           setManualAxes(nextAxes);
           setTagDialogOpen(false);
         }}
