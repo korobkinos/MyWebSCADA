@@ -196,13 +196,8 @@ export function HmiStage({
     [currentUserRoleLevel, renderContext],
   );
   const stageScale = mode === "runtime" ? runtimeScale : effectiveEditorZoom;
-  const isFullscreenRuntime = mode === "runtime" && fullscreenRuntime;
-  const stageWidth = mode === "editor"
-    ? screen.width * effectiveEditorZoom
-    : (isFullscreenRuntime ? viewport.width : screen.width);
-  const stageHeight = mode === "editor"
-    ? screen.height * effectiveEditorZoom
-    : (isFullscreenRuntime ? viewport.height : screen.height);
+  const stageWidth = mode === "editor" ? screen.width * effectiveEditorZoom : screen.width;
+  const stageHeight = mode === "editor" ? screen.height * effectiveEditorZoom : screen.height;
   const gridPatternImage = useMemo(() => {
     if (mode !== "editor" || !showEditorGrid) {
       return null;
@@ -373,7 +368,7 @@ export function HmiStage({
       style={{
         width: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
         height: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
-        overflow: mode === "editor" ? "visible" : (isFullscreenRuntime ? "hidden" : "auto"),
+        overflow: mode === "editor" ? "visible" : "auto",
         display: mode === "editor" ? "inline-block" : "block",
         border: mode === "runtime" ? "none" : undefined,
         maxWidth: mode === "runtime" ? "100%" : undefined,

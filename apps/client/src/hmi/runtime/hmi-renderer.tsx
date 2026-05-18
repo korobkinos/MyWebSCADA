@@ -1568,13 +1568,8 @@ function ObjectNode({
 
   const selectable = interactive;
   const visibleByRole = isObjectVisibleByRole(resolvedObject, mode, renderContext);
-  if (!visibleByRole && mode === "runtime") {
-    return null;
-  }
   const visibleByRuntimeState = mode !== "runtime" || resolveObjectVisible(resolvedObject, tags, renderContext, project);
-  if (!visibleByRuntimeState && mode === "runtime") {
-    return null;
-  }
+  const shouldHideInRuntime = mode === "runtime" && (!visibleByRole || !visibleByRuntimeState);
   const disabledByRuntimeState = mode === "runtime" && resolveObjectDisabled(resolvedObject, tags, renderContext, project);
   const hasOwnDisabledBinding = hasRuntimeStateTag(resolvedObject.disabledTag);
   const runtimeDisabled = mode === "runtime" && (inheritedDisabled ? (hasOwnDisabledBinding ? disabledByRuntimeState : true) : disabledByRuntimeState);
@@ -1716,7 +1711,7 @@ function ObjectNode({
     }
     if (!runtimeMode) {
       onRemoveWidgetOverlay?.(resolvedObject.id);
-      return () => onRemoveWidgetOverlay?.(resolvedObject.id);
+      return;
     }
     onUpsertWidgetOverlay?.({
       objectId: resolvedObject.id,
@@ -1726,15 +1721,25 @@ function ObjectNode({
       height: Math.max(1, resolvedObject.height),
       content: <TrendRuntimeWidget object={resolvedObject} />,
     });
-    return () => {
-      onRemoveWidgetOverlay?.(resolvedObject.id);
-    };
   }, [
     onRemoveWidgetOverlay,
     onUpsertWidgetOverlay,
     resolvedObject,
     runtimeMode,
   ]);
+
+  useEffect(() => {
+    if (resolvedObject.type !== "trendChart") {
+      return;
+    }
+    return () => {
+      onRemoveWidgetOverlay?.(resolvedObject.id);
+    };
+  }, [onRemoveWidgetOverlay, resolvedObject.id, resolvedObject.type]);
+
+  if (shouldHideInRuntime) {
+    return null;
+  }
 
   if (resolvedObject.type === "group") {
     return (
@@ -1869,7 +1874,6 @@ function ObjectNode({
     const renderDotsOverlay = showFlowOverlay && flowEffectType === "dots";
     const renderArrowsOverlay = showFlowOverlay && flowEffectType === "arrows";
     const renderGradientOverlay = showFlowOverlay && flowEffectType === "gradientShift";
-    const renderRoundedFlowStrokeOverlay = renderRoundedLine && Boolean(roundedLinePath);
     const dotRadius = lineFlowRuntimeData?.dotRadius ?? 1;
     const arrowLength = lineFlowRuntimeData?.arrowLength ?? 0;
     const arrowHalfWidth = lineFlowRuntimeData?.arrowHalfWidth ?? 0;
@@ -1934,101 +1938,56 @@ function ObjectNode({
             )}
         {(renderDashOverlay || renderDotsOverlay || renderArrowsOverlay || renderGradientOverlay) ? (
           <Group
-            clipX={renderRoundedFlowStrokeOverlay ? undefined : 0}
-            clipY={renderRoundedFlowStrokeOverlay ? undefined : 0}
-            clipWidth={renderRoundedFlowStrokeOverlay ? undefined : resolvedObject.width}
-            clipHeight={renderRoundedFlowStrokeOverlay ? undefined : resolvedObject.height}
+            clipX={0}
+            clipY={0}
+            clipWidth={resolvedObject.width}
+            clipHeight={resolvedObject.height}
             listening={false}
           >
             {renderGradientOverlay ? (
-              renderRoundedFlowStrokeOverlay ? (
-                <Path
-                  ref={(node) => {
-                    flowGradientLineRef.current = node;
-                  }}
-                  data={roundedLinePath}
-                  stroke={gradientMidColor}
-                  strokeWidth={flowStrokeWidth}
-                  opacity={normalizedFlowOpacity}
-                  dash={gradientDash}
-                  dashOffset={-flowMarkerPhase}
-                  strokeLinearGradientStartPoint={gradientStartPoint}
-                  strokeLinearGradientEndPoint={gradientStrokeEndPoint}
-                  strokeLinearGradientColorStops={[
-                    0, gradientStartColor,
-                    0.5, gradientMidColor,
-                    1, gradientEndColor,
-                  ]}
-                  fillEnabled={false}
-                  listening={false}
-                  lineCap={lineCap}
-                  lineJoin={lineJoin}
-                  perfectDrawEnabled={false}
-                />
-              ) : (
-                <Line
-                  ref={(node) => {
-                    flowGradientLineRef.current = node;
-                  }}
-                  points={lineFlowPoints}
-                  stroke={gradientMidColor}
-                  strokeWidth={flowStrokeWidth}
-                  opacity={normalizedFlowOpacity}
-                  closed={resolvedObject.closed ?? false}
-                  dash={gradientDash}
-                  dashOffset={-flowMarkerPhase}
-                  strokeLinearGradientStartPoint={gradientStartPoint}
-                  strokeLinearGradientEndPoint={gradientStrokeEndPoint}
-                  strokeLinearGradientColorStops={[
-                    0, gradientStartColor,
-                    0.5, gradientMidColor,
-                    1, gradientEndColor,
-                  ]}
-                  fillEnabled={false}
-                  listening={false}
-                  lineCap={lineCap}
-                  lineJoin={lineJoin}
-                  perfectDrawEnabled={false}
-                />
-              )
+              <Line
+                ref={(node) => {
+                  flowGradientLineRef.current = node;
+                }}
+                points={lineFlowPoints}
+                stroke={gradientMidColor}
+                strokeWidth={flowStrokeWidth}
+                opacity={normalizedFlowOpacity}
+                closed={resolvedObject.closed ?? false}
+                dash={gradientDash}
+                dashOffset={-flowMarkerPhase}
+                strokeLinearGradientStartPoint={gradientStartPoint}
+                strokeLinearGradientEndPoint={gradientStrokeEndPoint}
+                strokeLinearGradientColorStops={[
+                  0, gradientStartColor,
+                  0.5, gradientMidColor,
+                  1, gradientEndColor,
+                ]}
+                fillEnabled={false}
+                listening={false}
+                lineCap={lineCap}
+                lineJoin={lineJoin}
+                perfectDrawEnabled={false}
+              />
             ) : null}
             {renderDashOverlay ? (
-              renderRoundedFlowStrokeOverlay ? (
-                <Path
-                  ref={(node) => {
-                    flowDashLineRef.current = node;
-                  }}
-                  data={roundedLinePath}
-                  stroke={flowColor}
-                  strokeWidth={flowStrokeWidth}
-                  opacity={normalizedFlowOpacity}
-                  dash={flowDash}
-                  dashOffset={flowMarkerPhase}
-                  fillEnabled={false}
-                  listening={false}
-                  lineCap={lineCap}
-                  lineJoin={lineJoin}
-                  perfectDrawEnabled={false}
-                />
-              ) : (
-                <Line
-                  ref={(node) => {
-                    flowDashLineRef.current = node;
-                  }}
-                  points={lineFlowPoints}
-                  stroke={flowColor}
-                  strokeWidth={flowStrokeWidth}
-                  opacity={normalizedFlowOpacity}
-                  closed={resolvedObject.closed ?? false}
-                  dash={flowDash}
-                  dashOffset={flowMarkerPhase}
-                  fillEnabled={false}
-                  listening={false}
-                  lineCap={lineCap}
-                  lineJoin={lineJoin}
-                  perfectDrawEnabled={false}
-                />
-              )
+              <Line
+                ref={(node) => {
+                  flowDashLineRef.current = node;
+                }}
+                points={lineFlowPoints}
+                stroke={flowColor}
+                strokeWidth={flowStrokeWidth}
+                opacity={normalizedFlowOpacity}
+                closed={resolvedObject.closed ?? false}
+                dash={flowDash}
+                dashOffset={flowMarkerPhase}
+                fillEnabled={false}
+                listening={false}
+                lineCap={lineCap}
+                lineJoin={lineJoin}
+                perfectDrawEnabled={false}
+              />
             ) : null}
             {renderDotsOverlay && flowPath && flowPath.totalLength > 0
               ? Array.from({ length: markerCount }).map((_, markerIndex) => {
@@ -2945,442 +2904,22 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "slider") {
-    const sliderTag = runtimeMode ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
-    const sliderBad = runtimeMode && Boolean(
-      sliderTag?.missingBindingReference
-      || sliderTag?.missingIndexedTag
-      || (resolvedObject.tag?.trim() && (!sliderTag?.value || sliderTag.value.quality === "Bad"))
-    );
-    const rawSliderValue = runtimeMode ? Number(sliderTag?.value?.value ?? 0) : 0;
-    const sliderMin = resolvedObject.min ?? 0;
-    const sliderMax = resolvedObject.max ?? 100;
-    const sliderValue = Number.isFinite(rawSliderValue) ? Math.min(sliderMax, Math.max(sliderMin, rawSliderValue)) : sliderMin;
-    const isSliderVertical = resolvedObject.orientation === "vertical";
-    const decimals = Math.max(0, Math.min(10, resolvedObject.decimals ?? 1));
-    const sliderTrackColor = resolvedObject.trackColor ?? HMI_CONTROL_COLORS.track;
-    const sliderFillColor = resolvedObject.fillColor ?? HMI_CONTROL_COLORS.accentDark;
-    const sliderThumbColor = resolvedObject.thumbColor ?? HMI_CONTROL_COLORS.thumb;
-    const sliderBadColor = resolvedObject.badColor ?? "#a03030";
-    const sliderBadTextColor = resolvedObject.badTextColor ?? HMI_CONTROL_COLORS.bad;
-    const sliderDisabledColor = resolvedObject.disabledColor ?? HMI_CONTROL_COLORS.disabled;
-    const sliderDisabledTextColor = resolvedObject.disabledTextColor ?? "#8c8c8c";
-    const sliderBackgroundColor = resolvedObject.backgroundColor ?? HMI_CONTROL_COLORS.fieldBg;
-    const sliderTransparentBackground = resolvedObject.transparentBackground ?? false;
-    const sliderBorderColor = resolvedObject.borderColor ?? HMI_CONTROL_COLORS.border;
-    const sliderBorderWidth = Math.max(0, resolvedObject.borderWidth ?? 1);
-    const sliderCornerRadius = Math.max(0, resolvedObject.cornerRadius ?? 4);
-    const sliderTrackThickness = Math.max(1, resolvedObject.trackThickness ?? 4);
-    const sliderThumbRadius = Math.max(2, resolvedObject.thumbRadius ?? Math.min(7, resolvedObject.width * 0.04, resolvedObject.height * 0.16));
-    const sliderThumbBorderColor = resolvedObject.thumbBorderColor ?? sliderBorderColor;
-    const sliderTextColor = resolvedObject.textColor ?? HMI_CONTROL_COLORS.text;
-    const sliderFontFamily = resolvedObject.fontFamily ?? "Consolas";
-    const sliderFontSize = Math.max(8, resolvedObject.fontSize ?? Math.max(9, resolvedObject.height * 0.3));
-    const sliderShowValue = resolvedObject.showValue ?? true;
-    const sliderShowMinMax = resolvedObject.showMinMax ?? false;
-    const sliderMinMaxFontSize = Math.max(6, resolvedObject.minMaxFontSize ?? Math.max(8, sliderFontSize - 2));
-    const sliderMinLabelOffset = Math.max(0, resolvedObject.minLabelOffset ?? 2);
-    const sliderMaxLabelOffset = Math.max(0, resolvedObject.maxLabelOffset ?? 2);
-    const sliderWriteOnRelease = resolvedObject.writeOnRelease ?? false;
-    const sliderDragWriteIntervalMs = Math.max(0, Math.min(1000, resolvedObject.dragWriteIntervalMs ?? 50));
-    const sliderReleaseSyncHoldMs = Math.max(0, Math.min(10000, resolvedObject.releaseSyncHoldMs ?? 2500));
-    const sliderValuePosition = resolvedObject.valuePosition ?? "bottom";
-    const sliderDragRef = useRef(false);
-    const [sliderDragValue, setSliderDragValue] = useState<number | null>(null);
-    const sliderReleaseAtRef = useRef<number | null>(null);
-    const sliderReleaseSourceValueRef = useRef<number | null>(null);
-    const lastWrittenValueRef = useRef<number | null>(null);
-    const lastWriteAtRef = useRef(0);
-    const sliderLastFractionRef = useRef(0);
-    const renderTrackColor = runtimeDisabled ? sliderDisabledColor : sliderTrackColor;
-    const renderFillColor = runtimeDisabled
-      ? sliderDisabledColor
-      : (sliderBad ? sliderBadColor : sliderFillColor);
-    const renderThumbColor = runtimeDisabled
-      ? sliderDisabledColor
-      : (sliderBad ? sliderBadColor : sliderThumbColor);
-    const renderTextColor = runtimeDisabled
-      ? sliderDisabledTextColor
-      : (sliderBad ? sliderBadTextColor : sliderTextColor);
-    const renderBackgroundColor = sliderTransparentBackground
-      ? "transparent"
-      : (runtimeDisabled ? sliderDisabledColor : sliderBackgroundColor);
-    const renderBorderColor = sliderBad ? sliderBadColor : sliderBorderColor;
-
-    const getSliderFraction = useCallback((pointerX: number, pointerY: number): number => {
-      if (isSliderVertical) {
-        const start = sliderThumbRadius;
-        const end = Math.max(start + 1, resolvedObject.height - sliderThumbRadius);
-        const clampedY = Math.max(start, Math.min(end, pointerY));
-        return 1 - ((clampedY - start) / Math.max(1, end - start));
-      }
-      const start = sliderThumbRadius;
-      const end = Math.max(start + 1, resolvedObject.width - sliderThumbRadius);
-      const clampedX = Math.max(start, Math.min(end, pointerX));
-      return (clampedX - start) / Math.max(1, end - start);
-    }, [isSliderVertical, resolvedObject.height, resolvedObject.width, sliderThumbRadius]);
-
-    const commitSliderValue = useCallback((fraction: number, force = false, allowWrite = true) => {
-      const val = sliderMin + fraction * (sliderMax - sliderMin);
-      const step = resolvedObject.step ?? 1;
-      const stepped = step > 0 ? Math.round(val / step) * step : val;
-      const clamped = Math.min(sliderMax, Math.max(sliderMin, stepped));
-      setSliderDragValue(clamped);
-      if (!allowWrite) {
-        return;
-      }
-      if (lastWrittenValueRef.current !== null && Math.abs(lastWrittenValueRef.current - clamped) < 1e-9) {
-        return;
-      }
-      const now = Date.now();
-      if (!force && now - lastWriteAtRef.current < sliderDragWriteIntervalMs) {
-        return;
-      }
-      lastWrittenValueRef.current = clamped;
-      lastWriteAtRef.current = now;
-      const writeTagField = runtimeMode
-        ? (resolvedObject.writeTag?.trim() || resolvedObject.tag)
-        : resolvedObject.tag;
-      const resolvedWriteTag = runtimeMode
-        ? tagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
-        : undefined;
-      const tagName = runtimeMode
-        ? (resolvedWriteTag?.resolvedName ?? writeTagField)
-        : writeTagField;
-      if (runtimeMode && !tagName?.trim()) {
-        return;
-      }
-      onAction?.(
-        withActionRoleLevel({
-          type: "write",
-          tag: tagName ?? "",
-          value: clamped,
-        }, resolvedObject.requiredActionRole),
-        (() => {
-          const nextContext = withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name);
-          return {
-            ...nextContext,
-            parameters: {
-              ...(nextContext.parameters ?? {}),
-              __allowConcurrentWrite: true,
-            },
-          };
-        })(),
-      );
-    }, [resolvedObject, sliderMin, sliderMax, runtimeMode, onAction, renderContext, sliderDragWriteIntervalMs]);
-
-    const finalizeSliderDrag = useCallback((allowWrite = true) => {
-      sliderDragRef.current = false;
-      const fraction = Math.max(0, Math.min(1, sliderLastFractionRef.current));
-      commitSliderValue(fraction, true, allowWrite);
-      sliderReleaseAtRef.current = Date.now();
-      sliderReleaseSourceValueRef.current = sliderValue;
-    }, [commitSliderValue, sliderValue]);
-
-    useEffect(() => {
-      if (sliderDragRef.current) {
-        return;
-      }
-      const fraction = sliderMax > sliderMin ? (sliderValue - sliderMin) / (sliderMax - sliderMin) : 0;
-      sliderLastFractionRef.current = Math.max(0, Math.min(1, fraction));
-    }, [sliderMax, sliderMin, sliderValue]);
-
-    useEffect(() => {
-      if (interactive || runtimeDisabled) {
-        return;
-      }
-      const handleMouseUp = () => {
-        if (!sliderDragRef.current) {
-          return;
-        }
-        finalizeSliderDrag(true);
-      };
-      const handleWindowBlur = () => {
-        if (!sliderDragRef.current) {
-          return;
-        }
-        finalizeSliderDrag(true);
-      };
-      window.addEventListener("mouseup", handleMouseUp);
-      window.addEventListener("blur", handleWindowBlur);
-      return () => {
-        window.removeEventListener("mouseup", handleMouseUp);
-        window.removeEventListener("blur", handleWindowBlur);
-      };
-    }, [finalizeSliderDrag, interactive, runtimeDisabled]);
-
-    useEffect(() => {
-      if (sliderDragRef.current || sliderDragValue === null) {
-        return;
-      }
-      const step = Math.max(0, resolvedObject.step ?? 1);
-      const tolerance = Math.max(1e-6, step > 0 ? step * 0.25 : 0.0005);
-      const sourceValue = sliderReleaseSourceValueRef.current;
-      if (Math.abs(sliderValue - sliderDragValue) <= tolerance) {
-        setSliderDragValue(null);
-        sliderReleaseAtRef.current = null;
-        sliderReleaseSourceValueRef.current = null;
-        return;
-      }
-      if (sourceValue !== null && Math.abs(sliderValue - sourceValue) > tolerance) {
-        setSliderDragValue(null);
-        sliderReleaseAtRef.current = null;
-        sliderReleaseSourceValueRef.current = null;
-        return;
-      }
-      if (sliderReleaseSyncHoldMs <= 0) {
-        setSliderDragValue(null);
-        sliderReleaseAtRef.current = null;
-        sliderReleaseSourceValueRef.current = null;
-        return;
-      }
-      const now = Date.now();
-      const releasedAt = sliderReleaseAtRef.current ?? now;
-      const elapsed = now - releasedAt;
-      const remaining = Math.max(0, sliderReleaseSyncHoldMs - elapsed);
-      const timer = window.setTimeout(() => {
-        setSliderDragValue(null);
-        sliderReleaseAtRef.current = null;
-        sliderReleaseSourceValueRef.current = null;
-      }, remaining);
-      return () => window.clearTimeout(timer);
-    }, [resolvedObject.step, sliderDragValue, sliderValue, sliderReleaseSyncHoldMs]);
-
-    const sliderRenderValue = sliderDragValue !== null ? sliderDragValue : sliderValue;
-    const sliderRenderRatio = sliderMax > sliderMin ? (sliderRenderValue - sliderMin) / (sliderMax - sliderMin) : 0;
-
-    const sliderValueText = sliderShowValue
-      ? (sliderBad
-        ? "BAD"
-        : formatNumericValue(sliderRenderValue, {
-            formatMode: "decimals",
-            decimals,
-            unit: resolvedObject.unit,
-            showUnit: Boolean(resolvedObject.unit),
-          }))
-      : "";
-    const sliderShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
-    const sliderMinText = formatNumericValue(sliderMin, {
-      formatMode: "decimals",
-      decimals,
-      unit: resolvedObject.unit,
-      showUnit: false,
-    });
-    const sliderMaxText = formatNumericValue(sliderMax, {
-      formatMode: "decimals",
-      decimals,
-      unit: resolvedObject.unit,
-      showUnit: false,
-    });
-    const valueAlign = (() => {
-      if (sliderValuePosition === "top") {
-        return { horizontalAlign: "center" as const, verticalAlign: "top" as const, padding: 2 };
-      }
-      if (sliderValuePosition === "bottom") {
-        return { horizontalAlign: "center" as const, verticalAlign: "bottom" as const, padding: 2 };
-      }
-      if (sliderValuePosition === "left") {
-        return { horizontalAlign: "left" as const, verticalAlign: "middle" as const, padding: 4 };
-      }
-      if (sliderValuePosition === "right") {
-        return { horizontalAlign: "right" as const, verticalAlign: "middle" as const, padding: 4 };
-      }
-      return { horizontalAlign: "center" as const, verticalAlign: "middle" as const, padding: 2 };
-    })();
-
     return (
-      <Group
-        {...commonGroupProps}
-        onClick={(evt: KonvaEventObject<MouseEvent>) => {
-          if (!isPrimaryPointerButton(evt.evt)) {
-            return;
-          }
-          if (interactive) {
-            onSelectObject?.({
-              objectId: resolvedObject.id,
-              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
-            });
-            return;
-          }
-          if (runtimeDisabled) {
-            return;
-          }
-          const groupNode = evt.currentTarget;
-          const pointer = groupNode.getRelativePointerPosition();
-          if (pointer) {
-            const fraction = getSliderFraction(pointer.x, pointer.y);
-            commitSliderValue(fraction);
-          }
-        }}
-        onMouseDown={(evt: KonvaEventObject<MouseEvent>) => {
-          if (interactive || runtimeDisabled) {
-            return;
-          }
-          triggerObjectMacroEvent("press");
-          sliderDragRef.current = true;
-          sliderReleaseAtRef.current = null;
-          sliderReleaseSourceValueRef.current = null;
-          const groupNode = evt.currentTarget;
-          const pointer = groupNode.getRelativePointerPosition();
-          if (pointer) {
-            const fraction = getSliderFraction(pointer.x, pointer.y);
-            sliderLastFractionRef.current = fraction;
-            commitSliderValue(fraction, true, !sliderWriteOnRelease);
-          }
-        }}
-        onMouseMove={(evt: KonvaEventObject<MouseEvent>) => {
-          if (interactive || runtimeDisabled || !sliderDragRef.current) {
-            return;
-          }
-          const groupNode = evt.currentTarget;
-          const pointer = groupNode.getRelativePointerPosition();
-          if (pointer) {
-            const fraction = getSliderFraction(pointer.x, pointer.y);
-            sliderLastFractionRef.current = fraction;
-            commitSliderValue(fraction, false, !sliderWriteOnRelease);
-          }
-        }}
-        onMouseUp={(evt: KonvaEventObject<MouseEvent>) => {
-          if (interactive || runtimeDisabled) {
-            sliderDragRef.current = false;
-            setSliderDragValue(null);
-            sliderReleaseAtRef.current = null;
-            sliderReleaseSourceValueRef.current = null;
-            return;
-          }
-          triggerObjectMacroEvent("release");
-          const groupNode = evt.currentTarget;
-          const pointer = groupNode.getRelativePointerPosition();
-          if (pointer) {
-            const fraction = getSliderFraction(pointer.x, pointer.y);
-            sliderLastFractionRef.current = fraction;
-          }
-          finalizeSliderDrag(true);
-        }}
-        onMouseLeave={() => {
-          if (interactive || runtimeDisabled) {
-            sliderDragRef.current = false;
-            setSliderDragValue(null);
-            sliderReleaseAtRef.current = null;
-            sliderReleaseSourceValueRef.current = null;
-            return;
-          }
-          if (sliderDragRef.current) {
-            finalizeSliderDrag(true);
-          }
-        }}
-      >
-        <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
-          width={resolvedObject.width}
-          height={resolvedObject.height}
-          fill={renderBackgroundColor}
-          stroke={renderBorderColor}
-          strokeWidth={sliderBorderWidth}
-          cornerRadius={sliderCornerRadius}
-          opacity={runtimeDisabled ? 0.7 : 1}
-          perfectDrawEnabled={false}
-          {...sliderShadowProps}
-        />
-        {isSliderVertical ? (
-          <>
-            <Rect
-              x={resolvedObject.width * 0.5 - sliderTrackThickness / 2}
-              y={sliderThumbRadius}
-              width={sliderTrackThickness}
-              height={Math.max(0, resolvedObject.height - sliderThumbRadius * 2)}
-              fill={renderTrackColor}
-              cornerRadius={sliderTrackThickness / 2}
-            />
-            <Rect
-              x={resolvedObject.width * 0.5 - sliderTrackThickness / 2}
-              y={sliderThumbRadius + resolvedObject.height * (1 - sliderRenderRatio) - sliderThumbRadius * 2 * (1 - sliderRenderRatio)}
-              width={sliderTrackThickness}
-              height={Math.max(0, (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio)}
-              fill={renderFillColor}
-              cornerRadius={sliderTrackThickness / 2}
-            />
-            <Circle
-              x={resolvedObject.width * 0.5}
-              y={resolvedObject.height - sliderThumbRadius - (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio}
-              radius={sliderThumbRadius}
-              fill={renderThumbColor}
-              stroke={sliderThumbBorderColor}
-              strokeWidth={1}
-              perfectDrawEnabled={false}
-              {...sliderShadowProps}
-            />
-          </>
-        ) : (
-          <>
-            <Rect
-              x={sliderThumbRadius}
-              y={resolvedObject.height * 0.5 - sliderTrackThickness / 2}
-              width={Math.max(0, resolvedObject.width - sliderThumbRadius * 2)}
-              height={sliderTrackThickness}
-              fill={renderTrackColor}
-              cornerRadius={sliderTrackThickness / 2}
-            />
-            <Rect
-              x={sliderThumbRadius}
-              y={resolvedObject.height * 0.5 - sliderTrackThickness / 2}
-              width={Math.max(0, (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio)}
-              height={sliderTrackThickness}
-              fill={renderFillColor}
-              cornerRadius={sliderTrackThickness / 2}
-            />
-            <Circle
-              x={sliderThumbRadius + (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio}
-              y={resolvedObject.height * 0.5}
-              radius={sliderThumbRadius}
-              fill={renderThumbColor}
-              stroke={sliderThumbBorderColor}
-              strokeWidth={1}
-              perfectDrawEnabled={false}
-              {...sliderShadowProps}
-            />
-          </>
-        )}
-        {sliderShowMinMax ? (
-          <>
-            {renderBoxText(sliderMinText, {
-              fontFamily: sliderFontFamily,
-              fontSize: sliderMinMaxFontSize,
-              color: renderTextColor,
-              horizontalAlign: isSliderVertical ? "center" : "left",
-              verticalAlign: isSliderVertical ? "bottom" : "middle",
-              padding: sliderMinLabelOffset,
-            }, {
-              width: resolvedObject.width,
-              height: resolvedObject.height,
-            })}
-            {renderBoxText(sliderMaxText, {
-              fontFamily: sliderFontFamily,
-              fontSize: sliderMinMaxFontSize,
-              color: renderTextColor,
-              horizontalAlign: isSliderVertical ? "center" : "right",
-              verticalAlign: isSliderVertical ? "top" : "middle",
-              padding: sliderMaxLabelOffset,
-            }, {
-              width: resolvedObject.width,
-              height: resolvedObject.height,
-            })}
-          </>
-        ) : null}
-        {sliderValueText && sliderValuePosition !== "hidden" ? (
-          renderBoxText(sliderValueText, {
-            fontFamily: sliderFontFamily,
-            fontSize: sliderFontSize,
-            color: renderTextColor,
-            horizontalAlign: valueAlign.horizontalAlign,
-            verticalAlign: valueAlign.verticalAlign,
-            padding: valueAlign.padding,
-          }, {
-            width: resolvedObject.width,
-            height: resolvedObject.height,
-          })
-        ) : null}
-        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
-      </Group>
+      <SliderObjectNode
+        resolvedObject={resolvedObject}
+        runtimeMode={runtimeMode}
+        runtimeDisabled={runtimeDisabled}
+        interactive={interactive}
+        selected={selected}
+        showObjectFrames={showObjectFrames}
+        effectiveShadowDisabled={effectiveShadowDisabled}
+        commonGroupProps={commonGroupProps}
+        resolveTagValue={tagValue}
+        onAction={onAction}
+        onSelectObject={onSelectObject}
+        renderContext={renderContext}
+        triggerObjectMacroEvent={triggerObjectMacroEvent}
+      />
     );
   }
 
@@ -4006,6 +3545,478 @@ function ObjectNode({
   }
 
   return <Group {...commonGroupProps} />;
+}
+
+type ResolveTagValueFn = (name: string | undefined, options?: { useObjectIndexing?: boolean; fieldName?: string }) => ResolvedTagValue;
+
+type SliderObjectNodeProps = {
+  resolvedObject: Extract<HmiObject, { type: "slider" }>;
+  runtimeMode: boolean;
+  runtimeDisabled: boolean;
+  interactive: boolean;
+  selected: boolean;
+  showObjectFrames: boolean;
+  effectiveShadowDisabled: boolean;
+  commonGroupProps: Record<string, unknown>;
+  resolveTagValue: ResolveTagValueFn;
+  onAction?: (action: RuntimeAction, context: RenderContext) => void | Promise<void>;
+  onSelectObject?: (payload: ObjectSelectPayload) => void;
+  renderContext: RenderContext;
+  triggerObjectMacroEvent: (eventName: "press" | "release") => void;
+};
+
+function SliderObjectNode({
+  resolvedObject,
+  runtimeMode,
+  runtimeDisabled,
+  interactive,
+  selected,
+  showObjectFrames,
+  effectiveShadowDisabled,
+  commonGroupProps,
+  resolveTagValue,
+  onAction,
+  onSelectObject,
+  renderContext,
+  triggerObjectMacroEvent,
+}: SliderObjectNodeProps) {
+  const sliderTag = runtimeMode ? resolveTagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
+  const sliderBad = runtimeMode && Boolean(
+    sliderTag?.missingBindingReference
+    || sliderTag?.missingIndexedTag
+    || (resolvedObject.tag?.trim() && (!sliderTag?.value || sliderTag.value.quality === "Bad"))
+  );
+  const rawSliderValue = runtimeMode ? Number(sliderTag?.value?.value ?? 0) : 0;
+  const sliderMin = resolvedObject.min ?? 0;
+  const sliderMax = resolvedObject.max ?? 100;
+  const sliderValue = Number.isFinite(rawSliderValue) ? Math.min(sliderMax, Math.max(sliderMin, rawSliderValue)) : sliderMin;
+  const isSliderVertical = resolvedObject.orientation === "vertical";
+  const decimals = Math.max(0, Math.min(10, resolvedObject.decimals ?? 1));
+  const sliderTrackColor = resolvedObject.trackColor ?? HMI_CONTROL_COLORS.track;
+  const sliderFillColor = resolvedObject.fillColor ?? HMI_CONTROL_COLORS.accentDark;
+  const sliderThumbColor = resolvedObject.thumbColor ?? HMI_CONTROL_COLORS.thumb;
+  const sliderBadColor = resolvedObject.badColor ?? "#a03030";
+  const sliderBadTextColor = resolvedObject.badTextColor ?? HMI_CONTROL_COLORS.bad;
+  const sliderDisabledColor = resolvedObject.disabledColor ?? HMI_CONTROL_COLORS.disabled;
+  const sliderDisabledTextColor = resolvedObject.disabledTextColor ?? "#8c8c8c";
+  const sliderBackgroundColor = resolvedObject.backgroundColor ?? HMI_CONTROL_COLORS.fieldBg;
+  const sliderTransparentBackground = resolvedObject.transparentBackground ?? false;
+  const sliderBorderColor = resolvedObject.borderColor ?? HMI_CONTROL_COLORS.border;
+  const sliderBorderWidth = Math.max(0, resolvedObject.borderWidth ?? 1);
+  const sliderCornerRadius = Math.max(0, resolvedObject.cornerRadius ?? 4);
+  const sliderTrackThickness = Math.max(1, resolvedObject.trackThickness ?? 4);
+  const sliderThumbRadius = Math.max(2, resolvedObject.thumbRadius ?? Math.min(7, resolvedObject.width * 0.04, resolvedObject.height * 0.16));
+  const sliderThumbBorderColor = resolvedObject.thumbBorderColor ?? sliderBorderColor;
+  const sliderTextColor = resolvedObject.textColor ?? HMI_CONTROL_COLORS.text;
+  const sliderFontFamily = resolvedObject.fontFamily ?? "Consolas";
+  const sliderFontSize = Math.max(8, resolvedObject.fontSize ?? Math.max(9, resolvedObject.height * 0.3));
+  const sliderShowValue = resolvedObject.showValue ?? true;
+  const sliderShowMinMax = resolvedObject.showMinMax ?? false;
+  const sliderMinMaxFontSize = Math.max(6, resolvedObject.minMaxFontSize ?? Math.max(8, sliderFontSize - 2));
+  const sliderMinLabelOffset = Math.max(0, resolvedObject.minLabelOffset ?? 2);
+  const sliderMaxLabelOffset = Math.max(0, resolvedObject.maxLabelOffset ?? 2);
+  const sliderWriteOnRelease = resolvedObject.writeOnRelease ?? false;
+  const sliderDragWriteIntervalMs = Math.max(0, Math.min(1000, resolvedObject.dragWriteIntervalMs ?? 50));
+  const sliderReleaseSyncHoldMs = Math.max(0, Math.min(10000, resolvedObject.releaseSyncHoldMs ?? 2500));
+  const sliderValuePosition = resolvedObject.valuePosition ?? "bottom";
+  const sliderDragRef = useRef(false);
+  const [sliderDragValue, setSliderDragValue] = useState<number | null>(null);
+  const sliderReleaseAtRef = useRef<number | null>(null);
+  const sliderReleaseSourceValueRef = useRef<number | null>(null);
+  const lastWrittenValueRef = useRef<number | null>(null);
+  const lastWriteAtRef = useRef(0);
+  const sliderLastFractionRef = useRef(0);
+  const renderTrackColor = runtimeDisabled ? sliderDisabledColor : sliderTrackColor;
+  const renderFillColor = runtimeDisabled
+    ? sliderDisabledColor
+    : (sliderBad ? sliderBadColor : sliderFillColor);
+  const renderThumbColor = runtimeDisabled
+    ? sliderDisabledColor
+    : (sliderBad ? sliderBadColor : sliderThumbColor);
+  const renderTextColor = runtimeDisabled
+    ? sliderDisabledTextColor
+    : (sliderBad ? sliderBadTextColor : sliderTextColor);
+  const renderBackgroundColor = sliderTransparentBackground
+    ? "transparent"
+    : (runtimeDisabled ? sliderDisabledColor : sliderBackgroundColor);
+  const renderBorderColor = sliderBad ? sliderBadColor : sliderBorderColor;
+
+  const getSliderFraction = useCallback((pointerX: number, pointerY: number): number => {
+    if (isSliderVertical) {
+      const start = sliderThumbRadius;
+      const end = Math.max(start + 1, resolvedObject.height - sliderThumbRadius);
+      const clampedY = Math.max(start, Math.min(end, pointerY));
+      return 1 - ((clampedY - start) / Math.max(1, end - start));
+    }
+    const start = sliderThumbRadius;
+    const end = Math.max(start + 1, resolvedObject.width - sliderThumbRadius);
+    const clampedX = Math.max(start, Math.min(end, pointerX));
+    return (clampedX - start) / Math.max(1, end - start);
+  }, [isSliderVertical, resolvedObject.height, resolvedObject.width, sliderThumbRadius]);
+
+  const commitSliderValue = useCallback((fraction: number, force = false, allowWrite = true) => {
+    const val = sliderMin + fraction * (sliderMax - sliderMin);
+    const step = resolvedObject.step ?? 1;
+    const stepped = step > 0 ? Math.round(val / step) * step : val;
+    const clamped = Math.min(sliderMax, Math.max(sliderMin, stepped));
+    setSliderDragValue(clamped);
+    if (!allowWrite) {
+      return;
+    }
+    if (lastWrittenValueRef.current !== null && Math.abs(lastWrittenValueRef.current - clamped) < 1e-9) {
+      return;
+    }
+    const now = Date.now();
+    if (!force && now - lastWriteAtRef.current < sliderDragWriteIntervalMs) {
+      return;
+    }
+    lastWrittenValueRef.current = clamped;
+    lastWriteAtRef.current = now;
+    const writeTagField = runtimeMode
+      ? (resolvedObject.writeTag?.trim() || resolvedObject.tag)
+      : resolvedObject.tag;
+    const resolvedWriteTag = runtimeMode
+      ? resolveTagValue(writeTagField, { useObjectIndexing: true, fieldName: "writeTag" })
+      : undefined;
+    const tagName = runtimeMode
+      ? (resolvedWriteTag?.resolvedName ?? writeTagField)
+      : writeTagField;
+    if (runtimeMode && !tagName?.trim()) {
+      return;
+    }
+    onAction?.(
+      withActionRoleLevel({
+        type: "write",
+        tag: tagName ?? "",
+        value: clamped,
+      }, resolvedObject.requiredActionRole),
+      (() => {
+        const nextContext = withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name);
+        return {
+          ...nextContext,
+          parameters: {
+            ...(nextContext.parameters ?? {}),
+            __allowConcurrentWrite: true,
+          },
+        };
+      })(),
+    );
+  }, [resolvedObject, sliderMin, sliderMax, runtimeMode, onAction, renderContext, sliderDragWriteIntervalMs, resolveTagValue]);
+
+  const finalizeSliderDrag = useCallback((allowWrite = true) => {
+    sliderDragRef.current = false;
+    const fraction = Math.max(0, Math.min(1, sliderLastFractionRef.current));
+    commitSliderValue(fraction, true, allowWrite);
+    sliderReleaseAtRef.current = Date.now();
+    sliderReleaseSourceValueRef.current = sliderValue;
+  }, [commitSliderValue, sliderValue]);
+
+  useEffect(() => {
+    if (sliderDragRef.current) {
+      return;
+    }
+    const fraction = sliderMax > sliderMin ? (sliderValue - sliderMin) / (sliderMax - sliderMin) : 0;
+    sliderLastFractionRef.current = Math.max(0, Math.min(1, fraction));
+  }, [sliderMax, sliderMin, sliderValue]);
+
+  useEffect(() => {
+    if (interactive || runtimeDisabled) {
+      return;
+    }
+    const handleMouseUp = () => {
+      if (!sliderDragRef.current) {
+        return;
+      }
+      finalizeSliderDrag(true);
+    };
+    const handleWindowBlur = () => {
+      if (!sliderDragRef.current) {
+        return;
+      }
+      finalizeSliderDrag(true);
+    };
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("blur", handleWindowBlur);
+    return () => {
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, [finalizeSliderDrag, interactive, runtimeDisabled]);
+
+  useEffect(() => {
+    if (sliderDragRef.current || sliderDragValue === null) {
+      return;
+    }
+    const step = Math.max(0, resolvedObject.step ?? 1);
+    const tolerance = Math.max(1e-6, step > 0 ? step * 0.25 : 0.0005);
+    const sourceValue = sliderReleaseSourceValueRef.current;
+    if (Math.abs(sliderValue - sliderDragValue) <= tolerance) {
+      setSliderDragValue(null);
+      sliderReleaseAtRef.current = null;
+      sliderReleaseSourceValueRef.current = null;
+      return;
+    }
+    if (sourceValue !== null && Math.abs(sliderValue - sourceValue) > tolerance) {
+      setSliderDragValue(null);
+      sliderReleaseAtRef.current = null;
+      sliderReleaseSourceValueRef.current = null;
+      return;
+    }
+    if (sliderReleaseSyncHoldMs <= 0) {
+      setSliderDragValue(null);
+      sliderReleaseAtRef.current = null;
+      sliderReleaseSourceValueRef.current = null;
+      return;
+    }
+    const now = Date.now();
+    const releasedAt = sliderReleaseAtRef.current ?? now;
+    const elapsed = now - releasedAt;
+    const remaining = Math.max(0, sliderReleaseSyncHoldMs - elapsed);
+    const timer = window.setTimeout(() => {
+      setSliderDragValue(null);
+      sliderReleaseAtRef.current = null;
+      sliderReleaseSourceValueRef.current = null;
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [resolvedObject.step, sliderDragValue, sliderValue, sliderReleaseSyncHoldMs]);
+
+  const sliderRenderValue = sliderDragValue !== null ? sliderDragValue : sliderValue;
+  const sliderRenderRatio = sliderMax > sliderMin ? (sliderRenderValue - sliderMin) / (sliderMax - sliderMin) : 0;
+
+  const sliderValueText = sliderShowValue
+    ? (sliderBad
+      ? "BAD"
+      : formatNumericValue(sliderRenderValue, {
+          formatMode: "decimals",
+          decimals,
+          unit: resolvedObject.unit,
+          showUnit: Boolean(resolvedObject.unit),
+        }))
+    : "";
+  const sliderShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
+  const sliderMinText = formatNumericValue(sliderMin, {
+    formatMode: "decimals",
+    decimals,
+    unit: resolvedObject.unit,
+    showUnit: false,
+  });
+  const sliderMaxText = formatNumericValue(sliderMax, {
+    formatMode: "decimals",
+    decimals,
+    unit: resolvedObject.unit,
+    showUnit: false,
+  });
+  const valueAlign = (() => {
+    if (sliderValuePosition === "top") {
+      return { horizontalAlign: "center" as const, verticalAlign: "top" as const, padding: 2 };
+    }
+    if (sliderValuePosition === "bottom") {
+      return { horizontalAlign: "center" as const, verticalAlign: "bottom" as const, padding: 2 };
+    }
+    if (sliderValuePosition === "left") {
+      return { horizontalAlign: "left" as const, verticalAlign: "middle" as const, padding: 4 };
+    }
+    if (sliderValuePosition === "right") {
+      return { horizontalAlign: "right" as const, verticalAlign: "middle" as const, padding: 4 };
+    }
+    return { horizontalAlign: "center" as const, verticalAlign: "middle" as const, padding: 2 };
+  })();
+
+  return (
+    <Group
+      {...commonGroupProps}
+      onClick={(evt: KonvaEventObject<MouseEvent>) => {
+        if (!isPrimaryPointerButton(evt.evt)) {
+          return;
+        }
+        if (interactive) {
+          onSelectObject?.({
+            objectId: resolvedObject.id,
+            additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+          });
+          return;
+        }
+        if (runtimeDisabled) {
+          return;
+        }
+        const groupNode = evt.currentTarget;
+        const pointer = groupNode.getRelativePointerPosition();
+        if (pointer) {
+          const fraction = getSliderFraction(pointer.x, pointer.y);
+          commitSliderValue(fraction);
+        }
+      }}
+      onMouseDown={(evt: KonvaEventObject<MouseEvent>) => {
+        if (interactive || runtimeDisabled) {
+          return;
+        }
+        triggerObjectMacroEvent("press");
+        sliderDragRef.current = true;
+        sliderReleaseAtRef.current = null;
+        sliderReleaseSourceValueRef.current = null;
+        const groupNode = evt.currentTarget;
+        const pointer = groupNode.getRelativePointerPosition();
+        if (pointer) {
+          const fraction = getSliderFraction(pointer.x, pointer.y);
+          sliderLastFractionRef.current = fraction;
+          commitSliderValue(fraction, true, !sliderWriteOnRelease);
+        }
+      }}
+      onMouseMove={(evt: KonvaEventObject<MouseEvent>) => {
+        if (interactive || runtimeDisabled || !sliderDragRef.current) {
+          return;
+        }
+        const groupNode = evt.currentTarget;
+        const pointer = groupNode.getRelativePointerPosition();
+        if (pointer) {
+          const fraction = getSliderFraction(pointer.x, pointer.y);
+          sliderLastFractionRef.current = fraction;
+          commitSliderValue(fraction, false, !sliderWriteOnRelease);
+        }
+      }}
+      onMouseUp={(evt: KonvaEventObject<MouseEvent>) => {
+        if (interactive || runtimeDisabled) {
+          sliderDragRef.current = false;
+          setSliderDragValue(null);
+          sliderReleaseAtRef.current = null;
+          sliderReleaseSourceValueRef.current = null;
+          return;
+        }
+        triggerObjectMacroEvent("release");
+        const groupNode = evt.currentTarget;
+        const pointer = groupNode.getRelativePointerPosition();
+        if (pointer) {
+          const fraction = getSliderFraction(pointer.x, pointer.y);
+          sliderLastFractionRef.current = fraction;
+        }
+        finalizeSliderDrag(true);
+      }}
+      onMouseLeave={() => {
+        if (interactive || runtimeDisabled) {
+          sliderDragRef.current = false;
+          setSliderDragValue(null);
+          sliderReleaseAtRef.current = null;
+          sliderReleaseSourceValueRef.current = null;
+          return;
+        }
+        if (sliderDragRef.current) {
+          finalizeSliderDrag(true);
+        }
+      }}
+    >
+      <SelectionHitArea object={resolvedObject} enabled={interactive} />
+      <Rect
+        width={resolvedObject.width}
+        height={resolvedObject.height}
+        fill={renderBackgroundColor}
+        stroke={renderBorderColor}
+        strokeWidth={sliderBorderWidth}
+        cornerRadius={sliderCornerRadius}
+        opacity={runtimeDisabled ? 0.7 : 1}
+        perfectDrawEnabled={false}
+        {...sliderShadowProps}
+      />
+      {isSliderVertical ? (
+        <>
+          <Rect
+            x={resolvedObject.width * 0.5 - sliderTrackThickness / 2}
+            y={sliderThumbRadius}
+            width={sliderTrackThickness}
+            height={Math.max(0, resolvedObject.height - sliderThumbRadius * 2)}
+            fill={renderTrackColor}
+            cornerRadius={sliderTrackThickness / 2}
+          />
+          <Rect
+            x={resolvedObject.width * 0.5 - sliderTrackThickness / 2}
+            y={sliderThumbRadius + resolvedObject.height * (1 - sliderRenderRatio) - sliderThumbRadius * 2 * (1 - sliderRenderRatio)}
+            width={sliderTrackThickness}
+            height={Math.max(0, (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio)}
+            fill={renderFillColor}
+            cornerRadius={sliderTrackThickness / 2}
+          />
+          <Circle
+            x={resolvedObject.width * 0.5}
+            y={resolvedObject.height - sliderThumbRadius - (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio}
+            radius={sliderThumbRadius}
+            fill={renderThumbColor}
+            stroke={sliderThumbBorderColor}
+            strokeWidth={1}
+            perfectDrawEnabled={false}
+            {...sliderShadowProps}
+          />
+        </>
+      ) : (
+        <>
+          <Rect
+            x={sliderThumbRadius}
+            y={resolvedObject.height * 0.5 - sliderTrackThickness / 2}
+            width={Math.max(0, resolvedObject.width - sliderThumbRadius * 2)}
+            height={sliderTrackThickness}
+            fill={renderTrackColor}
+            cornerRadius={sliderTrackThickness / 2}
+          />
+          <Rect
+            x={sliderThumbRadius}
+            y={resolvedObject.height * 0.5 - sliderTrackThickness / 2}
+            width={Math.max(0, (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio)}
+            height={sliderTrackThickness}
+            fill={renderFillColor}
+            cornerRadius={sliderTrackThickness / 2}
+          />
+          <Circle
+            x={sliderThumbRadius + (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio}
+            y={resolvedObject.height * 0.5}
+            radius={sliderThumbRadius}
+            fill={renderThumbColor}
+            stroke={sliderThumbBorderColor}
+            strokeWidth={1}
+            perfectDrawEnabled={false}
+            {...sliderShadowProps}
+          />
+        </>
+      )}
+      {sliderShowMinMax ? (
+        <>
+          {renderBoxText(sliderMinText, {
+            fontFamily: sliderFontFamily,
+            fontSize: sliderMinMaxFontSize,
+            color: renderTextColor,
+            horizontalAlign: isSliderVertical ? "center" : "left",
+            verticalAlign: isSliderVertical ? "bottom" : "middle",
+            padding: sliderMinLabelOffset,
+          }, {
+            width: resolvedObject.width,
+            height: resolvedObject.height,
+          })}
+          {renderBoxText(sliderMaxText, {
+            fontFamily: sliderFontFamily,
+            fontSize: sliderMinMaxFontSize,
+            color: renderTextColor,
+            horizontalAlign: isSliderVertical ? "center" : "right",
+            verticalAlign: isSliderVertical ? "top" : "middle",
+            padding: sliderMaxLabelOffset,
+          }, {
+            width: resolvedObject.width,
+            height: resolvedObject.height,
+          })}
+        </>
+      ) : null}
+      {sliderValueText && sliderValuePosition !== "hidden" ? (
+        renderBoxText(sliderValueText, {
+          fontFamily: sliderFontFamily,
+          fontSize: sliderFontSize,
+          color: renderTextColor,
+          horizontalAlign: valueAlign.horizontalAlign,
+          verticalAlign: valueAlign.verticalAlign,
+          padding: valueAlign.padding,
+        }, {
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+        })
+      ) : null}
+      <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+    </Group>
+  );
 }
 
 function isIndexedAddressDebugEnabled(): boolean {
