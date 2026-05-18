@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ColorPicker, Space, Spin } from "antd";
+import { ColorPicker, Spin } from "antd";
 import type { TagValue, TrendChartObject } from "@web-scada/shared";
 import { createRuntimeSocket } from "../../services/ws";
 import type { TrendTagInfo } from "../../services/api";
@@ -41,10 +41,10 @@ const DEFAULT_SERIES_COLUMN_WIDTHS: Record<TrendSeriesColumnId, number> = {
 };
 
 const MIN_SERIES_COLUMN_WIDTHS: Record<TrendSeriesColumnId, number> = {
-  visible: 56,
-  tag: 180,
-  color: 200,
-  value: 90,
+  visible: 36,
+  tag: 120,
+  color: 72,
+  value: 70,
 };
 
 function toLocalDateTimeInputValue(timestamp: number): string {
@@ -86,6 +86,11 @@ function formatTrendValue(value: number | boolean | string | null | undefined): 
     return value ? "true" : "false";
   }
   return String(value);
+}
+
+function isAuthenticationRequiredErrorMessage(message: string): boolean {
+  const text = message.toLowerCase();
+  return text.includes("authentication required") || text.includes("unauthorized");
 }
 
 function resolveRangeFromObject(object: TrendChartObject): { preset: TrendRangePreset; range: TrendVisibleRange } {
@@ -134,6 +139,7 @@ type TrendRuntimeViewState = {
   liveMode: boolean;
   customFrom: string;
   customTo: string;
+  settings?: TrendSettings;
   selectedTags?: TrendTagSelection[];
   manualAxes?: TrendAxisConfig[];
   tagPickerFilters?: TrendTagPickerFilters;
@@ -174,6 +180,18 @@ function readRuntimeViewState(objectId: string): TrendRuntimeViewState | null {
       ? parsed.manualAxes.filter((axis) => typeof axis?.id === "string" && (axis?.position === "left" || axis?.position === "right"))
       : undefined;
     const rawFilters = parsed.tagPickerFilters;
+    const defaults = defaultTrendSettings();
+    const sourceSettings = (parsed.settings ?? {}) as Partial<TrendSettings>;
+    const restoredSettings: TrendSettings = {
+      ...defaults,
+      ...sourceSettings,
+      maxPointsPerSeries: clamp(Number(sourceSettings.maxPointsPerSeries ?? defaults.maxPointsPerSeries), 1000, 8000),
+      cacheSize: clamp(Number(sourceSettings.cacheSize ?? defaults.cacheSize), 8, 256),
+      liveBufferLimit: clamp(Number(sourceSettings.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
+      zoomDebounceMs: clamp(Number(sourceSettings.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
+      defaultLineWidth: clamp(Number(sourceSettings.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
+      axisOffsetStep: clamp(Number(sourceSettings.axisOffsetStep ?? defaults.axisOffsetStep), 24, 120),
+    };
     const tagPickerFilters: TrendTagPickerFilters = {
       search: typeof rawFilters?.search === "string" ? rawFilters.search : "",
       groupFilter: typeof rawFilters?.groupFilter === "string" ? rawFilters.groupFilter : "all",
@@ -187,6 +205,7 @@ function readRuntimeViewState(objectId: string): TrendRuntimeViewState | null {
       liveMode: Boolean(parsed.liveMode),
       customFrom: typeof parsed.customFrom === "string" ? parsed.customFrom : toLocalDateTimeInputValue(from),
       customTo: typeof parsed.customTo === "string" ? parsed.customTo : toLocalDateTimeInputValue(to),
+      settings: restoredSettings,
       selectedTags,
       manualAxes,
       tagPickerFilters,
@@ -215,6 +234,7 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
     liveMode: Boolean(object.liveMode),
     customFrom: toLocalDateTimeInputValue(objectRange.range.from),
     customTo: toLocalDateTimeInputValue(objectRange.range.to),
+    settings: resolveSettingsFromObject(object),
     selectedTags: object.selectedTags ?? [],
     manualAxes: object.axes ?? [],
     tagPickerFilters: DEFAULT_TAG_PICKER_FILTERS,
@@ -227,7 +247,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [selectedTags, setSelectedTags] = useState<TrendTagSelection[]>(initialViewState.selectedTags ?? object.selectedTags ?? []);
   const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>(initialViewState.manualAxes ?? object.axes ?? []);
   const [tagPickerFilters, setTagPickerFilters] = useState<TrendTagPickerFilters>(initialViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
-  const [settings, setSettings] = useState<TrendSettings>(() => resolveSettingsFromObject(object));
+  const [settings, setSettings] = useState<TrendSettings>(() => initialViewState.settings ?? resolveSettingsFromObject(object));
   const [response, setResponse] = useState<TrendQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -247,6 +267,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [liveLastBatchAt, setLiveLastBatchAt] = useState<number | null>(null);
   const [liveLastPointTs, setLiveLastPointTs] = useState<number | null>(null);
   const [liveAutoStopReason, setLiveAutoStopReason] = useState<string | null>(null);
+  const [historyWarning, setHistoryWarning] = useState<string | null>(null);
   const [screenRevision, setScreenRevision] = useState(0);
   const [pendingToolbarRange, setPendingToolbarRange] = useState<TrendVisibleRange | null>(null);
   const [seriesLatestValues, setSeriesLatestValues] = useState<Record<string, string>>({});
@@ -289,7 +310,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setSelectedTags(nextViewState.selectedTags ?? object.selectedTags ?? []);
     setManualAxes(nextViewState.manualAxes ?? object.axes ?? []);
     setTagPickerFilters(nextViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
-    setSettings(resolveSettingsFromObject(object));
+    setSettings(nextViewState.settings ?? resolveSettingsFromObject(object));
     setLiveMode(nextViewState.liveMode);
     setRangePreset(nextViewState.rangePreset);
     setVisibleRange(nextViewState.visibleRange);
@@ -298,6 +319,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setSeriesLatestValues({});
     setHoverSeriesValues(null);
     setHoverTimestamp(null);
+    setHistoryWarning(null);
     setScreenRevision((prev) => prev + 1);
   }, [object.id]);
 
@@ -308,11 +330,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       liveMode,
       customFrom,
       customTo,
+      settings,
       selectedTags,
       manualAxes,
       tagPickerFilters,
     });
-  }, [customFrom, customTo, liveMode, manualAxes, object.id, rangePreset, selectedTags, tagPickerFilters, visibleRange]);
+  }, [customFrom, customTo, liveMode, manualAxes, object.id, rangePreset, selectedTags, settings, tagPickerFilters, visibleRange]);
 
   const executeQuery = useCallback(async (range: TrendVisibleRange, options?: { force?: boolean }) => {
     if (selectedTags.length === 0) {
@@ -359,6 +382,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
 
     setLoading(true);
     setError(null);
+    setHistoryWarning(null);
 
     try {
       const next = await queryTrendData({
@@ -388,7 +412,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         return;
       }
       const text = queryError instanceof Error ? queryError.message : "Trends query failed";
-      setError(text);
+      if (isAuthenticationRequiredErrorMessage(text) && liveMode) {
+        setError(null);
+        setHistoryWarning("History loading requires authentication");
+      } else {
+        setError(text);
+      }
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false);
@@ -411,7 +440,11 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         }
       } catch (loadError) {
         const text = loadError instanceof Error ? loadError.message : "Failed to load trend tags";
-        setError(text);
+        if (isAuthenticationRequiredErrorMessage(text)) {
+          setHistoryWarning("History loading requires authentication");
+        } else {
+          setError(text);
+        }
       }
     })();
   }, []);
@@ -786,6 +819,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         )}
       </div>
 
+      {settings.showSeriesTable ? (
       <div className="trends-series-table-wrap">
         <div className="trends-series-table">
           <div className="screen-editor-tags-row screen-editor-tags-row--header trends-series-table__row trends-series-table__row--head" style={{ gridTemplateColumns: visibleSeriesColumnTemplate }}>
@@ -823,13 +857,13 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
                   const colorValue = normalizeHexColor(tag.color, "#4FC3F7");
                   return (
                     <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--color">
-                      <Space.Compact className="trends-series-table__color-row">
+                      <div className="trends-series-table__color-row">
                         <ColorPicker
                           size="small"
                           value={colorValue}
                           onChangeComplete={(color) => setSeriesPatch(tag.tag, { color: color.toHexString() })}
                         />
-                      </Space.Compact>
+                      </div>
                     </div>
                   );
                 }
@@ -843,6 +877,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           ))}
         </div>
       </div>
+      ) : null}
       {contextMenu ? (
         <div className="trends-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
           <button type="button" className="screen-editor-context-menu__item" onClick={() => runMenuAction(() => setTagDialogOpen(true))}>Add/Remove Tags</button>
@@ -885,6 +920,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           <span>Loaded: {loadedSeriesCount}/{selectedTags.length}</span>
           <span>Points: {pointCount.toLocaleString()}</span>
           <span>Aggregation: {aggregationLabel}</span>
+          <span>History: {historyWarning ?? "ok"}</span>
           <span>Last load: {lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : "-"}</span>
           <span>Live WS: {liveSocketState}</span>
           <span>Live batches: {liveBatchCount}</span>

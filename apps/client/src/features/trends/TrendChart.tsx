@@ -5,7 +5,7 @@ import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent } f
 import { CanvasRenderer } from "echarts/renderers";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
 import type { TrendAxisConfig, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { TREND_WORKBENCH_THEME } from "./trendTheme";
+import { resolveTrendTheme } from "./trendTheme";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, CanvasRenderer]);
 
@@ -156,6 +156,7 @@ export function TrendChart({
     if (!chart) {
       return;
     }
+    const uiTheme = resolveTrendTheme(settings.theme);
 
     const activeTags = tags.filter((tag) => tag.visible !== false);
     const safeAxes: TrendAxisConfig[] = axes.length > 0
@@ -178,10 +179,10 @@ export function TrendChart({
       scale: settings.autoScale,
       min: axis.min === "auto" ? null : axis.min,
       max: axis.max === "auto" ? null : axis.max,
-      nameTextStyle: { color: axis.color ?? TREND_WORKBENCH_THEME.text },
-      axisLine: { show: true, lineStyle: { color: axis.color ?? TREND_WORKBENCH_THEME.border } },
-      axisLabel: { show: settings.axisLabels, color: TREND_WORKBENCH_THEME.mutedText },
-      splitLine: { show: settings.gridLines, lineStyle: { color: TREND_WORKBENCH_THEME.gridLine, type: "dashed" } },
+      nameTextStyle: { color: axis.color ?? uiTheme.text },
+      axisLine: { show: true, lineStyle: { color: axis.color ?? uiTheme.border } },
+      axisLabel: { show: settings.axisLabels, color: uiTheme.mutedText },
+      splitLine: { show: settings.gridLines, lineStyle: { color: uiTheme.gridLine, type: "dashed" } },
     }));
 
     const series = activeTags.map((tag, index) => {
@@ -227,7 +228,7 @@ export function TrendChart({
       // Windowed range is controlled via dataZoom start/end values.
       backgroundColor: settings.background,
       animation: false,
-      textStyle: { color: TREND_WORKBENCH_THEME.text },
+      textStyle: { color: uiTheme.text },
       grid: {
         left: 56 + Math.max(0, (safeAxes.filter((axis) => axis.position === "left").length - 1) * (settings.axisOffsetStep + 10)),
         right: 56 + Math.max(0, (safeAxes.filter((axis) => axis.position === "right").length - 1) * (settings.axisOffsetStep + 10)),
@@ -239,7 +240,7 @@ export function TrendChart({
         show: showLegend && settings.legend,
         type: "scroll",
         top: 4,
-        textStyle: { color: TREND_WORKBENCH_THEME.text },
+        textStyle: { color: uiTheme.text },
       },
       axisPointer: {
         show: true,
@@ -257,18 +258,18 @@ export function TrendChart({
               animation: false,
             },
             backgroundColor: "#1f1f1f",
-            borderColor: TREND_WORKBENCH_THEME.border,
-            textStyle: { color: TREND_WORKBENCH_THEME.text },
+            borderColor: uiTheme.border,
+            textStyle: { color: uiTheme.text },
           }
         : undefined,
       xAxis: {
         type: "time",
         min: fullRangeRef.current.from,
         max: fullRangeRef.current.to,
-        axisLine: { lineStyle: { color: TREND_WORKBENCH_THEME.border } },
+        axisLine: { lineStyle: { color: uiTheme.border } },
         axisPointer: { show: true, label: { show: false } },
-        axisLabel: { show: settings.axisLabels, color: TREND_WORKBENCH_THEME.mutedText },
-        splitLine: { show: settings.gridLines, lineStyle: { color: TREND_WORKBENCH_THEME.gridLine } },
+        axisLabel: { show: settings.axisLabels, color: uiTheme.mutedText },
+        splitLine: { show: settings.gridLines, lineStyle: { color: uiTheme.gridLine } },
       },
       yAxis,
       dataZoom: interactiveZoomEnabled
@@ -295,7 +296,7 @@ export function TrendChart({
               showDataShadow: false,
               height: 20,
               bottom: 14,
-              borderColor: TREND_WORKBENCH_THEME.border,
+              borderColor: uiTheme.border,
               fillerColor: "rgba(0, 122, 204, 0.24)",
               backgroundColor: "rgba(255,255,255,0.03)",
             },

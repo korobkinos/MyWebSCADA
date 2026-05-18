@@ -751,6 +751,7 @@ export type TrendChartSettings = {
   separateAxisPerTag?: boolean;
   axisPlacement?: "left" | "right" | "split";
   axisOffsetStep?: number;
+  showSeriesTable?: boolean;
 };
 
 export type TrendChartObject = HmiObjectBase & {

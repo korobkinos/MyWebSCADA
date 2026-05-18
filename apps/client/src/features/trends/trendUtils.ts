@@ -36,6 +36,7 @@ export function defaultTrendSettings(): TrendSettings {
     separateAxisPerTag: false,
     axisPlacement: "split",
     axisOffsetStep: 46,
+    showSeriesTable: true,
   };
 }
 

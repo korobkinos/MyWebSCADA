@@ -22,3 +22,20 @@ export const TREND_WORKBENCH_THEME = {
   accent: "#007acc",
   gridLine: "#2f2f2f",
 };
+
+export const TREND_ECHARTS_DARK_THEME = {
+  background: "#1f1f1f",
+  panel: "#262626",
+  border: "#434343",
+  text: "#e0e0e0",
+  mutedText: "#a6a6a6",
+  accent: "#4992ff",
+  gridLine: "#303030",
+};
+
+export function resolveTrendTheme(theme: "workbench-dark" | "echarts-dark" | "custom" | undefined) {
+  if (theme === "echarts-dark") {
+    return TREND_ECHARTS_DARK_THEME;
+  }
+  return TREND_WORKBENCH_THEME;
+}

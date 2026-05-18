@@ -563,6 +563,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
           separateAxisPerTag: false,
           axisPlacement: "split",
           axisOffsetStep: 46,
+          showSeriesTable: true,
         },
       };
     default:

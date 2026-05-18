@@ -6178,10 +6178,30 @@ body {
 
 .trends-series-table__cell--color {
   padding: 2px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .trends-series-table__color-row {
-  width: 24px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trends-series-table__color-row .ant-color-picker-trigger {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #3c3c3c;
+  border-radius: 2px;
+}
+
+.trends-series-table__color-row .ant-color-picker-color-block {
+  border-radius: 1px;
 }
 
 .trends-series-table__cell--value {

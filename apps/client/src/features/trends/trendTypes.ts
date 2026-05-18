@@ -67,6 +67,7 @@ export type TrendSettings = {
   separateAxisPerTag: boolean;
   axisPlacement: "left" | "right" | "split";
   axisOffsetStep: number;
+  showSeriesTable: boolean;
 };
 
 export type TrendVisibleRange = {
