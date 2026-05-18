@@ -198,18 +198,77 @@ export function TrendChart({
           max: "auto",
         }];
     const axisIndexById = new Map<string, number>(safeAxes.map((axis, index) => [axis.id, index]));
+    const axisRangeById = new Map<string, { min: number; max: number }>();
+    for (const tag of activeTags) {
+      const axisId = axisIdByTag.get(tag.tag) ?? safeAxes[0]?.id;
+      if (!axisId) {
+        continue;
+      }
+      const points = seriesPointsRef.current.get(tag.tag) ?? [];
+      for (const point of points) {
+        if (!point || typeof point.v !== "number" || !Number.isFinite(point.v)) {
+          continue;
+        }
+        const current = axisRangeById.get(axisId);
+        if (!current) {
+          axisRangeById.set(axisId, { min: point.v, max: point.v });
+        } else {
+          if (point.v < current.min) {
+            current.min = point.v;
+          }
+          if (point.v > current.max) {
+            current.max = point.v;
+          }
+        }
+      }
+    }
 
     const yAxis = safeAxes.map((axis) => ({
       type: "value" as const,
       name: axis.name || axis.unit || axis.id,
       position: axis.position,
-      offset: axis.offset ?? 0,
+      offset: Math.round((axis.offset ?? 0) * 0.45),
       scale: settings.autoScale,
-      min: axis.min === "auto" ? null : axis.min,
-      max: axis.max === "auto" ? null : axis.max,
-      nameTextStyle: { color: axis.color ?? uiTheme.text },
+      min: (() => {
+        if (axis.min !== "auto") {
+          return axis.min;
+        }
+        if (!settings.autoScale) {
+          return null;
+        }
+        const range = axisRangeById.get(axis.id);
+        if (!range) {
+          return 0;
+        }
+        if (Math.abs(range.max - range.min) < 1e-9) {
+          const pad = Math.max(1, Math.abs(range.max) * 0.05, 0.5);
+          return range.min - pad;
+        }
+        return null;
+      })(),
+      max: (() => {
+        if (axis.max !== "auto") {
+          return axis.max;
+        }
+        if (!settings.autoScale) {
+          return null;
+        }
+        const range = axisRangeById.get(axis.id);
+        if (!range) {
+          return 1;
+        }
+        if (Math.abs(range.max - range.min) < 1e-9) {
+          const pad = Math.max(1, Math.abs(range.max) * 0.05, 0.5);
+          return range.max + pad;
+        }
+        return null;
+      })(),
+      nameLocation: "end" as const,
+      nameRotate: axis.position === "left" ? 90 : -90,
+      nameGap: 8,
+      nameTextStyle: { color: axis.color ?? uiTheme.text, align: axis.position === "left" ? "left" : "right" },
       axisLine: { show: true, lineStyle: { color: axis.color ?? uiTheme.border } },
-      axisLabel: { show: settings.axisLabels, color: uiTheme.mutedText },
+      axisLabel: { show: settings.axisLabels, color: uiTheme.mutedText, hideOverlap: false, showMinLabel: true, showMaxLabel: true },
       splitLine: { show: settings.gridLines, lineStyle: { color: uiTheme.gridLine, type: "dashed" } },
     }));
 
@@ -298,8 +357,8 @@ export function TrendChart({
       animation: animationEnabled,
       textStyle: { color: uiTheme.text },
       grid: {
-        left: 56 + Math.max(0, (safeAxes.filter((axis) => axis.position === "left").length - 1) * (settings.axisOffsetStep + 10)),
-        right: 56 + Math.max(0, (safeAxes.filter((axis) => axis.position === "right").length - 1) * (settings.axisOffsetStep + 10)),
+        left: 14 + Math.max(0, (safeAxes.filter((axis) => axis.position === "left").length - 1) * (Math.round(settings.axisOffsetStep * 0.45) + 2)),
+        right: 40 + Math.max(0, (safeAxes.filter((axis) => axis.position === "right").length - 1) * (settings.axisOffsetStep + 2)),
         top: 34,
         bottom: interactiveZoomEnabled && showDataZoomSlider ? 74 : 20,
         containLabel: true,
