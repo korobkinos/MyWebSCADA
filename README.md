@@ -67,6 +67,7 @@ Web SCADA Lite - это расширяемая web-SCADA/HMI система на
 ```bash
 corepack enable
 pnpm install
+pnpm init:dev
 pnpm dev
 ```
 
@@ -80,6 +81,8 @@ npm run dev
 `pnpm dev` / `npm run dev` запускает единый Node dev-runner, который поднимает:
 - `@web-scada/server` (`tsx watch`)
 - `@web-scada/client` (`vite`)
+
+`pnpm init:dev` проверяет Docker, при необходимости скачивает `timescale/timescaledb:latest-pg16`, создает/запускает контейнер `mywebscada-timescale-dev` и ждет готовности БД с выводом прогресса.
 
 Остановка:
 - Нажмите `Ctrl+C` один раз.

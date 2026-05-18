@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "packageManager": "pnpm@10.10.0",
   "scripts": {
+    "init:dev": "node scripts/init.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:workspace": "pnpm -r --parallel dev",
     "dev:kill": "node scripts/kill-dev-ports.mjs",
