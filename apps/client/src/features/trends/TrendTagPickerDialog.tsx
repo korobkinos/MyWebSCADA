@@ -1,6 +1,7 @@
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ColorPicker, Input, Space } from "antd";
 import { WorkbenchButton } from "../../components/workbench";
-import type { TrendAxisConfig, TrendTagInfo, TrendTagSelection } from "./trendTypes";
+import type { TrendAxisConfig, TrendTagInfo, TrendTagPickerFilters, TrendTagSelection } from "./trendTypes";
 import { pickSeriesColor } from "./trendUtils";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 
@@ -9,29 +10,72 @@ type TrendTagPickerDialogProps = {
   tags: TrendTagInfo[];
   selectedTags: TrendTagSelection[];
   axes: TrendAxisConfig[];
+  initialFilters?: TrendTagPickerFilters;
   onClose: () => void;
   onApply: (nextTags: TrendTagSelection[], nextAxes: TrendAxisConfig[]) => void;
+  onFiltersChange?: (next: TrendTagPickerFilters) => void;
 };
 
 const TABLE_COLUMNS = "34px minmax(220px, 1fr) 90px 90px 120px";
+const TREND_TAG_PICKER_DETAILS_WIDTH_STORAGE_KEY = "mywebscada.trends.tagPicker.detailsWidth";
+const DEFAULT_DETAILS_WIDTH = 360;
+const MIN_DETAILS_WIDTH = 300;
+const MAX_DETAILS_WIDTH = 760;
 
-export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, onApply }: TrendTagPickerDialogProps) {
-  const [search, setSearch] = useState("");
-  const [groupFilter, setGroupFilter] = useState<string>("all");
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizePickerColor(value: string | undefined, fallback: string): string {
+  const trimmed = (value ?? "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    const body = trimmed.slice(1);
+    return `#${body[0]}${body[0]}${body[1]}${body[1]}${body[2]}${body[2]}`;
+  }
+  return fallback;
+}
+
+export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFilters, onClose, onApply, onFiltersChange }: TrendTagPickerDialogProps) {
+  const [search, setSearch] = useState(initialFilters?.search ?? "");
+  const [groupFilter, setGroupFilter] = useState<string>(initialFilters?.groupFilter ?? "all");
+  const [selectionFilter, setSelectionFilter] = useState<TrendTagPickerFilters["selectionFilter"]>(initialFilters?.selectionFilter ?? "all");
   const [selectedTagName, setSelectedTagName] = useState<string>("");
   const [draftTags, setDraftTags] = useState<TrendTagSelection[]>(selectedTags);
   const [draftAxes, setDraftAxes] = useState<TrendAxisConfig[]>(axes);
+  const [detailsWidth, setDetailsWidth] = useState<number>(() => {
+    if (typeof window === "undefined") {
+      return DEFAULT_DETAILS_WIDTH;
+    }
+    try {
+      const raw = window.localStorage.getItem(TREND_TAG_PICKER_DETAILS_WIDTH_STORAGE_KEY);
+      if (!raw) {
+        return DEFAULT_DETAILS_WIDTH;
+      }
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) ? clamp(parsed, MIN_DETAILS_WIDTH, MAX_DETAILS_WIDTH) : DEFAULT_DETAILS_WIDTH;
+    } catch {
+      return DEFAULT_DETAILS_WIDTH;
+    }
+  });
+  const [isDetailsResizeActive, setIsDetailsResizeActive] = useState(false);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const resizeStartXRef = useRef(0);
+  const resizeStartWidthRef = useRef(0);
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    setSearch("");
-    setGroupFilter("all");
+    setSearch(initialFilters?.search ?? "");
+    setGroupFilter(initialFilters?.groupFilter ?? "all");
+    setSelectionFilter(initialFilters?.selectionFilter ?? "all");
     setDraftTags(selectedTags);
     setDraftAxes(axes);
     setSelectedTagName((selectedTags[0]?.tag ?? tags[0]?.name ?? ""));
-  }, [axes, open, selectedTags, tags]);
+  }, [axes, initialFilters?.groupFilter, initialFilters?.search, initialFilters?.selectionFilter, open, selectedTags, tags]);
 
   const draftTagMap = useMemo(() => new Map(draftTags.map((item) => [item.tag, item])), [draftTags]);
   const tagsByName = useMemo(() => new Map(tags.map((tag) => [tag.name, tag])), [tags]);
@@ -47,7 +91,11 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, 
     const term = search.trim().toLowerCase();
     return tags.filter((tag) => {
       const group = tag.group?.trim() || "Ungrouped";
+      const selected = draftTagMap.has(tag.name);
       if (groupFilter !== "all" && group !== groupFilter) {
+        return false;
+      }
+      if (selectionFilter === "added" && !selected) {
         return false;
       }
       if (!term) {
@@ -57,10 +105,27 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, 
         || (tag.displayName ?? "").toLowerCase().includes(term)
         || group.toLowerCase().includes(term);
     });
-  }, [groupFilter, search, tags]);
+  }, [draftTagMap, groupFilter, search, selectionFilter, tags]);
 
-  const current = draftTagMap.get(selectedTagName);
-  const currentInfo = current ? tagsByName.get(current.tag) : undefined;
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    onFiltersChange?.({ search, groupFilter, selectionFilter });
+  }, [groupFilter, onFiltersChange, open, search, selectionFilter]);
+
+  const selectedTagInfo = tagsByName.get(selectedTagName);
+  const current = selectedTagInfo ? draftTagMap.get(selectedTagInfo.name) : undefined;
+  const currentInfo = selectedTagInfo;
+
+  useEffect(() => {
+    if (!open || filtered.length === 0) {
+      return;
+    }
+    if (!selectedTagName || !filtered.some((tag) => tag.name === selectedTagName)) {
+      setSelectedTagName(filtered[0]!.name);
+    }
+  }, [filtered, open, selectedTagName]);
 
   if (!open) {
     return null;
@@ -149,6 +214,46 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, 
     setSelectedTagName("");
   };
 
+  const startDetailsResize = (event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    resizeStartXRef.current = event.clientX;
+    resizeStartWidthRef.current = detailsWidth;
+    setIsDetailsResizeActive(true);
+  };
+
+  useEffect(() => {
+    if (!isDetailsResizeActive) {
+      return;
+    }
+    const onMouseMove = (event: MouseEvent) => {
+      const delta = resizeStartXRef.current - event.clientX;
+      const containerWidth = bodyRef.current?.clientWidth ?? 0;
+      const dynamicMax = containerWidth > 0 ? Math.max(MIN_DETAILS_WIDTH, containerWidth - 520) : MAX_DETAILS_WIDTH;
+      const next = clamp(resizeStartWidthRef.current + delta, MIN_DETAILS_WIDTH, Math.min(MAX_DETAILS_WIDTH, dynamicMax));
+      setDetailsWidth(next);
+    };
+    const onMouseUp = () => {
+      setIsDetailsResizeActive(false);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [isDetailsResizeActive]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(TREND_TAG_PICKER_DETAILS_WIDTH_STORAGE_KEY, String(Math.round(detailsWidth)));
+    } catch {
+      // ignore storage failures for dialog-only preference
+    }
+  }, [detailsWidth]);
+
   return (
     <TrendWorkbenchDialog
       id="trend-tag-picker-dialog"
@@ -165,7 +270,7 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, 
             <WorkbenchButton variant="primary" onClick={selectFiltered} disabled={filtered.length === 0}>Select Found</WorkbenchButton>
             <WorkbenchButton onClick={clearSelected} disabled={draftTags.length === 0}>Clear Selected</WorkbenchButton>
             <div className="screen-editor-tags-window__toolbar-meta">
-              Total: {tags.length} | Found: {filtered.length} | Selected: {draftTags.length}
+              Total: {tags.length} | Found: {filtered.length} | Added: {draftTags.length}
             </div>
             <WorkbenchButton onClick={onClose}>Cancel</WorkbenchButton>
             <WorkbenchButton variant="primary" onClick={() => onApply(draftTags, draftAxes)}>Apply</WorkbenchButton>
@@ -178,10 +283,18 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, 
                 <option key={group} value={group}>{group === "all" ? "All groups" : group}</option>
               ))}
             </select>
-            <WorkbenchButton onClick={() => { setSearch(""); setGroupFilter("all"); }} disabled={!search && groupFilter === "all"}>Clear Filter</WorkbenchButton>
+            <select className="workbench-select screen-editor-tags-window__toolbar-select" value={selectionFilter} onChange={(event) => setSelectionFilter(event.target.value as TrendTagPickerFilters["selectionFilter"])}>
+              <option value="all">All tags</option>
+              <option value="added">Added to chart</option>
+            </select>
+            <WorkbenchButton onClick={() => { setSearch(""); setGroupFilter("all"); setSelectionFilter("all"); }} disabled={!search && groupFilter === "all" && selectionFilter === "all"}>Clear Filter</WorkbenchButton>
           </div>
 
-          <div className="screen-editor-tags-window__body" style={{ "--tags-details-width": "360px" } as CSSProperties}>
+          <div
+            ref={bodyRef}
+            className="screen-editor-tags-window__body"
+            style={{ "--tags-details-width": `${detailsWidth}px` } as CSSProperties}
+          >
             <div className="screen-editor-tags-window__list">
               <div className="screen-editor-tags-table">
                 <div className="screen-editor-tags-row screen-editor-tags-row--header" style={{ gridTemplateColumns: TABLE_COLUMNS }}>
@@ -216,64 +329,94 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, onClose, 
               </div>
             </div>
 
+            <div
+              className={[
+                "screen-editor-tags-resize-handle",
+                isDetailsResizeActive ? "screen-editor-tags-resize-handle--active" : "",
+              ].filter(Boolean).join(" ")}
+              onMouseDown={startDetailsResize}
+            />
+
             <div className="screen-editor-tags-window__details">
               <div className="screen-editor-tag-editor">
-                <div className="screen-editor-tag-editor__title">Series Details</div>
-                {current ? (
+                <div className="screen-editor-tag-editor__title">Tag Details</div>
+                {currentInfo ? (
                   <>
-                    <div className="screen-editor-tag-editor__kv"><span>Tag</span><strong>{current.tag}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Tag</span><strong>{currentInfo.name}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>ID</span><strong>{currentInfo.id}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Display name</span><strong>{currentInfo.displayName || "-"}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Type</span><strong>{currentInfo?.dataType ?? "number"}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Group</span><strong>{currentInfo?.group || "Ungrouped"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Unit</span><strong>{currentInfo.unit || "-"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Description</span><strong>{currentInfo.description || "-"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Range</span><strong>{typeof currentInfo.min === "number" || typeof currentInfo.max === "number" ? `${typeof currentInfo.min === "number" ? currentInfo.min : "-"} .. ${typeof currentInfo.max === "number" ? currentInfo.max : "-"}` : "-"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Added to chart</span><strong>{current ? "Yes" : "No"}</strong></div>
 
-                    <label className="workbench-field" style={{ marginTop: 8 }}>
-                      <span className="workbench-field__label">Display name</span>
-                      <input className="workbench-input" value={current.displayName || ""} onChange={(event) => updateCurrent({ displayName: event.target.value })} />
-                    </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Color</span>
-                      <input className="workbench-input" type="color" value={current.color || "#4FC3F7"} onChange={(event) => updateCurrent({ color: event.target.value })} />
-                    </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Line width</span>
-                      <input className="workbench-input" type="number" min={1} max={5} value={current.lineWidth ?? 1} onChange={(event) => updateCurrent({ lineWidth: Number(event.target.value) })} />
-                    </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Line style</span>
-                      <select className="workbench-select" value={current.lineType || "solid"} onChange={(event) => updateCurrent({ lineType: event.target.value as TrendTagSelection["lineType"] })}>
-                        <option value="solid">solid</option>
-                        <option value="dashed">dashed</option>
-                        <option value="dotted">dotted</option>
-                      </select>
-                    </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Render mode</span>
-                      <select className="workbench-select" value={current.mode || "line"} onChange={(event) => updateCurrent({ mode: event.target.value as TrendTagSelection["mode"], step: event.target.value === "step" })}>
-                        <option value="line">line</option>
-                        <option value="step">step</option>
-                        <option value="points">points</option>
-                      </select>
-                    </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Axis</span>
-                      <select
-                        className="workbench-select"
-                        value={current.axisMode === "manual" ? (current.axisId || "") : "auto"}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          if (value === "auto") {
-                            updateCurrent({ axisMode: "auto", axisId: undefined });
-                            return;
-                          }
-                          updateCurrent({ axisMode: "manual", axisId: value });
-                        }}
-                      >
-                        <option value="auto">auto</option>
-                        {draftAxes.map((axis) => (
-                          <option key={axis.id} value={axis.id}>{axis.name || axis.id}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <WorkbenchButton onClick={createNewAxisForCurrent}>Create New Axis</WorkbenchButton>
+                    {current ? (
+                      <>
+                        <label className="workbench-field" style={{ marginTop: 8 }}>
+                          <span className="workbench-field__label">Series display name</span>
+                          <input className="workbench-input" value={current.displayName || ""} onChange={(event) => updateCurrent({ displayName: event.target.value })} />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Color</span>
+                          <Space.Compact style={{ width: "100%" }}>
+                            <ColorPicker
+                              value={normalizePickerColor(current.color, "#4FC3F7")}
+                              onChangeComplete={(color) => updateCurrent({ color: color.toHexString() })}
+                            />
+                            <Input
+                              value={current.color || ""}
+                              onChange={(event) => updateCurrent({ color: event.target.value })}
+                              placeholder="#4FC3F7"
+                            />
+                          </Space.Compact>
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Line width</span>
+                          <input className="workbench-input" type="number" min={1} max={5} value={current.lineWidth ?? 1} onChange={(event) => updateCurrent({ lineWidth: Number(event.target.value) })} />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Line style</span>
+                          <select className="workbench-select" value={current.lineType || "solid"} onChange={(event) => updateCurrent({ lineType: event.target.value as TrendTagSelection["lineType"] })}>
+                            <option value="solid">solid</option>
+                            <option value="dashed">dashed</option>
+                            <option value="dotted">dotted</option>
+                          </select>
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Render mode</span>
+                          <select className="workbench-select" value={current.mode || "line"} onChange={(event) => updateCurrent({ mode: event.target.value as TrendTagSelection["mode"], step: event.target.value === "step" })}>
+                            <option value="line">line</option>
+                            <option value="step">step</option>
+                            <option value="points">points</option>
+                          </select>
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Axis</span>
+                          <select
+                            className="workbench-select"
+                            value={current.axisMode === "manual" ? (current.axisId || "") : "auto"}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              if (value === "auto") {
+                                updateCurrent({ axisMode: "auto", axisId: undefined });
+                                return;
+                              }
+                              updateCurrent({ axisMode: "manual", axisId: value });
+                            }}
+                          >
+                            <option value="auto">auto</option>
+                            {draftAxes.map((axis) => (
+                              <option key={axis.id} value={axis.id}>{axis.name || axis.id}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <WorkbenchButton onClick={createNewAxisForCurrent}>Create New Axis</WorkbenchButton>
+                      </>
+                    ) : (
+                      <WorkbenchButton variant="primary" onClick={() => toggleTag(currentInfo)} style={{ marginTop: 8 }}>Add To Chart</WorkbenchButton>
+                    )}
                   </>
                 ) : (
                   <div className="screen-editor-empty-state">Select a tag</div>

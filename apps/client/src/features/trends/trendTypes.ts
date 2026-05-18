@@ -32,6 +32,14 @@ export type TrendTagSelection = {
   axisId?: string;
 };
 
+export type TrendTagPickerSelectionFilter = "all" | "added";
+
+export type TrendTagPickerFilters = {
+  search: string;
+  groupFilter: string;
+  selectionFilter: TrendTagPickerSelectionFilter;
+};
+
 export type TrendSettings = {
   theme: "workbench-dark" | "echarts-dark" | "custom";
   background: string;

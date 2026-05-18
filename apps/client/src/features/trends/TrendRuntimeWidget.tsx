@@ -9,7 +9,7 @@ import { TrendChart } from "./TrendChart";
 import { TrendSettingsPanel } from "./TrendSettingsPanel";
 import { TrendTagPickerDialog } from "./TrendTagPickerDialog";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
-import type { TrendAxisConfig, TrendChartApi, TrendQueryResponse, TrendRangePreset, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
+import type { TrendAxisConfig, TrendChartApi, TrendQueryResponse, TrendRangePreset, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { buildAxes, clamp, computeMaxPointsFromWidth, defaultTrendSettings, formatRangeLabel, parseQuickRange } from "./trendUtils";
 
 const LIVE_FLUSH_MS = 300;
@@ -78,6 +78,15 @@ type TrendRuntimeViewState = {
   liveMode: boolean;
   customFrom: string;
   customTo: string;
+  selectedTags?: TrendTagSelection[];
+  manualAxes?: TrendAxisConfig[];
+  tagPickerFilters?: TrendTagPickerFilters;
+};
+
+const DEFAULT_TAG_PICKER_FILTERS: TrendTagPickerFilters = {
+  search: "",
+  groupFilter: "all",
+  selectionFilter: "all",
 };
 
 function getRuntimeViewStateStorageKey(objectId: string): string {
@@ -102,12 +111,29 @@ function readRuntimeViewState(objectId: string): TrendRuntimeViewState | null {
     if (!isRangeValid || !isPresetValid) {
       return null;
     }
+    const selectedTags = Array.isArray(parsed.selectedTags)
+      ? parsed.selectedTags.filter((item) => typeof item?.tag === "string" && item.tag.trim().length > 0)
+      : undefined;
+    const manualAxes = Array.isArray(parsed.manualAxes)
+      ? parsed.manualAxes.filter((axis) => typeof axis?.id === "string" && (axis?.position === "left" || axis?.position === "right"))
+      : undefined;
+    const rawFilters = parsed.tagPickerFilters;
+    const tagPickerFilters: TrendTagPickerFilters = {
+      search: typeof rawFilters?.search === "string" ? rawFilters.search : "",
+      groupFilter: typeof rawFilters?.groupFilter === "string" ? rawFilters.groupFilter : "all",
+      selectionFilter: rawFilters?.selectionFilter === "added"
+        ? rawFilters.selectionFilter
+        : "all",
+    };
     return {
       rangePreset: preset,
       visibleRange: { from, to },
       liveMode: Boolean(parsed.liveMode),
       customFrom: typeof parsed.customFrom === "string" ? parsed.customFrom : toLocalDateTimeInputValue(from),
       customTo: typeof parsed.customTo === "string" ? parsed.customTo : toLocalDateTimeInputValue(to),
+      selectedTags,
+      manualAxes,
+      tagPickerFilters,
     };
   } catch {
     return null;
@@ -133,14 +159,18 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
     liveMode: Boolean(object.liveMode),
     customFrom: toLocalDateTimeInputValue(objectRange.range.from),
     customTo: toLocalDateTimeInputValue(objectRange.range.to),
+    selectedTags: object.selectedTags ?? [],
+    manualAxes: object.axes ?? [],
+    tagPickerFilters: DEFAULT_TAG_PICKER_FILTERS,
   };
 }
 
 export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const initialViewState = useMemo(() => resolveInitialRuntimeViewState(object), [object.id]);
   const [allTags, setAllTags] = useState<TrendTagInfo[]>([]);
-  const [selectedTags, setSelectedTags] = useState<TrendTagSelection[]>(object.selectedTags ?? []);
-  const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>(object.axes ?? []);
+  const [selectedTags, setSelectedTags] = useState<TrendTagSelection[]>(initialViewState.selectedTags ?? object.selectedTags ?? []);
+  const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>(initialViewState.manualAxes ?? object.axes ?? []);
+  const [tagPickerFilters, setTagPickerFilters] = useState<TrendTagPickerFilters>(initialViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
   const [settings, setSettings] = useState<TrendSettings>(() => resolveSettingsFromObject(object));
   const [response, setResponse] = useState<TrendQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -186,8 +216,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
 
   useEffect(() => {
     const nextViewState = resolveInitialRuntimeViewState(object);
-    setSelectedTags(object.selectedTags ?? []);
-    setManualAxes(object.axes ?? []);
+    setSelectedTags(nextViewState.selectedTags ?? object.selectedTags ?? []);
+    setManualAxes(nextViewState.manualAxes ?? object.axes ?? []);
+    setTagPickerFilters(nextViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
     setSettings(resolveSettingsFromObject(object));
     setLiveMode(nextViewState.liveMode);
     setRangePreset(nextViewState.rangePreset);
@@ -203,8 +234,11 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       liveMode,
       customFrom,
       customTo,
+      selectedTags,
+      manualAxes,
+      tagPickerFilters,
     });
-  }, [customFrom, customTo, liveMode, object.id, rangePreset, visibleRange]);
+  }, [customFrom, customTo, liveMode, manualAxes, object.id, rangePreset, selectedTags, tagPickerFilters, visibleRange]);
 
   const executeQuery = useCallback(async (range: TrendVisibleRange, options?: { force?: boolean }) => {
     if (selectedTags.length === 0) {
@@ -565,7 +599,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         tags={allTags}
         selectedTags={selectedTags}
         axes={axes}
+        initialFilters={tagPickerFilters}
         onClose={() => setTagDialogOpen(false)}
+        onFiltersChange={setTagPickerFilters}
         onApply={(nextTags, nextAxes) => {
           setSelectedTags(nextTags);
           setManualAxes(nextAxes);
