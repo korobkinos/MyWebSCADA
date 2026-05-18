@@ -12,5 +12,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @web-scada/shared test"
+  },
+  "dependencies": {
+    "@ant-design/v5-patch-for-react-19": "^1.0.3"
   }
 }
