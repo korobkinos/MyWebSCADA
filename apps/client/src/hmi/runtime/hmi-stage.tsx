@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Layer, Rect, Stage, Transformer } from "react-konva";
+import { FastLayer, Layer, Rect, Stage, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type {
@@ -421,6 +421,7 @@ export function HmiStage({
             onUpsertWidgetOverlay={handleUpsertWidgetOverlay}
             onRemoveWidgetOverlay={handleRemoveWidgetOverlay}
             onRequestNumericInput={onRequestNumericInput}
+            renderFlowMode={mode === "runtime" ? "none" : "all"}
           />
 
           {mode === "editor" && selectionRect ? (
@@ -463,6 +464,24 @@ export function HmiStage({
             />
           ) : null}
         </Layer>
+        {mode === "runtime" ? (
+          <FastLayer listening={false}>
+            <HmiRenderer
+              project={project}
+              screen={screen}
+              mode={mode}
+              tags={tags}
+              libraries={libraries}
+              renderContext={effectiveRenderContext}
+              interactive={false}
+              inheritedDisabled={false}
+              selectedObjectIds={[]}
+              showObjectFrames={false}
+              shadowDisabled
+              renderFlowMode="only"
+            />
+          </FastLayer>
+        ) : null}
       </Stage>
       {runtimeOverlay ? (
         <div

@@ -52,6 +52,36 @@ const HMI_CONTROL_COLORS = {
   overlayBg: "#252526",
 } as const;
 
+type AnimationTickHandler = (time: number) => void;
+const globalAnimationTickHandlers = new Set<AnimationTickHandler>();
+let globalAnimationFrameId: number | null = null;
+
+function runGlobalAnimationTicker(time: number): void {
+  const handlers = Array.from(globalAnimationTickHandlers);
+  for (const handler of handlers) {
+    handler(time);
+  }
+  if (globalAnimationTickHandlers.size > 0) {
+    globalAnimationFrameId = requestAnimationFrame(runGlobalAnimationTicker);
+  } else {
+    globalAnimationFrameId = null;
+  }
+}
+
+function subscribeGlobalAnimationTick(handler: AnimationTickHandler): () => void {
+  globalAnimationTickHandlers.add(handler);
+  if (globalAnimationFrameId === null) {
+    globalAnimationFrameId = requestAnimationFrame(runGlobalAnimationTicker);
+  }
+  return () => {
+    globalAnimationTickHandlers.delete(handler);
+    if (globalAnimationTickHandlers.size === 0 && globalAnimationFrameId !== null) {
+      cancelAnimationFrame(globalAnimationFrameId);
+      globalAnimationFrameId = null;
+    }
+  };
+}
+
 function isPrimaryPointerButton(event: Event): boolean {
   if ("button" in event && typeof event.button === "number") {
     return event.button === 0;
@@ -749,6 +779,7 @@ type HmiRendererProps = {
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   shadowDisabled?: boolean;
   nodeIdPrefix?: string;
+  renderFlowMode?: "all" | "none" | "only";
 };
 
 type BaseNodeProps = {
@@ -780,6 +811,7 @@ type BaseNodeProps = {
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   shadowDisabled: boolean;
   nodeIdPrefix?: string;
+  renderFlowMode: "all" | "none" | "only";
 };
 
 export function HmiRenderer({
@@ -811,6 +843,7 @@ export function HmiRenderer({
   onRequestNumericInput,
   shadowDisabled = false,
   nodeIdPrefix,
+  renderFlowMode = "all",
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
@@ -865,6 +898,7 @@ export function HmiRenderer({
           onRequestNumericInput={onRequestNumericInput}
           shadowDisabled={shadowDisabled}
           nodeIdPrefix={nodeIdPrefix}
+          renderFlowMode={renderFlowMode}
         />
       ))}
     </>
@@ -882,6 +916,7 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   if (prev.showObjectFrames !== next.showObjectFrames) return false;
   if (prev.mode !== next.mode) return false;
   if (prev.shadowDisabled !== next.shadowDisabled) return false;
+  if (prev.renderFlowMode !== next.renderFlowMode) return false;
   if (prev.renderContext.tagPrefix !== next.renderContext.tagPrefix) return false;
   if (prev.renderContext.parameters !== next.renderContext.parameters) return false;
   if (prev.renderContext.isAuthenticated !== next.renderContext.isAuthenticated) return false;
@@ -1053,6 +1088,7 @@ function ObjectNode({
   onRequestNumericInput,
   shadowDisabled,
   nodeIdPrefix,
+  renderFlowMode,
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
@@ -1068,8 +1104,6 @@ function ObjectNode({
   const flowGradientLineRef = useRef<Konva.Shape | null>(null);
   const flowDotRefs = useRef<Array<Konva.Circle | null>>([]);
   const flowArrowRefs = useRef<Array<Konva.Line | null>>([]);
-  const rotationFrameRef = useRef<number | null>(null);
-  const flowAnimationFrameRef = useRef<number | null>(null);
   const rotationLastFrameRef = useRef<number | null>(null);
   const flowAnimationLastFrameRef = useRef<number | null>(null);
   const effectiveShadowDisabled = shadowDisabled || (mode === "editor" && isDragging);
@@ -1209,7 +1243,8 @@ function ObjectNode({
   }
 
   const flowAnimation = resolvedObject.type === "line" ? resolvedObject.flowAnimation : undefined;
-  const flowAnimationConfigActive = runtimeMode && resolvedObject.type === "line" && flowAnimation?.enabled === true;
+  const flowLayerAllowed = renderFlowMode !== "none";
+  const flowAnimationConfigActive = flowLayerAllowed && runtimeMode && resolvedObject.type === "line" && flowAnimation?.enabled === true;
   let flowAnimationIsActive = false;
   let flowAnimationSpeedPxPerSec = 0;
   if (flowAnimationConfigActive) {
@@ -1477,16 +1512,11 @@ function ObjectNode({
   }, [applyRotationNode, rotationAnimationConfigActive, rotationAnimationIsActive, rotationAnimationSpeedDegPerSec]);
 
   useEffect(() => {
-    if (rotationFrameRef.current !== null) {
-      cancelAnimationFrame(rotationFrameRef.current);
-      rotationFrameRef.current = null;
-    }
     rotationLastFrameRef.current = null;
     if (!rotationAnimationConfigActive) {
       return;
     }
-
-    const step = (time: number) => {
+    const unsubscribe = subscribeGlobalAnimationTick((time) => {
       const previousTime = rotationLastFrameRef.current ?? time;
       const deltaSeconds = Math.max(0, (time - previousTime) / 1000);
       rotationLastFrameRef.current = time;
@@ -1496,15 +1526,9 @@ function ObjectNode({
         rotationAnimationOffsetRef.current = normalizedOffset;
       }
       applyRotationNode(rotationAnimationOffsetRef.current);
-      rotationFrameRef.current = requestAnimationFrame(step);
-    };
-
-    rotationFrameRef.current = requestAnimationFrame(step);
+    });
     return () => {
-      if (rotationFrameRef.current !== null) {
-        cancelAnimationFrame(rotationFrameRef.current);
-        rotationFrameRef.current = null;
-      }
+      unsubscribe();
       rotationLastFrameRef.current = null;
     };
   }, [applyRotationNode, rotationAnimationConfigActive]);
@@ -1524,16 +1548,11 @@ function ObjectNode({
   }, [applyFlowDashOffset, flowAnimationIsActive, flowAnimationSpeedPxPerSec, updateFlowMarkerNodes]);
 
   useEffect(() => {
-    if (flowAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(flowAnimationFrameRef.current);
-      flowAnimationFrameRef.current = null;
-    }
     flowAnimationLastFrameRef.current = null;
     if (!flowAnimationConfigActive) {
       return;
     }
-
-    const step = (time: number) => {
+    const unsubscribe = subscribeGlobalAnimationTick((time) => {
       const previousTime = flowAnimationLastFrameRef.current ?? time;
       const deltaSeconds = Math.min(0.05, Math.max(0, (time - previousTime) / 1000));
       flowAnimationLastFrameRef.current = time;
@@ -1549,15 +1568,9 @@ function ObjectNode({
           ?? flowArrowRefs.current[0]?.getLayer();
         layer?.batchDraw();
       }
-      flowAnimationFrameRef.current = requestAnimationFrame(step);
-    };
-
-    flowAnimationFrameRef.current = requestAnimationFrame(step);
+    });
     return () => {
-      if (flowAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(flowAnimationFrameRef.current);
-        flowAnimationFrameRef.current = null;
-      }
+      unsubscribe();
       flowAnimationLastFrameRef.current = null;
     };
   }, [applyFlowDashOffset, flowAnimationConfigActive, flowUsesMarkerNodes, updateFlowMarkerNodes]);
@@ -1771,6 +1784,7 @@ function ObjectNode({
         onRemoveWidgetOverlay={onRemoveWidgetOverlay}
         shadowDisabled={effectiveShadowDisabled}
         nodeIdPrefix={nodeIdPrefix}
+        renderFlowMode={renderFlowMode}
       />
     );
   }
@@ -1865,6 +1879,8 @@ function ObjectNode({
     const flowOpacity = Number(flowAnimation?.opacity ?? 1);
     const normalizedFlowOpacity = Number.isFinite(flowOpacity) ? Math.max(0, Math.min(1, flowOpacity)) : 1;
     const flowStrokeWidth = lineFlowRuntimeData?.flowStrokeWidth ?? 0;
+    const renderLineBase = renderFlowMode !== "only";
+    const renderLineOverlay = renderFlowMode !== "none";
     const showFlowOverlay = flowAnimationConfigActive && flowAnimationIsActive && flowStrokeWidth > 0
       && (flowEffectType === "dash" || flowEffectType === "arrows" || flowEffectType === "dots" || flowEffectType === "gradientShift");
     const flowPath = lineFlowRuntimeData?.flowPath;
@@ -1906,8 +1922,8 @@ function ObjectNode({
     };
     return (
       <Group {...commonGroupProps}>
-        <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        {renderRoundedLine && roundedLinePath
+        {renderLineBase ? <SelectionHitArea object={resolvedObject} enabled={interactive} /> : null}
+        {renderLineBase && renderRoundedLine && roundedLinePath
           ? (
             <Path
               data={roundedLinePath}
@@ -1935,7 +1951,7 @@ function ObjectNode({
               {...lineShadowProps}
             />
             )}
-        {(renderDashOverlay || renderDotsOverlay || renderArrowsOverlay || renderGradientOverlay) ? (
+        {renderLineOverlay && (renderDashOverlay || renderDotsOverlay || renderArrowsOverlay || renderGradientOverlay) ? (
           <Group
             clipX={0}
             clipY={0}
@@ -2042,7 +2058,7 @@ function ObjectNode({
               : null}
           </Group>
         ) : null}
-        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+        {renderLineBase ? <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} /> : null}
       </Group>
     );
   }
@@ -2489,6 +2505,7 @@ function ObjectNode({
         onUpsertWidgetOverlay={onUpsertWidgetOverlay}
         onRemoveWidgetOverlay={onRemoveWidgetOverlay}
         nodeIdPrefix={nodeIdPrefix}
+        renderFlowMode={renderFlowMode}
       />
     );
   }
@@ -2619,6 +2636,7 @@ function ObjectNode({
         onUpsertWidgetOverlay={onUpsertWidgetOverlay}
         onRemoveWidgetOverlay={onRemoveWidgetOverlay}
         nodeIdPrefix={nodeIdPrefix}
+        renderFlowMode={renderFlowMode}
       />
     );
   }
@@ -4083,6 +4101,7 @@ function GroupNode({
   onRemoveWidgetOverlay,
   shadowDisabled,
   nodeIdPrefix,
+  renderFlowMode,
 }: {
   object: GroupObject;
   project: ScadaProject;
@@ -4112,6 +4131,7 @@ function GroupNode({
   onRemoveWidgetOverlay?: (objectId: string) => void;
   shadowDisabled: boolean;
   nodeIdPrefix?: string;
+  renderFlowMode: "all" | "none" | "only";
 }) {
   const scopedContext = useMemo(
     () => ({
@@ -4169,6 +4189,7 @@ function GroupNode({
         onRemoveWidgetOverlay={onRemoveWidgetOverlay}
         shadowDisabled={shadowDisabled}
         nodeIdPrefix={`${nodeIdPrefix ?? ""}group-${object.id}-`}
+        renderFlowMode={renderFlowMode}
       />
       {interactive ? <SelectionOutline object={object} selected={selected || showObjectFrames} /> : null}
     </Group>
@@ -4197,6 +4218,7 @@ function FrameNode({
   onUpsertWidgetOverlay,
   onRemoveWidgetOverlay,
   nodeIdPrefix,
+  renderFlowMode,
 }: {
   object: FrameObject;
   selected: boolean;
@@ -4219,6 +4241,7 @@ function FrameNode({
   inheritedDisabled: boolean;
   shadowDisabled: boolean;
   nodeIdPrefix?: string;
+  renderFlowMode: "all" | "none" | "only";
 }) {
   const screen = project.screens.find((item) => item.id === object.screenId);
   const hasCycle = frameStack.includes(object.screenId);
@@ -4277,6 +4300,7 @@ function FrameNode({
           onRemoveWidgetOverlay={onRemoveWidgetOverlay}
           shadowDisabled={shadowDisabled}
           nodeIdPrefix={`${nodeIdPrefix ?? ""}frame-${object.id}-`}
+          renderFlowMode={renderFlowMode}
         />
       </Group>
       <SelectionOutline object={object} selected={selected} />
@@ -4307,6 +4331,7 @@ function LibraryInstanceNode({
   onUpsertWidgetOverlay,
   onRemoveWidgetOverlay,
   nodeIdPrefix,
+  renderFlowMode,
 }: {
   object: LibraryElementInstanceObject;
   selected: boolean;
@@ -4330,6 +4355,7 @@ function LibraryInstanceNode({
   runtimeDisabled: boolean;
   shadowDisabled: boolean;
   nodeIdPrefix?: string;
+  renderFlowMode: "all" | "none" | "only";
 }) {
   const library = libraries.find((item) => item.id === object.libraryId);
   if (!library) {
@@ -4479,6 +4505,7 @@ function LibraryInstanceNode({
           onRemoveWidgetOverlay={onRemoveWidgetOverlay}
           shadowDisabled={shadowDisabled}
           nodeIdPrefix={mode === "editor" ? `${nodeIdPrefix ?? ""}libinst-${object.id}-` : nodeIdPrefix}
+          renderFlowMode={renderFlowMode}
         />
       </Group>
       {interactive ? <SelectionOutline object={object} selected={selected} /> : null}

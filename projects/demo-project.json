@@ -9374,7 +9374,7 @@
             0,
             157.94696535086382
           ],
-          "stroke": "#290d0d",
+          "stroke": "#634d4d",
           "strokeWidth": 6.7,
           "lineCap": "round",
           "lineJoin": "round",
@@ -9394,7 +9394,7 @@
             "direction": "reverse",
             "effectType": "gradientShift",
             "opacity": 0.85,
-            "gradientMidColor": "#15ff11",
+            "gradientMidColor": "rgba(4,255,0,0.49)",
             "gradientSpanPx": 72,
             "dashLength": 31,
             "gapLength": 48
