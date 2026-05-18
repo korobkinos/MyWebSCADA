@@ -181,7 +181,8 @@ export function buildAxes(
     resolvedAxisIdByTag.set(tag.tag, axisId);
   }
 
-  const axes = [...nextAxesById.values()];
+  const usedAxisIds = new Set(resolvedAxisIdByTag.values());
+  const axes = [...nextAxesById.values()].filter((axis) => usedAxisIds.has(axis.id));
   const positionIndex: Record<"left" | "right", number> = { left: 0, right: 0 };
   for (const axis of axes) {
     const idx = positionIndex[axis.position];

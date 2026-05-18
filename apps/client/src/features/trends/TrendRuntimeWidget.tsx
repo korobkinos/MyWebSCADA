@@ -191,6 +191,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [liveLastBatchAt, setLiveLastBatchAt] = useState<number | null>(null);
   const [liveLastPointTs, setLiveLastPointTs] = useState<number | null>(null);
   const [liveAutoStopReason, setLiveAutoStopReason] = useState<string | null>(null);
+  const [screenRevision, setScreenRevision] = useState(0);
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -216,6 +217,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
 
   useEffect(() => {
     const nextViewState = resolveInitialRuntimeViewState(object);
+    setResponse(null);
+    setError(null);
+    setLastLoadAt(undefined);
     setSelectedTags(nextViewState.selectedTags ?? object.selectedTags ?? []);
     setManualAxes(nextViewState.manualAxes ?? object.axes ?? []);
     setTagPickerFilters(nextViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
@@ -225,6 +229,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setVisibleRange(nextViewState.visibleRange);
     setCustomFrom(nextViewState.customFrom);
     setCustomTo(nextViewState.customTo);
+    setScreenRevision((prev) => prev + 1);
   }, [object.id]);
 
   useEffect(() => {
@@ -345,11 +350,18 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   }, []);
 
   useEffect(() => {
-    if (selectedTags.length === 0) {
+    if (selectedTags.length === 0 || liveMode) {
       return;
     }
     void executeQuery(visibleRange, { force: true });
-  }, [executeQuery, selectedTags, visibleRange]);
+  }, [executeQuery, liveMode, screenRevision, selectedTags, visibleRange]);
+
+  useEffect(() => {
+    if (!liveMode || selectedTags.length === 0) {
+      return;
+    }
+    void executeQuery(visibleRange, { force: true });
+  }, [executeQuery, liveMode, screenRevision, selectedTags]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -528,6 +540,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           <div className="trends-empty trends-empty--error">{error}</div>
         ) : (
           <TrendChart
+            key={object.id}
             data={response}
             tags={selectedTags}
             axes={axes}

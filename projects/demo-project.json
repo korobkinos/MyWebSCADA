@@ -10714,8 +10714,8 @@
         {
           "id": "trend_y9poua",
           "type": "trendChart",
-          "x": 65.52968969321573,
-          "y": 150.5154262005568,
+          "x": 36.78800604565103,
+          "y": 164.13338571496124,
           "width": 1777.5458685192075,
           "height": 868.2459591078537,
           "rotation": 0,
@@ -10778,6 +10778,25 @@
           "liveMode": true,
           "showToolbar": true,
           "showStatusBar": true
+        },
+        {
+          "id": "value-display_l1swwk",
+          "type": "value-display",
+          "x": 1014.5264411375392,
+          "y": 46.96652631274331,
+          "width": 220,
+          "height": 36,
+          "tag": "Counter",
+          "suffix": " cnt",
+          "textStyle": {
+            "fontFamily": "Consolas",
+            "fontSize": 40,
+            "fontStyle": "bold",
+            "color": "#ffec3d",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 2
+          }
         }
       ]
     }

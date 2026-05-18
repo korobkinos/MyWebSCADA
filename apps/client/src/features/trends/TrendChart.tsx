@@ -204,8 +204,8 @@ export function TrendChart({
       animation: false,
       textStyle: { color: TREND_WORKBENCH_THEME.text },
       grid: {
-        left: 12,
-        right: 12 + Math.max(0, (axes.filter((axis) => axis.position === "right").length - 1) * (settings.axisOffsetStep + 8)),
+        left: 56 + Math.max(0, (axes.filter((axis) => axis.position === "left").length - 1) * (settings.axisOffsetStep + 10)),
+        right: 56 + Math.max(0, (axes.filter((axis) => axis.position === "right").length - 1) * (settings.axisOffsetStep + 10)),
         top: 34,
         bottom: settings.dataZoomSlider ? 74 : 20,
         containLabel: true,
@@ -422,13 +422,15 @@ export function TrendChart({
         }
 
         if (liveModeRef.current) {
-          const rightCandidate = Number.isFinite(maxUpdateTs) ? maxUpdateTs : Date.now();
-          const right = Math.max(liveLastEmittedRightRef.current ?? rightCandidate, rightCandidate);
-          if (liveLastEmittedRightRef.current === null || right - liveLastEmittedRightRef.current >= 800) {
-            liveLastEmittedRightRef.current = right;
-            const left = right - liveWindowMsRef.current;
-            onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
-          }
+          const now = Date.now();
+          const right = Math.max(liveLastEmittedRightRef.current ?? now, now);
+          liveLastEmittedRightRef.current = right;
+          fullRangeRef.current = {
+            from: fullRangeRef.current.from,
+            to: Math.max(fullRangeRef.current.to, right),
+          };
+          const left = right - liveWindowMsRef.current;
+          onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
         }
         renderChartRef.current();
       },
