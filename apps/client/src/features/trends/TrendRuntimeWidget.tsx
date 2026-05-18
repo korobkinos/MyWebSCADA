@@ -18,6 +18,8 @@ import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewS
 import { resolveTrendTheme } from "./trendTheme";
 
 const LIVE_FLUSH_MS = 300;
+const LIVE_HEARTBEAT_MS = 1000;
+const LIVE_HEARTBEAT_STALE_SOURCE_MS = 1200;
 const TOO_MANY_TAGS_LIMIT = 40;
 const TREND_ZOOM_MIN_SPAN_MS = 15_000;
 const TREND_ZOOM_MAX_SPAN_MS = 24 * 60 * 60 * 1000;
@@ -34,6 +36,7 @@ const DEFAULT_SERIES_COLUMNS: TrendSeriesColumnState[] = [
   { id: "tag", label: "Tag", visible: true },
   { id: "displayName", label: "Display name", visible: true },
   { id: "description", label: "Description", visible: true },
+  { id: "value", label: "Value", visible: true },
 ];
 
 const DEFAULT_SERIES_COLUMN_WIDTHS: TrendSeriesColumnWidths = {
@@ -284,6 +287,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const cacheRef = useRef(new TrendQueryCache(settings.cacheSize));
   const chartApiRef = useRef<TrendChartApi | null>(null);
   const liveBufferRef = useRef<Array<{ tag: string; value: number | boolean | string | null; quality?: string; timestamp: number }>>([]);
+  const liveLatestByTagRef = useRef<Map<string, { value: number | boolean | string | null; quality?: string; sourceTs: number; lastIncomingAt: number }>>(new Map());
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
   const historyLoadTimerRef = useRef<number | null>(null);
   const columnResizeStateRef = useRef<{ id: TrendSeriesColumnId | null; startX: number; startWidth: number }>({
@@ -332,6 +336,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setTimeRangeDraftTo(nextViewState.customTo);
     setSeriesColumnWidths(nextViewState.seriesColumnWidths ?? DEFAULT_SERIES_COLUMN_WIDTHS);
     setSeriesLatestValues({});
+    liveLatestByTagRef.current.clear();
     setHoverSeriesValues(null);
     setHoverTimestamp(null);
     setHistoryWarning(null);
@@ -504,6 +509,15 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       for (const series of next.series) {
         const lastPoint = series.points[series.points.length - 1];
         nextLatest[series.tag] = formatTrendValue(lastPoint?.v);
+        if (lastPoint) {
+          liveLatestByTagRef.current.set(series.tag, {
+            value: lastPoint.v,
+            quality: lastPoint.q,
+            sourceTs: lastPoint.t,
+            // History bootstrap should be heartbeated immediately until live updates arrive.
+            lastIncomingAt: 0,
+          });
+        }
       }
       setSeriesLatestValues(nextLatest);
     } catch (queryError) {
@@ -637,18 +651,54 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       if (batchMaxTs !== null) {
         setLiveLastPointTs(batchMaxTs);
       }
+      const receivedAt = Date.now();
       setSeriesLatestValues((prev) => {
         const next = { ...prev };
         for (const item of batch) {
           next[item.tag] = formatTrendValue(item.value);
+          liveLatestByTagRef.current.set(item.tag, {
+            value: item.value,
+            quality: item.quality,
+            sourceTs: item.timestamp,
+            lastIncomingAt: receivedAt,
+          });
         }
         return next;
       });
       chartApiRef.current?.appendLivePoints(batch);
     }, LIVE_FLUSH_MS);
 
+    const heartbeatTimer = window.setInterval(() => {
+      const now = Date.now();
+      const heartbeatBatch: Array<{ tag: string; value: number | boolean | string | null; quality?: string; timestamp: number }> = [];
+      for (const tagName of selectedTagNames) {
+        const latest = liveLatestByTagRef.current.get(tagName);
+        if (!latest) {
+          continue;
+        }
+        if (now - latest.lastIncomingAt < LIVE_HEARTBEAT_STALE_SOURCE_MS) {
+          continue;
+        }
+        heartbeatBatch.push({
+          tag: tagName,
+          value: latest.value,
+          quality: latest.quality,
+          timestamp: now,
+        });
+      }
+      if (heartbeatBatch.length === 0) {
+        return;
+      }
+      logTrendDiagnostics("live:heartbeat", {
+        batchSize: heartbeatBatch.length,
+        at: now,
+      });
+      chartApiRef.current?.appendLivePoints(heartbeatBatch);
+    }, LIVE_HEARTBEAT_MS);
+
     return () => {
       window.clearInterval(flushTimer);
+      window.clearInterval(heartbeatTimer);
       socket.close();
       setLiveSocketState("closed");
       if (liveSocketRef.current === socket) {
@@ -1099,7 +1149,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
                 }
                 return (
                   <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--value">
-                    {hoverSeriesValues?.[tag.tag] ?? seriesLatestValues[tag.tag] ?? ((loadedPointCountByTag.get(tag.tag) ?? 0) === 0 ? "No data" : "-")}
+                    {tag.visible === false
+                      ? "-"
+                      : (hoverSeriesValues?.[tag.tag] ?? seriesLatestValues[tag.tag] ?? ((loadedPointCountByTag.get(tag.tag) ?? 0) === 0 ? "No data" : "-"))}
                   </div>
                 );
               })}

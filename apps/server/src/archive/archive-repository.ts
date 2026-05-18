@@ -21,6 +21,16 @@ type ReferenceCache = {
 type TagArchiveCacheItem = {
   id: number;
   enabled: boolean;
+  mode: string;
+  periodMs: number;
+  deadband: number;
+};
+
+type ArchivedValueState = {
+  timestamp: number;
+  value: number | boolean | string | null;
+  quality: string;
+  source: string;
 };
 
 export type ArchiveSampleRow = {
@@ -175,6 +185,7 @@ export class ArchiveRepository {
   private readonly tags = new Map<string, TagArchiveCacheItem>();
   private readonly qualities = new Map<string, number>();
   private readonly sources = new Map<string, number>();
+  private readonly lastArchivedByTagId = new Map<number, ArchivedValueState>();
 
   public constructor(
     options: ArchiveRepositoryOptions,
@@ -449,9 +460,7 @@ export class ArchiveRepository {
       resolvedAggregation = this.pickWiderAggregation(resolvedAggregation, effectiveAggregation);
 
       let points: TrendPointRow[] = [];
-      if (dataType === "string") {
-        points = [];
-      } else if (effectiveAggregation === "raw") {
+      if (effectiveAggregation === "raw") {
         points = await this.queryRawTrendPoints(meta.id, requestedFrom, requestedTo, hardLimit, dataType);
       } else if (dataType === "boolean" || dataType === "enum") {
         points = await this.queryBucketedDiscreteTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
@@ -1128,10 +1137,17 @@ export class ArchiveRepository {
     limit: number,
     dataType: TrendDataType,
   ): Promise<TrendPointRow[]> {
+    const numericTextExpr = "CASE WHEN s.value_text ~ '^\\s*[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][-+]?\\d+)?\\s*$' THEN s.value_text::double precision ELSE NULL END";
     const valueExpr = dataType === "boolean"
       ? "CASE WHEN s.value_bool IS NULL THEN NULL WHEN s.value_bool THEN 1::double precision ELSE 0::double precision END"
-      : "s.value_double";
-    const valueFilter = dataType === "boolean" ? "s.value_bool IS NOT NULL" : "s.value_double IS NOT NULL";
+      : dataType === "string"
+        ? `COALESCE(${numericTextExpr}, s.value_double)`
+        : `COALESCE(s.value_double, ${numericTextExpr})`;
+    const valueFilter = dataType === "boolean"
+      ? "s.value_bool IS NOT NULL"
+      : dataType === "string"
+        ? `(${numericTextExpr} IS NOT NULL OR s.value_double IS NOT NULL)`
+        : `(s.value_double IS NOT NULL OR ${numericTextExpr} IS NOT NULL)`;
 
     const result = await this.pool.query<{
       time: Date;
@@ -1463,12 +1479,15 @@ export class ArchiveRepository {
     const [qualityRows, sourceRows, tagRows] = await Promise.all([
       this.pool.query<{ id: number; code: string }>("SELECT id, code FROM archive_qualities"),
       this.pool.query<{ id: number; code: string }>("SELECT id, code FROM archive_sources"),
-      this.pool.query<{ id: number; name: string; enabled: boolean | null }>(
+      this.pool.query<{ id: number; name: string; enabled: boolean | null; mode: string | null; period_ms: number | null; deadband: number | null }>(
         `
         SELECT
             t.id,
             t.name,
-            COALESCE(o.enabled, p.enabled, false) AS enabled
+            COALESCE(o.enabled, p.enabled, false) AS enabled,
+            COALESCE(o.mode, p.mode, 'on_change_with_periodic') AS mode,
+            COALESCE(o.period_ms, p.period_ms, 1000) AS period_ms,
+            COALESCE(o.deadband, p.deadband, 0) AS deadband
         FROM tags t
         LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
         LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
@@ -1483,7 +1502,13 @@ export class ArchiveRepository {
       this.sources.set(row.code, row.id);
     }
     for (const row of tagRows.rows) {
-      this.tags.set(row.name, { id: row.id, enabled: row.enabled ?? false });
+      this.tags.set(row.name, {
+        id: row.id,
+        enabled: row.enabled ?? false,
+        mode: row.mode ?? "on_change_with_periodic",
+        periodMs: Math.max(1, row.period_ms ?? 1000),
+        deadband: Math.max(0, row.deadband ?? 0),
+      });
     }
   }
 
@@ -1505,18 +1530,92 @@ export class ArchiveRepository {
       if (!tag?.enabled || !qualityId) {
         continue;
       }
+      if (!this.shouldArchiveSample(tag, value)) {
+        continue;
+      }
       const sourceId = value.source ? await this.getSourceId(value.source) : null;
+      const normalizedValue = this.normalizeArchiveValue(value.value);
+      const numericFromString = typeof value.value === "string" ? this.tryParseNumericString(value.value) : null;
       rows.push({
         time: new Date(value.timestamp),
         tagId: tag.id,
-        valueDouble: typeof value.value === "number" ? value.value : null,
+        valueDouble: typeof value.value === "number" ? value.value : numericFromString,
         valueBool: typeof value.value === "boolean" ? value.value : null,
         valueText: typeof value.value === "string" ? value.value : null,
         qualityId,
         sourceId,
       });
+      this.lastArchivedByTagId.set(tag.id, {
+        timestamp: value.timestamp,
+        value: normalizedValue,
+        quality: value.quality,
+        source: value.source ?? "",
+      });
     }
     return rows;
+  }
+
+  private shouldArchiveSample(tag: TagArchiveCacheItem, sample: TagValue): boolean {
+    const currentValue = this.normalizeArchiveValue(sample.value);
+    const previous = this.lastArchivedByTagId.get(tag.id);
+    if (!previous) {
+      return true;
+    }
+    if (!Number.isFinite(sample.timestamp) || sample.timestamp <= previous.timestamp) {
+      return false;
+    }
+    const elapsedMs = sample.timestamp - previous.timestamp;
+    const periodicDue = elapsedMs >= tag.periodMs;
+    const changed = this.hasValueOrMetaChange(previous, currentValue, sample, tag.deadband);
+    if (tag.mode === "periodic") {
+      return periodicDue;
+    }
+    if (tag.mode === "on_change_with_periodic") {
+      return changed || periodicDue;
+    }
+    return changed || periodicDue;
+  }
+
+  private normalizeArchiveValue(value: TagValue["value"]): number | boolean | string | null {
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "string" || value === null) {
+      return value;
+    }
+    return value == null ? null : String(value);
+  }
+
+  private tryParseNumericString(value: string): number | null {
+    const normalized = value.trim();
+    if (!normalized) {
+      return null;
+    }
+    if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(normalized)) {
+      return null;
+    }
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private hasValueOrMetaChange(
+    previous: ArchivedValueState,
+    currentValue: number | boolean | string | null,
+    sample: TagValue,
+    deadband: number,
+  ): boolean {
+    if (previous.quality !== sample.quality || previous.source !== (sample.source ?? "")) {
+      return true;
+    }
+    const previousValue = previous.value;
+    if (typeof previousValue === "number" && typeof currentValue === "number") {
+      if (!Number.isFinite(previousValue) || !Number.isFinite(currentValue)) {
+        return previousValue !== currentValue;
+      }
+      const threshold = Math.max(0, deadband);
+      if (threshold <= 0) {
+        return previousValue !== currentValue;
+      }
+      return Math.abs(currentValue - previousValue) >= threshold;
+    }
+    return previousValue !== currentValue;
   }
 
   private async getSourceId(code: string): Promise<number> {

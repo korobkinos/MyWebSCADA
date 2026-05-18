@@ -3,6 +3,7 @@ import type { TagDefinition, TagSnapshot, TagValue } from "@web-scada/shared";
 
 type TagStoreEvents = {
   "tag-changed": (value: TagValue) => void;
+  "tag-updated": (value: TagValue) => void;
 };
 
 class TypedTagStoreEmitter extends EventEmitter {
@@ -68,23 +69,31 @@ export class TagStore {
 
   public upsertValue(value: TagValue): void {
     const existing = this.values.get(value.name);
-    if (
+    const changed = !(
       existing &&
       existing.value === value.value &&
       existing.quality === value.quality &&
       existing.source === value.source
-    ) {
-      return;
-    }
+    );
 
     this.values.set(value.name, value);
-    this.emitter.emit("tag-changed", value);
+    this.emitter.emit("tag-updated", value);
+    if (changed) {
+      this.emitter.emit("tag-changed", value);
+    }
   }
 
   public subscribe(listener: (value: TagValue) => void): () => void {
     this.emitter.on("tag-changed", listener);
     return () => {
       this.emitter.off("tag-changed", listener);
+    };
+  }
+
+  public subscribeUpdates(listener: (value: TagValue) => void): () => void {
+    this.emitter.on("tag-updated", listener);
+    return () => {
+      this.emitter.off("tag-updated", listener);
     };
   }
 }

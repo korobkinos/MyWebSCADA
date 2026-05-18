@@ -36,6 +36,8 @@ export class ArchiveService {
   private unsubscribe: (() => void) | undefined;
   private flushing = false;
   private initialized = false;
+  private readonly snapshotIntervalMs = 1000;
+  private lastSnapshotAt = 0;
 
   public constructor(
     options: ArchiveServiceOptions,
@@ -72,10 +74,12 @@ export class ArchiveService {
     await this.repository.initialize();
     await this.syncMetadata(tags, drivers);
     await this.repository.configureCompressionPolicy();
-    this.unsubscribe = this.tagStore.subscribe((value) => {
+    this.unsubscribe = this.tagStore.subscribeUpdates((value) => {
       this.enqueue(value);
     });
+    this.enqueuePeriodicSnapshot();
     this.flushTimer = setInterval(() => {
+      this.enqueuePeriodicSnapshot();
       void this.flush().catch((error) => this.logger.error(`Archive flush failed: ${this.errorText(error)}`));
     }, this.flushIntervalMs);
     this.maintenanceTimer = setInterval(() => {
@@ -225,6 +229,30 @@ export class ArchiveService {
     this.queue.push(value);
     if (this.queue.length >= this.batchSize) {
       void this.flush().catch((error) => this.logger.error(`Archive flush failed: ${this.errorText(error)}`));
+    }
+  }
+
+  private enqueuePeriodicSnapshot(): void {
+    const now = Date.now();
+    if (now - this.lastSnapshotAt < this.snapshotIntervalMs) {
+      return;
+    }
+    if (this.queue.length > this.batchSize * 10) {
+      return;
+    }
+    this.lastSnapshotAt = now;
+    const snapshots = this.tagStore.getSnapshots();
+    for (const snapshot of snapshots) {
+      if (!this.repository.canArchive(snapshot.definition.name)) {
+        continue;
+      }
+      this.queue.push({
+        name: snapshot.value.name,
+        value: snapshot.value.value,
+        quality: snapshot.value.quality,
+        timestamp: now,
+        source: snapshot.value.source,
+      });
     }
   }
 
