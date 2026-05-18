@@ -37,6 +37,15 @@ export function defaultTrendSettings(): TrendSettings {
     axisPlacement: "split",
     axisOffsetStep: 46,
     showSeriesTable: true,
+    showToolbarMenuButton: true,
+    showToolbarTagsButton: true,
+    showToolbarLiveButton: true,
+    showToolbarTimeRangeButton: true,
+    showToolbarQuickRangeButtons: true,
+    showToolbarPanButtons: true,
+    showToolbarZoomButtons: true,
+    showToolbarRefreshButton: true,
+    showToolbarSettingsButton: true,
   };
 }
 

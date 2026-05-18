@@ -5,9 +5,14 @@ import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent } f
 import { CanvasRenderer } from "echarts/renderers";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
 import type { TrendAxisConfig, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
+import { logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, CanvasRenderer]);
+const LIVE_GAP_MIN_BREAK_MS = 10_000;
+const LIVE_RIGHT_DRIFT_LIMIT_MS = 5_000;
+const LIVE_TRIM_GRACE_MS = 15_000;
+const LIVE_ABSOLUTE_POINT_CAP = 250_000;
 
 type TrendChartProps = {
   data: TrendQueryResponse | null;
@@ -26,6 +31,30 @@ type TrendChartProps = {
   onHoverSnapshotChange?: (snapshot: { timestamp: number; values: Record<string, number | boolean | string | null> } | null) => void;
   onChartApiReady?: (api: TrendChartApi) => void;
 };
+
+function resolveGapBreakMs(points: TrendPoint[]): number {
+  if (points.length < 3) {
+    return 5000;
+  }
+  const diffs: number[] = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const current = points[index];
+    const previous = points[index - 1];
+    if (!current || !previous) {
+      continue;
+    }
+    const diff = current.t - previous.t;
+    if (Number.isFinite(diff) && diff > 0) {
+      diffs.push(diff);
+    }
+  }
+  if (diffs.length === 0) {
+    return 5000;
+  }
+  diffs.sort((a, b) => a - b);
+  const median = diffs[Math.floor(diffs.length / 2)] ?? 1000;
+  return Math.max(3000, Math.min(180000, Math.round(median * 4)));
+}
 
 export function TrendChart({
   data,
@@ -59,7 +88,7 @@ export function TrendChart({
   const onHoverSnapshotChangeRef = useRef(onHoverSnapshotChange);
   const zoomDebounceMsRef = useRef(settings.zoomDebounceMs);
   const tagsRef = useRef(tags);
-  const liveBufferLimitRef = useRef(settings.liveBufferLimit);
+  const lastAxisPointerTsRef = useRef<number | null>(null);
   const renderChartRef = useRef<() => void>(() => {});
   const normalizeSeriesPoints = (points: TrendPoint[]): TrendPoint[] => {
     if (points.length <= 1) {
@@ -147,10 +176,6 @@ export function TrendChart({
     tagsRef.current = tags;
   }, [tags]);
 
-  useEffect(() => {
-    liveBufferLimitRef.current = settings.liveBufferLimit;
-  }, [settings.liveBufferLimit]);
-
   const renderChart = (): void => {
     const chart = chartRef.current;
     if (!chart) {
@@ -199,22 +224,55 @@ export function TrendChart({
       const lineWidth = tag.lineWidth ?? settings.defaultLineWidth;
       const lineType = tag.lineType ?? "solid";
       const renderMode = tag.mode ?? (tagsByName.get(tag.tag)?.mode ?? "line");
-      const dataPoints = points.map((point) => {
+      const gapBreakMs = resolveGapBreakMs(points);
+      const dataPoints: Array<[number, number | null]> = [];
+      for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
+        const point = points[pointIndex];
+        if (!point) {
+          continue;
+        }
+        const previous = pointIndex > 0 ? points[pointIndex - 1] : null;
+        if (!liveMode && previous && point.t - previous.t > gapBreakMs) {
+          const leftGapTs = previous.t + 1;
+          const rightGapTs = point.t - 1;
+          dataPoints.push([leftGapTs, null]);
+          if (rightGapTs > leftGapTs) {
+            dataPoints.push([rightGapTs, null]);
+          }
+        }
         const quality = (point.q ?? "good").toLowerCase();
         const invalidQuality = quality === "bad" || quality === "uncertain";
         const value = settings.showBadQualityGaps && invalidQuality ? null : point.v;
-        return [point.t, value];
-      });
+        dataPoints.push([point.t, value]);
+      }
       const axisId = axisIdByTag.get(tag.tag) ?? safeAxes[0]?.id;
       const yAxisIndex = axisId ? (axisIndexById.get(axisId) ?? 0) : 0;
 
+      const sampling = liveMode
+        ? undefined
+        : settings.aggregation === "minmax"
+          ? "minmax"
+          : settings.aggregation === "lttb"
+            ? "lttb"
+            : undefined;
+      const firstPoint = points[0];
+      const lastPoint = points[points.length - 1];
+      logTrendDiagnostics("chart:series-render", {
+        tag: tag.tag,
+        liveMode,
+        points: points.length,
+        renderPoints: dataPoints.length,
+        firstTs: firstPoint?.t ?? null,
+        lastTs: lastPoint?.t ?? null,
+        sampling: sampling ?? "none",
+      });
       return {
         id: tag.tag,
         name: tag.displayName || tag.tag,
         type: "line" as const,
         showSymbol: settings.showSymbols || renderMode === "points",
         symbol: settings.showSymbols || renderMode === "points" ? "circle" : "none",
-        sampling: settings.aggregation === "minmax" ? "minmax" : settings.aggregation === "lttb" ? "lttb" : undefined,
+        sampling,
         progressive: progressiveValue,
         progressiveThreshold,
         animation: animationEnabled,
@@ -337,7 +395,14 @@ export function TrendChart({
     };
 
     optionGuardRef.current = true;
-    chart.setOption(option, { notMerge: true, lazyUpdate: true });
+    chart.setOption(option, { notMerge: false, lazyUpdate: true, replaceMerge: ["series"] });
+    if (lastAxisPointerTsRef.current !== null) {
+      chart.dispatchAction({
+        type: "showTip",
+        xAxisIndex: 0,
+        value: lastAxisPointerTsRef.current,
+      });
+    }
     window.setTimeout(() => {
       optionGuardRef.current = false;
     }, 0);
@@ -453,9 +518,11 @@ export function TrendChart({
         : null;
       const timestamp = Number(source?.value);
       if (!Number.isFinite(timestamp)) {
+        lastAxisPointerTsRef.current = null;
         onHoverSnapshotChangeRef.current?.(null);
         return;
       }
+      lastAxisPointerTsRef.current = timestamp;
       const values: Record<string, number | boolean | string | null> = {};
       for (const tag of tagsRef.current) {
         const points = seriesPointsRef.current.get(tag.tag) ?? [];
@@ -464,7 +531,8 @@ export function TrendChart({
       onHoverSnapshotChangeRef.current?.({ timestamp, values });
     };
 
-    const handleMouseOut = () => {
+    const handleGlobalOut = () => {
+      lastAxisPointerTsRef.current = null;
       onHoverSnapshotChangeRef.current?.(null);
     };
 
@@ -472,7 +540,7 @@ export function TrendChart({
       chart.on("dataZoom", handleDataZoom);
     }
     chart.on("updateAxisPointer", handleAxisPointer);
-    chart.on("mouseout", handleMouseOut);
+    chart.on("globalout", handleGlobalOut);
 
     const resizeObserver = new ResizeObserver(() => {
       chart.resize();
@@ -510,6 +578,20 @@ export function TrendChart({
                 : "good",
           };
           const lastPoint = current[current.length - 1];
+          if (lastPoint && nextPoint.t - lastPoint.t > Math.max(LIVE_GAP_MIN_BREAK_MS, resolveGapBreakMs(current))) {
+            const gapLeftTs = lastPoint.t + 1;
+            const gapRightTs = nextPoint.t - 1;
+            current.push({ t: gapLeftTs, v: null, q: "uncertain" });
+            if (gapRightTs > gapLeftTs) {
+              current.push({ t: gapRightTs, v: null, q: "uncertain" });
+            }
+            logTrendDiagnostics("live:gap-break", {
+              tag: update.tag,
+              previousTs: lastPoint.t,
+              nextTs: nextPoint.t,
+              deltaMs: nextPoint.t - lastPoint.t,
+            });
+          }
           if (!lastPoint || nextPoint.t > lastPoint.t) {
             current.push(nextPoint);
           } else if (lastPoint.t === nextPoint.t) {
@@ -534,15 +616,32 @@ export function TrendChart({
           if (update.timestamp > maxUpdateTs) {
             maxUpdateTs = update.timestamp;
           }
-          if (current.length > liveBufferLimitRef.current) {
-            current.splice(0, current.length - liveBufferLimitRef.current);
-          }
           seriesPointsRef.current.set(update.tag, current);
           updatedTags.add(update.tag);
         }
 
         if (updatedTags.size === 0) {
           return;
+        }
+
+        const trimRightTs = Number.isFinite(maxUpdateTs) ? maxUpdateTs : Date.now();
+        const trimFromTs = trimRightTs - liveWindowMsRef.current - LIVE_TRIM_GRACE_MS;
+        for (const tagName of updatedTags) {
+          const points = seriesPointsRef.current.get(tagName);
+          if (!points || points.length <= 1) {
+            continue;
+          }
+          let cutIndex = 0;
+          while (cutIndex < points.length && points[cutIndex]!.t < trimFromTs) {
+            cutIndex += 1;
+          }
+          if (cutIndex > 0) {
+            points.splice(0, cutIndex);
+          }
+          if (points.length > LIVE_ABSOLUTE_POINT_CAP) {
+            points.splice(0, points.length - LIVE_ABSOLUTE_POINT_CAP);
+          }
+          seriesPointsRef.current.set(tagName, points);
         }
 
         if (Number.isFinite(minUpdateTs) && Number.isFinite(maxUpdateTs)) {
@@ -554,7 +653,10 @@ export function TrendChart({
 
         if (liveModeRef.current) {
           const now = Date.now();
-          const right = Math.max(liveLastEmittedRightRef.current ?? now, now);
+          const newestTs = Number.isFinite(maxUpdateTs) ? maxUpdateTs : now;
+          const clampedNewestTs = Math.min(newestTs, now + LIVE_RIGHT_DRIFT_LIMIT_MS);
+          const previousRight = liveLastEmittedRightRef.current ?? clampedNewestTs;
+          const right = Math.max(previousRight, clampedNewestTs);
           liveLastEmittedRightRef.current = right;
           fullRangeRef.current = {
             from: fullRangeRef.current.from,
@@ -575,7 +677,7 @@ export function TrendChart({
         chart.off("dataZoom", handleDataZoom);
       }
       chart.off("updateAxisPointer", handleAxisPointer);
-      chart.off("mouseout", handleMouseOut);
+      chart.off("globalout", handleGlobalOut);
       resizeObserver.disconnect();
       if (zoomTimerRef.current) {
         window.clearTimeout(zoomTimerRef.current);

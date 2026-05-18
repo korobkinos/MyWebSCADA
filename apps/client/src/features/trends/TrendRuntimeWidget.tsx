@@ -1,5 +1,6 @@
 import { type CSSProperties, type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ColorPicker, Spin } from "antd";
+import { SettingOutlined } from "@ant-design/icons";
 import type { TagValue, TrendChartObject } from "@web-scada/shared";
 import { createRuntimeSocket } from "../../services/ws";
 import type { TrendTagInfo } from "../../services/api";
@@ -9,9 +10,10 @@ import { TrendChart } from "./TrendChart";
 import { TrendSettingsPanel } from "./TrendSettingsPanel";
 import { TrendTagPickerDialog } from "./TrendTagPickerDialog";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
+import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendQueryResponse, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { buildAxes, clamp, computeMaxPointsFromWidth, defaultTrendSettings, formatRangeLabel, parseQuickRange } from "./trendUtils";
+import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, parseQuickRange } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 
@@ -28,23 +30,28 @@ type TrendSeriesColumnState = {
 
 const DEFAULT_SERIES_COLUMNS: TrendSeriesColumnState[] = [
   { id: "visible", label: "Visible", visible: true },
-  { id: "tag", label: "Tag", visible: true },
   { id: "color", label: "Color", visible: true },
-  { id: "value", label: "Value", visible: true },
+  { id: "tag", label: "Tag", visible: true },
+  { id: "displayName", label: "Display name", visible: true },
+  { id: "description", label: "Description", visible: true },
 ];
 
 const DEFAULT_SERIES_COLUMN_WIDTHS: TrendSeriesColumnWidths = {
-  visible: 72,
-  tag: 340,
-  color: 270,
-  value: 120,
+  visible: 54,
+  tag: 180,
+  displayName: 200,
+  description: 260,
+  color: 94,
+  value: 96,
 };
 
 const MIN_SERIES_COLUMN_WIDTHS: Record<TrendSeriesColumnId, number> = {
-  visible: 36,
-  tag: 120,
-  color: 72,
-  value: 70,
+  visible: 28,
+  tag: 72,
+  displayName: 92,
+  description: 120,
+  color: 56,
+  value: 64,
 };
 
 function toLocalDateTimeInputValue(timestamp: number): string {
@@ -91,6 +98,51 @@ function formatTrendValue(value: number | boolean | string | null | undefined): 
 function isAuthenticationRequiredErrorMessage(message: string): boolean {
   const text = message.toLowerCase();
   return text.includes("authentication required") || text.includes("unauthorized");
+}
+
+function mergeTrendSeriesPoints(
+  base: TrendQueryResponse["series"],
+  overlay: TrendQueryResponse["series"],
+): TrendQueryResponse["series"] {
+  const mergedByTag = new Map<string, TrendQueryResponse["series"][number]>();
+  for (const series of base) {
+    mergedByTag.set(series.tag, { ...series, points: [...series.points] });
+  }
+  for (const series of overlay) {
+    const existing = mergedByTag.get(series.tag);
+    if (!existing) {
+      mergedByTag.set(series.tag, { ...series, points: [...series.points] });
+      continue;
+    }
+    const byTs = new Map<number, (typeof series.points)[number]>();
+    for (const point of existing.points) {
+      byTs.set(point.t, point);
+    }
+    for (const point of series.points) {
+      byTs.set(point.t, point);
+    }
+    existing.points = [...byTs.values()].sort((a, b) => a.t - b.t);
+    if (series.displayName) {
+      existing.displayName = series.displayName;
+    }
+  }
+  return [...mergedByTag.values()];
+}
+
+function downloadTextFile(filename: string, content: string): void {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+  const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 type ToolbarGlyphProps = {
@@ -160,6 +212,20 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
     defaultSeriesColumnWidths: DEFAULT_SERIES_COLUMN_WIDTHS,
   });
   if (restored) {
+    if (restored.liveMode) {
+      const span = Math.max(60_000, restored.visibleRange.to - restored.visibleRange.from);
+      const right = Date.now();
+      const nextRange: TrendVisibleRange = {
+        from: right - span,
+        to: right,
+      };
+      return {
+        ...restored,
+        visibleRange: nextRange,
+        customFrom: toLocalDateTimeInputValue(nextRange.from),
+        customTo: toLocalDateTimeInputValue(nextRange.to),
+      };
+    }
     return restored;
   }
   return {
@@ -242,6 +308,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
 
   useEffect(() => {
     const nextViewState = resolveInitialRuntimeViewState(object);
+    logTrendDiagnostics("widget:init", {
+      objectId: object.id,
+      restoredRangePreset: nextViewState.rangePreset,
+      restoredLiveMode: nextViewState.liveMode,
+      restoredTags: nextViewState.selectedTags.length,
+    });
     setResponse(null);
     setError(null);
     setLastLoadAt(undefined);
@@ -296,9 +368,8 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       return;
     }
 
-    const width = chartApiRef.current?.getWidth() ?? 1200;
     const effectiveMaxPointsSetting = liveMode ? 8000 : settings.maxPointsPerSeries;
-    const maxPoints = computeMaxPointsFromWidth(width, effectiveMaxPointsSetting);
+    const maxPoints = clamp(Math.round(effectiveMaxPointsSetting), 1000, 8000);
     const requestAggregation = liveMode ? "raw" : settings.aggregation;
     const tagNames = selectedTags.map((tag) => tag.tag);
     const key = buildTrendCacheKey({
@@ -308,10 +379,23 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       maxPoints,
       aggregation: requestAggregation,
     });
+    logTrendDiagnostics("query:start", {
+      liveMode,
+      aggregation: requestAggregation,
+      tagCount: tagNames.length,
+      rangeFrom: range.from,
+      rangeTo: range.to,
+      maxPoints,
+      cacheEnabled: settings.cacheEnabled,
+    });
 
     if (!options?.force && settings.cacheEnabled) {
       const cached = cacheRef.current.get(key);
       if (cached) {
+        logTrendDiagnostics("query:cache-hit", {
+          aggregation: cached.aggregation,
+          seriesCount: cached.series.length,
+        });
         setResponse(cached);
         setStatusAggregation(cached.aggregation);
         setLastLoadAt(Date.now());
@@ -330,7 +414,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setHistoryWarning(null);
 
     try {
-      const next = await queryTrendData({
+      let next = await queryTrendData({
         tags: tagNames,
         from: new Date(range.from).toISOString(),
         to: new Date(range.to).toISOString(),
@@ -340,11 +424,79 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       if (requestId !== requestIdRef.current) {
         return;
       }
+      logTrendDiagnostics("query:success", {
+        liveMode,
+        aggregation: next.aggregation,
+        seriesCount: next.series.length,
+        pointCount: next.series.reduce((acc, series) => acc + series.points.length, 0),
+        firstSeries: next.series[0]?.tag,
+        firstTs: next.series[0]?.points[0]?.t ?? null,
+        lastTs: next.series[0]?.points[next.series[0]?.points.length - 1]?.t ?? null,
+      });
+      let latestTs = Number.NEGATIVE_INFINITY;
+      if (liveMode) {
+        latestTs = next.series.reduce((maxTs, series) => {
+          const tailTs = series.points[series.points.length - 1]?.t ?? Number.NEGATIVE_INFINITY;
+          return Math.max(maxTs, tailTs);
+        }, Number.NEGATIVE_INFINITY);
+        const lagMs = Number.isFinite(latestTs) ? Date.now() - latestTs : Number.POSITIVE_INFINITY;
+        if (lagMs > 45_000) {
+          const tailFrom = Math.max(range.from, range.to - 10 * 60 * 1000);
+          logTrendDiagnostics("query:tail-raw-start", {
+            lagMs: Math.round(lagMs),
+            tailFrom,
+            tailTo: range.to,
+          });
+          const tail = await queryTrendData({
+            tags: tagNames,
+            from: new Date(tailFrom).toISOString(),
+            to: new Date(range.to).toISOString(),
+            maxPoints: 4000,
+            aggregation: "raw",
+          }, controller.signal);
+          if (requestId !== requestIdRef.current) {
+            return;
+          }
+          next = {
+            ...next,
+            aggregation: "raw",
+            series: mergeTrendSeriesPoints(next.series, tail.series),
+          };
+          logTrendDiagnostics("query:tail-raw-merged", {
+            tailAggregation: tail.aggregation,
+            mergedPoints: next.series.reduce((acc, series) => acc + series.points.length, 0),
+          });
+          latestTs = next.series.reduce((maxTs, series) => {
+            const tailTs = series.points[series.points.length - 1]?.t ?? Number.NEGATIVE_INFINITY;
+            return Math.max(maxTs, tailTs);
+          }, Number.NEGATIVE_INFINITY);
+        }
+      }
+      if (liveMode && next.aggregation !== "raw") {
+        logTrendDiagnostics("query:live-non-raw-accepted", {
+          returnedAggregation: next.aggregation,
+          seriesCount: next.series.length,
+        });
+      }
       if (settings.cacheEnabled) {
         cacheRef.current.set(key, next);
       }
+      if (liveMode && Number.isFinite(latestTs)) {
+        const span = Math.max(60_000, range.to - range.from);
+        const alignedRange: TrendVisibleRange = {
+          from: latestTs - span,
+          to: latestTs,
+        };
+        setVisibleRange(alignedRange);
+        setCustomFrom(toLocalDateTimeInputValue(alignedRange.from));
+        setCustomTo(toLocalDateTimeInputValue(alignedRange.to));
+        logTrendDiagnostics("live:range-aligned-to-last-point", {
+          lastPointTs: latestTs,
+          span,
+        });
+      }
       setResponse(next);
-      setStatusAggregation(next.aggregation);
+      setStatusAggregation(liveMode ? "raw" : next.aggregation);
       setLastLoadAt(Date.now());
       const nextLatest: Record<string, string> = {};
       for (const series of next.series) {
@@ -363,6 +515,10 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       } else {
         setError(text);
       }
+      logTrendDiagnostics("query:error", {
+        liveMode,
+        message: text,
+      });
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false);
@@ -461,6 +617,11 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       if (batch.length === 0) {
         return;
       }
+      logTrendDiagnostics("live:batch", {
+        batchSize: batch.length,
+        minTs: Math.min(...batch.map((item) => item.timestamp)),
+        maxTs: Math.max(...batch.map((item) => item.timestamp)),
+      });
       setLiveBatchCount((prev) => prev + 1);
       setLivePointCount((prev) => prev + batch.length);
       setLiveLastBatchAt(Date.now());
@@ -525,6 +686,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
 
   const applyPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
     const next = parseQuickRange(preset);
+    logTrendDiagnostics("range:preset", {
+      preset,
+      from: next.from,
+      to: next.to,
+      liveMode,
+    });
     setTimeRangeDraftFrom(toLocalDateTimeInputValue(next.from));
     setTimeRangeDraftTo(toLocalDateTimeInputValue(next.to));
     applyRangeAndQuery(next, { preset });
@@ -583,15 +750,6 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     });
   };
 
-  const backToLive = () => {
-    const span = Math.max(60_000, visibleRange.to - visibleRange.from);
-    const right = Date.now();
-    const next = { from: right - span, to: right };
-    setLiveAutoStopReason(null);
-    setLiveMode(true);
-    applyRangeAndQuery(next, { keepLive: true });
-  };
-
   const handleChartRangeChange = (range: TrendVisibleRange, source: "interaction" | "live") => {
     setVisibleRange(range);
     if (source === "interaction" && liveMode) {
@@ -619,6 +777,38 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
 
   const refresh = () => {
     void executeQuery(visibleRange, { force: true });
+  };
+
+  const toggleLiveMode = () => {
+    if (!hasSelection) {
+      return;
+    }
+    if (liveMode) {
+      logTrendDiagnostics("live:toggle-off", {
+        reason: "toolbar",
+      });
+      setLiveMode(false);
+      return;
+    }
+    const span = Math.max(60_000, visibleRange.to - visibleRange.from);
+    const right = Date.now();
+    const nextRange: TrendVisibleRange = {
+      from: right - span,
+      to: right,
+    };
+    setPendingToolbarRange(null);
+    setLiveAutoStopReason(null);
+    setStatusAggregation("raw");
+    logTrendDiagnostics("live:toggle-on", {
+      from: nextRange.from,
+      to: nextRange.to,
+      selectedTags: selectedTags.map((item) => item.tag),
+    });
+    setRangePreset("custom");
+    setVisibleRange(nextRange);
+    setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
+    setCustomTo(toLocalDateTimeInputValue(nextRange.to));
+    setLiveMode(true);
   };
 
   const setSeriesPatch = (tagName: string, patch: Partial<TrendTagSelection>) => {
@@ -713,6 +903,10 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setContextMenu({ x: event.clientX, y: event.clientY });
   };
   const openToolbarMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (contextMenu) {
+      setContextMenu(null);
+      return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     setContextMenu({ x: rect.left, y: rect.bottom + 4 });
   };
@@ -720,31 +914,75 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     action();
     setContextMenu(null);
   };
+  const exportDiagnosticsLog = () => {
+    const payload = exportTrendDiagnostics({
+      objectId: object.id,
+      liveMode,
+      rangePreset,
+      visibleRange,
+      selectedTags: selectedTags.map((item) => item.tag),
+      settings: {
+        aggregation: settings.aggregation,
+        maxPointsPerSeries: settings.maxPointsPerSeries,
+        progressive: settings.progressive,
+        zoomDebounceMs: settings.zoomDebounceMs,
+      },
+      statusAggregation,
+      pointCount,
+      liveBatchCount,
+      livePointCount,
+      liveSocketState,
+    });
+    downloadTextFile(`trend-diagnostics-${object.id}-${Date.now()}.json`, payload);
+  };
 
   return (
     <div className="trends-widget-shell" style={shellStyle}>
       {object.showToolbar !== false ? (
         <div className="trends-toolbar">
-          <WorkbenchIconButton title="Menu" onClick={openToolbarMenu} icon={<ToolbarGlyph path="M4 7h16M4 12h16M4 17h16" />} />
-          <WorkbenchIconButton title="Add or Remove Tags" onClick={() => setTagDialogOpen(true)} icon={<ToolbarGlyph path="M4 12h16M12 4v16" />} />
-          <WorkbenchIconButton
-            title={liveMode ? "Pause Live" : "Start Live"}
-            active={liveMode}
-            onClick={() => setLiveMode((prev) => !prev)}
-            disabled={!hasSelection}
-            icon={liveMode ? <ToolbarGlyph path="M8 6v12M16 6v12" /> : <ToolbarGlyph path="M9 7l9 5-9 5z" />}
-          />
-          <WorkbenchIconButton title="Time Range" onClick={openTimeRangeDialog} disabled={!hasSelection} icon={<ToolbarGlyph path="M8 3v3M16 3v3M4 10h16M7 14h4M4 6h16v14H4z" />} />
-          <WorkbenchIconButton title="Quick 5m" onClick={() => applyPreset("5m")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">5m</span>} />
-          <WorkbenchIconButton title="Quick 15m" onClick={() => applyPreset("15m")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">15m</span>} />
-          <WorkbenchIconButton title="Quick 1h" onClick={() => applyPreset("1h")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">1h</span>} />
-          <WorkbenchIconButton title="Pan Left" onClick={() => panBy(-1)} disabled={!hasSelection} icon={<ToolbarGlyph path="M14 7l-5 5 5 5M10 12h10" />} />
-          <WorkbenchIconButton title="Pan Right" onClick={() => panBy(1)} disabled={!hasSelection} icon={<ToolbarGlyph path="M10 7l5 5-5 5M4 12h10" />} />
-          <WorkbenchIconButton title="Zoom In" onClick={() => zoomBy(0.7)} disabled={!hasSelection} icon={<ToolbarGlyph path="M11 8v6M8 11h6M21 21l-4.3-4.3M16 11a5 5 0 1 1-10 0 5 5 0 0 1 10 0z" />} />
-          <WorkbenchIconButton title="Zoom Out" onClick={() => zoomBy(1.4)} disabled={!hasSelection} icon={<ToolbarGlyph path="M8 11h6M21 21l-4.3-4.3M16 11a5 5 0 1 1-10 0 5 5 0 0 1 10 0z" />} />
-          <WorkbenchIconButton title="Back to Live" onClick={backToLive} disabled={!hasSelection || liveMode} icon={<ToolbarGlyph path="M3 12a9 9 0 1 0 3-6.7M3 5v6h6" />} />
-          <WorkbenchIconButton title="Refresh" onClick={refresh} disabled={!hasSelection} icon={<ToolbarGlyph path="M20 6v6h-6M4 18v-6h6M20 12a8 8 0 0 0-14.3-4M4 12a8 8 0 0 0 14.3 4" />} />
-          <WorkbenchIconButton title="Settings" onClick={() => setSettingsOpen(true)} icon={<ToolbarGlyph path="M12 8.2a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6zm8 3.8l-2.1-.5a6.8 6.8 0 0 0-.5-1.2l1.2-1.8-1.9-1.9-1.8 1.2a6.8 6.8 0 0 0-1.2-.5L12 4l-2.2.3a6.8 6.8 0 0 0-1.2.5L6.8 3.6 5 5.5l1.2 1.8c-.2.4-.4.8-.5 1.2L3.6 12l.3 2.2c.1.4.3.8.5 1.2L3.2 17.2 5 19l1.8-1.2c.4.2.8.4 1.2.5L12 20l2.2-.3c.4-.1.8-.3 1.2-.5l1.8 1.2 1.9-1.9-1.2-1.8c.2-.4.4-.8.5-1.2L20 12z" />} />
+          {settings.showToolbarMenuButton ? (
+            <WorkbenchIconButton title="Menu" onClick={openToolbarMenu} icon={<ToolbarGlyph path="M4 7h16M4 12h16M4 17h16" />} />
+          ) : null}
+          {settings.showToolbarTagsButton ? (
+            <WorkbenchIconButton title="Add or Remove Tags" onClick={() => setTagDialogOpen(true)} icon={<ToolbarGlyph path="M4 12h16M12 4v16" />} />
+          ) : null}
+          {settings.showToolbarLiveButton ? (
+            <WorkbenchIconButton
+              title={liveMode ? "Pause Live" : "Start Live"}
+              active={liveMode}
+              onClick={toggleLiveMode}
+              disabled={!hasSelection}
+              icon={liveMode ? <ToolbarGlyph path="M8 6v12M16 6v12" /> : <ToolbarGlyph path="M9 7l9 5-9 5z" />}
+            />
+          ) : null}
+          {settings.showToolbarTimeRangeButton ? (
+            <WorkbenchIconButton title="Time Range" onClick={openTimeRangeDialog} disabled={!hasSelection} icon={<ToolbarGlyph path="M8 3v3M16 3v3M4 10h16M7 14h4M4 6h16v14H4z" />} />
+          ) : null}
+          {settings.showToolbarQuickRangeButtons ? (
+            <>
+              <WorkbenchIconButton title="Quick 5m" onClick={() => applyPreset("5m")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">5m</span>} />
+              <WorkbenchIconButton title="Quick 15m" onClick={() => applyPreset("15m")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">15m</span>} />
+              <WorkbenchIconButton title="Quick 1h" onClick={() => applyPreset("1h")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">1h</span>} />
+            </>
+          ) : null}
+          {settings.showToolbarPanButtons ? (
+            <>
+              <WorkbenchIconButton title="Pan Left" onClick={() => panBy(-1)} disabled={!hasSelection} icon={<ToolbarGlyph path="M14 7l-5 5 5 5M10 12h10" />} />
+              <WorkbenchIconButton title="Pan Right" onClick={() => panBy(1)} disabled={!hasSelection} icon={<ToolbarGlyph path="M10 7l5 5-5 5M4 12h10" />} />
+            </>
+          ) : null}
+          {settings.showToolbarZoomButtons ? (
+            <>
+              <WorkbenchIconButton title="Zoom In" onClick={() => zoomBy(0.7)} disabled={!hasSelection} icon={<ToolbarGlyph path="M11 8v6M8 11h6M21 21l-4.3-4.3M16 11a5 5 0 1 1-10 0 5 5 0 0 1 10 0z" />} />
+              <WorkbenchIconButton title="Zoom Out" onClick={() => zoomBy(1.4)} disabled={!hasSelection} icon={<ToolbarGlyph path="M8 11h6M21 21l-4.3-4.3M16 11a5 5 0 1 1-10 0 5 5 0 0 1 10 0z" />} />
+            </>
+          ) : null}
+          {settings.showToolbarRefreshButton ? (
+            <WorkbenchIconButton title="Refresh" onClick={refresh} disabled={!hasSelection} icon={<ToolbarGlyph path="M20 6v6h-6M4 18v-6h6M20 12a8 8 0 0 0-14.3-4M4 12a8 8 0 0 0 14.3 4" />} />
+          ) : null}
+          {settings.showToolbarSettingsButton ? (
+            <WorkbenchIconButton title="Settings" onClick={() => setSettingsOpen(true)} icon={<SettingOutlined />} />
+          ) : null}
 
           <div className="trends-toolbar__meta">
             {loading ? <Spin size="small" /> : null}
@@ -825,7 +1063,21 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
                 if (column.id === "tag") {
                   return (
                     <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--tag" title={tag.displayName || tag.tag}>
-                      {tag.displayName || tag.tag}
+                      {tag.tag}
+                    </div>
+                  );
+                }
+                if (column.id === "displayName") {
+                  return (
+                    <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--display-name" title={tag.displayName || tagInfoMap.get(tag.tag)?.displayName || "-"}>
+                      {tag.displayName || tagInfoMap.get(tag.tag)?.displayName || "-"}
+                    </div>
+                  );
+                }
+                if (column.id === "description") {
+                  return (
+                    <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--description" title={tagInfoMap.get(tag.tag)?.description || "-"}>
+                      {tagInfoMap.get(tag.tag)?.description || "-"}
                     </div>
                   );
                 }
@@ -861,7 +1113,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           <button
             type="button"
             className="trends-context-menu__item"
-            onClick={() => runMenuAction(() => setLiveMode((prev) => !prev))}
+            onClick={() => runMenuAction(toggleLiveMode)}
             disabled={selectedTags.length === 0}
           >
             {liveMode ? "Pause Live" : "Start Live"}
@@ -886,6 +1138,8 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           <button type="button" className="trends-context-menu__item" onClick={() => runMenuAction(() => applyPreset("8h"))}>Last 8 hours</button>
           <button type="button" className="trends-context-menu__item" onClick={() => runMenuAction(() => applyPreset("24h"))}>Last 24 hours</button>
           <button type="button" className="trends-context-menu__item" onClick={() => runMenuAction(openTimeRangeDialog)}>Custom range...</button>
+          <div className="trends-context-menu__separator" />
+          <button type="button" className="trends-context-menu__item" onClick={() => runMenuAction(exportDiagnosticsLog)}>Export diagnostics log...</button>
         </div>
       ) : null}
 
@@ -896,14 +1150,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           <span>Loaded: {loadedSeriesCount}/{selectedTags.length}</span>
           <span>Points: {pointCount.toLocaleString()}</span>
           <span>Aggregation: {aggregationLabel}</span>
-          <span>History: {historyWarning ?? "ok"}</span>
           <span>Last load: {lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : "-"}</span>
           <span>Live WS: {liveSocketState}</span>
-          <span>Live batches: {liveBatchCount}</span>
-          <span>Live points: {livePointCount}</span>
-          <span>Live last batch: {liveLastBatchAt ? new Date(liveLastBatchAt).toLocaleTimeString() : "-"}</span>
-          <span>Live last point ts: {liveLastPointTs ? new Date(liveLastPointTs).toLocaleTimeString() : "-"}</span>
-          <span>Live stop reason: {liveAutoStopReason ?? "-"}</span>
+          {historyWarning ? <span>History: {historyWarning}</span> : null}
         </div>
       ) : null}
 
@@ -911,9 +1160,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         id="trend-time-range-dialog"
         title="Time Range"
         open={timeRangeDialogOpen}
-        defaultRect={{ x: 260, y: 120, width: 520, height: 340 }}
-        minWidth={460}
-        minHeight={280}
+        defaultRect={{ x: 260, y: 120, width: 440, height: 300 }}
+        minWidth={400}
+        minHeight={250}
         bodyClassName="trends-time-range-dialog-body"
         footer={(
           <>

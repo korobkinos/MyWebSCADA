@@ -11,6 +11,8 @@ const defaultFilters: TrendTagPickerFilters = {
 const defaultWidths: TrendSeriesColumnWidths = {
   visible: 72,
   tag: 340,
+  displayName: 240,
+  description: 280,
   color: 270,
   value: 120,
 };

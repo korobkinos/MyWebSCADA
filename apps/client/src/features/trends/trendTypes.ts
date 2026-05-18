@@ -3,7 +3,7 @@ import type { TrendAggregationMode, TrendPoint, TrendQueryResponse, TrendTagInfo
 export type { TrendAggregationMode, TrendPoint, TrendQueryResponse, TrendTagInfo };
 
 export type TrendRangePreset = "5m" | "15m" | "1h" | "8h" | "24h" | "custom";
-export type TrendSeriesColumnId = "visible" | "tag" | "color" | "value";
+export type TrendSeriesColumnId = "visible" | "tag" | "displayName" | "description" | "color" | "value";
 export type TrendSeriesColumnWidths = Record<TrendSeriesColumnId, number>;
 
 export type TrendLineType = "solid" | "dashed" | "dotted";
@@ -70,6 +70,15 @@ export type TrendSettings = {
   axisPlacement: "left" | "right" | "split";
   axisOffsetStep: number;
   showSeriesTable: boolean;
+  showToolbarMenuButton: boolean;
+  showToolbarTagsButton: boolean;
+  showToolbarLiveButton: boolean;
+  showToolbarTimeRangeButton: boolean;
+  showToolbarQuickRangeButtons: boolean;
+  showToolbarPanButtons: boolean;
+  showToolbarZoomButtons: boolean;
+  showToolbarRefreshButton: boolean;
+  showToolbarSettingsButton: boolean;
 };
 
 export type TrendVisibleRange = {

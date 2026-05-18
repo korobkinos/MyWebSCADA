@@ -15,7 +15,7 @@ type TrendSettingsPanelProps = {
   onSelectedTagsChange: (next: TrendTagSelection[]) => void;
 };
 
-type TrendSettingsTab = "appearance" | "performance" | "axes" | "series";
+type TrendSettingsTab = "appearance" | "performance" | "axes" | "series" | "toolbar";
 
 function parseNumber(value: string): number | undefined {
   const num = Number(value);
@@ -113,6 +113,7 @@ export function TrendSettingsPanel({
           <button type="button" role="tab" aria-selected={activeTab === "performance"} className={`trends-settings-tab ${activeTab === "performance" ? "trends-settings-tab--active" : ""}`} onClick={() => setActiveTab("performance")}>Data / Performance</button>
           <button type="button" role="tab" aria-selected={activeTab === "axes"} className={`trends-settings-tab ${activeTab === "axes" ? "trends-settings-tab--active" : ""}`} onClick={() => setActiveTab("axes")}>Axes</button>
           <button type="button" role="tab" aria-selected={activeTab === "series"} className={`trends-settings-tab ${activeTab === "series" ? "trends-settings-tab--active" : ""}`} onClick={() => setActiveTab("series")}>Series</button>
+          <button type="button" role="tab" aria-selected={activeTab === "toolbar"} className={`trends-settings-tab ${activeTab === "toolbar" ? "trends-settings-tab--active" : ""}`} onClick={() => setActiveTab("toolbar")}>Toolbar</button>
         </div>
 
         {activeTab === "appearance" ? (
@@ -262,6 +263,24 @@ export function TrendSettingsPanel({
                   <label><input type="checkbox" checked={tag.visible !== false} onChange={(event) => updateSeries(tag.tag, { visible: event.target.checked })} /> visible</label>
                 </div>
               ))}
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === "toolbar" ? (
+          <section className="trends-settings-section">
+            <h3>Toolbar</h3>
+            <p className="trends-settings-helper">Toggle visibility of chart toolbar controls.</p>
+            <div className="trends-settings-grid">
+              <label><input type="checkbox" checked={draftSettings.showToolbarMenuButton} onChange={(event) => patchSettings({ showToolbarMenuButton: event.target.checked })} /> Menu button</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarTagsButton} onChange={(event) => patchSettings({ showToolbarTagsButton: event.target.checked })} /> Add/Remove tags</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarLiveButton} onChange={(event) => patchSettings({ showToolbarLiveButton: event.target.checked })} /> Live button</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarTimeRangeButton} onChange={(event) => patchSettings({ showToolbarTimeRangeButton: event.target.checked })} /> Time range button</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarQuickRangeButtons} onChange={(event) => patchSettings({ showToolbarQuickRangeButtons: event.target.checked })} /> Quick ranges</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarPanButtons} onChange={(event) => patchSettings({ showToolbarPanButtons: event.target.checked })} /> Pan buttons</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarZoomButtons} onChange={(event) => patchSettings({ showToolbarZoomButtons: event.target.checked })} /> Zoom buttons</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarRefreshButton} onChange={(event) => patchSettings({ showToolbarRefreshButton: event.target.checked })} /> Refresh button</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarSettingsButton} onChange={(event) => patchSettings({ showToolbarSettingsButton: event.target.checked })} /> Settings button</label>
             </div>
           </section>
         ) : null}

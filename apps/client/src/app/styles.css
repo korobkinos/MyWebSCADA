@@ -6164,6 +6164,11 @@ body {
 
 .trends-series-table__cell {
   min-width: 0;
+  padding: 3px 6px;
+  border-right: 1px solid var(--trends-theme-table-border, #3c3c3c);
+}
+.trends-series-table__cell:last-child {
+  border-right: 0;
 }
 
 .trends-series-table__cell--header {
@@ -6222,6 +6227,13 @@ body {
 
 .trends-series-table__cell--value {
   text-align: right;
+}
+.trends-series-table__cell--tag,
+.trends-series-table__cell--display-name,
+.trends-series-table__cell--description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .trends-chart-wrap {
@@ -6441,7 +6453,7 @@ body {
 }
 .trends-settings-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
 }
 .trends-settings-tab {

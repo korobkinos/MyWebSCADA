@@ -4,7 +4,7 @@ import { clamp, defaultTrendSettings } from "./trendUtils";
 const TREND_RUNTIME_VIEW_STATE_STORAGE_PREFIX = "mywebscada.trends.runtimeViewState";
 const TREND_RUNTIME_VIEW_STATE_VERSION = 2;
 
-const SERIES_COLUMN_IDS: TrendSeriesColumnId[] = ["visible", "tag", "color", "value"];
+const SERIES_COLUMN_IDS: TrendSeriesColumnId[] = ["visible", "tag", "displayName", "description", "color", "value"];
 
 type TrendRuntimeViewStateData = {
   rangePreset: TrendRangePreset;
@@ -79,7 +79,7 @@ function normalizeSeriesColumnWidths(
   const next = { ...defaults };
   for (const id of SERIES_COLUMN_IDS) {
     const value = Number(source?.[id]);
-    if (Number.isFinite(value) && value >= 36 && value <= 640) {
+    if (Number.isFinite(value) && value >= 24 && value <= 640) {
       next[id] = Math.round(value);
     }
   }
