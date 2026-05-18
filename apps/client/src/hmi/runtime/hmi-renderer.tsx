@@ -1663,7 +1663,6 @@ function ObjectNode({
 
       if (resolvedObject.type === "line") {
         const scaledPoints = resolvedObject.points.map((point, index) => (index % 2 === 0 ? point * scaleX : point * scaleY));
-        const nextStrokeWidth = roundToTenths(Math.max(1, resolvedObject.strokeWidth * Math.abs(scaleY)));
         onResizeObject?.(resolvedObject.id, {
           x: node.x(),
           y: node.y(),
@@ -1671,7 +1670,6 @@ function ObjectNode({
           height: nextHeight,
           rotation: node.rotation(),
           points: scaledPoints,
-          strokeWidth: nextStrokeWidth,
         } as Partial<HmiObject>);
       } else {
         onResizeObject?.(resolvedObject.id, {
@@ -1883,9 +1881,9 @@ function ObjectNode({
     const gradientGapRaw = Number(flowAnimation?.gapLength ?? 40);
     const gradientGap = Number.isFinite(gradientGapRaw) && gradientGapRaw >= 0 ? gradientGapRaw : 40;
     const gradientDash = [gradientSpan, gradientGap];
-    const gradientStartColor = flowAnimation?.gradientStartColor ?? resolvedObject.stroke ?? "#d9d9d9";
     const gradientMidColor = flowAnimation?.gradientMidColor ?? flowColor;
-    const gradientEndColor = flowAnimation?.gradientEndColor ?? resolvedObject.stroke ?? "#d9d9d9";
+    const gradientStartColor = flowAnimation?.gradientStartColor ?? gradientMidColor;
+    const gradientEndColor = flowAnimation?.gradientEndColor ?? gradientMidColor;
     const gradientStartPoint = {
       x: resolvedObject.points[0] ?? 0,
       y: resolvedObject.points[1] ?? 0,
