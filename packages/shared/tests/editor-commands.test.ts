@@ -360,4 +360,33 @@ describe("merge lines", () => {
     expect(merged.points[4]).toBeCloseTo(40, 6);
     expect(merged.points[5]).toBeCloseTo(40, 6);
   });
+
+  it("keeps style of the longest (main) line even when selected later", () => {
+    const shortSegment = lineObject("short", 90, 10, [0, 0, 0, 16], {
+      stroke: "#ff00ff",
+      strokeWidth: 1,
+      name: "Short Segment",
+    });
+    const mainLine = lineObject("main", 10, 10, [0, 0, 80, 0], {
+      stroke: "#22aa66",
+      strokeWidth: 6,
+      name: "Main Pipe",
+    });
+    const screen = screenWith([shortSegment, mainLine]);
+
+    const result = executeEditorCommand(screen, selection(["short", "main"], "short"), {
+      type: "mergeSelectedLinesToPolyline",
+    });
+
+    expect(result.warnings ?? []).toHaveLength(0);
+    expect(result.screen.objects).toHaveLength(1);
+    const merged = result.screen.objects[0];
+    expect(merged?.type).toBe("line");
+    if (!merged || merged.type !== "line") {
+      return;
+    }
+    expect(merged.stroke).toBe("#22aa66");
+    expect(merged.strokeWidth).toBe(6);
+    expect(merged.name).toBe("Main Pipe");
+  });
 });

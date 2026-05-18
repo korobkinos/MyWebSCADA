@@ -275,7 +275,13 @@ export function mergeSelectedLinesToPolyline(screen: HmiScreen, selection: Edito
   }
 
   const selectedLines = selectedObjects.filter((obj): obj is LineObject => obj.type === "line");
-  const source = selectedLines[0];
+  const source = [...selectedLines].sort((a, b) => {
+    const lengthDiff = getLinePolylineLength(b) - getLinePolylineLength(a);
+    if (Math.abs(lengthDiff) > 1e-9) {
+      return lengthDiff;
+    }
+    return selectedLines.indexOf(a) - selectedLines.indexOf(b);
+  })[0];
   if (!source) {
     return { screen, selection, warnings: ["Select at least 2 line objects to merge."] };
   }
@@ -330,6 +336,19 @@ export function mergeSelectedLinesToPolyline(screen: HmiScreen, selection: Edito
       activeObjectId: mergedLine.id,
     },
   };
+}
+
+function getLinePolylineLength(line: LineObject): number {
+  let total = 0;
+  const points = line.points ?? [];
+  for (let i = 0; i + 3 < points.length; i += 2) {
+    const x1 = points[i] ?? 0;
+    const y1 = points[i + 1] ?? 0;
+    const x2 = points[i + 2] ?? 0;
+    const y2 = points[i + 3] ?? 0;
+    total += Math.hypot(x2 - x1, y2 - y1);
+  }
+  return total;
 }
 
 export function ungroupSelected(screen: HmiScreen, selection: EditorSelectionState): EditorCommandResult {

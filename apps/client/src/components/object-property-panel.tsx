@@ -152,7 +152,14 @@ function ColorField({
         <ColorPicker
           value={pickerValue}
           disabled={disabled}
-          onChangeComplete={(color) => onChange(color.toHexString())}
+          onChangeComplete={(color) => {
+            const rgb = color.toRgb();
+            if (typeof rgb.a === "number" && rgb.a < 1) {
+              onChange(color.toRgbString());
+              return;
+            }
+            onChange(color.toHexString());
+          }}
         />
         <Input
           value={value ?? ""}
@@ -881,9 +888,20 @@ function FlowAnimationFields({
       <ColorField
         label="Gradient Start Color"
         value={flowAnimation.gradientStartColor}
-        fallback={object.stroke ?? "#d9d9d9"}
+        fallback={flowAnimation.gradientMidColor ?? flowAnimation.color ?? object.activeStroke ?? object.stroke ?? "#00bfff"}
         onChange={(next) => patchFlowAnimation({ gradientStartColor: next })}
       />
+      <Space style={{ marginBottom: 8 }}>
+        <span>Use Mid Color For Start</span>
+        <Switch
+          checked={flowAnimation.gradientStartColor === undefined}
+          onChange={(checked) => patchFlowAnimation({
+            gradientStartColor: checked
+              ? undefined
+              : (flowAnimation.gradientMidColor ?? flowAnimation.color ?? object.activeStroke ?? object.stroke ?? "#00bfff"),
+          })}
+        />
+      </Space>
       <ColorField
         label="Gradient Mid Color"
         value={flowAnimation.gradientMidColor}
@@ -893,9 +911,20 @@ function FlowAnimationFields({
       <ColorField
         label="Gradient End Color"
         value={flowAnimation.gradientEndColor}
-        fallback={object.stroke ?? "#d9d9d9"}
+        fallback={flowAnimation.gradientMidColor ?? flowAnimation.color ?? object.activeStroke ?? object.stroke ?? "#00bfff"}
         onChange={(next) => patchFlowAnimation({ gradientEndColor: next })}
       />
+      <Space style={{ marginBottom: 8 }}>
+        <span>Use Mid Color For End</span>
+        <Switch
+          checked={flowAnimation.gradientEndColor === undefined}
+          onChange={(checked) => patchFlowAnimation({
+            gradientEndColor: checked
+              ? undefined
+              : (flowAnimation.gradientMidColor ?? flowAnimation.color ?? object.activeStroke ?? object.stroke ?? "#00bfff"),
+          })}
+        />
+      </Space>
       <Form.Item label="Gradient Span (px)">
         <InputNumber
           style={{ width: "100%" }}
