@@ -4816,6 +4816,14 @@ function MissingNode({ commonGroupProps, message }: { commonGroupProps: Record<s
 const warnedBindingIssues = new Set<string>();
 const warnedBindingReferenceMisses = new Set<string>();
 const MAX_WARNED_RUNTIME_KEYS = 500;
+const RUNTIME_WARNINGS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimeWarnings";
+
+function shouldLogRuntimeWarnings(): boolean {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(RUNTIME_WARNINGS_DEBUG_LOCAL_STORAGE_KEY) === "1";
+}
 
 function warnLibraryBindingIssuesOnce(
   libraryId: string,
@@ -4823,6 +4831,9 @@ function warnLibraryBindingIssuesOnce(
   instanceId: string,
   issues: Array<{ key: string; displayName?: string; required: boolean; reason: string; fallbackBaseTag?: string }>,
 ) {
+  if (!shouldLogRuntimeWarnings()) {
+    return;
+  }
   const key = `${libraryId}:${elementId}:${issues
     .map((item) => `${item.key}:${item.reason}:${item.required ? 1 : 0}`)
     .sort()
@@ -4849,6 +4860,9 @@ function warnMissingBindingReferencesOnce(
   instanceId: string,
   refs: string[],
 ) {
+  if (!shouldLogRuntimeWarnings()) {
+    return;
+  }
   const key = `${libraryId}:${elementId}:${refs.slice().sort().join("|")}`;
   if (warnedBindingReferenceMisses.has(key)) {
     return;

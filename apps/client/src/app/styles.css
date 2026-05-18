@@ -1777,6 +1777,12 @@ body {
   cursor: grab;
 }
 
+.screen-editor-canvas-host--select,
+.screen-editor-canvas-host--select .canvas-wrap,
+.screen-editor-canvas-host--select .canvas-wrap canvas {
+  cursor: default;
+}
+
 .screen-editor-canvas-host--panning {
   cursor: grabbing;
 }

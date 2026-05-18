@@ -647,7 +647,7 @@ export function ScreenEditorCenter({
         </div>
       </div>
       <div
-        className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${!previewMode && activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${!previewMode && isPanning ? " screen-editor-canvas-host--panning" : ""}`}
+        className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${!previewMode && activeTool === "select" ? " screen-editor-canvas-host--select" : ""}${!previewMode && activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${!previewMode && isPanning ? " screen-editor-canvas-host--panning" : ""}`}
         style={{ ["--screen-editor-viewport-bg" as string]: viewportBackground } as Record<string, string>}
         onWheel={(event) => {
           // Task 4: zoom is handled by the native non-passive listener (useEffect above).

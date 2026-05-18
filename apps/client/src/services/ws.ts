@@ -18,6 +18,14 @@ type RuntimeSocketController = {
 let activeSocketController: RuntimeSocketController | null = null;
 let pendingGlobalSubscriptions: string[] | null = null;
 const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.trim();
+const RUNTIME_WS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimeWs";
+
+function shouldLogRuntimeWsWarnings(): boolean {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(RUNTIME_WS_DEBUG_LOCAL_STORAGE_KEY) === "1";
+}
 
 function normalizeTags(tags: string[]): string[] {
   return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
@@ -63,13 +71,15 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
   const sendWhenOpen = (payload: RuntimeWsClientMessage, options?: { queueWhenClosed?: boolean }) => {
     if (!isOpen || !socket || socket.readyState !== WebSocket.OPEN) {
       if (options?.queueWhenClosed === false) {
-        // eslint-disable-next-line no-console
-        console.warn("[RuntimeWS] Manual command skipped: socket is not open", {
-          timestamp: new Date().toISOString(),
-          reason: "error",
-          timeoutMs: COMMAND_TIMEOUT_MS,
-          type: payload.type,
-        });
+        if (shouldLogRuntimeWsWarnings()) {
+          // eslint-disable-next-line no-console
+          console.warn("[RuntimeWS] Manual command skipped: socket is not open", {
+            timestamp: new Date().toISOString(),
+            reason: "error",
+            timeoutMs: COMMAND_TIMEOUT_MS,
+            type: payload.type,
+          });
+        }
         return;
       }
       if (queuedMessages.length > 1000) {
