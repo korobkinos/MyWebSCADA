@@ -22,7 +22,7 @@ export function defaultTrendSettings(): TrendSettings {
     showUnitsInTooltip: true,
     showBadQualityGaps: true,
     maxPointsPerSeries: 4000,
-    aggregation: "auto",
+    aggregation: "raw",
     zoomDebounceMs: 350,
     progressive: true,
     disableAnimationsLargeData: true,

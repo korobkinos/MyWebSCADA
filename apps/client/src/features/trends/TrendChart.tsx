@@ -157,6 +157,9 @@ export function TrendChart({
       return;
     }
     const uiTheme = resolveTrendTheme(settings.theme);
+    const chartBackground = settings.theme === "custom" && /^#[0-9a-fA-F]{3,6}$/.test(settings.background)
+      ? settings.background
+      : uiTheme.background;
 
     const activeTags = tags.filter((tag) => tag.visible !== false);
     const safeAxes: TrendAxisConfig[] = axes.length > 0
@@ -185,6 +188,12 @@ export function TrendChart({
       splitLine: { show: settings.gridLines, lineStyle: { color: uiTheme.gridLine, type: "dashed" } },
     }));
 
+    const totalPointCount = activeTags.reduce((acc, tag) => acc + (seriesPointsRef.current.get(tag.tag)?.length ?? 0), 0);
+    const isLargeDataset = totalPointCount >= 5000;
+    const animationEnabled = !liveMode && (!settings.disableAnimationsLargeData || !isLargeDataset);
+    const progressiveValue = settings.progressive ? 450 : 0;
+    const progressiveThreshold = settings.progressive ? 2500 : Number.MAX_SAFE_INTEGER;
+
     const series = activeTags.map((tag, index) => {
       const points = seriesPointsRef.current.get(tag.tag) ?? [];
       const lineWidth = tag.lineWidth ?? settings.defaultLineWidth;
@@ -206,8 +215,9 @@ export function TrendChart({
         showSymbol: settings.showSymbols || renderMode === "points",
         symbol: settings.showSymbols || renderMode === "points" ? "circle" : "none",
         sampling: settings.aggregation === "minmax" ? "minmax" : settings.aggregation === "lttb" ? "lttb" : undefined,
-        progressive: 0,
-        animation: false,
+        progressive: progressiveValue,
+        progressiveThreshold,
+        animation: animationEnabled,
         connectNulls: false,
         step: tag.step || renderMode === "step" ? "end" : false,
         yAxisIndex,
@@ -226,8 +236,8 @@ export function TrendChart({
     const option: EChartsCoreOption = {
       // Keep full domain stable so wheel zoom can zoom-out after zoom-in.
       // Windowed range is controlled via dataZoom start/end values.
-      backgroundColor: settings.background,
-      animation: false,
+      backgroundColor: chartBackground,
+      animation: animationEnabled,
       textStyle: { color: uiTheme.text },
       grid: {
         left: 56 + Math.max(0, (safeAxes.filter((axis) => axis.position === "left").length - 1) * (settings.axisOffsetStep + 10)),
@@ -257,8 +267,8 @@ export function TrendChart({
               label: { show: false },
               animation: false,
             },
-            backgroundColor: "#1f1f1f",
-            borderColor: uiTheme.border,
+            backgroundColor: uiTheme.tooltipBg,
+            borderColor: uiTheme.tooltipBorder,
             textStyle: { color: uiTheme.text },
           }
         : undefined,
@@ -296,9 +306,19 @@ export function TrendChart({
               showDataShadow: false,
               height: 20,
               bottom: 14,
-              borderColor: uiTheme.border,
-              fillerColor: "rgba(0, 122, 204, 0.24)",
-              backgroundColor: "rgba(255,255,255,0.03)",
+              borderColor: uiTheme.tableBorder,
+              fillerColor: `${uiTheme.accent}66`,
+              handleStyle: { color: uiTheme.accent, borderColor: uiTheme.border },
+              moveHandleStyle: { color: uiTheme.accent, opacity: 0.6 },
+              dataBackground: {
+                lineStyle: { color: uiTheme.gridLine, opacity: 0.65 },
+                areaStyle: { color: uiTheme.buttonBg, opacity: 0.45 },
+              },
+              selectedDataBackground: {
+                lineStyle: { color: uiTheme.accent, opacity: 0.85 },
+                areaStyle: { color: uiTheme.accent, opacity: 0.2 },
+              },
+              backgroundColor: uiTheme.buttonBg,
             },
           ]
         : [

@@ -15,6 +15,8 @@ type TrendSettingsPanelProps = {
   onSelectedTagsChange: (next: TrendTagSelection[]) => void;
 };
 
+type TrendSettingsTab = "appearance" | "performance" | "axes" | "series";
+
 function parseNumber(value: string): number | undefined {
   const num = Number(value);
   return Number.isFinite(num) ? num : undefined;
@@ -45,6 +47,7 @@ export function TrendSettingsPanel({
   const [draftSettings, setDraftSettings] = useState<TrendSettings>(settings);
   const [draftAxes, setDraftAxes] = useState<TrendAxisConfig[]>(axes);
   const [draftSelectedTags, setDraftSelectedTags] = useState<TrendTagSelection[]>(selectedTags);
+  const [activeTab, setActiveTab] = useState<TrendSettingsTab>("appearance");
 
   useEffect(() => {
     if (!open) {
@@ -53,6 +56,7 @@ export function TrendSettingsPanel({
     setDraftSettings(settings);
     setDraftAxes(axes);
     setDraftSelectedTags(selectedTags);
+    setActiveTab("appearance");
   }, [axes, open, selectedTags, settings]);
 
   if (!open) {
@@ -91,9 +95,9 @@ export function TrendSettingsPanel({
       id="trend-settings-dialog"
       title="Trend Settings"
       open={open}
-      defaultRect={{ x: 180, y: 88, width: 680, height: 620 }}
+      defaultRect={{ x: 180, y: 88, width: 560, height: 450 }}
       minWidth={560}
-      minHeight={420}
+      minHeight={450}
       bodyClassName="trends-settings-dialog-body"
       footer={(
         <>
@@ -103,141 +107,164 @@ export function TrendSettingsPanel({
       )}
       onClose={onClose}
     >
-      <div className="trends-dialog__body">
-        <section className="trends-settings-section">
-          <h3>Appearance</h3>
-          <label className="workbench-field">
-            <span className="workbench-field__label">Theme</span>
-            <select className="workbench-select" value={draftSettings.theme} onChange={(event) => patchSettings({ theme: event.target.value as TrendSettings["theme"] })}>
-              <option value="workbench-dark">Workbench dark</option>
-              <option value="echarts-dark">ECharts dark</option>
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          <label className="workbench-field">
-            <span className="workbench-field__label">Background</span>
-            <Space.Compact style={{ width: "100%" }}>
-              <ColorPicker
-                size="small"
-                value={normalizeHexColor(draftSettings.background, "#1e1e1e")}
-                onChangeComplete={(color) => patchSettings({ background: color.toHexString() })}
-              />
-              <Input
-                value={draftSettings.background}
-                onChange={(event) => patchSettings({ background: event.target.value })}
-                placeholder="#1e1e1e"
-              />
-            </Space.Compact>
-          </label>
-          <div className="trends-settings-grid">
-            <label><input type="checkbox" checked={draftSettings.gridLines} onChange={(event) => patchSettings({ gridLines: event.target.checked })} /> Grid lines</label>
-            <label><input type="checkbox" checked={draftSettings.axisLabels} onChange={(event) => patchSettings({ axisLabels: event.target.checked })} /> Axis labels</label>
-            <label><input type="checkbox" checked={draftSettings.showSymbols} onChange={(event) => patchSettings({ showSymbols: event.target.checked })} /> Point symbols</label>
-            <label><input type="checkbox" checked={draftSettings.showSeriesTable} onChange={(event) => patchSettings({ showSeriesTable: event.target.checked })} /> Show bottom table</label>
-          </div>
-        </section>
+      <div className="trends-dialog__body trends-settings-body">
+        <div className="trends-settings-tabs" role="tablist" aria-label="Trend settings sections">
+          <button type="button" role="tab" aria-selected={activeTab === "appearance"} className={`trends-settings-tab ${activeTab === "appearance" ? "trends-settings-tab--active" : ""}`} onClick={() => setActiveTab("appearance")}>Appearance</button>
+          <button type="button" role="tab" aria-selected={activeTab === "performance"} className={`trends-settings-tab ${activeTab === "performance" ? "trends-settings-tab--active" : ""}`} onClick={() => setActiveTab("performance")}>Data / Performance</button>
+          <button type="button" role="tab" aria-selected={activeTab === "axes"} className={`trends-settings-tab ${activeTab === "axes" ? "trends-settings-tab--active" : ""}`} onClick={() => setActiveTab("axes")}>Axes</button>
+          <button type="button" role="tab" aria-selected={activeTab === "series"} className={`trends-settings-tab ${activeTab === "series" ? "trends-settings-tab--active" : ""}`} onClick={() => setActiveTab("series")}>Series</button>
+        </div>
 
-        <section className="trends-settings-section">
-          <h3>Performance</h3>
-          <div className="trends-settings-row">
-            <label className="workbench-field">
-              <span className="workbench-field__label">Max points/series</span>
-              <input className="workbench-input" type="number" min={1000} max={8000} value={draftSettings.maxPointsPerSeries} onChange={(event) => onNumericInput(event, (value) => patchSettings({ maxPointsPerSeries: value }))} />
-            </label>
-            <label className="workbench-field">
-              <span className="workbench-field__label">Aggregation</span>
-              <select className="workbench-select" value={draftSettings.aggregation} onChange={(event) => patchSettings({ aggregation: event.target.value as TrendSettings["aggregation"] })}>
-                <option value="auto">auto</option>
-                <option value="raw">raw</option>
-                <option value="minmax">minmax</option>
-                <option value="avg">avg</option>
-                <option value="lttb">lttb</option>
-              </select>
-            </label>
-            <label className="workbench-field">
-              <span className="workbench-field__label">Zoom debounce (ms)</span>
-              <input className="workbench-input" type="number" min={100} max={1200} value={draftSettings.zoomDebounceMs} onChange={(event) => onNumericInput(event, (value) => patchSettings({ zoomDebounceMs: value }))} />
-            </label>
-          </div>
-          <div className="trends-settings-grid">
-            <label><input type="checkbox" checked={draftSettings.progressive} onChange={(event) => patchSettings({ progressive: event.target.checked })} /> Progressive rendering</label>
-            <label><input type="checkbox" checked={draftSettings.disableAnimationsLargeData} onChange={(event) => patchSettings({ disableAnimationsLargeData: event.target.checked })} /> Disable animation on large data</label>
-            <label><input type="checkbox" checked={draftSettings.cacheEnabled} onChange={(event) => patchSettings({ cacheEnabled: event.target.checked })} /> Cache enabled</label>
-          </div>
-          <div className="trends-settings-row">
-            <label className="workbench-field">
-              <span className="workbench-field__label">Cache size</span>
-              <input className="workbench-input" type="number" min={8} max={256} value={draftSettings.cacheSize} onChange={(event) => onNumericInput(event, (value) => patchSettings({ cacheSize: value }))} />
-            </label>
-            <label className="workbench-field">
-              <span className="workbench-field__label">Live buffer limit</span>
-              <input className="workbench-input" type="number" min={200} max={20000} value={draftSettings.liveBufferLimit} onChange={(event) => onNumericInput(event, (value) => patchSettings({ liveBufferLimit: value }))} />
-            </label>
-          </div>
-        </section>
-
-        <section className="trends-settings-section">
-          <h3>Axes</h3>
-          <div className="trends-settings-grid">
-            <label><input type="checkbox" checked={draftSettings.groupByUnit} onChange={(event) => patchSettings({ groupByUnit: event.target.checked })} /> Group by unit</label>
-            <label><input type="checkbox" checked={draftSettings.separateAxisPerTag} onChange={(event) => patchSettings({ separateAxisPerTag: event.target.checked })} /> Separate axis per tag</label>
-            <label><input type="checkbox" checked={draftSettings.autoScale} onChange={(event) => patchSettings({ autoScale: event.target.checked })} /> Auto scale</label>
-          </div>
-          <label className="workbench-field">
-            <span className="workbench-field__label">Axis placement</span>
-            <select className="workbench-select" value={draftSettings.axisPlacement} onChange={(event) => patchSettings({ axisPlacement: event.target.value as TrendSettings["axisPlacement"] })}>
-              <option value="split">Split left/right</option>
-              <option value="left">Left only</option>
-              <option value="right">Right only</option>
-            </select>
-          </label>
-          <label className="workbench-field">
-            <span className="workbench-field__label">Axis offset step</span>
-            <input className="workbench-input" type="number" min={24} max={120} value={draftSettings.axisOffsetStep} onChange={(event) => onNumericInput(event, (value) => patchSettings({ axisOffsetStep: value }))} />
-          </label>
-          <div className="trends-axis-table">
-            {draftAxes.map((axis) => (
-              <div key={axis.id} className="trends-axis-row">
-                <span>{axis.id}</span>
-                <input className="workbench-input" value={axis.name ?? ""} onChange={(event) => updateAxis(axis.id, { name: event.target.value })} placeholder="Axis name" />
-                <select className="workbench-select" value={axis.position} onChange={(event) => updateAxis(axis.id, { position: event.target.value as TrendAxisConfig["position"] })}>
-                  <option value="left">left</option>
-                  <option value="right">right</option>
+        {activeTab === "appearance" ? (
+          <section className="trends-settings-section">
+            <h3>Appearance</h3>
+            <p className="trends-settings-helper">Theme controls chart, toolbar, status bar, table, and menu palette.</p>
+            <div className="trends-settings-fields trends-settings-fields--two-col">
+              <label className="workbench-field">
+                <span className="workbench-field__label">Theme</span>
+                <select className="workbench-select" value={draftSettings.theme} onChange={(event) => patchSettings({ theme: event.target.value as TrendSettings["theme"] })}>
+                  <option value="workbench-dark">Workbench dark</option>
+                  <option value="echarts-dark">ECharts dark</option>
+                  <option value="custom">Custom</option>
                 </select>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="trends-settings-section">
-          <h3>Series</h3>
-          <div className="trends-series-table">
-            {draftSelectedTags.map((tag) => (
-              <div key={tag.tag} className="trends-series-row">
-                <span>{tag.displayName || tag.tag}</span>
+              </label>
+              <label className="workbench-field" title="Background is applied only for Custom theme.">
+                <span className="workbench-field__label">Background (Custom only)</span>
                 <Space.Compact style={{ width: "100%" }}>
                   <ColorPicker
                     size="small"
-                    value={normalizeHexColor(tag.color, "#4FC3F7")}
-                    onChangeComplete={(color) => updateSeries(tag.tag, { color: color.toHexString() })}
+                    value={normalizeHexColor(draftSettings.background, "#1e1e1e")}
+                    disabled={draftSettings.theme !== "custom"}
+                    onChangeComplete={(color) => patchSettings({ background: color.toHexString() })}
                   />
                   <Input
-                    value={tag.color || ""}
-                    onChange={(event) => updateSeries(tag.tag, { color: event.target.value })}
-                    placeholder="#4FC3F7"
+                    value={draftSettings.background}
+                    disabled={draftSettings.theme !== "custom"}
+                    onChange={(event) => patchSettings({ background: event.target.value })}
+                    placeholder="#1e1e1e"
                   />
                 </Space.Compact>
-                <select className="workbench-select" value={tag.mode ?? "line"} onChange={(event) => updateSeries(tag.tag, { mode: event.target.value as TrendTagSelection["mode"] })}>
-                  <option value="line">line</option>
-                  <option value="step">step</option>
-                  <option value="points">points</option>
+              </label>
+            </div>
+            <div className="trends-settings-grid">
+              <label title="Show/hide X/Y grid lines."><input type="checkbox" checked={draftSettings.gridLines} onChange={(event) => patchSettings({ gridLines: event.target.checked })} /> Grid lines</label>
+              <label title="Show/hide axis labels."><input type="checkbox" checked={draftSettings.axisLabels} onChange={(event) => patchSettings({ axisLabels: event.target.checked })} /> Axis labels</label>
+              <label title="Show point markers for series."><input type="checkbox" checked={draftSettings.showSymbols} onChange={(event) => patchSettings({ showSymbols: event.target.checked })} /> Point symbols</label>
+              <label title="Show/hide bottom live values table."><input type="checkbox" checked={draftSettings.showSeriesTable} onChange={(event) => patchSettings({ showSeriesTable: event.target.checked })} /> Show bottom table</label>
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === "performance" ? (
+          <section className="trends-settings-section">
+            <h3>Data / Performance</h3>
+            <p className="trends-settings-helper">Live mode always requests raw data regardless of aggregation.</p>
+            <div className="trends-settings-fields trends-settings-fields--two-col">
+              <label className="workbench-field">
+                <span className="workbench-field__label">Max points/series</span>
+                <input className="workbench-input" type="number" min={1000} max={8000} value={draftSettings.maxPointsPerSeries} onChange={(event) => onNumericInput(event, (value) => patchSettings({ maxPointsPerSeries: value }))} />
+              </label>
+              <label className="workbench-field">
+                <span className="workbench-field__label">Aggregation</span>
+                <select className="workbench-select" value={draftSettings.aggregation} onChange={(event) => patchSettings({ aggregation: event.target.value as TrendSettings["aggregation"] })}>
+                  <option value="auto">auto</option>
+                  <option value="raw">raw</option>
+                  <option value="minmax">minmax</option>
+                  <option value="avg">avg</option>
+                  <option value="lttb">lttb</option>
                 </select>
-                <input className="workbench-input" type="number" min={1} max={5} value={tag.lineWidth ?? draftSettings.defaultLineWidth} onChange={(event) => onNumericInput(event, (value) => updateSeries(tag.tag, { lineWidth: value }))} />
-                <label><input type="checkbox" checked={tag.visible !== false} onChange={(event) => updateSeries(tag.tag, { visible: event.target.checked })} /> visible</label>
-              </div>
-            ))}
-          </div>
-        </section>
+              </label>
+              <label className="workbench-field">
+                <span className="workbench-field__label">Zoom debounce (ms)</span>
+                <input className="workbench-input" type="number" min={100} max={1200} value={draftSettings.zoomDebounceMs} onChange={(event) => onNumericInput(event, (value) => patchSettings({ zoomDebounceMs: value }))} />
+              </label>
+              <label className="workbench-field">
+                <span className="workbench-field__label">Cache size</span>
+                <input className="workbench-input" type="number" min={8} max={256} value={draftSettings.cacheSize} onChange={(event) => onNumericInput(event, (value) => patchSettings({ cacheSize: value }))} />
+              </label>
+              <label className="workbench-field">
+                <span className="workbench-field__label">Live buffer limit</span>
+                <input className="workbench-input" type="number" min={200} max={20000} value={draftSettings.liveBufferLimit} onChange={(event) => onNumericInput(event, (value) => patchSettings({ liveBufferLimit: value }))} />
+              </label>
+            </div>
+            <div className="trends-settings-grid">
+              <label title="Use ECharts progressive rendering for large datasets."><input type="checkbox" checked={draftSettings.progressive} onChange={(event) => patchSettings({ progressive: event.target.checked })} /> Progressive rendering</label>
+              <label title="Disable animations when data volume is large."><input type="checkbox" checked={draftSettings.disableAnimationsLargeData} onChange={(event) => patchSettings({ disableAnimationsLargeData: event.target.checked })} /> Disable animation on large data</label>
+              <label title="Enable cached trend query responses."><input type="checkbox" checked={draftSettings.cacheEnabled} onChange={(event) => patchSettings({ cacheEnabled: event.target.checked })} /> Cache enabled</label>
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === "axes" ? (
+          <section className="trends-settings-section">
+            <h3>Axes</h3>
+            <p className="trends-settings-helper">Manual axis name and position are applied from the table below.</p>
+            <div className="trends-settings-grid">
+              <label><input type="checkbox" checked={draftSettings.groupByUnit} onChange={(event) => patchSettings({ groupByUnit: event.target.checked })} /> Group by unit</label>
+              <label><input type="checkbox" checked={draftSettings.separateAxisPerTag} onChange={(event) => patchSettings({ separateAxisPerTag: event.target.checked })} /> Separate axis per tag</label>
+              <label><input type="checkbox" checked={draftSettings.autoScale} onChange={(event) => patchSettings({ autoScale: event.target.checked })} /> Auto scale</label>
+            </div>
+            <div className="trends-settings-fields trends-settings-fields--two-col">
+              <label className="workbench-field">
+                <span className="workbench-field__label">Axis placement</span>
+                <select className="workbench-select" value={draftSettings.axisPlacement} onChange={(event) => patchSettings({ axisPlacement: event.target.value as TrendSettings["axisPlacement"] })}>
+                  <option value="split">Split left/right</option>
+                  <option value="left">Left only</option>
+                  <option value="right">Right only</option>
+                </select>
+              </label>
+              <label className="workbench-field">
+                <span className="workbench-field__label">Axis offset step</span>
+                <input className="workbench-input" type="number" min={24} max={120} value={draftSettings.axisOffsetStep} onChange={(event) => onNumericInput(event, (value) => patchSettings({ axisOffsetStep: value }))} />
+              </label>
+            </div>
+            <div className="trends-axis-table">
+              {draftAxes.map((axis) => (
+                <div key={axis.id} className="trends-axis-row">
+                  <span className="trends-axis-row__id" title={axis.id}>{axis.id}</span>
+                  <input className="workbench-input" value={axis.name ?? ""} onChange={(event) => updateAxis(axis.id, { name: event.target.value })} placeholder="Axis name" />
+                  <select className="workbench-select" value={axis.position} onChange={(event) => updateAxis(axis.id, { position: event.target.value as TrendAxisConfig["position"] })}>
+                    <option value="left">left</option>
+                    <option value="right">right</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === "series" ? (
+          <section className="trends-settings-section">
+            <h3>Series</h3>
+            <p className="trends-settings-helper">Series settings are applied to line style and visibility.</p>
+            <div className="trends-series-settings-list">
+              {draftSelectedTags.map((tag) => (
+                <div key={tag.tag} className="trends-series-settings-row">
+                  <span className="trends-series-settings-row__name" title={tag.displayName || tag.tag}>{tag.displayName || tag.tag}</span>
+                  <Space.Compact style={{ width: "100%" }}>
+                    <ColorPicker
+                      size="small"
+                      value={normalizeHexColor(tag.color, "#4FC3F7")}
+                      onChangeComplete={(color) => updateSeries(tag.tag, { color: color.toHexString() })}
+                    />
+                    <Input
+                      value={tag.color || ""}
+                      onChange={(event) => updateSeries(tag.tag, { color: event.target.value })}
+                      placeholder="#4FC3F7"
+                    />
+                  </Space.Compact>
+                  <select className="workbench-select" value={tag.mode ?? "line"} onChange={(event) => updateSeries(tag.tag, { mode: event.target.value as TrendTagSelection["mode"] })}>
+                    <option value="line">line</option>
+                    <option value="step">step</option>
+                    <option value="points">points</option>
+                  </select>
+                  <input className="workbench-input" type="number" min={1} max={5} value={tag.lineWidth ?? draftSettings.defaultLineWidth} onChange={(event) => onNumericInput(event, (value) => updateSeries(tag.tag, { lineWidth: value }))} />
+                  <label><input type="checkbox" checked={tag.visible !== false} onChange={(event) => updateSeries(tag.tag, { visible: event.target.checked })} /> visible</label>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
     </TrendWorkbenchDialog>
   );
