@@ -6230,7 +6230,7 @@ body {
   width: max-content;
   min-width: 100%;
   font-size: 12px;
-  max-height: 160px;
+  max-height: var(--trends-series-table-max-height, 160px);
   overflow: auto;
 }
 .trends-series-table .screen-editor-tags-row {
@@ -6440,7 +6440,7 @@ body {
 
 .trends-tag-picker-axis-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px 72px 60px;
+  grid-template-columns: minmax(0, 1fr) 84px 92px 92px 92px 92px 72px 60px;
   gap: 6px;
   align-items: center;
   padding: 6px;
@@ -6555,6 +6555,10 @@ body {
   gap: 6px;
 }
 
+.trends-settings-dialog-body .trends-axis-table {
+  overflow-x: hidden;
+}
+
 .trends-axis-row,
 .trends-series-row {
   display: grid;
@@ -6566,10 +6570,11 @@ body {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
+  min-width: 0;
 }
 .trends-settings-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 6px;
 }
 .trends-settings-tab {
@@ -6598,7 +6603,30 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .trends-axis-row {
-  grid-template-columns: minmax(110px, 1fr) minmax(150px, 1.6fr) 110px;
+  grid-template-columns:
+    minmax(90px, 1fr)
+    minmax(140px, 1.4fr)
+    96px
+    minmax(160px, 1fr)
+    minmax(160px, 1fr);
+  min-width: 0;
+}
+
+.trends-axis-bound {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) minmax(72px, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+@media (max-width: 980px) {
+  .trends-axis-row {
+    grid-template-columns: minmax(90px, 1fr) minmax(130px, 1.3fr) 96px;
+  }
+  .trends-axis-bound {
+    grid-column: span 3;
+  }
 }
 .trends-axis-row__id {
   min-width: 0;

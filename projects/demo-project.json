@@ -181,20 +181,6 @@
   ],
   "tags": [
     {
-      "name": "Boiler.Pressure",
-      "sourceType": "simulated",
-      "dataType": "INT",
-      "driverId": "sim_1",
-      "address": {
-        "pattern": "sine",
-        "periodMs": 1000,
-        "min": 0,
-        "max": 1000,
-        "step": 1
-      },
-      "scanRateMs": 1000
-    },
-    {
       "name": "Burner_1.Flame",
       "dataType": "BOOL",
       "driverId": "sim_1",
@@ -9124,6 +9110,287 @@
       "scanRateMs": 500,
       "createdAt": "2026-05-17T08:47:53.933Z",
       "updatedAt": "2026-05-17T08:47:53.933Z"
+    },
+    {
+      "id": "tag_bfib24",
+      "name": "AI_SIM_001",
+      "sourceType": "simulated",
+      "dataType": "REAL",
+      "address": {
+        "pattern": "sine",
+        "periodMs": 1000,
+        "step": 10
+      },
+      "writable": false,
+      "scanRateMs": 1000,
+      "simulation": {
+        "enabled": true,
+        "profile": "ramp",
+        "updateIntervalMs": 1000,
+        "ramp": {
+          "step": 10,
+          "direction": "pingPong",
+          "resetOnLimit": false
+        },
+        "random": {},
+        "sin": {
+          "periodMs": 1000,
+          "phaseDeg": 0
+        },
+        "noise": {
+          "amplitude": 3,
+          "type": "uniform"
+        },
+        "toggle": {},
+        "randomBool": {
+          "trueProbability": 0.5
+        },
+        "variationMode": "perTagPhase"
+      },
+      "createdAt": "2026-05-19T07:46:13.528Z",
+      "updatedAt": "2026-05-19T08:03:27.719Z"
+    },
+    {
+      "id": "tag_0mw2vz",
+      "name": "AI_SIM_002",
+      "sourceType": "simulated",
+      "dataType": "REAL",
+      "address": {
+        "pattern": "sine",
+        "periodMs": 1000,
+        "step": 10
+      },
+      "writable": false,
+      "scanRateMs": 1000,
+      "simulation": {
+        "enabled": true,
+        "profile": "rampNoise",
+        "updateIntervalMs": 1000,
+        "ramp": {
+          "step": 10,
+          "direction": "pingPong",
+          "resetOnLimit": false
+        },
+        "random": {},
+        "sin": {
+          "periodMs": 1000,
+          "phaseDeg": 0
+        },
+        "noise": {
+          "amplitude": 3,
+          "type": "uniform"
+        },
+        "toggle": {},
+        "randomBool": {
+          "trueProbability": 0.5
+        },
+        "variationMode": "perTagSeed"
+      },
+      "createdAt": "2026-05-19T07:46:13.528Z",
+      "updatedAt": "2026-05-19T08:03:44.087Z"
+    },
+    {
+      "id": "tag_1fjvgo",
+      "name": "AI_SIM_003",
+      "sourceType": "simulated",
+      "dataType": "REAL",
+      "address": {
+        "pattern": "sine",
+        "periodMs": 1000,
+        "step": 10
+      },
+      "writable": false,
+      "scanRateMs": 1000,
+      "simulation": {
+        "enabled": true,
+        "profile": "sinNoise",
+        "updateIntervalMs": 1000,
+        "ramp": {
+          "step": 10,
+          "direction": "pingPong",
+          "resetOnLimit": false
+        },
+        "random": {},
+        "sin": {
+          "periodMs": 1000,
+          "phaseDeg": 0
+        },
+        "noise": {
+          "amplitude": 3,
+          "type": "uniform"
+        },
+        "toggle": {},
+        "randomBool": {
+          "trueProbability": 0.5
+        },
+        "variationMode": "perTagOffset"
+      },
+      "createdAt": "2026-05-19T07:46:13.528Z",
+      "updatedAt": "2026-05-19T08:03:58.759Z"
+    },
+    {
+      "id": "tag_kejgat",
+      "name": "AI_SIM_005",
+      "description": "",
+      "sourceType": "simulated",
+      "dataType": "REAL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "sine",
+        "periodMs": 1000,
+        "step": 10
+      },
+      "writable": false,
+      "scanRateMs": 1000,
+      "simulation": {
+        "enabled": true,
+        "profile": "ramp",
+        "updateIntervalMs": 1000,
+        "ramp": {
+          "step": 10,
+          "direction": "pingPong",
+          "resetOnLimit": false
+        },
+        "random": {},
+        "sin": {
+          "periodMs": 1000,
+          "phaseDeg": 0
+        },
+        "noise": {
+          "amplitude": 3,
+          "type": "uniform"
+        },
+        "toggle": {},
+        "randomBool": {
+          "trueProbability": 0.5
+        },
+        "variationMode": "perTagSeed"
+      },
+      "createdAt": "2026-05-19T07:46:13.528Z",
+      "updatedAt": "2026-05-19T07:46:13.528Z"
+    },
+    {
+      "id": "tag_b31orj",
+      "name": "AI_SIM_006",
+      "description": "",
+      "sourceType": "simulated",
+      "dataType": "REAL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "sine",
+        "periodMs": 1000,
+        "step": 10
+      },
+      "writable": false,
+      "scanRateMs": 1000,
+      "simulation": {
+        "enabled": true,
+        "profile": "ramp",
+        "updateIntervalMs": 1000,
+        "ramp": {
+          "step": 10,
+          "direction": "pingPong",
+          "resetOnLimit": false
+        },
+        "random": {},
+        "sin": {
+          "periodMs": 1000,
+          "phaseDeg": 0
+        },
+        "noise": {
+          "amplitude": 3,
+          "type": "uniform"
+        },
+        "toggle": {},
+        "randomBool": {
+          "trueProbability": 0.5
+        },
+        "variationMode": "perTagSeed"
+      },
+      "createdAt": "2026-05-19T07:46:13.528Z",
+      "updatedAt": "2026-05-19T07:46:13.528Z"
+    },
+    {
+      "id": "tag_r5d6jd",
+      "name": "AI_SIM_007",
+      "description": "",
+      "sourceType": "simulated",
+      "dataType": "REAL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "sine",
+        "periodMs": 1000,
+        "step": 10
+      },
+      "writable": false,
+      "scanRateMs": 1000,
+      "simulation": {
+        "enabled": true,
+        "profile": "ramp",
+        "updateIntervalMs": 1000,
+        "ramp": {
+          "step": 10,
+          "direction": "pingPong",
+          "resetOnLimit": false
+        },
+        "random": {},
+        "sin": {
+          "periodMs": 1000,
+          "phaseDeg": 0
+        },
+        "noise": {
+          "amplitude": 3,
+          "type": "uniform"
+        },
+        "toggle": {},
+        "randomBool": {
+          "trueProbability": 0.5
+        },
+        "variationMode": "perTagSeed"
+      },
+      "createdAt": "2026-05-19T07:46:13.528Z",
+      "updatedAt": "2026-05-19T07:46:13.528Z"
+    },
+    {
+      "id": "tag_mbvlls",
+      "name": "AI_SIM_008",
+      "description": "",
+      "sourceType": "simulated",
+      "dataType": "REAL",
+      "driverId": "sim_1",
+      "address": {
+        "pattern": "sine",
+        "periodMs": 1000,
+        "step": 10
+      },
+      "writable": false,
+      "scanRateMs": 1000,
+      "simulation": {
+        "enabled": true,
+        "profile": "ramp",
+        "updateIntervalMs": 1000,
+        "ramp": {
+          "step": 10,
+          "direction": "pingPong",
+          "resetOnLimit": false
+        },
+        "random": {},
+        "sin": {
+          "periodMs": 1000,
+          "phaseDeg": 0
+        },
+        "noise": {
+          "amplitude": 3,
+          "type": "uniform"
+        },
+        "toggle": {},
+        "randomBool": {
+          "trueProbability": 0.5
+        },
+        "variationMode": "perTagSeed"
+      },
+      "createdAt": "2026-05-19T07:46:13.528Z",
+      "updatedAt": "2026-05-19T07:46:13.528Z"
     }
   ],
   "variables": [
@@ -10618,7 +10885,7 @@
       "name": "screen2",
       "kind": "screen",
       "width": 1920,
-      "height": 1080,
+      "height": 1000,
       "background": "#1e1e1e",
       "objects": [
         {
@@ -10714,8 +10981,8 @@
         {
           "id": "trend_y9poua",
           "type": "trendChart",
-          "x": 36.78800604565103,
-          "y": 164.13338571496124,
+          "x": 52.19529558549164,
+          "y": 119.44925628506913,
           "width": 1777.5458685192075,
           "height": 868.2459591078537,
           "rotation": 0,
@@ -10737,6 +11004,116 @@
               "tag": "Counter",
               "color": "#81C784",
               "displayName": "Counter",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_001",
+              "color": "#FFB74D",
+              "displayName": "AI_SIM_001",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_002",
+              "color": "#BA68C8",
+              "displayName": "AI_SIM_002",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_003",
+              "color": "#E57373",
+              "displayName": "AI_SIM_003",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_004",
+              "color": "#64B5F6",
+              "displayName": "AI_SIM_004",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_005",
+              "color": "#A1887F",
+              "displayName": "AI_SIM_005",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_006",
+              "color": "#AED581",
+              "displayName": "AI_SIM_006",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_007",
+              "color": "#4DB6AC",
+              "displayName": "AI_SIM_007",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_008",
+              "color": "#F06292",
+              "displayName": "AI_SIM_008",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_009",
+              "color": "#FFD54F",
+              "displayName": "AI_SIM_009",
+              "visible": true,
+              "lineWidth": 1,
+              "lineType": "solid",
+              "mode": "line",
+              "step": false,
+              "axisMode": "auto"
+            },
+            {
+              "tag": "AI_SIM_010",
+              "color": "#90A4AE",
+              "displayName": "AI_SIM_010",
               "visible": true,
               "lineWidth": 1,
               "lineType": "solid",
@@ -10773,7 +11150,8 @@
             "separateAxisPerTag": false,
             "axisPlacement": "split",
             "axisOffsetStep": 51,
-            "showSeriesTable": true
+            "showSeriesTable": true,
+            "seriesTableRows": 14
           },
           "rangePreset": "1h",
           "liveMode": true,

@@ -69,6 +69,7 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
   const [driverFilter, setDriverFilter] = useState<string>(initialFilters?.driverFilter ?? "all");
   const [selectionFilter, setSelectionFilter] = useState<TrendTagPickerFilters["selectionFilter"]>(initialFilters?.selectionFilter ?? "all");
   const [selectedTagName, setSelectedTagName] = useState<string>("");
+  const [selectedRowNames, setSelectedRowNames] = useState<Set<string>>(() => new Set());
   const [draftTags, setDraftTags] = useState<TrendTagSelection[]>(selectedTags);
   const [draftAxes, setDraftAxes] = useState<TrendAxisConfig[]>(axes);
   const [detailsWidth, setDetailsWidth] = useState<number>(() => {
@@ -130,6 +131,7 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
     setDraftTags(selectedTags);
     setDraftAxes(axes);
     setSelectedTagName((selectedTags[0]?.tag ?? tags[0]?.name ?? ""));
+    setSelectedRowNames(new Set());
   }, [axes, initialFilters?.driverFilter, initialFilters?.groupFilter, initialFilters?.search, initialFilters?.selectionFilter, open, selectedTags, tags]);
 
   const draftTagMap = useMemo(() => new Map(draftTags.map((item) => [item.tag, item])), [draftTags]);
@@ -330,6 +332,70 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
     }
   };
 
+  const toggleRowSelection = (tagName: string) => {
+    setSelectedRowNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(tagName)) {
+        next.delete(tagName);
+      } else {
+        next.add(tagName);
+      }
+      return next;
+    });
+  };
+
+  const selectFoundRows = () => {
+    if (filtered.length === 0) {
+      return;
+    }
+    setSelectedRowNames(new Set(filtered.map((tag) => tag.name)));
+  };
+
+  const clearRowSelection = () => {
+    setSelectedRowNames(new Set());
+  };
+
+  const addSelectedRows = () => {
+    if (selectedRowNames.size === 0) {
+      return;
+    }
+    const byName = new Map(tags.map((tag) => [tag.name, tag]));
+    const nextMap = new Map(draftTags.map((item) => [item.tag, item]));
+    for (const tagName of selectedRowNames) {
+      if (nextMap.has(tagName)) {
+        continue;
+      }
+      const tag = byName.get(tagName);
+      if (!tag) {
+        continue;
+      }
+      nextMap.set(tagName, {
+        tag: tag.name,
+        displayName: tag.displayName,
+        unit: tag.unit,
+        color: pickSeriesColor(nextMap.size),
+        visible: true,
+        lineWidth: 1,
+        lineType: "solid",
+        mode: tag.dataType === "boolean" ? "step" : "line",
+        step: tag.dataType === "boolean",
+        axisMode: "auto",
+      });
+    }
+    setDraftTags(Array.from(nextMap.values()));
+  };
+
+  const removeSelectedRows = () => {
+    if (selectedRowNames.size === 0) {
+      return;
+    }
+    const next = draftTags.filter((item) => !selectedRowNames.has(item.tag));
+    setDraftTags(next);
+    if (selectedTagName && selectedRowNames.has(selectedTagName)) {
+      setSelectedTagName(next[0]?.tag ?? filtered[0]?.name ?? "");
+    }
+  };
+
   const startDetailsResize = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     resizeStartXRef.current = event.clientX;
@@ -436,10 +502,14 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
     >
         <div className="screen-editor-window-content screen-editor-tags-window screen-editor-archive-window trends-archive-picker">
           <div className="screen-editor-tags-window__toolbar">
+            <WorkbenchButton variant="primary" onClick={addSelectedRows} disabled={selectedRowNames.size === 0}>Add Selected</WorkbenchButton>
+            <WorkbenchButton variant="danger" onClick={removeSelectedRows} disabled={selectedRowNames.size === 0}>Remove Selected</WorkbenchButton>
             <WorkbenchButton variant="primary" onClick={selectFiltered} disabled={filtered.length === 0}>Select Found</WorkbenchButton>
-            <WorkbenchButton onClick={clearSelected} disabled={draftTags.length === 0}>Clear Selected</WorkbenchButton>
+            <WorkbenchButton onClick={clearSelected} disabled={draftTags.length === 0}>Clear Current</WorkbenchButton>
+            <WorkbenchButton onClick={selectFoundRows} disabled={filtered.length === 0}>Mark Found</WorkbenchButton>
+            <WorkbenchButton onClick={clearRowSelection} disabled={selectedRowNames.size === 0}>Clear Marked</WorkbenchButton>
             <div className="screen-editor-tags-window__toolbar-meta">
-              Total: {tags.length} | Found: {filtered.length} | Added: {draftTags.length}
+              Total: {tags.length} | Found: {filtered.length} | Marked: {selectedRowNames.size} | Added: {draftTags.length}
             </div>
             <WorkbenchButton onClick={onClose}>Cancel</WorkbenchButton>
             <WorkbenchButton variant="primary" onClick={() => onApply(draftTags, draftAxes)}>Apply</WorkbenchButton>
@@ -484,6 +554,7 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                 {filtered.map((tag) => {
                   const active = draftTagMap.has(tag.name);
                   const rowSelected = selectedTagName === tag.name;
+                  const rowMarked = selectedRowNames.has(tag.name);
                   const displayName = tag.displayName || tag.name;
                   return (
                     <div
@@ -493,9 +564,9 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                       onClick={() => setSelectedTagName(tag.name)}
                     >
                       <div className="screen-editor-tags-cell" onClick={(event) => event.stopPropagation()}>
-                        <input type="checkbox" checked={active} onChange={() => toggleTag(tag)} />
+                        <input type="checkbox" checked={rowMarked} onChange={() => toggleRowSelection(tag.name)} />
                       </div>
-                      <div className="screen-editor-tags-cell" title={displayName}>{displayName}</div>
+                      <div className="screen-editor-tags-cell" title={displayName}>{displayName}{active ? " *" : ""}</div>
                       <div className="screen-editor-tags-cell">{tag.unit || "-"}</div>
                       <div className="screen-editor-tags-cell">{tag.dataType || "number"}</div>
                       <div className="screen-editor-tags-cell">{tag.group || "Ungrouped"}</div>
@@ -610,6 +681,42 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                                 <option value="left">left</option>
                                 <option value="right">right</option>
                               </select>
+                              <label className="screen-editor-settings-check">
+                                <input type="checkbox" checked={axis.min === "auto" || axis.min === undefined} onChange={(event) => updateAxis(axis.id, { min: event.target.checked ? "auto" : 0 })} />
+                                <span>Min auto</span>
+                              </label>
+                              <input
+                                className="workbench-input"
+                                type="number"
+                                disabled={axis.min === "auto" || axis.min === undefined}
+                                value={axis.min === "auto" || axis.min === undefined ? "" : axis.min}
+                                onChange={(event) => {
+                                  const parsed = Number(event.target.value);
+                                  if (!Number.isFinite(parsed)) {
+                                    return;
+                                  }
+                                  updateAxis(axis.id, { min: parsed });
+                                }}
+                                placeholder="Min"
+                              />
+                              <label className="screen-editor-settings-check">
+                                <input type="checkbox" checked={axis.max === "auto" || axis.max === undefined} onChange={(event) => updateAxis(axis.id, { max: event.target.checked ? "auto" : 100 })} />
+                                <span>Max auto</span>
+                              </label>
+                              <input
+                                className="workbench-input"
+                                type="number"
+                                disabled={axis.max === "auto" || axis.max === undefined}
+                                value={axis.max === "auto" || axis.max === undefined ? "" : axis.max}
+                                onChange={(event) => {
+                                  const parsed = Number(event.target.value);
+                                  if (!Number.isFinite(parsed)) {
+                                    return;
+                                  }
+                                  updateAxis(axis.id, { max: parsed });
+                                }}
+                                placeholder="Max"
+                              />
                               <WorkbenchButton onClick={() => removeAxis(axis.id)} variant="danger">
                                 Delete
                               </WorkbenchButton>

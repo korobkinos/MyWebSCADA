@@ -4077,6 +4077,15 @@ function SpecificPropertyFields({
             <span>DataZoom Slider</span>
             <Switch checked={settings.dataZoomSlider} onChange={(checked) => onPatch({ settings: { ...settings, dataZoomSlider: checked } } as Partial<HmiObject>)} />
           </Space>
+          <Form.Item label="Bottom Table Rows">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={2}
+              max={24}
+              value={settings.seriesTableRows}
+              onChange={(value) => onPatch({ settings: { ...settings, seriesTableRows: Math.max(2, Math.min(24, Number(value ?? 6))) } } as Partial<HmiObject>)}
+            />
+          </Form.Item>
         </div>
 
         <div className="object-property-trend__section">
@@ -4105,6 +4114,30 @@ function SpecificPropertyFields({
             <span>Auto Scale</span>
             <Switch checked={settings.autoScale} onChange={(checked) => onPatch({ settings: { ...settings, autoScale: checked } } as Partial<HmiObject>)} />
           </Space>
+          <Form.Item label="Default Axis Min">
+            <InputNumber
+              style={{ width: "100%" }}
+              disabled={settings.defaultAxisMin === "auto"}
+              value={typeof settings.defaultAxisMin === "number" ? settings.defaultAxisMin : undefined}
+              onChange={(value) => onPatch({ settings: { ...settings, defaultAxisMin: Number(value ?? 0) } } as Partial<HmiObject>)}
+            />
+            <Space className="object-property-panel__runtime-switch-row">
+              <span>Min Auto</span>
+              <Switch checked={settings.defaultAxisMin === "auto" || settings.defaultAxisMin === undefined} onChange={(checked) => onPatch({ settings: { ...settings, defaultAxisMin: checked ? "auto" : 0 } } as Partial<HmiObject>)} />
+            </Space>
+          </Form.Item>
+          <Form.Item label="Default Axis Max">
+            <InputNumber
+              style={{ width: "100%" }}
+              disabled={settings.defaultAxisMax === "auto"}
+              value={typeof settings.defaultAxisMax === "number" ? settings.defaultAxisMax : undefined}
+              onChange={(value) => onPatch({ settings: { ...settings, defaultAxisMax: Number(value ?? 100) } } as Partial<HmiObject>)}
+            />
+            <Space className="object-property-panel__runtime-switch-row">
+              <span>Max Auto</span>
+              <Switch checked={settings.defaultAxisMax === "auto" || settings.defaultAxisMax === undefined} onChange={(checked) => onPatch({ settings: { ...settings, defaultAxisMax: checked ? "auto" : 100 } } as Partial<HmiObject>)} />
+            </Space>
+          </Form.Item>
         </div>
       </div>
     );

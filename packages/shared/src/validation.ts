@@ -836,6 +836,8 @@ const trendChartSettingsSchema = z.object({
   axisPlacement: z.enum(["left", "right", "split"]).optional(),
   axisOffsetStep: z.number().optional(),
   showSeriesTable: z.boolean().optional(),
+  seriesTableRows: z.number().optional(),
+  showToolbarScaleButton: z.boolean().optional(),
 });
 
 const trendChartObjectSchema = hmiBaseSchema.extend({

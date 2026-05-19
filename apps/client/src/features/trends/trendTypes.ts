@@ -71,6 +71,7 @@ export type TrendSettings = {
   axisPlacement: "left" | "right" | "split";
   axisOffsetStep: number;
   showSeriesTable: boolean;
+  seriesTableRows: number;
   showToolbarMenuButton: boolean;
   showToolbarTagsButton: boolean;
   showToolbarLiveButton: boolean;
@@ -79,6 +80,7 @@ export type TrendSettings = {
   showToolbarPanButtons: boolean;
   showToolbarZoomButtons: boolean;
   showToolbarRefreshButton: boolean;
+  showToolbarScaleButton: boolean;
   showToolbarSettingsButton: boolean;
 };
 

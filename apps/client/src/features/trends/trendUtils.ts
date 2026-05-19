@@ -37,6 +37,7 @@ export function defaultTrendSettings(): TrendSettings {
     axisPlacement: "split",
     axisOffsetStep: 46,
     showSeriesTable: true,
+    seriesTableRows: 6,
     showToolbarMenuButton: true,
     showToolbarTagsButton: true,
     showToolbarLiveButton: true,
@@ -45,6 +46,7 @@ export function defaultTrendSettings(): TrendSettings {
     showToolbarPanButtons: true,
     showToolbarZoomButtons: true,
     showToolbarRefreshButton: true,
+    showToolbarScaleButton: true,
     showToolbarSettingsButton: true,
   };
 }
@@ -69,6 +71,7 @@ export function loadTrendSettings(): TrendSettings {
       zoomDebounceMs: clamp(Number(parsed.zoomDebounceMs ?? fallback.zoomDebounceMs), 100, 1200),
       defaultLineWidth: clamp(Number(parsed.defaultLineWidth ?? fallback.defaultLineWidth), 1, 5),
       axisOffsetStep: clamp(Number(parsed.axisOffsetStep ?? fallback.axisOffsetStep), 8, 220),
+      seriesTableRows: clamp(Number(parsed.seriesTableRows ?? fallback.seriesTableRows), 2, 24),
     };
   } catch {
     return fallback;

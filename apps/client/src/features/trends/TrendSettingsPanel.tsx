@@ -9,6 +9,7 @@ type TrendSettingsPanelProps = {
   settings: TrendSettings;
   axes: TrendAxisConfig[];
   selectedTags: TrendTagSelection[];
+  initialTab?: TrendSettingsTab;
   onClose: () => void;
   onSettingsChange: (next: TrendSettings) => void;
   onAxesChange: (next: TrendAxisConfig[]) => void;
@@ -39,6 +40,7 @@ export function TrendSettingsPanel({
   settings,
   axes,
   selectedTags,
+  initialTab,
   onClose,
   onSettingsChange,
   onAxesChange,
@@ -56,8 +58,8 @@ export function TrendSettingsPanel({
     setDraftSettings(settings);
     setDraftAxes(axes);
     setDraftSelectedTags(selectedTags);
-    setActiveTab("appearance");
-  }, [axes, open, selectedTags, settings]);
+    setActiveTab(initialTab ?? "appearance");
+  }, [axes, initialTab, open, selectedTags, settings]);
 
   if (!open) {
     return null;
@@ -95,8 +97,8 @@ export function TrendSettingsPanel({
       id="trend-settings-dialog"
       title="Trend Settings"
       open={open}
-      defaultRect={{ x: 180, y: 88, width: 560, height: 450 }}
-      minWidth={560}
+      defaultRect={{ x: 160, y: 80, width: 860, height: 520 }}
+      minWidth={760}
       minHeight={450}
       bodyClassName="trends-settings-dialog-body"
       footer={(
@@ -153,6 +155,19 @@ export function TrendSettingsPanel({
               <label title="Show point markers for series."><input type="checkbox" checked={draftSettings.showSymbols} onChange={(event) => patchSettings({ showSymbols: event.target.checked })} /> Point symbols</label>
               <label title="Show/hide bottom live values table."><input type="checkbox" checked={draftSettings.showSeriesTable} onChange={(event) => patchSettings({ showSeriesTable: event.target.checked })} /> Show bottom table</label>
             </div>
+            <div className="trends-settings-fields trends-settings-fields--two-col">
+              <label className="workbench-field">
+                <span className="workbench-field__label">Bottom table rows</span>
+                <input
+                  className="workbench-input"
+                  type="number"
+                  min={2}
+                  max={24}
+                  value={draftSettings.seriesTableRows}
+                  onChange={(event) => onNumericInput(event, (value) => patchSettings({ seriesTableRows: Math.max(2, Math.min(24, Math.round(value))) }))}
+                />
+              </label>
+            </div>
           </section>
         ) : null}
 
@@ -199,7 +214,7 @@ export function TrendSettingsPanel({
         {activeTab === "axes" ? (
           <section className="trends-settings-section">
             <h3>Axes</h3>
-            <p className="trends-settings-helper">Manual axis name and position are applied from the table below.</p>
+            <p className="trends-settings-helper">Auto scale keeps axis dynamic. Disable Min/Max auto to set fixed bounds.</p>
             <div className="trends-settings-grid">
               <label><input type="checkbox" checked={draftSettings.groupByUnit} onChange={(event) => patchSettings({ groupByUnit: event.target.checked })} /> Group by unit</label>
               <label><input type="checkbox" checked={draftSettings.separateAxisPerTag} onChange={(event) => patchSettings({ separateAxisPerTag: event.target.checked })} /> Separate axis per tag</label>
@@ -219,6 +234,7 @@ export function TrendSettingsPanel({
                 <input className="workbench-input" type="number" min={8} max={220} value={draftSettings.axisOffsetStep} onChange={(event) => onNumericInput(event, (value) => patchSettings({ axisOffsetStep: value }))} />
               </label>
             </div>
+            <p className="trends-settings-helper">Scale limits per axis are below: Min/Max auto or fixed numeric values.</p>
             <div className="trends-axis-table">
               {draftAxes.map((axis) => (
                 <div key={axis.id} className="trends-axis-row">
@@ -228,6 +244,46 @@ export function TrendSettingsPanel({
                     <option value="left">left</option>
                     <option value="right">right</option>
                   </select>
+                  <div className="trends-axis-bound">
+                    <label className="screen-editor-settings-check">
+                      <input type="checkbox" checked={axis.min === "auto" || axis.min === undefined} onChange={(event) => updateAxis(axis.id, { min: event.target.checked ? "auto" : 0 })} />
+                      <span>Min auto</span>
+                    </label>
+                    <input
+                      className="workbench-input"
+                      type="number"
+                      disabled={axis.min === "auto" || axis.min === undefined}
+                      value={axis.min === "auto" || axis.min === undefined ? "" : axis.min}
+                      onChange={(event) => {
+                        const parsed = parseNumber(event.target.value);
+                        if (parsed === undefined) {
+                          return;
+                        }
+                        updateAxis(axis.id, { min: parsed });
+                      }}
+                      placeholder="Min"
+                    />
+                  </div>
+                  <div className="trends-axis-bound">
+                    <label className="screen-editor-settings-check">
+                      <input type="checkbox" checked={axis.max === "auto" || axis.max === undefined} onChange={(event) => updateAxis(axis.id, { max: event.target.checked ? "auto" : 100 })} />
+                      <span>Max auto</span>
+                    </label>
+                    <input
+                      className="workbench-input"
+                      type="number"
+                      disabled={axis.max === "auto" || axis.max === undefined}
+                      value={axis.max === "auto" || axis.max === undefined ? "" : axis.max}
+                      onChange={(event) => {
+                        const parsed = parseNumber(event.target.value);
+                        if (parsed === undefined) {
+                          return;
+                        }
+                        updateAxis(axis.id, { max: parsed });
+                      }}
+                      placeholder="Max"
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -280,6 +336,7 @@ export function TrendSettingsPanel({
               <label><input type="checkbox" checked={draftSettings.showToolbarPanButtons} onChange={(event) => patchSettings({ showToolbarPanButtons: event.target.checked })} /> Pan buttons</label>
               <label><input type="checkbox" checked={draftSettings.showToolbarZoomButtons} onChange={(event) => patchSettings({ showToolbarZoomButtons: event.target.checked })} /> Zoom buttons</label>
               <label><input type="checkbox" checked={draftSettings.showToolbarRefreshButton} onChange={(event) => patchSettings({ showToolbarRefreshButton: event.target.checked })} /> Refresh button</label>
+              <label><input type="checkbox" checked={draftSettings.showToolbarScaleButton} onChange={(event) => patchSettings({ showToolbarScaleButton: event.target.checked })} /> Scale button</label>
               <label><input type="checkbox" checked={draftSettings.showToolbarSettingsButton} onChange={(event) => patchSettings({ showToolbarSettingsButton: event.target.checked })} /> Settings button</label>
             </div>
           </section>

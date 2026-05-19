@@ -752,6 +752,8 @@ export type TrendChartSettings = {
   axisPlacement?: "left" | "right" | "split";
   axisOffsetStep?: number;
   showSeriesTable?: boolean;
+  seriesTableRows?: number;
+  showToolbarScaleButton?: boolean;
 };
 
 export type TrendChartObject = HmiObjectBase & {

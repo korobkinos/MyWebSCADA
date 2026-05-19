@@ -30,6 +30,8 @@ const TREND_ZOOM_MAX_SPAN_MS = 24 * 60 * 60 * 1000;
 const TREND_CACHE_POINTS_PER_ENTRY = 8000;
 const TREND_CACHE_POINTS_MIN = 120_000;
 const TREND_CACHE_POINTS_MAX = 600_000;
+const TREND_SERIES_TABLE_HEADER_PX = 30;
+const TREND_SERIES_TABLE_ROW_PX = 30;
 
 type TrendSeriesColumnState = {
   id: TrendSeriesColumnId;
@@ -206,6 +208,7 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
+    seriesTableRows: clamp(Number(source.seriesTableRows ?? defaults.seriesTableRows), 2, 24),
   };
 }
 
@@ -284,6 +287,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [customTo, setCustomTo] = useState(initialViewState.customTo);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"appearance" | "performance" | "axes" | "series" | "toolbar">("appearance");
   const [contextMenu, setContextMenu] = useState<TrendContextMenuState | null>(null);
   const [liveSocketState, setLiveSocketState] = useState<LiveSocketState>("idle");
   const [liveBatchCount, setLiveBatchCount] = useState(0);
@@ -363,6 +367,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setTimeRangeDraftFrom(nextViewState.customFrom);
     setTimeRangeDraftTo(nextViewState.customTo);
     setSeriesColumnWidths(nextViewState.seriesColumnWidths ?? DEFAULT_SERIES_COLUMN_WIDTHS);
+    setSettingsInitialTab("appearance");
     setSeriesLatestValues({});
     liveLatestByTagRef.current.clear();
     setHoverSeriesValues(null);
@@ -1015,6 +1020,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const aggregationLabel = settings.aggregation === "auto" ? `auto -> ${statusAggregation}` : statusAggregation;
   const uiTheme = resolveTrendTheme(settings.theme);
   const chartBackground = settings.theme === "custom" ? normalizeHexColor(settings.background, uiTheme.background) : uiTheme.background;
+  const seriesTableMaxHeightPx = TREND_SERIES_TABLE_HEADER_PX + (clamp(Math.round(settings.seriesTableRows), 2, 24) * TREND_SERIES_TABLE_ROW_PX);
   const shellStyle: CSSProperties = {
     "--trends-theme-bg": chartBackground,
     "--trends-theme-panel": uiTheme.panel,
@@ -1030,6 +1036,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     "--trends-theme-button-hover-bg": uiTheme.buttonHoverBg,
     "--trends-theme-table-bg": uiTheme.tableBg,
     "--trends-theme-table-border": uiTheme.tableBorder,
+    "--trends-series-table-max-height": `${seriesTableMaxHeightPx}px`,
   } as CSSProperties;
   const hasSelection = selectedTags.length > 0;
 
@@ -1117,8 +1124,25 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           {settings.showToolbarRefreshButton ? (
             <WorkbenchIconButton title="Refresh" onClick={refresh} disabled={!hasSelection} icon={<ToolbarGlyph path="M20 6v6h-6M4 18v-6h6M20 12a8 8 0 0 0-14.3-4M4 12a8 8 0 0 0 14.3 4" />} />
           ) : null}
+          {settings.showToolbarScaleButton ? (
+            <WorkbenchIconButton
+              title="Scale Settings"
+              onClick={() => {
+                setSettingsInitialTab("axes");
+                setSettingsOpen(true);
+              }}
+              icon={<ToolbarGlyph path="M6 4v16M12 8v12M18 2v18" />}
+            />
+          ) : null}
           {settings.showToolbarSettingsButton ? (
-            <WorkbenchIconButton title="Settings" onClick={() => setSettingsOpen(true)} icon={<SettingOutlined />} />
+            <WorkbenchIconButton
+              title="Settings"
+              onClick={() => {
+                setSettingsInitialTab("appearance");
+                setSettingsOpen(true);
+              }}
+              icon={<SettingOutlined />}
+            />
           ) : null}
 
           <div className="trends-toolbar__meta">
@@ -1360,6 +1384,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         settings={settings}
         axes={axes}
         selectedTags={selectedTags}
+        initialTab={settingsInitialTab}
         onClose={() => setSettingsOpen(false)}
         onSettingsChange={(next) => {
           setSettings({

@@ -9,6 +9,7 @@ import { useScadaStore } from "../../../store/scada-store";
 type TagEditorMode = "view" | "add" | "edit";
 type SourceFilter = "all" | TagSourceType;
 type SimulationBulkMode = "patch" | "replace" | "fillEmpty";
+type CreateSimulationDuplicateMode = "overwrite" | "suffix";
 type BulkFieldKey =
   | "enabled"
   | "profile"
@@ -39,6 +40,10 @@ type TagColumnConfig = {
   minWidth: number;
 };
 type TagColumnVisibility = Record<TagColumnId, boolean>;
+type GeneratedSimulationEntry = {
+  baseName: string;
+  indexText: string;
+};
 
 const TAG_COLUMNS: TagColumnConfig[] = [
   { id: "name", title: "NAME", defaultWidth: 260, minWidth: 140 },
@@ -65,6 +70,9 @@ const OPC_BROWSER_DEFAULT_RECT: WorkbenchWindowRect = { x: 120, y: 80, width: 98
 const CREATE_SIMULATION_MIN_WIDTH = 720;
 const CREATE_SIMULATION_MIN_HEIGHT = 520;
 const CREATE_SIMULATION_DEFAULT_RECT: WorkbenchWindowRect = { x: 180, y: 90, width: 900, height: 680 };
+const BULK_SIMULATION_MIN_WIDTH = 760;
+const BULK_SIMULATION_MIN_HEIGHT = 560;
+const BULK_SIMULATION_DEFAULT_RECT: WorkbenchWindowRect = { x: 200, y: 100, width: 880, height: 700 };
 const OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES = 20_000;
 const OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE = 500;
 
@@ -555,6 +563,15 @@ function clampCreateSimulationRect(rect: WorkbenchWindowRect): WorkbenchWindowRe
     y: Math.max(0, Math.round(rect.y)),
     width: Math.max(CREATE_SIMULATION_MIN_WIDTH, Math.round(rect.width)),
     height: Math.max(CREATE_SIMULATION_MIN_HEIGHT, Math.round(rect.height)),
+  };
+}
+
+function clampBulkSimulationRect(rect: WorkbenchWindowRect): WorkbenchWindowRect {
+  return {
+    x: Math.max(0, Math.round(rect.x)),
+    y: Math.max(0, Math.round(rect.y)),
+    width: Math.max(BULK_SIMULATION_MIN_WIDTH, Math.round(rect.width)),
+    height: Math.max(BULK_SIMULATION_MIN_HEIGHT, Math.round(rect.height)),
   };
 }
 
@@ -1059,6 +1076,39 @@ function normalizeDraft(draft: TagDefinition, isEditing: boolean): TagDefinition
   return normalized;
 }
 
+function buildGeneratedSimulationEntries(
+  prefix: string,
+  startIndex: number,
+  count: number,
+  padding: number,
+): GeneratedSimulationEntry[] {
+  const entries: GeneratedSimulationEntry[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const current = startIndex + index;
+    const indexText = String(Math.max(0, current)).padStart(padding, "0");
+    entries.push({
+      baseName: `${prefix}_${indexText}`,
+      indexText,
+    });
+  }
+  return entries;
+}
+
+function nextNameWithSuffix(baseName: string, usedNames: Set<string>): string {
+  if (!usedNames.has(baseName)) {
+    usedNames.add(baseName);
+    return baseName;
+  }
+  let suffix = 1;
+  let next = `${baseName}_${suffix}`;
+  while (usedNames.has(next)) {
+    suffix += 1;
+    next = `${baseName}_${suffix}`;
+  }
+  usedNames.add(next);
+  return next;
+}
+
 function createDefaultSimulationSettingsDraft(dataType: TagDefinition["dataType"]): TagSimulationSettings {
   return normalizeSimulationForSave(
     toSimulationSettings({
@@ -1136,6 +1186,8 @@ export function ScreenEditorTagsWindow() {
   const [opcBrowserZIndex, setOpcBrowserZIndex] = useState(40);
   const [createSimulationRect, setCreateSimulationRect] = useState<WorkbenchWindowRect>(CREATE_SIMULATION_DEFAULT_RECT);
   const [createSimulationZIndex, setCreateSimulationZIndex] = useState(45);
+  const [bulkSimulationRect, setBulkSimulationRect] = useState<WorkbenchWindowRect>(BULK_SIMULATION_DEFAULT_RECT);
+  const [bulkSimulationZIndex, setBulkSimulationZIndex] = useState(44);
   const [opcBrowseDriverId, setOpcBrowseDriverId] = useState("");
   const [opcBrowseNodeId, setOpcBrowseNodeId] = useState(OPC_UA_BROWSE_ROOT_NODE_ID);
   const [opcBrowseSearch, setOpcBrowseSearch] = useState("");
@@ -1167,6 +1219,11 @@ export function ScreenEditorTagsWindow() {
   const [createSimulationGroup, setCreateSimulationGroup] = useState("");
   const [createSimulationAddressPattern, setCreateSimulationAddressPattern] = useState("SIM.{index}");
   const [createSimulationDraft, setCreateSimulationDraft] = useState<TagSimulationSettings>(() => createDefaultSimulationSettingsDraft("REAL"));
+  const [createSimulationDuplicateState, setCreateSimulationDuplicateState] = useState<{
+    entries: GeneratedSimulationEntry[];
+    duplicates: string[];
+  } | null>(null);
+  const [createSimulationDuplicateBusy, setCreateSimulationDuplicateBusy] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const detailsWidthDraftRef = useRef(detailsWidth);
@@ -1187,6 +1244,26 @@ export function ScreenEditorTagsWindow() {
     () => [...new Set(tags.map((tag) => tag.group).filter((value): value is string => Boolean(value)))],
     [tags],
   );
+  const sourceFilterOptions = useMemo(
+    () => {
+      const available = new Set<TagSourceType>();
+      for (const tag of tags) {
+        available.add((tag.sourceType ?? "simulated") as TagSourceType);
+      }
+      return sourceTypeOptions.filter((option) => available.has(option.value));
+    },
+    [tags],
+  );
+
+  useEffect(() => {
+    if (sourceFilter === "all") {
+      return;
+    }
+    const exists = sourceFilterOptions.some((option) => option.value === sourceFilter);
+    if (!exists) {
+      setSourceFilter("all");
+    }
+  }, [sourceFilter, sourceFilterOptions]);
 
   const filteredTags = useMemo(
     () =>
@@ -1286,15 +1363,12 @@ export function ScreenEditorTagsWindow() {
     const count = Math.max(0, Math.floor(createSimulationCount));
     const startIndex = Math.floor(createSimulationStartIndex);
     const padding = Math.max(0, Math.floor(createSimulationPadding));
-    const names = Array.from({ length: Math.min(count, 6) }, (_, index) => {
-      const current = startIndex + index;
-      return `${prefix}_${String(Math.max(0, current)).padStart(padding, "0")}`;
-    });
+    const entries = buildGeneratedSimulationEntries(prefix, startIndex, count, padding);
+    const names = entries.slice(0, 6).map((entry) => entry.baseName);
     if (count > 6) {
       const tailStart = Math.max(0, count - 3);
-      for (let index = tailStart; index < count; index += 1) {
-        const current = startIndex + index;
-        names.push(`${prefix}_${String(Math.max(0, current)).padStart(padding, "0")}`);
+      for (const entry of entries.slice(tailStart)) {
+        names.push(entry.baseName);
       }
     }
     return names;
@@ -1714,6 +1788,10 @@ export function ScreenEditorTagsWindow() {
     setCreateSimulationZIndex((value) => value + 1);
   }, []);
 
+  const focusBulkSimulationWindow = useCallback(() => {
+    setBulkSimulationZIndex((value) => value + 1);
+  }, []);
+
   const handleOpcDriverChange = (nextDriverId: string): void => {
     setOpcBrowseDriverId(nextDriverId);
     setOpcBrowseNodeId(OPC_UA_BROWSE_ROOT_NODE_ID);
@@ -1883,6 +1961,30 @@ export function ScreenEditorTagsWindow() {
     setPendingDeleteTagId(tagKey(selectedTag));
   };
 
+  const deleteCheckedTags = (): void => {
+    if (selectedTagKeys.size === 0) {
+      void message.warning("No selected tags");
+      return;
+    }
+    const count = selectedTagKeys.size;
+    const ok = window.confirm(`Delete ${count} selected tag(s)?`);
+    if (!ok) {
+      return;
+    }
+    const nextTags = tags.filter((tag) => !selectedTagKeys.has(tagKey(tag)));
+    saveTags(nextTags);
+    setSelectedTagKeys(new Set());
+    setPendingDeleteTagId(null);
+    if (!selectedId || selectedTagKeys.has(selectedId)) {
+      const nextSelected = nextTags[0];
+      setSelectedId(nextSelected ? tagKey(nextSelected) : null);
+    }
+    setDraftTag(null);
+    setEditingId(null);
+    setEditorMode("view");
+    void message.success(`Deleted ${count} tag(s)`);
+  };
+
   const confirmDelete = (): void => {
     if (!pendingDeleteTagId) {
       return;
@@ -1957,11 +2059,13 @@ export function ScreenEditorTagsWindow() {
     setBulkApplyFlags(createBulkApplyFlags());
     setBulkSimulationMode("patch");
     setBulkApplyToFiltered(false);
+    setBulkSimulationZIndex((value) => value + 1);
     setBulkSimulationOpen(true);
   };
 
   const openCreateSimulationWindow = (): void => {
     setCreateSimulationZIndex((value) => value + 1);
+    setCreateSimulationDuplicateState(null);
     setCreateSimulationOpen(true);
   };
 
@@ -2013,7 +2117,121 @@ export function ScreenEditorTagsWindow() {
     void message.success(`Applied simulation profile to ${targets.length} tag(s)`);
   };
 
-  const applyCreateSimulationTags = (): void => {
+  const commitCreateSimulationTags = async (
+    entries: GeneratedSimulationEntry[],
+    mode: "strict" | CreateSimulationDuplicateMode,
+  ): Promise<void> => {
+    const defaultDriverId = simulationDrivers[0]?.id;
+    const simulationSettings = normalizeSimulationForSave({
+      ...structuredClone(createSimulationDraft),
+      initialValue: coerceInitialValueByDataType(createSimulationDraft.initialValue, createSimulationDataType),
+    }, createSimulationDataType);
+    const group = createSimulationGroup.trim() || undefined;
+    const addressPattern = createSimulationAddressPattern.trim();
+    const now = nowIso();
+
+    const buildTag = (name: string, indexText: string): TagDefinition => {
+      const addressRaw = addressPattern
+        ? addressPattern.replaceAll("{index}", indexText).replaceAll("{name}", name)
+        : name;
+      return syncLegacySimulationAddress({
+        id: createId(),
+        name,
+        description: "",
+        sourceType: "simulated",
+        dataType: createSimulationDataType,
+        driverId: defaultDriverId,
+        group,
+        writable: false,
+        scanRateMs: simulationSettings.updateIntervalMs,
+        address: addressRaw ? { raw: addressRaw } : undefined,
+        simulation: simulationSettings,
+        createdAt: now,
+        updatedAt: now,
+      });
+    };
+
+    const nextTags = [...tags];
+    const indexByName = new Map<string, number>();
+    for (let index = 0; index < nextTags.length; index += 1) {
+      indexByName.set(nextTags[index]!.name, index);
+    }
+    const usedNames = new Set(nextTags.map((tag) => tag.name));
+    let createdCount = 0;
+    let overwrittenCount = 0;
+    let renamedCount = 0;
+    let lastName = "";
+
+    for (const entry of entries) {
+      let targetName = entry.baseName;
+      if (mode === "suffix") {
+        const resolvedName = nextNameWithSuffix(entry.baseName, usedNames);
+        if (resolvedName !== entry.baseName) {
+          renamedCount += 1;
+        }
+        targetName = resolvedName;
+      } else if (!usedNames.has(targetName)) {
+        usedNames.add(targetName);
+      }
+
+      const existingIndex = indexByName.get(targetName);
+      if (existingIndex !== undefined) {
+        if (mode === "overwrite") {
+          const existing = nextTags[existingIndex]!;
+          const generated = buildTag(targetName, entry.indexText);
+          nextTags[existingIndex] = syncLegacySimulationAddress({
+            ...generated,
+            id: existing.id,
+            createdAt: existing.createdAt ?? now,
+            updatedAt: nowIso(),
+          });
+          overwrittenCount += 1;
+          lastName = targetName;
+        }
+        continue;
+      }
+
+      const nextTag = buildTag(targetName, entry.indexText);
+      nextTags.push(nextTag);
+      indexByName.set(targetName, nextTags.length - 1);
+      createdCount += 1;
+      lastName = targetName;
+    }
+
+    saveTags(nextTags);
+    if (lastName) {
+      const lastTag = nextTags.find((tag) => tag.name === lastName);
+      setSelectedId(lastTag ? tagKey(lastTag) : null);
+    }
+    setCreateSimulationOpen(false);
+    setCreateSimulationDuplicateState(null);
+
+    try {
+      await saveProject();
+      void message.success(
+        `Simulation tags updated: created ${createdCount}, overwritten ${overwrittenCount}, renamed ${renamedCount}`,
+      );
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Failed to save project";
+      void message.warning(
+        `Simulation tags created locally, but project was not saved: ${text}`,
+      );
+    }
+  };
+
+  const resolveCreateSimulationDuplicates = async (mode: CreateSimulationDuplicateMode): Promise<void> => {
+    if (!createSimulationDuplicateState) {
+      return;
+    }
+    setCreateSimulationDuplicateBusy(true);
+    try {
+      await commitCreateSimulationTags(createSimulationDuplicateState.entries, mode);
+    } finally {
+      setCreateSimulationDuplicateBusy(false);
+    }
+  };
+
+  const applyCreateSimulationTags = async (): Promise<void> => {
     const prefix = createSimulationPrefix.trim();
     const count = Math.max(0, Math.floor(createSimulationCount));
     const startIndex = Math.floor(createSimulationStartIndex);
@@ -2030,58 +2248,16 @@ export function ScreenEditorTagsWindow() {
       void message.error(`Count exceeds limit (${SIMULATION_BULK_CREATE_LIMIT})`);
       return;
     }
-    const usedNames = new Set(tags.map((tag) => tag.name));
-    const createdNames: string[] = [];
-    const duplicates: string[] = [];
-    for (let index = 0; index < count; index += 1) {
-      const current = startIndex + index;
-      const indexText = String(Math.max(0, current)).padStart(padding, "0");
-      const name = `${prefix}_${indexText}`;
-      if (usedNames.has(name)) {
-        duplicates.push(name);
-      } else {
-        createdNames.push(name);
-        usedNames.add(name);
-      }
-    }
+    const entries = buildGeneratedSimulationEntries(prefix, startIndex, count, padding);
+    const existing = new Set(tags.map((tag) => tag.name));
+    const duplicates = entries
+      .map((entry) => entry.baseName)
+      .filter((name) => existing.has(name));
     if (duplicates.length > 0) {
-      void message.error(`Generated names already exist: ${duplicates.slice(0, 5).join(", ")}${duplicates.length > 5 ? "..." : ""}`);
+      setCreateSimulationDuplicateState({ entries, duplicates });
       return;
     }
-
-    const defaultDriverId = simulationDrivers[0]?.id;
-    const simulationSettings = normalizeSimulationForSave({
-      ...structuredClone(createSimulationDraft),
-      initialValue: coerceInitialValueByDataType(createSimulationDraft.initialValue, createSimulationDataType),
-    }, createSimulationDataType);
-    const nextTags = [...tags];
-    for (let index = 0; index < createdNames.length; index += 1) {
-      const name = createdNames[index]!;
-      const number = startIndex + index;
-      const indexText = String(Math.max(0, number)).padStart(padding, "0");
-      const addressRaw = createSimulationAddressPattern.trim()
-        ? createSimulationAddressPattern.replaceAll("{index}", indexText).replaceAll("{name}", name)
-        : name;
-      const nextTag: TagDefinition = syncLegacySimulationAddress({
-        id: createId(),
-        name,
-        description: "",
-        sourceType: "simulated",
-        dataType: createSimulationDataType,
-        driverId: defaultDriverId,
-        group: createSimulationGroup.trim() || undefined,
-        writable: false,
-        scanRateMs: simulationSettings.updateIntervalMs,
-        address: addressRaw ? { raw: addressRaw } : undefined,
-        simulation: simulationSettings,
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      });
-      nextTags.push(nextTag);
-    }
-    saveTags(nextTags);
-    setCreateSimulationOpen(false);
-    void message.success(`Created ${createdNames.length} simulation tag(s)`);
+    await commitCreateSimulationTags(entries, "strict");
   };
 
   const exportCsv = (): void => {
@@ -2352,6 +2528,13 @@ export function ScreenEditorTagsWindow() {
         >
           Delete
         </WorkbenchButton>
+        <WorkbenchButton
+          variant="danger"
+          onClick={deleteCheckedTags}
+          disabled={selectedTagKeys.size === 0}
+        >
+          Delete Selected
+        </WorkbenchButton>
         <WorkbenchButton onClick={exportCsv} disabled={tags.length === 0}>
           Export CSV
         </WorkbenchButton>
@@ -2414,7 +2597,7 @@ export function ScreenEditorTagsWindow() {
           onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}
         >
           <option value="all">All sources</option>
-          {sourceTypeOptions.map((option) => (
+          {sourceFilterOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -3333,14 +3516,27 @@ export function ScreenEditorTagsWindow() {
         </div>
       </div>
 
-      <Modal
-        title="Apply Simulation Profile"
-        open={bulkSimulationOpen}
-        onCancel={() => setBulkSimulationOpen(false)}
-        onOk={applyBulkSimulation}
-        okText="Apply"
-      >
-        <div style={{ display: "grid", gap: 8 }}>
+      {bulkSimulationOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div className="screen-editor-opc-browser-layer">
+              <WorkbenchWindow
+                id="applySimulationProfile"
+                title="APPLY SIMULATION PROFILE"
+                rect={bulkSimulationRect}
+                zIndex={bulkSimulationZIndex}
+                minWidth={BULK_SIMULATION_MIN_WIDTH}
+                minHeight={BULK_SIMULATION_MIN_HEIGHT}
+                onClose={() => setBulkSimulationOpen(false)}
+                onFocus={focusBulkSimulationWindow}
+                onMove={(x, y) =>
+                  setBulkSimulationRect((prev) =>
+                    clampBulkSimulationRect({ ...prev, x, y }),
+                  )}
+                onResize={(rect) => setBulkSimulationRect(clampBulkSimulationRect(rect))}
+              >
+                <div className="screen-editor-simulation-create-window">
+                  <div className="screen-editor-simulation-create-body screen-editor-tag-editor">
+                    <div style={{ display: "grid", gap: 8 }}>
           <label className="screen-editor-settings-check">
             <input
               type="checkbox"
@@ -3514,8 +3710,18 @@ export function ScreenEditorTagsWindow() {
             </label>
             <input className="workbench-input" value={String(bulkSimulationDraft.initialValue ?? "")} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "initialValue", event.target.value))} />
           </div>
-        </div>
-      </Modal>
+                    </div>
+                  </div>
+                  <div className="screen-editor-simulation-create-footer">
+                    <WorkbenchButton onClick={() => setBulkSimulationOpen(false)}>Cancel</WorkbenchButton>
+                    <WorkbenchButton variant="primary" onClick={applyBulkSimulation}>Apply</WorkbenchButton>
+                  </div>
+                </div>
+              </WorkbenchWindow>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {createSimulationOpen && typeof document !== "undefined"
         ? createPortal(
@@ -3680,7 +3886,7 @@ export function ScreenEditorTagsWindow() {
                   </div>
                   <div className="screen-editor-simulation-create-footer">
                     <WorkbenchButton onClick={() => setCreateSimulationOpen(false)}>Cancel</WorkbenchButton>
-                    <WorkbenchButton variant="primary" onClick={applyCreateSimulationTags}>Create</WorkbenchButton>
+                    <WorkbenchButton variant="primary" onClick={() => void applyCreateSimulationTags()}>Create</WorkbenchButton>
                   </div>
                 </div>
               </WorkbenchWindow>
@@ -3688,6 +3894,47 @@ export function ScreenEditorTagsWindow() {
             document.body,
           )
         : null}
+
+      <Modal
+        title="Duplicate simulation tag names"
+        open={createSimulationDuplicateState !== null}
+        onCancel={() => !createSimulationDuplicateBusy && setCreateSimulationDuplicateState(null)}
+        footer={[
+          <WorkbenchButton
+            key="cancel"
+            onClick={() => setCreateSimulationDuplicateState(null)}
+            disabled={createSimulationDuplicateBusy}
+          >
+            Cancel
+          </WorkbenchButton>,
+          <WorkbenchButton
+            key="suffix"
+            onClick={() => void resolveCreateSimulationDuplicates("suffix")}
+            disabled={createSimulationDuplicateBusy}
+          >
+            Create with _1 suffix
+          </WorkbenchButton>,
+          <WorkbenchButton
+            key="overwrite"
+            variant="danger"
+            onClick={() => void resolveCreateSimulationDuplicates("overwrite")}
+            disabled={createSimulationDuplicateBusy}
+          >
+            Overwrite existing
+          </WorkbenchButton>,
+        ]}
+      >
+        {createSimulationDuplicateState ? (
+          <div style={{ display: "grid", gap: 8 }}>
+            <div>Found {createSimulationDuplicateState.duplicates.length} existing name(s).</div>
+            <div>
+              Examples: {createSimulationDuplicateState.duplicates.slice(0, 8).join(", ")}
+              {createSimulationDuplicateState.duplicates.length > 8 ? "..." : ""}
+            </div>
+            <div>Choose overwrite or create new tags with `_1` / `_2` suffixes.</div>
+          </div>
+        ) : null}
+      </Modal>
 
       {opcBrowseOpen && typeof document !== "undefined"
         ? createPortal(
