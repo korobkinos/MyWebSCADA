@@ -1,5 +1,5 @@
 import type { TrendAxisConfig, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { clamp, defaultTrendSettings } from "./trendUtils";
+import { clamp, defaultTrendSettings, normalizeTrendTableSettings } from "./trendUtils";
 
 const TREND_RUNTIME_VIEW_STATE_STORAGE_PREFIX = "mywebscada.trends.runtimeViewState";
 const TREND_RUNTIME_VIEW_STATE_VERSION = 2;
@@ -69,6 +69,8 @@ function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
+    seriesTableRows: clamp(Number(source.seriesTableRows ?? defaults.seriesTableRows), 2, 24),
+    table: normalizeTrendTableSettings(source.table ?? defaults.table),
   };
 }
 

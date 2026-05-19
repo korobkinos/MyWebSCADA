@@ -52,6 +52,21 @@ export type TrendTagPickerFilters = {
   selectionFilter: TrendTagPickerSelectionFilter;
 };
 
+export type TrendTableSettings = {
+  background?: string;
+  headerBackground?: string;
+  textColor?: string;
+  mutedTextColor?: string;
+  borderColor?: string;
+  hoverBackground?: string;
+  valueTextColor?: string;
+  rowHeight?: number;
+  headerHeight?: number;
+  fontSize?: number;
+  cellPaddingX?: number;
+  cellPaddingY?: number;
+};
+
 export type TrendSettings = {
   theme: "workbench-dark" | "echarts-dark" | "custom";
   background: string;
@@ -81,6 +96,7 @@ export type TrendSettings = {
   axisOffsetStep: number;
   showSeriesTable: boolean;
   seriesTableRows: number;
+  table?: TrendTableSettings;
   showToolbarMenuButton: boolean;
   showToolbarTagsButton: boolean;
   showToolbarLiveButton: boolean;

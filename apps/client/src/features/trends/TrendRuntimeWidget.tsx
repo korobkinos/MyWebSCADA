@@ -13,7 +13,7 @@ import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendQueryResponse, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTrendAxes, parseQuickRange } from "./trendUtils";
+import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTrendAxes, normalizeTrendTableSettings, parseQuickRange } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 
@@ -92,6 +92,45 @@ function normalizeHexColor(value: string | undefined, fallback: string): string 
     return `#${body[0]}${body[0]}${body[1]}${body[1]}${body[2]}${body[2]}`;
   }
   return fallback;
+}
+
+type ResolvedSeriesTableTheme = {
+  background: string;
+  headerBackground: string;
+  textColor: string;
+  mutedTextColor: string;
+  borderColor: string;
+  hoverBackground: string;
+  valueTextColor: string;
+  rowHeight: number;
+  headerHeight: number;
+  fontSize: number;
+  cellPaddingX: number;
+  cellPaddingY: number;
+};
+
+function resolveSeriesTableTheme(settings: TrendSettings, uiTheme: ReturnType<typeof resolveTrendTheme>): ResolvedSeriesTableTheme {
+  const table = normalizeTrendTableSettings(settings.table);
+  const rowHeight = clamp(Math.round(table?.rowHeight ?? TREND_SERIES_TABLE_ROW_PX), 20, 48);
+  const headerHeight = clamp(Math.round(table?.headerHeight ?? TREND_SERIES_TABLE_HEADER_PX), 20, 48);
+  const fontSize = clamp(Math.round(table?.fontSize ?? 12), 10, 16);
+  const cellPaddingX = clamp(Math.round(table?.cellPaddingX ?? 6), 2, 16);
+  const cellPaddingY = clamp(Math.round(table?.cellPaddingY ?? 3), 1, 10);
+
+  return {
+    background: normalizeHexColor(table?.background, uiTheme.tableBg),
+    headerBackground: normalizeHexColor(table?.headerBackground, uiTheme.panel),
+    textColor: normalizeHexColor(table?.textColor, uiTheme.text),
+    mutedTextColor: normalizeHexColor(table?.mutedTextColor, uiTheme.mutedText),
+    borderColor: normalizeHexColor(table?.borderColor, uiTheme.tableBorder),
+    hoverBackground: normalizeHexColor(table?.hoverBackground, uiTheme.buttonHoverBg),
+    valueTextColor: normalizeHexColor(table?.valueTextColor, normalizeHexColor(table?.textColor, uiTheme.text)),
+    rowHeight,
+    headerHeight,
+    fontSize,
+    cellPaddingX,
+    cellPaddingY,
+  };
 }
 
 function formatTrendValue(value: number | boolean | string | null | undefined): string {
@@ -209,6 +248,7 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
     seriesTableRows: clamp(Number(source.seriesTableRows ?? defaults.seriesTableRows), 2, 24),
+    table: normalizeTrendTableSettings(source.table),
   };
 }
 
@@ -299,7 +339,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const [customTo, setCustomTo] = useState(initialViewState.customTo);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<"appearance" | "performance" | "axes" | "series" | "toolbar">("appearance");
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"appearance" | "performance" | "axes" | "series" | "table" | "toolbar">("appearance");
   const [contextMenu, setContextMenu] = useState<TrendContextMenuState | null>(null);
   const [liveSocketState, setLiveSocketState] = useState<LiveSocketState>("idle");
   const [liveBatchCount, setLiveBatchCount] = useState(0);
@@ -1056,7 +1096,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const aggregationLabel = settings.aggregation === "auto" ? `auto -> ${statusAggregation}` : statusAggregation;
   const uiTheme = resolveTrendTheme(settings.theme);
   const chartBackground = settings.theme === "custom" ? normalizeHexColor(settings.background, uiTheme.background) : uiTheme.background;
-  const seriesTableMaxHeightPx = TREND_SERIES_TABLE_HEADER_PX + (clamp(Math.round(settings.seriesTableRows), 2, 24) * TREND_SERIES_TABLE_ROW_PX);
+  const tableTheme = resolveSeriesTableTheme(settings, uiTheme);
+  const seriesTableRows = clamp(Math.round(settings.seriesTableRows), 2, 24);
+  const seriesTableMaxHeightPx = tableTheme.headerHeight + (seriesTableRows * tableTheme.rowHeight);
   const shellStyle: CSSProperties = {
     "--trends-theme-bg": chartBackground,
     "--trends-theme-panel": uiTheme.panel,
@@ -1073,6 +1115,18 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     "--trends-theme-table-bg": uiTheme.tableBg,
     "--trends-theme-table-border": uiTheme.tableBorder,
     "--trends-series-table-max-height": `${seriesTableMaxHeightPx}px`,
+    "--trends-series-table-bg": tableTheme.background,
+    "--trends-series-table-header-bg": tableTheme.headerBackground,
+    "--trends-series-table-text": tableTheme.textColor,
+    "--trends-series-table-muted": tableTheme.mutedTextColor,
+    "--trends-series-table-border": tableTheme.borderColor,
+    "--trends-series-table-hover-bg": tableTheme.hoverBackground,
+    "--trends-series-table-value-text": tableTheme.valueTextColor,
+    "--trends-series-table-row-height": `${tableTheme.rowHeight}px`,
+    "--trends-series-table-header-height": `${tableTheme.headerHeight}px`,
+    "--trends-series-table-font-size": `${tableTheme.fontSize}px`,
+    "--trends-series-table-cell-padding-x": `${tableTheme.cellPaddingX}px`,
+    "--trends-series-table-cell-padding-y": `${tableTheme.cellPaddingY}px`,
   } as CSSProperties;
   const hasSelection = selectedTags.length > 0;
 

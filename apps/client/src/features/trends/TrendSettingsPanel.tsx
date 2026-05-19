@@ -4,6 +4,7 @@ import { WorkbenchButton } from "../../components/workbench";
 import type { TrendAxisConfig, TrendSettings, TrendTagSelection } from "./trendTypes";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { TREND_DEFAULT_AXIS_ID, createTrendAxisConfig, normalizeTrendAxes } from "./trendUtils";
+import { resolveTrendTheme } from "./trendTheme";
 
 type TrendSettingsPanelProps = {
   open: boolean;
@@ -17,11 +18,16 @@ type TrendSettingsPanelProps = {
   onSelectedTagsChange: (next: TrendTagSelection[]) => void;
 };
 
-type TrendSettingsTab = "appearance" | "performance" | "axes" | "series" | "toolbar";
+type TrendSettingsTab = "appearance" | "performance" | "axes" | "series" | "table" | "toolbar";
 
 const TREND_SETTINGS_AXES_COLUMN_WIDTHS_STORAGE_KEY = "scada.trends.settings.axesColumnWidths";
 const TREND_SETTINGS_SERIES_COLUMN_WIDTHS_STORAGE_KEY = "scada.trends.settings.seriesColumnWidths";
 const MAX_TABLE_COLUMN_WIDTH = 1400;
+const TREND_TABLE_ROW_HEIGHT_DEFAULT = 30;
+const TREND_TABLE_HEADER_HEIGHT_DEFAULT = 30;
+const TREND_TABLE_FONT_SIZE_DEFAULT = 12;
+const TREND_TABLE_CELL_PADDING_X_DEFAULT = 6;
+const TREND_TABLE_CELL_PADDING_Y_DEFAULT = 3;
 
 const AXES_COLUMNS = [
   { id: "id", label: "Axis", width: 128, min: 100 },
@@ -59,6 +65,7 @@ const SETTINGS_NAV_ITEMS: Array<{ id: TrendSettingsTab; label: string }> = [
   { id: "performance", label: "Data / Performance" },
   { id: "axes", label: "Axes" },
   { id: "series", label: "Series" },
+  { id: "table", label: "Table" },
   { id: "toolbar", label: "Toolbar" },
 ];
 
@@ -316,6 +323,10 @@ export function TrendSettingsPanel({
     setDraftSettings((prev) => ({ ...prev, ...patch }));
   };
 
+  const patchTableSettings = (patch: Partial<NonNullable<TrendSettings["table"]>>) => {
+    setDraftSettings((prev) => ({ ...prev, table: { ...(prev.table ?? {}), ...patch } }));
+  };
+
   const updateAxis = (axisId: string, patch: Partial<TrendAxisConfig>) => {
     setDraftAxes((prev) => normalizeTrendAxes(prev.map((axis) => (axis.id === axisId ? { ...axis, ...patch } : axis)), draftSettings));
   };
@@ -400,6 +411,12 @@ export function TrendSettingsPanel({
     () => SERIES_COLUMNS.map((column) => `${Math.round(seriesColumnWidths[column.id])}px`).join(" "),
     [seriesColumnWidths],
   );
+  const draftTheme = useMemo(() => resolveTrendTheme(draftSettings.theme), [draftSettings.theme]);
+  const tableRowHeight = clamp(Math.round(draftSettings.table?.rowHeight ?? TREND_TABLE_ROW_HEIGHT_DEFAULT), 20, 48);
+  const tableHeaderHeight = clamp(Math.round(draftSettings.table?.headerHeight ?? TREND_TABLE_HEADER_HEIGHT_DEFAULT), 20, 48);
+  const tableFontSize = clamp(Math.round(draftSettings.table?.fontSize ?? TREND_TABLE_FONT_SIZE_DEFAULT), 10, 16);
+  const tableCellPaddingX = clamp(Math.round(draftSettings.table?.cellPaddingX ?? TREND_TABLE_CELL_PADDING_X_DEFAULT), 2, 16);
+  const tableCellPaddingY = clamp(Math.round(draftSettings.table?.cellPaddingY ?? TREND_TABLE_CELL_PADDING_Y_DEFAULT), 1, 10);
 
   const startAxisColumnResize = (event: ReactMouseEvent<HTMLDivElement>, columnId: AxisColumnId) => {
     event.preventDefault();
@@ -497,26 +514,6 @@ export function TrendSettingsPanel({
                     <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.gridLines} onChange={(event) => patchSettings({ gridLines: event.target.checked })} /><span>Grid lines</span></label>
                     <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.axisLabels} onChange={(event) => patchSettings({ axisLabels: event.target.checked })} /><span>Axis labels</span></label>
                     <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.showSymbols} onChange={(event) => patchSettings({ showSymbols: event.target.checked })} /><span>Point symbols</span></label>
-                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.showSeriesTable} onChange={(event) => patchSettings({ showSeriesTable: event.target.checked })} /><span>Show bottom table</span></label>
-                  </div>
-                </div>
-              </section>
-
-              <section className="workbench-section">
-                <div className="workbench-section__header"><span className="workbench-section__title">Bottom Table</span></div>
-                <div className="workbench-section__content">
-                  <div className="trends-settings-fields trends-settings-fields--single-narrow">
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Rows</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
-                        min={2}
-                        max={24}
-                        value={draftSettings.seriesTableRows}
-                        onChange={(event) => onNumericInput(event, (value) => patchSettings({ seriesTableRows: clamp(Math.round(value), 2, 24) }))}
-                      />
-                    </label>
                   </div>
                 </div>
               </section>
@@ -786,6 +783,143 @@ export function TrendSettingsPanel({
                 </div>
               </div>
             </section>
+          ) : null}
+
+          {activeTab === "table" ? (
+            <div className="trends-settings-scroll" role="tabpanel" aria-label="Table settings">
+              <section className="workbench-section">
+                <div className="workbench-section__header"><span className="workbench-section__title">Visibility</span></div>
+                <div className="workbench-section__content">
+                  <div className="trends-settings-fields trends-settings-fields--two-col-compact">
+                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.showSeriesTable} onChange={(event) => patchSettings({ showSeriesTable: event.target.checked })} /><span>Show bottom table</span></label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Rows</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={2}
+                        max={24}
+                        value={draftSettings.seriesTableRows}
+                        onChange={(event) => onNumericInput(event, (value) => patchSettings({ seriesTableRows: clamp(Math.round(value), 2, 24) }))}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section className="workbench-section">
+                <div className="workbench-section__header"><span className="workbench-section__title">Layout</span></div>
+                <div className="workbench-section__content">
+                  <div className="trends-settings-fields trends-settings-fields--three-col">
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Row height</span>
+                      <input className="workbench-input" type="number" min={20} max={48} value={tableRowHeight} onChange={(event) => onNumericInput(event, (value) => patchTableSettings({ rowHeight: clamp(Math.round(value), 20, 48) }))} />
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Header height</span>
+                      <input className="workbench-input" type="number" min={20} max={48} value={tableHeaderHeight} onChange={(event) => onNumericInput(event, (value) => patchTableSettings({ headerHeight: clamp(Math.round(value), 20, 48) }))} />
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Font size</span>
+                      <input className="workbench-input" type="number" min={10} max={16} value={tableFontSize} onChange={(event) => onNumericInput(event, (value) => patchTableSettings({ fontSize: clamp(Math.round(value), 10, 16) }))} />
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Padding X</span>
+                      <input className="workbench-input" type="number" min={2} max={16} value={tableCellPaddingX} onChange={(event) => onNumericInput(event, (value) => patchTableSettings({ cellPaddingX: clamp(Math.round(value), 2, 16) }))} />
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Padding Y</span>
+                      <input className="workbench-input" type="number" min={1} max={10} value={tableCellPaddingY} onChange={(event) => onNumericInput(event, (value) => patchTableSettings({ cellPaddingY: clamp(Math.round(value), 1, 10) }))} />
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section className="workbench-section">
+                <div className="workbench-section__header"><span className="workbench-section__title">Colors</span></div>
+                <div className="workbench-section__content">
+                  <div className="trends-settings-fields trends-settings-fields--three-col">
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Table background</span>
+                      <div className="trends-settings-color-field">
+                        <TrendColorButton
+                          value={draftSettings.table?.background}
+                          fallback={draftTheme.tableBg}
+                          title="Table background"
+                          onChange={(value) => patchTableSettings({ background: value })}
+                        />
+                      </div>
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Header background</span>
+                      <div className="trends-settings-color-field">
+                        <TrendColorButton
+                          value={draftSettings.table?.headerBackground}
+                          fallback={draftTheme.panel}
+                          title="Header background"
+                          onChange={(value) => patchTableSettings({ headerBackground: value })}
+                        />
+                      </div>
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Text</span>
+                      <div className="trends-settings-color-field">
+                        <TrendColorButton
+                          value={draftSettings.table?.textColor}
+                          fallback={draftTheme.text}
+                          title="Text color"
+                          onChange={(value) => patchTableSettings({ textColor: value })}
+                        />
+                      </div>
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Muted text</span>
+                      <div className="trends-settings-color-field">
+                        <TrendColorButton
+                          value={draftSettings.table?.mutedTextColor}
+                          fallback={draftTheme.mutedText}
+                          title="Muted text color"
+                          onChange={(value) => patchTableSettings({ mutedTextColor: value })}
+                        />
+                      </div>
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Border</span>
+                      <div className="trends-settings-color-field">
+                        <TrendColorButton
+                          value={draftSettings.table?.borderColor}
+                          fallback={draftTheme.tableBorder}
+                          title="Border color"
+                          onChange={(value) => patchTableSettings({ borderColor: value })}
+                        />
+                      </div>
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Hover</span>
+                      <div className="trends-settings-color-field">
+                        <TrendColorButton
+                          value={draftSettings.table?.hoverBackground}
+                          fallback={draftTheme.buttonHoverBg}
+                          title="Row hover color"
+                          onChange={(value) => patchTableSettings({ hoverBackground: value })}
+                        />
+                      </div>
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Value text</span>
+                      <div className="trends-settings-color-field">
+                        <TrendColorButton
+                          value={draftSettings.table?.valueTextColor}
+                          fallback={draftSettings.table?.textColor ?? draftTheme.text}
+                          title="Value text color"
+                          onChange={(value) => patchTableSettings({ valueTextColor: value })}
+                        />
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </section>
+            </div>
           ) : null}
 
           {activeTab === "toolbar" ? (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { buildAxes, defaultTrendSettings } from "./trendUtils";
+import { buildAxes, defaultTrendSettings, normalizeTrendTableSettings } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -49,5 +49,39 @@ describe("buildAxes", () => {
     expect(result.resolvedAxisIdByTag.get("t1")).toBe("axis:default");
     expect(result.resolvedAxisIdByTag.get("t2")).toBe("axis:manual:1");
     expect(result.resolvedAxisIdByTag.get("t3")).toBe("axis:default");
+  });
+});
+
+describe("normalizeTrendTableSettings", () => {
+  it("clamps numeric settings and normalizes colors", () => {
+    const normalized = normalizeTrendTableSettings({
+      background: "#ABC",
+      textColor: "#112233",
+      rowHeight: 999,
+      headerHeight: 1,
+      fontSize: 9,
+      cellPaddingX: 33,
+      cellPaddingY: 0,
+    });
+
+    expect(normalized).toMatchObject({
+      background: "#aabbcc",
+      textColor: "#112233",
+      rowHeight: 48,
+      headerHeight: 20,
+      fontSize: 10,
+      cellPaddingX: 16,
+      cellPaddingY: 1,
+    });
+  });
+
+  it("drops invalid color values", () => {
+    const normalized = normalizeTrendTableSettings({
+      background: "bad-value",
+      borderColor: "#xyzxyz",
+      mutedTextColor: "",
+    });
+
+    expect(normalized).toBeUndefined();
   });
 });

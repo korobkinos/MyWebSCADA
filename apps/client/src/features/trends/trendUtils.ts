@@ -1,4 +1,4 @@
-import type { TrendAxisConfig, TrendSettings, TrendTagSelection, TrendTagInfo, TrendVisibleRange } from "./trendTypes";
+import type { TrendAxisConfig, TrendSettings, TrendTableSettings, TrendTagSelection, TrendTagInfo, TrendVisibleRange } from "./trendTypes";
 import { TREND_COLORS, TREND_WORKBENCH_THEME } from "./trendTheme";
 
 export const TREND_SETTINGS_STORAGE_KEY = "mywebscada.trends.settings";
@@ -25,6 +25,64 @@ function normalizeOptionalHexColor(value: string | undefined): string | undefine
     return `#${token.slice(1).split("").map((ch) => ch + ch).join("").toLowerCase()}`;
   }
   return undefined;
+}
+
+export function normalizeTrendTableSettings(value: TrendTableSettings | undefined): TrendTableSettings | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const normalized: TrendTableSettings = {};
+  const background = normalizeOptionalHexColor(value.background);
+  const headerBackground = normalizeOptionalHexColor(value.headerBackground);
+  const textColor = normalizeOptionalHexColor(value.textColor);
+  const mutedTextColor = normalizeOptionalHexColor(value.mutedTextColor);
+  const borderColor = normalizeOptionalHexColor(value.borderColor);
+  const hoverBackground = normalizeOptionalHexColor(value.hoverBackground);
+  const valueTextColor = normalizeOptionalHexColor(value.valueTextColor);
+  if (background) {
+    normalized.background = background;
+  }
+  if (headerBackground) {
+    normalized.headerBackground = headerBackground;
+  }
+  if (textColor) {
+    normalized.textColor = textColor;
+  }
+  if (mutedTextColor) {
+    normalized.mutedTextColor = mutedTextColor;
+  }
+  if (borderColor) {
+    normalized.borderColor = borderColor;
+  }
+  if (hoverBackground) {
+    normalized.hoverBackground = hoverBackground;
+  }
+  if (valueTextColor) {
+    normalized.valueTextColor = valueTextColor;
+  }
+
+  const rowHeight = Number(value.rowHeight);
+  const headerHeight = Number(value.headerHeight);
+  const fontSize = Number(value.fontSize);
+  const cellPaddingX = Number(value.cellPaddingX);
+  const cellPaddingY = Number(value.cellPaddingY);
+  if (Number.isFinite(rowHeight)) {
+    normalized.rowHeight = clamp(Math.round(rowHeight), 20, 48);
+  }
+  if (Number.isFinite(headerHeight)) {
+    normalized.headerHeight = clamp(Math.round(headerHeight), 20, 48);
+  }
+  if (Number.isFinite(fontSize)) {
+    normalized.fontSize = clamp(Math.round(fontSize), 10, 16);
+  }
+  if (Number.isFinite(cellPaddingX)) {
+    normalized.cellPaddingX = clamp(Math.round(cellPaddingX), 2, 16);
+  }
+  if (Number.isFinite(cellPaddingY)) {
+    normalized.cellPaddingY = clamp(Math.round(cellPaddingY), 1, 10);
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 export function defaultTrendSettings(): TrendSettings {
@@ -91,6 +149,7 @@ export function loadTrendSettings(): TrendSettings {
       defaultLineWidth: clamp(Number(parsed.defaultLineWidth ?? fallback.defaultLineWidth), 1, 5),
       axisOffsetStep: clamp(Number(parsed.axisOffsetStep ?? fallback.axisOffsetStep), 8, 220),
       seriesTableRows: clamp(Number(parsed.seriesTableRows ?? fallback.seriesTableRows), 2, 24),
+      table: normalizeTrendTableSettings(parsed.table),
     };
   } catch {
     return fallback;

@@ -6219,8 +6219,8 @@ body {
 }
 
 .trends-series-table-wrap {
-  border: 1px solid var(--trends-theme-table-border, #3c3c3c);
-  background: var(--trends-theme-table-bg, #252526);
+  border: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
+  background: var(--trends-series-table-bg, var(--trends-theme-table-bg, #252526));
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -6229,16 +6229,21 @@ body {
 .trends-series-table {
   width: max-content;
   min-width: 100%;
-  font-size: 12px;
+  font-size: var(--trends-series-table-font-size, 12px);
   max-height: var(--trends-series-table-max-height, 160px);
   overflow: auto;
 }
 .trends-series-table .screen-editor-tags-row {
-  border-bottom: 1px solid var(--trends-theme-table-border, #3c3c3c);
-  color: var(--trends-theme-text, #d4d4d4);
+  border-bottom: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
+  color: var(--trends-series-table-text, var(--trends-theme-text, #d4d4d4));
+  min-height: var(--trends-series-table-row-height, 30px);
 }
 .trends-series-table .screen-editor-tags-row--header {
-  background: var(--trends-theme-panel, #252526);
+  background: var(--trends-series-table-header-bg, var(--trends-theme-panel, #252526));
+  min-height: var(--trends-series-table-header-height, 30px);
+}
+.trends-series-table .screen-editor-tags-row:not(.screen-editor-tags-row--header):hover {
+  background: var(--trends-series-table-hover-bg, transparent);
 }
 
 .trends-series-table__row {
@@ -6253,8 +6258,8 @@ body {
 
 .trends-series-table__cell {
   min-width: 0;
-  padding: 3px 6px;
-  border-right: 1px solid var(--trends-theme-table-border, #3c3c3c);
+  padding: var(--trends-series-table-cell-padding-y, 3px) var(--trends-series-table-cell-padding-x, 6px);
+  border-right: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
 }
 .trends-series-table__cell:last-child {
   border-right: 0;
@@ -6287,7 +6292,7 @@ body {
 }
 
 .trends-series-table__cell--color {
-  padding: 2px 6px;
+  padding: var(--trends-series-table-cell-padding-y, 3px) var(--trends-series-table-cell-padding-x, 6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6306,7 +6311,7 @@ body {
   min-width: 20px;
   height: 20px;
   padding: 0;
-  border: 1px solid var(--trends-theme-table-border, #3c3c3c);
+  border: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
   border-radius: 2px;
 }
 
@@ -6316,10 +6321,12 @@ body {
 
 .trends-series-table__cell--value {
   text-align: right;
+  color: var(--trends-series-table-value-text, var(--trends-series-table-text, var(--trends-theme-text, #d4d4d4)));
 }
 .trends-series-table__cell--tag,
 .trends-series-table__cell--display-name,
 .trends-series-table__cell--description {
+  color: var(--trends-series-table-muted, var(--trends-theme-muted, #8a8a8a));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

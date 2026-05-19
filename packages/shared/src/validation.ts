@@ -838,6 +838,20 @@ const trendChartSettingsSchema = z.object({
   axisOffsetStep: z.number().optional(),
   showSeriesTable: z.boolean().optional(),
   seriesTableRows: z.number().optional(),
+  table: z.object({
+    background: z.string().optional(),
+    headerBackground: z.string().optional(),
+    textColor: z.string().optional(),
+    mutedTextColor: z.string().optional(),
+    borderColor: z.string().optional(),
+    hoverBackground: z.string().optional(),
+    valueTextColor: z.string().optional(),
+    rowHeight: z.number().optional(),
+    headerHeight: z.number().optional(),
+    fontSize: z.number().optional(),
+    cellPaddingX: z.number().optional(),
+    cellPaddingY: z.number().optional(),
+  }).optional(),
   showToolbarScaleButton: z.boolean().optional(),
 });
 

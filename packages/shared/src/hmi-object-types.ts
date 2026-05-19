@@ -754,6 +754,20 @@ export type TrendChartSettings = {
   axisOffsetStep?: number;
   showSeriesTable?: boolean;
   seriesTableRows?: number;
+  table?: {
+    background?: string;
+    headerBackground?: string;
+    textColor?: string;
+    mutedTextColor?: string;
+    borderColor?: string;
+    hoverBackground?: string;
+    valueTextColor?: string;
+    rowHeight?: number;
+    headerHeight?: number;
+    fontSize?: number;
+    cellPaddingX?: number;
+    cellPaddingY?: number;
+  };
   showToolbarScaleButton?: boolean;
 };
 
