@@ -587,7 +587,7 @@ export function TrendSettingsPanel({
               <section className="workbench-section">
                 <div className="workbench-section__header"><span className="workbench-section__title">Cache</span></div>
                 <div className="workbench-section__content">
-                  <div className="trends-settings-fields trends-settings-fields--three-col">
+                  <div className="trends-settings-fields trends-settings-fields--two-col-compact">
                     <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.cacheEnabled} onChange={(event) => patchSettings({ cacheEnabled: event.target.checked })} /><span>Cache enabled</span></label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">Cache size</span>
@@ -883,82 +883,47 @@ export function TrendSettingsPanel({
               <section className="workbench-section">
                 <div className="workbench-section__header"><span className="workbench-section__title">Colors</span></div>
                 <div className="workbench-section__content">
-                  <div className="trends-settings-fields trends-settings-fields--three-col">
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Table background</span>
+                  <div className="trends-settings-color-list">
+                    <label className="workbench-field trends-settings-color-item">
                       <div className="trends-settings-color-field">
-                        <TrendColorButton
-                          value={draftSettings.table?.background}
-                          fallback={draftTheme.tableBg}
-                          title="Table background"
-                          onChange={(value) => patchTableSettings({ background: value })}
-                        />
+                        <TrendColorButton value={draftSettings.table?.background} fallback={draftTheme.tableBg} title="Table background" onChange={(value) => patchTableSettings({ background: value })} />
+                        <span className="trends-settings-color-label">Table background</span>
                       </div>
                     </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Header background</span>
+                    <label className="workbench-field trends-settings-color-item">
                       <div className="trends-settings-color-field">
-                        <TrendColorButton
-                          value={draftSettings.table?.headerBackground}
-                          fallback={draftTheme.panel}
-                          title="Header background"
-                          onChange={(value) => patchTableSettings({ headerBackground: value })}
-                        />
+                        <TrendColorButton value={draftSettings.table?.headerBackground} fallback={draftTheme.panel} title="Header background" onChange={(value) => patchTableSettings({ headerBackground: value })} />
+                        <span className="trends-settings-color-label">Header background</span>
                       </div>
                     </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Text</span>
+                    <label className="workbench-field trends-settings-color-item">
                       <div className="trends-settings-color-field">
-                        <TrendColorButton
-                          value={draftSettings.table?.textColor}
-                          fallback={draftTheme.text}
-                          title="Text color"
-                          onChange={(value) => patchTableSettings({ textColor: value })}
-                        />
+                        <TrendColorButton value={draftSettings.table?.textColor} fallback={draftTheme.text} title="Text color" onChange={(value) => patchTableSettings({ textColor: value })} />
+                        <span className="trends-settings-color-label">Text</span>
                       </div>
                     </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Muted text</span>
+                    <label className="workbench-field trends-settings-color-item">
                       <div className="trends-settings-color-field">
-                        <TrendColorButton
-                          value={draftSettings.table?.mutedTextColor}
-                          fallback={draftTheme.mutedText}
-                          title="Muted text color"
-                          onChange={(value) => patchTableSettings({ mutedTextColor: value })}
-                        />
+                        <TrendColorButton value={draftSettings.table?.mutedTextColor} fallback={draftTheme.mutedText} title="Muted text color" onChange={(value) => patchTableSettings({ mutedTextColor: value })} />
+                        <span className="trends-settings-color-label">Muted text</span>
                       </div>
                     </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Border</span>
+                    <label className="workbench-field trends-settings-color-item">
                       <div className="trends-settings-color-field">
-                        <TrendColorButton
-                          value={draftSettings.table?.borderColor}
-                          fallback={draftTheme.tableBorder}
-                          title="Border color"
-                          onChange={(value) => patchTableSettings({ borderColor: value })}
-                        />
+                        <TrendColorButton value={draftSettings.table?.borderColor} fallback={draftTheme.tableBorder} title="Border color" onChange={(value) => patchTableSettings({ borderColor: value })} />
+                        <span className="trends-settings-color-label">Border</span>
                       </div>
                     </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Hover</span>
+                    <label className="workbench-field trends-settings-color-item">
                       <div className="trends-settings-color-field">
-                        <TrendColorButton
-                          value={draftSettings.table?.hoverBackground}
-                          fallback={draftTheme.buttonHoverBg}
-                          title="Row hover color"
-                          onChange={(value) => patchTableSettings({ hoverBackground: value })}
-                        />
+                        <TrendColorButton value={draftSettings.table?.hoverBackground} fallback={draftTheme.buttonHoverBg} title="Row hover color" onChange={(value) => patchTableSettings({ hoverBackground: value })} />
+                        <span className="trends-settings-color-label">Hover</span>
                       </div>
                     </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Value text</span>
+                    <label className="workbench-field trends-settings-color-item">
                       <div className="trends-settings-color-field">
-                        <TrendColorButton
-                          value={draftSettings.table?.valueTextColor}
-                          fallback={draftSettings.table?.textColor ?? draftTheme.text}
-                          title="Value text color"
-                          onChange={(value) => patchTableSettings({ valueTextColor: value })}
-                        />
+                        <TrendColorButton value={draftSettings.table?.valueTextColor} fallback={draftSettings.table?.textColor ?? draftTheme.text} title="Value text color" onChange={(value) => patchTableSettings({ valueTextColor: value })} />
+                        <span className="trends-settings-color-label">Value text</span>
                       </div>
                     </label>
                   </div>

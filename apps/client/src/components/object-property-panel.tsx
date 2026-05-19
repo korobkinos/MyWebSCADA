@@ -4070,10 +4070,37 @@ function SpecificPropertyFields({
           <Form.Item label="Live Buffer Limit">
             <InputNumber style={{ width: "100%" }} min={200} max={20000} value={settings.liveBufferLimit} onChange={(value) => onPatch({ settings: { ...settings, liveBufferLimit: Math.max(200, Math.min(20000, Number(value ?? 5000))) } } as Partial<HmiObject>)} />
           </Form.Item>
+          <Form.Item label="Zoom debounce (ms)">
+            <InputNumber style={{ width: "100%" }} min={100} max={1200} value={settings.zoomDebounceMs} onChange={(value) => onPatch({ settings: { ...settings, zoomDebounceMs: Math.max(100, Math.min(1200, Number(value ?? 350))) } } as Partial<HmiObject>)} />
+          </Form.Item>
           <Space className="object-property-panel__runtime-switch-row">
             <span>Cache Enabled</span>
             <Switch checked={settings.cacheEnabled} onChange={(checked) => onPatch({ settings: { ...settings, cacheEnabled: checked } } as Partial<HmiObject>)} />
           </Space>
+          <Form.Item label="Cache Size">
+            <InputNumber style={{ width: "100%" }} min={8} max={256} value={settings.cacheSize} onChange={(value) => onPatch({ settings: { ...settings, cacheSize: Math.max(8, Math.min(256, Number(value ?? 48))) } } as Partial<HmiObject>)} />
+          </Form.Item>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Progressive rendering</span>
+            <Switch checked={settings.progressive} onChange={(checked) => onPatch({ settings: { ...settings, progressive: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Disable animation on large data</span>
+            <Switch checked={settings.disableAnimationsLargeData} onChange={(checked) => onPatch({ settings: { ...settings, disableAnimationsLargeData: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Form.Item label="Axis offset step">
+            <InputNumber style={{ width: "100%" }} min={8} max={220} value={settings.axisOffsetStep} onChange={(value) => onPatch({ settings: { ...settings, axisOffsetStep: Math.max(8, Math.min(220, Number(value ?? 46))) } } as Partial<HmiObject>)} />
+          </Form.Item>
+          <Form.Item label="Axis scale gap">
+            <InputNumber style={{ width: "100%" }} min={0} max={64} value={settings.axisScaleGap} onChange={(value) => onPatch({ settings: { ...settings, axisScaleGap: Math.max(0, Math.min(64, Number(value ?? 6))) } } as Partial<HmiObject>)} />
+          </Form.Item>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Show bottom table</span>
+            <Switch checked={settings.showSeriesTable} onChange={(checked) => onPatch({ settings: { ...settings, showSeriesTable: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Form.Item label="Bottom table rows">
+            <InputNumber style={{ width: "100%" }} min={2} max={24} value={settings.seriesTableRows} onChange={(value) => onPatch({ settings: { ...settings, seriesTableRows: Math.max(2, Math.min(24, Number(value ?? 6))) } } as Partial<HmiObject>)} />
+          </Form.Item>
           <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
             <WorkbenchButton onClick={() => onOpenTrendSettings?.("performance")}>Advanced Trend Settings...</WorkbenchButton>
           </Form.Item>
