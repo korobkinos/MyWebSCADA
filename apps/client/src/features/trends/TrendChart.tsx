@@ -168,6 +168,11 @@ export function TrendChart({
   const lastPointerPixelYRef = useRef<number | null>(null);
   const pointerInsideRef = useRef(false);
   const restoreAxisPointerRafRef = useRef<number | null>(null);
+  const axisPointerRestoreImmediateCountRef = useRef(0);
+  const axisPointerRestoreRafCountRef = useRef(0);
+  const axisPointerSkippedClearCountRef = useRef(0);
+  const liveRenderCountRef = useRef(0);
+  const skipNextVisibleRangeRenderInLiveRef = useRef(false);
   const axisCommitTimersRef = useRef<Map<string, number>>(new Map());
   const probeDragActiveRef = useRef(false);
   const normalizeSeriesPoints = (points: TrendPoint[]): TrendPoint[] => {
@@ -427,37 +432,52 @@ export function TrendChart({
       value: timestamp,
     });
   };
+  const restoreAxisPointerFromPointer = (mode: "immediate" | "raf"): boolean => {
+    const chart = chartRef.current;
+    const x = lastPointerPixelXRef.current;
+    const y = lastPointerPixelYRef.current;
+    if (x === null || y === null || !chart || !pointerInsideRef.current || !Number.isFinite(x) || !Number.isFinite(y) || !isPointInsidePlot(x, y)) {
+      return false;
+    }
+    chart.dispatchAction({
+      type: "updateAxisPointer",
+      currTrigger: "mousemove",
+      x,
+      y,
+    });
+    chart.dispatchAction({
+      type: "showTip",
+      x,
+      y,
+    });
+    const pointerTs = Number(chart.convertFromPixel({ xAxisIndex: 0 }, x));
+    if (Number.isFinite(pointerTs)) {
+      lastAxisPointerTsRef.current = pointerTs;
+      if (probeEnabledRef.current) {
+        probeTimestampRef.current = pointerTs;
+        onProbeTimestampChangeRef.current?.(pointerTs);
+      }
+    }
+    if (mode === "immediate") {
+      axisPointerRestoreImmediateCountRef.current += 1;
+    } else {
+      axisPointerRestoreRafCountRef.current += 1;
+    }
+    if (isTrendPerfDebugEnabled()) {
+      logTrendDiagnostics("chart:axis-pointer-restore", {
+        mode,
+        liveMode: liveModeRef.current,
+      });
+    }
+    return true;
+  };
   const scheduleAxisPointerRestoreFromPointer = (): void => {
     if (restoreAxisPointerRafRef.current !== null) {
       window.cancelAnimationFrame(restoreAxisPointerRafRef.current);
     }
     restoreAxisPointerRafRef.current = window.requestAnimationFrame(() => {
       restoreAxisPointerRafRef.current = null;
-      const chart = chartRef.current;
-      const x = lastPointerPixelXRef.current;
-      const y = lastPointerPixelYRef.current;
-      if (x === null || y === null || !chart || !pointerInsideRef.current || !Number.isFinite(x) || !Number.isFinite(y) || !isPointInsidePlot(x, y)) {
-        return;
-      }
-      chart.dispatchAction({
-        type: "updateAxisPointer",
-        currTrigger: "mousemove",
-        x,
-        y,
-      });
-      chart.dispatchAction({
-        type: "showTip",
-        x,
-        y,
-      });
-      const pointerTs = Number(chart.convertFromPixel({ xAxisIndex: 0 }, x));
-      if (Number.isFinite(pointerTs)) {
-        lastAxisPointerTsRef.current = pointerTs;
-        if (probeEnabledRef.current) {
-          probeTimestampRef.current = pointerTs;
-          onProbeTimestampChangeRef.current?.(pointerTs);
-        }
-      }
+      restoreAxisPointerFromPointer("raf");
     });
   };
   const setProbeTimestampInternal = (timestamp: number | null, emitChange: boolean): void => {
@@ -600,6 +620,9 @@ export function TrendChart({
     }
     const debugPerf = isTrendPerfDebugEnabled();
     const renderStartedAt = debugPerf ? performance.now() : 0;
+    if (liveModeRef.current) {
+      liveRenderCountRef.current += 1;
+    }
     const uiTheme = resolveTrendTheme(settings.theme);
     const chartBackground = settings.theme === "custom" && /^#[0-9a-fA-F]{3,6}$/.test(settings.background)
       ? settings.background
@@ -1033,14 +1056,19 @@ export function TrendChart({
 
     optionGuardRef.current = true;
     const setOptionStartedAt = debugPerf ? performance.now() : 0;
-    chart.setOption(option, { notMerge: false, lazyUpdate: true, replaceMerge: ["series", "yAxis"] });
+    const lazyUpdate = !liveModeRef.current;
+    const replaceMerge: Array<"series" | "yAxis"> = liveModeRef.current ? ["series"] : ["series", "yAxis"];
+    chart.setOption(option, { notMerge: false, lazyUpdate, replaceMerge });
     const hasPointerPixels = pointerInsideRef.current
       && lastPointerPixelXRef.current !== null
       && lastPointerPixelYRef.current !== null
       && Number.isFinite(lastPointerPixelXRef.current)
       && Number.isFinite(lastPointerPixelYRef.current);
     if (hasPointerPixels) {
-      scheduleAxisPointerRestoreFromPointer();
+      restoreAxisPointerFromPointer("immediate");
+      if (liveModeRef.current || lazyUpdate) {
+        scheduleAxisPointerRestoreFromPointer();
+      }
     } else if (lastAxisPointerTsRef.current !== null || (probeEnabledRef.current && probeTimestampRef.current !== null)) {
       let pointerTs = lastAxisPointerTsRef.current;
       if (probeEnabledRef.current && probeTimestampRef.current !== null) {
@@ -1091,8 +1119,14 @@ export function TrendChart({
         domain: fullRangeRef.current,
         visibleRange,
         appendLivePointsCalls: appendLivePointsCallCountRef.current,
+        liveRenderCount: liveRenderCountRef.current,
         throttledRenderCalls: renderThrottleCountRef.current,
         throttledHoverCalls: hoverThrottleCountRef.current,
+        axisPointerRestoresImmediate: axisPointerRestoreImmediateCountRef.current,
+        axisPointerRestoresRaf: axisPointerRestoreRafCountRef.current,
+        axisPointerSkippedClears: axisPointerSkippedClearCountRef.current,
+        lazyUpdate,
+        replaceMerge,
         triggerReason: renderRafReasonRef.current,
       });
     }
@@ -1221,6 +1255,7 @@ export function TrendChart({
           && Number.isFinite(lastPointerPixelXRef.current)
           && Number.isFinite(lastPointerPixelYRef.current)
         ) {
+          axisPointerSkippedClearCountRef.current += 1;
           return;
         }
         hoverPendingTsRef.current = null;
@@ -1553,6 +1588,7 @@ export function TrendChart({
             from: left - LIVE_DOMAIN_GRACE_MS,
             to: right + LIVE_DOMAIN_GRACE_MS,
           };
+          skipNextVisibleRangeRenderInLiveRef.current = true;
           onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
         } else if (Number.isFinite(minUpdateTs) && Number.isFinite(maxUpdateTs)) {
           fullRangeRef.current = {
@@ -1656,7 +1692,15 @@ export function TrendChart({
 
   useEffect(() => {
     scheduleRender("props-change");
-  }, [axes, axisIdByTag, settings, tags, visibleRange.from, visibleRange.to]);
+  }, [axes, axisIdByTag, settings, tags]);
+
+  useEffect(() => {
+    if (liveModeRef.current && skipNextVisibleRangeRenderInLiveRef.current) {
+      skipNextVisibleRangeRenderInLiveRef.current = false;
+      return;
+    }
+    scheduleRender("visible-range-change");
+  }, [visibleRange.from, visibleRange.to]);
 
   return <div ref={rootRef} className="trends-chart" />;
 }
