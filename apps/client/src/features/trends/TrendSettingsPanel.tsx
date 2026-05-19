@@ -533,9 +533,9 @@ export function TrendSettingsPanel({
                 <div className="workbench-section__header"><span className="workbench-section__title">Display</span></div>
                 <div className="workbench-section__content">
                   <div className="trends-settings-check-grid">
-                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.gridLines} onChange={(event) => patchSettings({ gridLines: event.target.checked })} /><span>Grid lines</span></label>
-                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.axisLabels} onChange={(event) => patchSettings({ axisLabels: event.target.checked })} /><span>Axis labels</span></label>
-                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.showSymbols} onChange={(event) => patchSettings({ showSymbols: event.target.checked })} /><span>Point symbols</span></label>
+                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.gridLines} onChange={(event) => patchSettings({ gridLines: event.target.checked })} /><span>Grid lines</span></label>
+                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.axisLabels} onChange={(event) => patchSettings({ axisLabels: event.target.checked })} /><span>Axis labels</span></label>
+                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.showSymbols} onChange={(event) => patchSettings({ showSymbols: event.target.checked })} /><span>Point symbols</span></label>
                   </div>
                 </div>
               </section>
@@ -578,8 +578,8 @@ export function TrendSettingsPanel({
                       <span className="workbench-field__label">Live buffer limit</span>
                       <input className="workbench-input" type="number" min={200} max={20000} value={draftSettings.liveBufferLimit} onChange={(event) => onNumericInput(event, (value) => patchSettings({ liveBufferLimit: value }))} />
                     </label>
-                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.progressive} onChange={(event) => patchSettings({ progressive: event.target.checked })} /><span>Progressive rendering</span></label>
-                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.disableAnimationsLargeData} onChange={(event) => patchSettings({ disableAnimationsLargeData: event.target.checked })} /><span>Disable animation on large data</span></label>
+                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.progressive} onChange={(event) => patchSettings({ progressive: event.target.checked })} /><span>Progressive rendering</span></label>
+                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.disableAnimationsLargeData} onChange={(event) => patchSettings({ disableAnimationsLargeData: event.target.checked })} /><span>Disable animation on large data</span></label>
                   </div>
                 </div>
               </section>
@@ -588,7 +588,7 @@ export function TrendSettingsPanel({
                 <div className="workbench-section__header"><span className="workbench-section__title">Cache</span></div>
                 <div className="workbench-section__content">
                   <div className="trends-settings-fields trends-settings-fields--two-col-compact">
-                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.cacheEnabled} onChange={(event) => patchSettings({ cacheEnabled: event.target.checked })} /><span>Cache enabled</span></label>
+                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.cacheEnabled} onChange={(event) => patchSettings({ cacheEnabled: event.target.checked })} /><span>Cache enabled</span></label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">Cache size</span>
                       <input className="workbench-input" type="number" min={8} max={256} value={draftSettings.cacheSize} onChange={(event) => onNumericInput(event, (value) => patchSettings({ cacheSize: value }))} />
@@ -836,7 +836,7 @@ export function TrendSettingsPanel({
                 <div className="workbench-section__header"><span className="workbench-section__title">Visibility</span></div>
                 <div className="workbench-section__content">
                   <div className="trends-settings-fields trends-settings-fields--two-col-compact">
-                    <label className="screen-editor-settings-check"><input type="checkbox" checked={draftSettings.showSeriesTable} onChange={(event) => patchSettings({ showSeriesTable: event.target.checked })} /><span>Show bottom table</span></label>
+                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.showSeriesTable} onChange={(event) => patchSettings({ showSeriesTable: event.target.checked })} /><span>Show bottom table</span></label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">Rows</span>
                       <input

@@ -1876,19 +1876,40 @@ export function TrendChart({
   }, [interactiveZoomEnabled]);
 
   useEffect(() => {
+    const historyMap = new Map<string, TrendPoint[]>();
+    const previousMap = seriesPointsRef.current;
+    const historyToMs = Number.isFinite(new Date(data?.to ?? "").getTime()) ? new Date(data?.to ?? "").getTime() : Number.NaN;
+    for (const series of data?.series ?? []) {
+      const normalizedPointsSource = normalizeSeriesPoints(series.points);
+      historyMap.set(series.tag, normalizedPointsSource);
+    }
+
     const nextMap = new Map<string, TrendPoint[]>();
+    const activeTagNames = activeTagNameSetRef.current;
+    if (liveModeRef.current) {
+      for (const tagName of activeTagNames) {
+        const historyPoints = historyMap.get(tagName) ?? [];
+        const carryOverLivePoints = (previousMap.get(tagName) ?? []).filter((point) => {
+          if (!Number.isFinite(historyToMs)) {
+            return false;
+          }
+          return point.t > historyToMs;
+        });
+        const livePoints = carryOverLivePoints;
+        const merged = normalizeSeriesPoints([...historyPoints, ...livePoints]);
+        nextMap.set(tagName, merged);
+      }
+    } else {
+      for (const [tagName, points] of historyMap) {
+        nextMap.set(tagName, points);
+      }
+    }
+
     const nextStats = new Map<string, TrendAxisStats>();
     let minTs = Number.POSITIVE_INFINITY;
     let maxTs = Number.NEGATIVE_INFINITY;
-    const liveSeriesPointCap = liveSeriesPointCapRef.current;
-    for (const series of data?.series ?? []) {
-      const normalizedPointsSource = normalizeSeriesPoints(series.points);
-      const normalizedPoints = liveModeRef.current && normalizedPointsSource.length > liveSeriesPointCap
-        ? normalizedPointsSource.slice(normalizedPointsSource.length - liveSeriesPointCap)
-        : normalizedPointsSource;
-      nextMap.set(series.tag, normalizedPoints);
-      nextStats.set(series.tag, recomputeAxisStats(normalizedPoints));
-      for (const point of normalizedPoints) {
+    for (const points of nextMap.values()) {
+      for (const point of points) {
         if (point.t < minTs) {
           minTs = point.t;
         }
@@ -1897,6 +1918,11 @@ export function TrendChart({
         }
       }
     }
+    for (const tagName of activeTagNames) {
+      const points = nextMap.get(tagName) ?? [];
+      nextStats.set(tagName, recomputeAxisStats(points));
+    }
+
     seriesPointsRef.current = nextMap;
     axisStatsByTagRef.current = nextStats;
     fullRangeRef.current = Number.isFinite(minTs) && Number.isFinite(maxTs) && maxTs > minTs
