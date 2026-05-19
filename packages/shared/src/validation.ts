@@ -806,6 +806,7 @@ const trendChartAxisSchema = z.object({
   min: z.union([z.number(), z.literal("auto")]).optional(),
   max: z.union([z.number(), z.literal("auto")]).optional(),
   color: z.string().optional(),
+  axisPointerLabelBackgroundColor: z.string().optional(),
 });
 
 const trendChartSettingsSchema = z.object({

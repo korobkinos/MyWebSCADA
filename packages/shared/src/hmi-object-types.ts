@@ -708,6 +708,7 @@ export type TrendChartAxisConfig = {
   min?: number | "auto";
   max?: number | "auto";
   color?: string;
+  axisPointerLabelBackgroundColor?: string;
 };
 
 export type TrendChartSeriesConfig = {

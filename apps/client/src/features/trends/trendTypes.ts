@@ -20,6 +20,7 @@ export type TrendAxisConfig = {
   color?: string;
   axisTextColor?: string;
   axisGridLineColor?: string;
+  axisPointerLabelBackgroundColor?: string;
   axisLabelFontSize?: number;
   axisLabelMargin?: number;
   axisNameFontSize?: number;

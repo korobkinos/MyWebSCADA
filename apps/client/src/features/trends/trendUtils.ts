@@ -230,6 +230,7 @@ export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: Tr
     axis.axisNamePaddingY = clamp(Number(axis.axisNamePaddingY ?? 3), 0, 16);
     axis.axisTextColor = normalizeOptionalHexColor(axis.axisTextColor ?? axis.color);
     axis.axisGridLineColor = normalizeOptionalHexColor(axis.axisGridLineColor);
+    axis.axisPointerLabelBackgroundColor = normalizeOptionalHexColor(axis.axisPointerLabelBackgroundColor);
     axis.color = axis.axisTextColor;
     positionIndex[axis.position] += 1;
   }

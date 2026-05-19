@@ -730,6 +730,7 @@ export function TrendChart({
       const layout = axisLayoutById.get(axis.id);
       const axisTextColor = axis.axisTextColor ?? axis.color ?? uiTheme.text;
       const axisGridLineColor = axis.axisGridLineColor ?? uiTheme.gridLine;
+      const axisPointerLabelBackgroundColor = axis.axisPointerLabelBackgroundColor ?? uiTheme.tooltipBg;
       return ({
       type: "value" as const,
       name: `{axisName|${axisName}}`,
@@ -800,6 +801,16 @@ export function TrendChart({
         },
       },
       axisLine: { show: true, lineStyle: { color: axisTextColor } },
+      axisPointer: {
+        show: true,
+        label: {
+          show: true,
+          color: axisTextColor,
+          backgroundColor: axisPointerLabelBackgroundColor,
+          borderColor: uiTheme.border,
+          borderWidth: 1,
+        },
+      },
       axisLabel: {
         show: settings.axisLabels,
         color: axisTextColor,

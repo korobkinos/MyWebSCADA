@@ -37,6 +37,7 @@ const AXES_COLUMNS = [
   { id: "padX", label: "Pad X", width: 66, min: 60 },
   { id: "padY", label: "Pad Y", width: 66, min: 60 },
   { id: "textColor", label: "Text", width: 86, min: 78 },
+  { id: "cursorBg", label: "Cursor", width: 90, min: 82 },
   { id: "gridColor", label: "Grid", width: 86, min: 78 },
   { id: "used", label: "Used", width: 58, min: 52 },
   { id: "actions", label: "", width: 84, min: 74 },
@@ -684,6 +685,14 @@ export function TrendSettingsPanel({
                           fallback="#4FC3F7"
                           title={`Axis ${axis.name || axis.id} text color`}
                           onChange={(value) => updateAxis(axis.id, { axisTextColor: value, color: value })}
+                        />
+                      </div>
+                      <div className="screen-editor-tags-cell trends-settings-table__cell trends-settings-table__cell--color">
+                        <TrendColorButton
+                          value={axis.axisPointerLabelBackgroundColor}
+                          fallback="#4a5a75"
+                          title={`Axis ${axis.name || axis.id} cursor label background`}
+                          onChange={(value) => updateAxis(axis.id, { axisPointerLabelBackgroundColor: value })}
                         />
                       </div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell trends-settings-table__cell--color">
