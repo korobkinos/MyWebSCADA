@@ -32,7 +32,8 @@ const AXES_COLUMNS = [
   { id: "nameGap", label: "Name Gap", width: 78, min: 70 },
   { id: "padX", label: "Pad X", width: 66, min: 60 },
   { id: "padY", label: "Pad Y", width: 66, min: 60 },
-  { id: "color", label: "Color", width: 110, min: 92 },
+  { id: "textColor", label: "Text Color", width: 170, min: 148 },
+  { id: "gridColor", label: "Grid Color", width: 170, min: 148 },
   { id: "used", label: "Used", width: 58, min: 52 },
   { id: "actions", label: "", width: 84, min: 74 },
 ] as const;
@@ -486,7 +487,30 @@ export function TrendSettingsPanel({
                       <input className="workbench-input" type="number" value={axis.axisNamePaddingY ?? 3} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNamePaddingY: value }))} />
                     </div>
                     <div className="screen-editor-tags-cell trends-settings-table__cell">
-                      <input className="workbench-input" value={axis.color ?? ""} onChange={(event) => updateAxis(axis.id, { color: event.target.value })} placeholder="#4FC3F7" />
+                      <Space.Compact style={{ width: "100%" }}>
+                        <ColorPicker
+                          value={normalizeHexColor(axis.axisTextColor ?? axis.color, "#4FC3F7")}
+                          onChangeComplete={(color) => updateAxis(axis.id, { axisTextColor: color.toHexString(), color: color.toHexString() })}
+                        />
+                        <Input
+                          value={axis.axisTextColor ?? axis.color ?? ""}
+                          onChange={(event) => updateAxis(axis.id, { axisTextColor: event.target.value, color: event.target.value })}
+                          placeholder="#4FC3F7"
+                        />
+                      </Space.Compact>
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <Space.Compact style={{ width: "100%" }}>
+                        <ColorPicker
+                          value={normalizeHexColor(axis.axisGridLineColor, "#3c3c3c")}
+                          onChangeComplete={(color) => updateAxis(axis.id, { axisGridLineColor: color.toHexString() })}
+                        />
+                        <Input
+                          value={axis.axisGridLineColor ?? ""}
+                          onChange={(event) => updateAxis(axis.id, { axisGridLineColor: event.target.value })}
+                          placeholder="#3c3c3c"
+                        />
+                      </Space.Compact>
                     </div>
                     <div className="screen-editor-tags-cell trends-settings-table__cell">{axisUsageCount.get(axis.id) ?? 0}</div>
                     <div className="screen-editor-tags-cell trends-settings-table__cell">

@@ -1212,6 +1212,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             onVisibleRangeChange={handleChartRangeChange}
             onHoverSnapshotChange={(snapshot) => {
               if (!snapshot) {
+                if (liveMode) {
+                  return;
+                }
                 hoverSnapshotKeyRef.current = "";
                 hoverTimestampRef.current = null;
                 setHoverSeriesValues(null);

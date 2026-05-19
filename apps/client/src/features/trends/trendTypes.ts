@@ -18,6 +18,8 @@ export type TrendAxisConfig = {
   min?: number | "auto";
   max?: number | "auto";
   color?: string;
+  axisTextColor?: string;
+  axisGridLineColor?: string;
   axisLabelFontSize?: number;
   axisLabelMargin?: number;
   axisNameFontSize?: number;

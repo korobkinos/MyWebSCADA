@@ -9759,8 +9759,8 @@
         {
           "id": "value-display_cn8v8o",
           "type": "value-display",
-          "x": 650.7162432636103,
-          "y": 252.42330904068982,
+          "x": 691.5596884469915,
+          "y": 267.5543751678058,
           "width": 220,
           "height": 36,
           "tag": "Counter2",
@@ -10122,8 +10122,8 @@
         {
           "id": "sldr_epccdm",
           "type": "slider",
-          "x": 846.4084036159031,
-          "y": 439.0334964848327,
+          "x": 391.67741706453563,
+          "y": 372.4683235752003,
           "width": 234.85932000226802,
           "height": 67.7106070012352,
           "rotation": 0,
@@ -10162,8 +10162,8 @@
         {
           "id": "circle_vchasv",
           "type": "rectangle",
-          "x": 570.7162432636103,
-          "y": 233.00200153463655,
+          "x": 560.1272019197708,
+          "y": 240.56753459819447,
           "width": 90,
           "height": 90,
           "opacity": 1,
@@ -10577,6 +10577,47 @@
               "preserveAspectRatio": true
             }
           ]
+        },
+        {
+          "id": "line_yv8ed4",
+          "type": "line",
+          "name": "Merged Line",
+          "x": 907.8987899548648,
+          "y": 296.72660540482775,
+          "width": 308.2803370315705,
+          "height": 225.78887416084766,
+          "rotation": 0,
+          "locked": false,
+          "minWidth": 20,
+          "minHeight": 10,
+          "points": [
+            0,
+            225.78887416084766,
+            99.61799219998079,
+            129.5771822825345,
+            268.7677886471888,
+            131.963650600744,
+            308.2803370315705,
+            0.9840122551300681,
+            253.41220730698365,
+            0
+          ],
+          "stroke": "#190303",
+          "strokeWidth": 8,
+          "lineCap": "round",
+          "lineJoin": "round",
+          "cornerRadius": 0,
+          "closed": false,
+          "activeValue": 1,
+          "inactiveStroke": "#d9d9d9",
+          "activeStroke": "#0e639c",
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "flowAnimation": {
+            "enabled": true,
+            "triggerTag": "Counter2",
+            "effectType": "arrows"
+          }
         }
       ]
     },

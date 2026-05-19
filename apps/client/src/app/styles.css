@@ -6521,10 +6521,10 @@ body {
 
 .trends-settings-section {
   border: 1px solid var(--trends-theme-border, #3c3c3c);
-  background: var(--trends-theme-panel, #1f1f20);
-  padding: 8px;
+  background: #1f1f20;
+  padding: 10px;
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 .trends-settings-body > .trends-settings-section {
   min-height: 0;
@@ -6545,15 +6545,22 @@ body {
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--trends-theme-muted, #b7b7b7);
+  color: #b7b7b7;
 }
 
 .trends-settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 6px;
-  color: var(--trends-theme-text, #c9c9c9);
+  color: #c9c9c9;
   font-size: 12px;
+}
+.trends-settings-grid > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: #cccccc;
 }
 
 .trends-settings-row {
@@ -6591,8 +6598,8 @@ body {
 }
 .trends-settings-helper {
   margin: 0;
-  font-size: 11px;
-  color: var(--trends-theme-muted, #8a8a8a);
+  font-size: 12px;
+  color: #9f9f9f;
 }
 .trends-settings-fields {
   display: grid;
@@ -6654,8 +6661,8 @@ body {
   width: 100%;
 }
 .trends-settings-table .ant-color-picker-trigger {
-  width: 22px;
-  min-width: 22px;
+  width: 40px;
+  min-width: 40px;
   height: 22px;
   padding: 0;
   display: inline-flex;

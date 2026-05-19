@@ -40,6 +40,9 @@ type TrendChartProps = {
   onHoverSnapshotChange?: (snapshot: { timestamp: number; values: Record<string, number | boolean | string | null> } | null) => void;
   onChartApiReady?: (api: TrendChartApi) => void;
   onAxisManualRangeCommit?: (axisId: string, range: { min: number; max: number } | null) => void;
+  probeEnabled?: boolean;
+  probeTimestamp?: number | null;
+  onProbeTimestampChange?: (timestamp: number | null) => void;
 };
 
 type TrendAxisRuntimeInfo = {
@@ -112,6 +115,9 @@ export function TrendChart({
   onHoverSnapshotChange,
   onChartApiReady,
   onAxisManualRangeCommit,
+  probeEnabled = false,
+  probeTimestamp = null,
+  onProbeTimestampChange,
 }: TrendChartProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ECharts | null>(null);
@@ -127,6 +133,9 @@ export function TrendChart({
   const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
   const onHoverSnapshotChangeRef = useRef(onHoverSnapshotChange);
   const onAxisManualRangeCommitRef = useRef(onAxisManualRangeCommit);
+  const probeEnabledRef = useRef(probeEnabled);
+  const probeTimestampRef = useRef<number | null>(probeTimestamp);
+  const onProbeTimestampChangeRef = useRef(onProbeTimestampChange);
   const zoomDebounceMsRef = useRef(settings.zoomDebounceMs);
   const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.liveBufferLimit));
   const tagsRef = useRef(tags);
@@ -156,7 +165,10 @@ export function TrendChart({
   const hoverThrottleCountRef = useRef(0);
   const rootCursorRef = useRef<string>("");
   const lastPointerPixelXRef = useRef<number | null>(null);
+  const lastPointerPixelYRef = useRef<number | null>(null);
+  const pointerInsideRef = useRef(false);
   const axisCommitTimersRef = useRef<Map<string, number>>(new Map());
+  const probeDragActiveRef = useRef(false);
   const normalizeSeriesPoints = (points: TrendPoint[]): TrendPoint[] => {
     if (points.length <= 1) {
       return [...points];
@@ -365,6 +377,66 @@ export function TrendChart({
     }
     setRootCursor(hoveredYAxisIdRef.current ? "ns-resize" : "");
   };
+  const isPointInsidePlot = (x: number, y: number): boolean => {
+    const grid = gridRuntimeInfoRef.current;
+    if (!grid) {
+      return false;
+    }
+    return x >= grid.left && x <= grid.right && y >= grid.top && y <= grid.bottom;
+  };
+  const clampTimestampToDomain = (timestamp: number): number | null => {
+    if (!Number.isFinite(timestamp)) {
+      return null;
+    }
+    const domain = fullRangeRef.current;
+    if (!Number.isFinite(domain.from) || !Number.isFinite(domain.to) || domain.to <= domain.from) {
+      return timestamp;
+    }
+    return Math.max(domain.from, Math.min(domain.to, timestamp));
+  };
+  const resolveTimestampFromPixelX = (x: number): number | null => {
+    const chart = chartRef.current;
+    if (!chart || !Number.isFinite(x)) {
+      return null;
+    }
+    const raw = Number(chart.convertFromPixel({ xAxisIndex: 0 }, x));
+    return clampTimestampToDomain(raw);
+  };
+  const showAxisPointerAtTimestamp = (timestamp: number): void => {
+    const chart = chartRef.current;
+    if (!chart || !Number.isFinite(timestamp)) {
+      return;
+    }
+    let pointerX = Number(chart.convertToPixel({ xAxisIndex: 0 }, timestamp));
+    if (!Number.isFinite(pointerX)) {
+      pointerX = lastPointerPixelXRef.current ?? Number.NaN;
+    } else {
+      lastPointerPixelXRef.current = pointerX;
+    }
+    if (Number.isFinite(pointerX)) {
+      chart.dispatchAction({
+        type: "updateAxisPointer",
+        x: pointerX,
+        currTrigger: "mousemove",
+      });
+    }
+    chart.dispatchAction({
+      type: "showTip",
+      xAxisIndex: 0,
+      value: timestamp,
+    });
+  };
+  const setProbeTimestampInternal = (timestamp: number | null, emitChange: boolean): void => {
+    probeTimestampRef.current = timestamp;
+    if (timestamp === null) {
+      return;
+    }
+    lastAxisPointerTsRef.current = timestamp;
+    if (emitChange) {
+      onProbeTimestampChangeRef.current?.(timestamp);
+    }
+    showAxisPointerAtTimestamp(timestamp);
+  };
   const resolveRangeFromZoomPayload = (payload: unknown): TrendVisibleRange | null => {
     const source = payload && typeof payload === "object"
       ? ("batch" in payload && Array.isArray((payload as { batch?: unknown[] }).batch)
@@ -430,6 +502,39 @@ export function TrendChart({
   useEffect(() => {
     onAxisManualRangeCommitRef.current = onAxisManualRangeCommit;
   }, [onAxisManualRangeCommit]);
+
+  useEffect(() => {
+    probeEnabledRef.current = probeEnabled;
+    if (!probeEnabled) {
+      probeDragActiveRef.current = false;
+      return;
+    }
+    const ts = probeTimestampRef.current ?? clampTimestampToDomain(visibleRange.to) ?? null;
+    if (ts !== null) {
+      setProbeTimestampInternal(ts, false);
+      scheduleRender("probe-enabled");
+    }
+  }, [probeEnabled, visibleRange.to]);
+
+  useEffect(() => {
+    probeTimestampRef.current = probeTimestamp;
+    if (!probeEnabledRef.current) {
+      return;
+    }
+    if (probeTimestamp === null) {
+      return;
+    }
+    const clamped = clampTimestampToDomain(probeTimestamp);
+    if (clamped === null) {
+      return;
+    }
+    lastAxisPointerTsRef.current = clamped;
+    showAxisPointerAtTimestamp(clamped);
+  }, [probeTimestamp]);
+
+  useEffect(() => {
+    onProbeTimestampChangeRef.current = onProbeTimestampChange;
+  }, [onProbeTimestampChange]);
 
   useEffect(() => {
     zoomDebounceMsRef.current = settings.zoomDebounceMs;
@@ -566,6 +671,8 @@ export function TrendChart({
       const axisName = axis.name || axis.unit || axis.id;
       const override = yAxisOverrideRef.current.get(axis.id);
       const layout = axisLayoutById.get(axis.id);
+      const axisTextColor = axis.axisTextColor ?? axis.color ?? uiTheme.text;
+      const axisGridLineColor = axis.axisGridLineColor ?? uiTheme.gridLine;
       return ({
       type: "value" as const,
       name: `{axisName|${axisName}}`,
@@ -618,7 +725,7 @@ export function TrendChart({
       nameTextStyle: {
         rich: {
           axisName: {
-            color: axis.color ?? uiTheme.text,
+            color: axisTextColor,
             align: "center",
             verticalAlign: "middle",
             fontSize: Math.max(9, Number(axis.axisNameFontSize ?? 12)),
@@ -635,10 +742,10 @@ export function TrendChart({
           },
         },
       },
-      axisLine: { show: true, lineStyle: { color: axis.color ?? uiTheme.border } },
+      axisLine: { show: true, lineStyle: { color: axisTextColor } },
       axisLabel: {
         show: settings.axisLabels,
-        color: uiTheme.mutedText,
+        color: axisTextColor,
         hideOverlap: false,
         showMinLabel: true,
         showMaxLabel: true,
@@ -650,7 +757,7 @@ export function TrendChart({
         },
       },
       minInterval: 1,
-      splitLine: { show: settings.gridLines, lineStyle: { color: uiTheme.gridLine, type: "dashed" } },
+      splitLine: { show: settings.gridLines, lineStyle: { color: axisGridLineColor, type: "dashed" } },
     });
     });
 
@@ -660,7 +767,7 @@ export function TrendChart({
     const progressiveValue = settings.progressive ? 450 : 0;
     const progressiveThreshold = settings.progressive ? 2500 : Number.MAX_SAFE_INTEGER;
 
-    const series = activeTags.map((tag) => {
+    const series: any[] = activeTags.map((tag) => {
       const points = seriesPointsRef.current.get(tag.tag) ?? [];
       const lineWidth = tag.lineWidth ?? settings.defaultLineWidth;
       const lineType = tag.lineType ?? "solid";
@@ -731,6 +838,29 @@ export function TrendChart({
         data: dataPoints,
       };
     });
+    if (probeEnabledRef.current && probeTimestampRef.current !== null) {
+      const probeTs = clampTimestampToDomain(probeTimestampRef.current);
+      if (probeTs !== null) {
+        series.push({
+          id: "__trend_probe_cursor__",
+          name: "__trend_probe_cursor__",
+          type: "line" as const,
+          data: [],
+          symbol: "none",
+          silent: true,
+          tooltip: { show: false },
+          lineStyle: { opacity: 0 },
+          markLine: {
+            silent: true,
+            animation: false,
+            symbol: ["none", "none"],
+            label: { show: false },
+            lineStyle: { color: "#8ea6ff", width: 1, type: "dashed", opacity: 0.95 },
+            data: [{ xAxis: probeTs }],
+          },
+        });
+      }
+    }
     const echartsPointCount = series.reduce((count, item) => count + item.data.length, 0);
 
     const leftAxisOutward = safeAxes
@@ -870,33 +1000,52 @@ export function TrendChart({
     optionGuardRef.current = true;
     const setOptionStartedAt = debugPerf ? performance.now() : 0;
     chart.setOption(option, { notMerge: false, lazyUpdate: true, replaceMerge: ["series", "yAxis"] });
-    if (lastAxisPointerTsRef.current !== null) {
+    if (lastAxisPointerTsRef.current !== null || (probeEnabledRef.current && probeTimestampRef.current !== null)) {
       let pointerTs = lastAxisPointerTsRef.current;
+      if (probeEnabledRef.current && probeTimestampRef.current !== null) {
+        pointerTs = probeTimestampRef.current;
+      }
       let pointerX = lastPointerPixelXRef.current;
       if (liveModeRef.current && pointerX !== null) {
         const livePointerTs = Number(chart.convertFromPixel({ xAxisIndex: 0 }, pointerX));
         if (Number.isFinite(livePointerTs)) {
           pointerTs = livePointerTs;
           lastAxisPointerTsRef.current = livePointerTs;
+          if (probeEnabledRef.current) {
+            probeTimestampRef.current = livePointerTs;
+            onProbeTimestampChangeRef.current?.(livePointerTs);
+          }
         }
-      } else if (pointerX === null) {
+      } else if (pointerX === null && pointerTs !== null) {
         const pixelFromTs = Number(chart.convertToPixel({ xAxisIndex: 0 }, pointerTs));
         if (Number.isFinite(pixelFromTs)) {
           pointerX = pixelFromTs;
         }
       }
-      if (pointerX !== null && Number.isFinite(pointerX)) {
+      if (pointerTs !== null && pointerX !== null && Number.isFinite(pointerX)) {
+        const pointerY = lastPointerPixelYRef.current;
+        if (pointerY !== null && Number.isFinite(pointerY)) {
+          chart.dispatchAction({
+            type: "updateAxisPointer",
+            x: pointerX,
+            y: pointerY,
+            currTrigger: "mousemove",
+          });
+        } else {
+          chart.dispatchAction({
+            type: "updateAxisPointer",
+            x: pointerX,
+            currTrigger: "mousemove",
+          });
+        }
+      }
+      if (pointerTs !== null) {
         chart.dispatchAction({
-          type: "updateAxisPointer",
-          x: pointerX,
-          currTrigger: "mousemove",
+          type: "showTip",
+          xAxisIndex: 0,
+          value: pointerTs,
         });
       }
-      chart.dispatchAction({
-        type: "showTip",
-        xAxisIndex: 0,
-        value: pointerTs,
-      });
     }
     window.setTimeout(() => {
       optionGuardRef.current = false;
@@ -1031,7 +1180,13 @@ export function TrendChart({
         : null;
       const timestamp = Number(source?.value);
       if (!Number.isFinite(timestamp)) {
-        if (rootRef.current?.matches(":hover") && lastAxisPointerTsRef.current !== null) {
+        if (liveModeRef.current && lastAxisPointerTsRef.current !== null) {
+          return;
+        }
+        if (probeEnabledRef.current && probeTimestampRef.current !== null) {
+          return;
+        }
+        if (pointerInsideRef.current && (lastPointerPixelXRef.current !== null || lastAxisPointerTsRef.current !== null)) {
           return;
         }
         hoverPendingTsRef.current = null;
@@ -1041,6 +1196,9 @@ export function TrendChart({
         return;
       }
       lastAxisPointerTsRef.current = timestamp;
+      if (probeEnabledRef.current) {
+        probeTimestampRef.current = timestamp;
+      }
       hoverPendingTsRef.current = timestamp;
       if (hoverRafRef.current !== null) {
         hoverThrottleCountRef.current += 1;
@@ -1080,7 +1238,17 @@ export function TrendChart({
       if (rootRef.current?.matches(":hover")) {
         return;
       }
-      lastPointerPixelXRef.current = null;
+      if (liveModeRef.current && lastAxisPointerTsRef.current !== null) {
+        return;
+      }
+      pointerInsideRef.current = false;
+      if (!probeEnabledRef.current) {
+        lastPointerPixelXRef.current = null;
+        lastPointerPixelYRef.current = null;
+      }
+      if (probeEnabledRef.current && probeTimestampRef.current !== null) {
+        return;
+      }
       hoverPendingTsRef.current = null;
       hoverLastSnapshotRef.current = null;
       lastAxisPointerTsRef.current = null;
@@ -1099,14 +1267,32 @@ export function TrendChart({
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         return;
       }
+      pointerInsideRef.current = true;
       lastPointerPixelXRef.current = x;
+      lastPointerPixelYRef.current = y;
       if (yAxisPanStateRef.current) {
         updateYAxisPan(y);
         return;
       }
+      if (probeDragActiveRef.current) {
+        const timestamp = resolveTimestampFromPixelX(x);
+        if (timestamp !== null) {
+          setProbeTimestampInternal(timestamp, true);
+        }
+        setRootCursor("ew-resize");
+        return;
+      }
       const axis = findYAxisInteractionTarget(x, y);
       hoveredYAxisIdRef.current = axis?.id ?? null;
-      setRootCursor(axis ? "ns-resize" : "");
+      if (axis) {
+        setRootCursor("ns-resize");
+        return;
+      }
+      if (probeEnabledRef.current && isPointInsidePlot(x, y)) {
+        setRootCursor("ew-resize");
+        return;
+      }
+      setRootCursor("");
     };
 
     const handleZrMouseDown = (event: unknown) => {
@@ -1122,6 +1308,17 @@ export function TrendChart({
       }
       const axis = findYAxisInteractionTarget(x, y);
       if (!axis) {
+        if (!probeEnabledRef.current || !isPointInsidePlot(x, y)) {
+          return;
+        }
+        native.preventDefault();
+        native.stopPropagation();
+        probeDragActiveRef.current = true;
+        const timestamp = resolveTimestampFromPixelX(x);
+        if (timestamp !== null) {
+          setProbeTimestampInternal(timestamp, true);
+        }
+        setRootCursor("ew-resize");
         return;
       }
       native.preventDefault();
@@ -1162,11 +1359,18 @@ export function TrendChart({
     };
 
     const handleWindowMouseMove = (event: MouseEvent) => {
-      if (!yAxisPanStateRef.current) {
-        return;
-      }
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) {
+        return;
+      }
+      if (probeDragActiveRef.current) {
+        const x = event.clientX - rect.left;
+        const timestamp = resolveTimestampFromPixelX(x);
+        if (timestamp !== null) {
+          setProbeTimestampInternal(timestamp, true);
+        }
+      }
+      if (!yAxisPanStateRef.current) {
         return;
       }
       const y = event.clientY - rect.top;
@@ -1174,6 +1378,10 @@ export function TrendChart({
     };
 
     const handleWindowMouseUp = () => {
+      if (probeDragActiveRef.current) {
+        probeDragActiveRef.current = false;
+        setRootCursor(hoveredYAxisIdRef.current ? "ns-resize" : "");
+      }
       if (!yAxisPanStateRef.current) {
         return;
       }
@@ -1363,6 +1571,7 @@ export function TrendChart({
       }
       axisCommitTimersRef.current.clear();
       finishYAxisPan();
+      probeDragActiveRef.current = false;
       hoveredYAxisIdRef.current = null;
       setRootCursor("");
       chart.dispose();
@@ -1371,6 +1580,8 @@ export function TrendChart({
       yAxisRuntimeInfoRef.current = [];
       gridRuntimeInfoRef.current = null;
       lastPointerPixelXRef.current = null;
+      lastPointerPixelYRef.current = null;
+      pointerInsideRef.current = false;
     };
   }, [interactiveZoomEnabled]);
 

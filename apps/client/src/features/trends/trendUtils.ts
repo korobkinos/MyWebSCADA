@@ -13,6 +13,20 @@ function roundToOneDecimal(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+function normalizeOptionalHexColor(value: string | undefined): string | undefined {
+  const token = (value ?? "").trim();
+  if (!token) {
+    return undefined;
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(token)) {
+    return token.toLowerCase();
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(token)) {
+    return `#${token.slice(1).split("").map((ch) => ch + ch).join("").toLowerCase()}`;
+  }
+  return undefined;
+}
+
 export function defaultTrendSettings(): TrendSettings {
   return {
     theme: "workbench-dark",
@@ -214,6 +228,9 @@ export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: Tr
     axis.axisNameGap = clamp(Number(axis.axisNameGap ?? 30), 12, 80);
     axis.axisNamePaddingX = clamp(Number(axis.axisNamePaddingX ?? 6), 0, 24);
     axis.axisNamePaddingY = clamp(Number(axis.axisNamePaddingY ?? 3), 0, 16);
+    axis.axisTextColor = normalizeOptionalHexColor(axis.axisTextColor ?? axis.color);
+    axis.axisGridLineColor = normalizeOptionalHexColor(axis.axisGridLineColor);
+    axis.color = axis.axisTextColor;
     positionIndex[axis.position] += 1;
   }
 
