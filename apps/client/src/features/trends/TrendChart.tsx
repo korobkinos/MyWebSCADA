@@ -211,11 +211,12 @@ export function TrendChart({
     return { min, max, hasNumeric: true };
   };
   const setRootCursor = (nextCursor: string): void => {
-    if (!rootRef.current || rootCursorRef.current === nextCursor) {
+    const normalizedCursor = nextCursor || "default";
+    if (!rootRef.current || rootCursorRef.current === normalizedCursor) {
       return;
     }
-    rootRef.current.style.cursor = nextCursor;
-    rootCursorRef.current = nextCursor;
+    rootRef.current.style.cursor = normalizedCursor;
+    rootCursorRef.current = normalizedCursor;
   };
   const scheduleRender = (reason: string): void => {
     if (renderRafRef.current !== null) {
@@ -733,6 +734,8 @@ export function TrendChart({
       const axisPointerLabelBackgroundColor = axis.axisPointerLabelBackgroundColor ?? uiTheme.tooltipBg;
       return ({
       type: "value" as const,
+      zlevel: 0,
+      z: 1,
       name: `{axisName|${axisName}}`,
       position: axis.position,
       offset: layout?.offset ?? Math.max(0, Number(axis.offset ?? 0)),
@@ -803,8 +806,12 @@ export function TrendChart({
       axisLine: { show: true, lineStyle: { color: axisTextColor } },
       axisPointer: {
         show: true,
+        z: 30,
+        zlevel: 1,
         label: {
           show: true,
+          z: 30,
+          zlevel: 1,
           color: axisTextColor,
           backgroundColor: axisPointerLabelBackgroundColor,
           borderColor: uiTheme.border,
@@ -893,6 +900,23 @@ export function TrendChart({
         progressiveThreshold,
         animation: animationEnabled,
         connectNulls: false,
+        cursor: "default",
+        emphasis: {
+          disabled: true,
+          focus: "none" as const,
+          scale: false,
+        },
+        blur: {
+          lineStyle: {
+            opacity: 1,
+          },
+          itemStyle: {
+            opacity: 1,
+          },
+        },
+        select: {
+          disabled: true,
+        },
         step: tag.step || renderMode === "step" ? "end" : false,
         yAxisIndex,
         lineStyle: {
@@ -1151,6 +1175,7 @@ export function TrendChart({
 
     const chart = echarts.init(rootRef.current, undefined, { renderer: "canvas" });
     chartRef.current = chart;
+    setRootCursor("default");
 
     const handleDataZoom = (payload: unknown) => {
       if (skipNextDataZoomUntilRef.current > Date.now()) {
@@ -1318,6 +1343,7 @@ export function TrendChart({
       if (rootRef.current?.matches(":hover")) {
         return;
       }
+      zr.setCursorStyle("default");
       pointerInsideRef.current = false;
       if (restoreAxisPointerRafRef.current !== null) {
         window.cancelAnimationFrame(restoreAxisPointerRafRef.current);
@@ -1352,6 +1378,7 @@ export function TrendChart({
       lastPointerPixelXRef.current = x;
       lastPointerPixelYRef.current = y;
       if (yAxisPanStateRef.current) {
+        zr.setCursorStyle("ns-resize");
         updateYAxisPan(y);
         return;
       }
@@ -1360,19 +1387,23 @@ export function TrendChart({
         if (timestamp !== null) {
           setProbeTimestampInternal(timestamp, true);
         }
+        zr.setCursorStyle("ew-resize");
         setRootCursor("ew-resize");
         return;
       }
       const axis = findYAxisInteractionTarget(x, y);
       hoveredYAxisIdRef.current = axis?.id ?? null;
       if (axis) {
+        zr.setCursorStyle("ns-resize");
         setRootCursor("ns-resize");
         return;
       }
       if (probeEnabledRef.current && isPointInsidePlot(x, y)) {
+        zr.setCursorStyle("ew-resize");
         setRootCursor("ew-resize");
         return;
       }
+      zr.setCursorStyle("default");
       setRootCursor("");
     };
 
