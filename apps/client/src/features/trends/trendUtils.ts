@@ -197,6 +197,7 @@ export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: Tr
 
   const axes = [...nextAxesById.values()];
   const positionIndex: Record<"left" | "right", number> = { left: 0, right: 0 };
+  const minAxisSeparation = clamp(Math.round(settings.axisOffsetStep * 0.6), 10, 140);
   for (const axis of axes) {
     const idx = positionIndex[axis.position];
     axis.offset = clamp(Number(axis.offset ?? idx * settings.axisOffsetStep), 0, 2400);
@@ -211,6 +212,23 @@ export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: Tr
     axis.axisNamePaddingY = clamp(Number(axis.axisNamePaddingY ?? 3), 0, 16);
     positionIndex[axis.position] += 1;
   }
+
+  for (const side of ["left", "right"] as const) {
+    const sideAxes = axes
+      .filter((axis) => axis.position === side)
+      .sort((a, b) => (Number(a.offset ?? 0) - Number(b.offset ?? 0)) || a.id.localeCompare(b.id));
+    let previousOffset = Number.NEGATIVE_INFINITY;
+    for (const axis of sideAxes) {
+      const requestedOffset = clamp(Number(axis.offset ?? 0), 0, 2400);
+      if (!Number.isFinite(previousOffset)) {
+        axis.offset = requestedOffset;
+      } else {
+        axis.offset = Math.max(requestedOffset, previousOffset + minAxisSeparation);
+      }
+      previousOffset = Number(axis.offset ?? requestedOffset);
+    }
+  }
+
   axes.sort((a, b) => (a.id === TREND_DEFAULT_AXIS_ID ? -1 : b.id === TREND_DEFAULT_AXIS_ID ? 1 : a.id.localeCompare(b.id)));
   return axes;
 }

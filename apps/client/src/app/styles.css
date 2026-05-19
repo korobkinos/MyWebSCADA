@@ -6526,6 +6526,19 @@ body {
   display: grid;
   gap: 8px;
 }
+.trends-settings-body > .trends-settings-section {
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
+}
+.trends-settings-section--axes {
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  align-content: stretch;
+}
+.trends-settings-section--series {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: stretch;
+}
 
 .trends-settings-section h3 {
   margin: 0;
@@ -6554,6 +6567,9 @@ body {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 .trends-settings-tabs {
   display: grid;
@@ -6596,8 +6612,15 @@ body {
   overflow: auto;
   min-height: 0;
 }
+.trends-settings-section--axes .trends-settings-table-wrap,
+.trends-settings-section--series .trends-settings-table-wrap {
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
+}
 .trends-settings-table {
   min-width: max-content;
+  min-height: 100%;
 }
 .trends-settings-table .screen-editor-tags-row {
   min-height: 28px;

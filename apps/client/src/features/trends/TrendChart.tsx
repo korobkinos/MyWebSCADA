@@ -15,8 +15,11 @@ const LIVE_TRIM_GRACE_MS = 15_000;
 const LIVE_DOMAIN_GRACE_MS = 1500;
 const LIVE_MIN_SERIES_POINT_CAP = 200;
 const LIVE_MAX_SERIES_POINT_CAP = 20_000;
-const Y_AXIS_HIT_ZONE_PX = 58;
+const Y_AXIS_HIT_ZONE_MIN_PX = 42;
+const Y_AXIS_HIT_ZONE_MAX_PX = 96;
+const Y_AXIS_INNER_GAP_PX = 2;
 const Y_AXIS_EDGE_PADDING_PX = 10;
+const Y_AXIS_STACK_GAP_PX = 6;
 const Y_AXIS_MIN_SPAN = 1e-6;
 const Y_AXIS_WHEEL_ZOOM_BASE = 0.12;
 
@@ -36,6 +39,7 @@ type TrendChartProps = {
   onVisibleRangeChange: (range: TrendVisibleRange, source: "interaction" | "live") => void;
   onHoverSnapshotChange?: (snapshot: { timestamp: number; values: Record<string, number | boolean | string | null> } | null) => void;
   onChartApiReady?: (api: TrendChartApi) => void;
+  onAxisManualRangeCommit?: (axisId: string, range: { min: number; max: number } | null) => void;
 };
 
 type TrendAxisRuntimeInfo = {
@@ -43,6 +47,7 @@ type TrendAxisRuntimeInfo = {
   position: "left" | "right";
   offset: number;
   yAxisIndex: number;
+  grabWidth: number;
 };
 
 type TrendGridRuntimeInfo = {
@@ -106,6 +111,7 @@ export function TrendChart({
   onVisibleRangeChange,
   onHoverSnapshotChange,
   onChartApiReady,
+  onAxisManualRangeCommit,
 }: TrendChartProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<ECharts | null>(null);
@@ -120,6 +126,7 @@ export function TrendChart({
   const liveWindowMsRef = useRef(liveWindowMs);
   const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
   const onHoverSnapshotChangeRef = useRef(onHoverSnapshotChange);
+  const onAxisManualRangeCommitRef = useRef(onAxisManualRangeCommit);
   const zoomDebounceMsRef = useRef(settings.zoomDebounceMs);
   const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.liveBufferLimit));
   const tagsRef = useRef(tags);
@@ -135,10 +142,10 @@ export function TrendChart({
   const hoveredYAxisIdRef = useRef<string | null>(null);
   const yAxisPanStateRef = useRef<{
     axisId: string;
-    yAxisIndex: number;
-    startValue: number;
     startMin: number;
     startMax: number;
+    startPointerY: number;
+    valuePerPixel: number;
   } | null>(null);
   const axisStatsByTagRef = useRef<Map<string, TrendAxisStats>>(new Map());
   const activeTagNameSetRef = useRef<Set<string>>(new Set(tags.map((tag) => tag.tag)));
@@ -148,6 +155,8 @@ export function TrendChart({
   const hoverLastSnapshotRef = useRef<{ timestamp: number; values: Record<string, number | boolean | string | null> } | null>(null);
   const hoverThrottleCountRef = useRef(0);
   const rootCursorRef = useRef<string>("");
+  const lastPointerPixelXRef = useRef<number | null>(null);
+  const axisCommitTimersRef = useRef<Map<string, number>>(new Map());
   const normalizeSeriesPoints = (points: TrendPoint[]): TrendPoint[] => {
     if (points.length <= 1) {
       return [...points];
@@ -219,7 +228,28 @@ export function TrendChart({
     }
     return { min, max };
   };
-  const applyYAxisOverride = (axisId: string, range: { min: number; max: number }): void => {
+  const scheduleAxisCommit = (axisId: string, range: { min: number; max: number } | null, immediate = false): void => {
+    const callback = onAxisManualRangeCommitRef.current;
+    if (!callback) {
+      return;
+    }
+    const timers = axisCommitTimersRef.current;
+    const existingTimer = timers.get(axisId);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+      timers.delete(axisId);
+    }
+    if (immediate) {
+      callback(axisId, range);
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      timers.delete(axisId);
+      callback(axisId, range);
+    }, 240);
+    timers.set(axisId, timerId);
+  };
+  const applyYAxisOverride = (axisId: string, range: { min: number; max: number }, options?: { commit?: boolean; immediateCommit?: boolean }): void => {
     if (!Number.isFinite(range.min) || !Number.isFinite(range.max)) {
       return;
     }
@@ -229,6 +259,9 @@ export function TrendChart({
       return;
     }
     yAxisOverrideRef.current.set(axisId, { min, max });
+    if (options?.commit) {
+      scheduleAxisCommit(axisId, { min, max }, options.immediateCommit === true);
+    }
     scheduleRender("y-axis-override");
   };
   const resetYAxisOverride = (axisId: string): void => {
@@ -236,6 +269,7 @@ export function TrendChart({
       return;
     }
     yAxisOverrideRef.current.delete(axisId);
+    scheduleAxisCommit(axisId, null, true);
     scheduleRender("y-axis-reset");
   };
   const findYAxisInteractionTarget = (x: number, y: number): TrendAxisRuntimeInfo | null => {
@@ -252,15 +286,16 @@ export function TrendChart({
         ? grid.left - axis.offset
         : grid.right + axis.offset;
       const minX = axis.position === "left"
-        ? axisLineX - Y_AXIS_HIT_ZONE_PX
-        : axisLineX - Y_AXIS_EDGE_PADDING_PX;
+        ? axisLineX - axis.grabWidth
+        : axisLineX + Y_AXIS_INNER_GAP_PX;
       const maxX = axis.position === "left"
-        ? axisLineX + Y_AXIS_EDGE_PADDING_PX
-        : axisLineX + Y_AXIS_HIT_ZONE_PX;
+        ? axisLineX - Y_AXIS_INNER_GAP_PX
+        : axisLineX + axis.grabWidth;
       if (x < minX || x > maxX) {
         continue;
       }
-      const distance = Math.abs(x - axisLineX);
+      const centerX = (minX + maxX) / 2;
+      const distance = Math.abs(x - centerX);
       if (!best || distance < best.distance) {
         best = { axis, distance };
       }
@@ -285,48 +320,49 @@ export function TrendChart({
     if (Math.abs(nextMax - nextMin) < Math.min(Y_AXIS_MIN_SPAN, span)) {
       return;
     }
-    applyYAxisOverride(axis.id, { min: nextMin, max: nextMax });
+    applyYAxisOverride(axis.id, { min: nextMin, max: nextMax }, { commit: true });
   };
   const startYAxisPan = (axis: TrendAxisRuntimeInfo, pointerY: number): void => {
-    const chart = chartRef.current;
-    if (!chart) {
-      return;
-    }
     const current = resolveAxisRangeFromChart(axis.id, axis.yAxisIndex);
+    const grid = gridRuntimeInfoRef.current;
     if (!current) {
       return;
     }
-    const startValue = Number(chart.convertFromPixel({ yAxisIndex: axis.yAxisIndex }, pointerY));
-    if (!Number.isFinite(startValue)) {
+    if (!grid) {
       return;
     }
+    const plotHeight = Math.max(1, grid.bottom - grid.top);
+    const span = Math.max(Y_AXIS_MIN_SPAN, current.max - current.min);
     yAxisPanStateRef.current = {
       axisId: axis.id,
-      yAxisIndex: axis.yAxisIndex,
-      startValue,
       startMin: current.min,
       startMax: current.max,
+      startPointerY: pointerY,
+      valuePerPixel: span / plotHeight,
     };
     setRootCursor("ns-resize");
   };
   const updateYAxisPan = (pointerY: number): void => {
-    const chart = chartRef.current;
     const state = yAxisPanStateRef.current;
-    if (!chart || !state) {
+    if (!state) {
       return;
     }
-    const currentValue = Number(chart.convertFromPixel({ yAxisIndex: state.yAxisIndex }, pointerY));
-    if (!Number.isFinite(currentValue)) {
-      return;
-    }
-    const delta = state.startValue - currentValue;
+    const deltaPixels = pointerY - state.startPointerY;
+    const delta = deltaPixels * state.valuePerPixel;
     applyYAxisOverride(state.axisId, {
       min: state.startMin + delta,
       max: state.startMax + delta,
-    });
+    }, { commit: false });
   };
   const finishYAxisPan = (): void => {
+    const state = yAxisPanStateRef.current;
     yAxisPanStateRef.current = null;
+    if (state) {
+      const range = yAxisOverrideRef.current.get(state.axisId);
+      if (range) {
+        scheduleAxisCommit(state.axisId, range, true);
+      }
+    }
     setRootCursor(hoveredYAxisIdRef.current ? "ns-resize" : "");
   };
   const resolveRangeFromZoomPayload = (payload: unknown): TrendVisibleRange | null => {
@@ -390,6 +426,10 @@ export function TrendChart({
   useEffect(() => {
     onHoverSnapshotChangeRef.current = onHoverSnapshotChange;
   }, [onHoverSnapshotChange]);
+
+  useEffect(() => {
+    onAxisManualRangeCommitRef.current = onAxisManualRangeCommit;
+  }, [onAxisManualRangeCommit]);
 
   useEffect(() => {
     zoomDebounceMsRef.current = settings.zoomDebounceMs;
@@ -482,21 +522,55 @@ export function TrendChart({
       }
     }
 
-    yAxisRuntimeInfoRef.current = safeAxes.map((axis, index) => ({
-      id: axis.id,
-      position: axis.position,
-      offset: axis.offset ?? 0,
-      yAxisIndex: index,
-    }));
+    const resolveAxisNameOutwardPx = (axis: TrendAxisConfig) => {
+      const fontSize = Math.max(9, Number(axis.axisNameFontSize ?? 12));
+      const padX = Math.max(0, Number(axis.axisNamePaddingX ?? 6));
+      const gap = Math.max(12, Number(axis.axisNameGap ?? 30));
+      return fontSize + (padX * 2) + gap + 10;
+    };
+    const resolveAxisLabelOutwardPx = (axis: TrendAxisConfig) => {
+      const fontSize = Math.max(9, Number(axis.axisLabelFontSize ?? 12));
+      const margin = Math.max(0, Number(axis.axisLabelMargin ?? 6));
+      return fontSize + margin + 8;
+    };
+    const axisLayoutById = new Map<string, { offset: number; outward: number }>();
+    for (const side of ["left", "right"] as const) {
+      const sideAxes = safeAxes
+        .map((axis, index) => ({ axis, index }))
+        .filter((entry) => entry.axis.position === side)
+        .sort((a, b) => (Number(a.axis.offset ?? 0) - Number(b.axis.offset ?? 0)) || (a.index - b.index));
+      let previousOccupiedEnd = Number.NEGATIVE_INFINITY;
+      for (const entry of sideAxes) {
+        const outward = resolveAxisNameOutwardPx(entry.axis) + resolveAxisLabelOutwardPx(entry.axis);
+        const requestedOffset = Math.max(0, Number(entry.axis.offset ?? 0));
+        const offset = Number.isFinite(previousOccupiedEnd)
+          ? Math.max(requestedOffset, previousOccupiedEnd + Y_AXIS_STACK_GAP_PX)
+          : requestedOffset;
+        axisLayoutById.set(entry.axis.id, { offset, outward });
+        previousOccupiedEnd = offset + outward;
+      }
+    }
+    yAxisRuntimeInfoRef.current = safeAxes.map((axis, index) => {
+      const layout = axisLayoutById.get(axis.id);
+      const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis) + resolveAxisLabelOutwardPx(axis));
+      return {
+        id: axis.id,
+        position: axis.position,
+        offset: layout?.offset ?? Math.max(0, Number(axis.offset ?? 0)),
+        yAxisIndex: index,
+        grabWidth: Math.max(Y_AXIS_HIT_ZONE_MIN_PX, Math.min(Y_AXIS_HIT_ZONE_MAX_PX, Math.round(outward))),
+      };
+    });
 
     const yAxis = safeAxes.map((axis) => {
       const axisName = axis.name || axis.unit || axis.id;
       const override = yAxisOverrideRef.current.get(axis.id);
+      const layout = axisLayoutById.get(axis.id);
       return ({
       type: "value" as const,
       name: `{axisName|${axisName}}`,
       position: axis.position,
-      offset: axis.offset ?? 0,
+      offset: layout?.offset ?? Math.max(0, Number(axis.offset ?? 0)),
       scale: settings.autoScale,
       min: (() => {
         if (override) {
@@ -659,25 +733,24 @@ export function TrendChart({
     });
     const echartsPointCount = series.reduce((count, item) => count + item.data.length, 0);
 
-    const resolveAxisNameOutwardPx = (axis: TrendAxisConfig) => {
-      const fontSize = Math.max(9, Number(axis.axisNameFontSize ?? 12));
-      const padX = Math.max(0, Number(axis.axisNamePaddingX ?? 6));
-      const gap = Math.max(12, Number(axis.axisNameGap ?? 30));
-      return fontSize + (padX * 2) + gap + 10;
-    };
-    const resolveAxisLabelOutwardPx = (axis: TrendAxisConfig) => {
-      const fontSize = Math.max(9, Number(axis.axisLabelFontSize ?? 12));
-      const margin = Math.max(0, Number(axis.axisLabelMargin ?? 6));
-      return fontSize + margin + 8;
-    };
     const leftAxisOutward = safeAxes
       .filter((axis) => axis.position === "left")
-      .reduce((max, axis) => Math.max(max, Number(axis.offset ?? 0) + resolveAxisNameOutwardPx(axis) + resolveAxisLabelOutwardPx(axis)), 0);
+      .reduce((max, axis) => {
+        const layout = axisLayoutById.get(axis.id);
+        const offset = layout?.offset ?? Math.max(0, Number(axis.offset ?? 0));
+        const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis) + resolveAxisLabelOutwardPx(axis));
+        return Math.max(max, offset + outward);
+      }, 0);
     const rightAxisOutward = safeAxes
       .filter((axis) => axis.position === "right")
-      .reduce((max, axis) => Math.max(max, Number(axis.offset ?? 0) + resolveAxisNameOutwardPx(axis) + resolveAxisLabelOutwardPx(axis)), 0);
-    const gridLeft = Math.max(10, Math.round(leftAxisOutward + 2));
-    const gridRight = Math.max(18, Math.round(rightAxisOutward + 10));
+      .reduce((max, axis) => {
+        const layout = axisLayoutById.get(axis.id);
+        const offset = layout?.offset ?? Math.max(0, Number(axis.offset ?? 0));
+        const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis) + resolveAxisLabelOutwardPx(axis));
+        return Math.max(max, offset + outward);
+      }, 0);
+    const gridLeft = Math.max(2, Math.round(leftAxisOutward + 1));
+    const gridRight = Math.max(2, Math.round(rightAxisOutward + 1));
     const gridTop = 34;
     const gridBottom = interactiveZoomEnabled && showDataZoomSlider ? 74 : 20;
     const rootWidth = rootRef.current?.clientWidth ?? 0;
@@ -702,7 +775,7 @@ export function TrendChart({
         right: gridRight,
         top: gridTop,
         bottom: gridBottom,
-        containLabel: true,
+        containLabel: false,
       },
       legend: {
         show: showLegend && settings.legend,
@@ -798,10 +871,31 @@ export function TrendChart({
     const setOptionStartedAt = debugPerf ? performance.now() : 0;
     chart.setOption(option, { notMerge: false, lazyUpdate: true, replaceMerge: ["series", "yAxis"] });
     if (lastAxisPointerTsRef.current !== null) {
+      let pointerTs = lastAxisPointerTsRef.current;
+      let pointerX = lastPointerPixelXRef.current;
+      if (liveModeRef.current && pointerX !== null) {
+        const livePointerTs = Number(chart.convertFromPixel({ xAxisIndex: 0 }, pointerX));
+        if (Number.isFinite(livePointerTs)) {
+          pointerTs = livePointerTs;
+          lastAxisPointerTsRef.current = livePointerTs;
+        }
+      } else if (pointerX === null) {
+        const pixelFromTs = Number(chart.convertToPixel({ xAxisIndex: 0 }, pointerTs));
+        if (Number.isFinite(pixelFromTs)) {
+          pointerX = pixelFromTs;
+        }
+      }
+      if (pointerX !== null && Number.isFinite(pointerX)) {
+        chart.dispatchAction({
+          type: "updateAxisPointer",
+          x: pointerX,
+          currTrigger: "mousemove",
+        });
+      }
       chart.dispatchAction({
         type: "showTip",
         xAxisIndex: 0,
-        value: lastAxisPointerTsRef.current,
+        value: pointerTs,
       });
     }
     window.setTimeout(() => {
@@ -937,6 +1031,9 @@ export function TrendChart({
         : null;
       const timestamp = Number(source?.value);
       if (!Number.isFinite(timestamp)) {
+        if (rootRef.current?.matches(":hover") && lastAxisPointerTsRef.current !== null) {
+          return;
+        }
         hoverPendingTsRef.current = null;
         hoverLastSnapshotRef.current = null;
         lastAxisPointerTsRef.current = null;
@@ -980,6 +1077,10 @@ export function TrendChart({
     };
 
     const handleGlobalOut = () => {
+      if (rootRef.current?.matches(":hover")) {
+        return;
+      }
+      lastPointerPixelXRef.current = null;
       hoverPendingTsRef.current = null;
       hoverLastSnapshotRef.current = null;
       lastAxisPointerTsRef.current = null;
@@ -998,6 +1099,7 @@ export function TrendChart({
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         return;
       }
+      lastPointerPixelXRef.current = x;
       if (yAxisPanStateRef.current) {
         updateYAxisPan(y);
         return;
@@ -1256,6 +1358,10 @@ export function TrendChart({
         window.cancelAnimationFrame(hoverRafRef.current);
         hoverRafRef.current = null;
       }
+      for (const timerId of axisCommitTimersRef.current.values()) {
+        window.clearTimeout(timerId);
+      }
+      axisCommitTimersRef.current.clear();
       finishYAxisPan();
       hoveredYAxisIdRef.current = null;
       setRootCursor("");
@@ -1264,6 +1370,7 @@ export function TrendChart({
       liveLastEmittedRightRef.current = null;
       yAxisRuntimeInfoRef.current = [];
       gridRuntimeInfoRef.current = null;
+      lastPointerPixelXRef.current = null;
     };
   }, [interactiveZoomEnabled]);
 

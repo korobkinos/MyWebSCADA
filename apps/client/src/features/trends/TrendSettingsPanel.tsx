@@ -369,7 +369,7 @@ export function TrendSettingsPanel({
         ) : null}
 
         {activeTab === "axes" ? (
-          <section className="trends-settings-section">
+          <section className="trends-settings-section trends-settings-section--axes">
             <h3>Axes</h3>
             <p className="trends-settings-helper">Tag goes to Default axis on add. Create extra axes and assign them in Series tab.</p>
             <div className="trends-settings-fields trends-settings-fields--two-col">
@@ -475,7 +475,7 @@ export function TrendSettingsPanel({
         ) : null}
 
         {activeTab === "series" ? (
-          <section className="trends-settings-section">
+          <section className="trends-settings-section trends-settings-section--series">
             <h3>Series</h3>
             <p className="trends-settings-helper">Assign axis per tag and adjust series style.</p>
             <div className="trends-settings-table-wrap">

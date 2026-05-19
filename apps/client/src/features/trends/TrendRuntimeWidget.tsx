@@ -911,10 +911,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const zoomBy = (factor: number) => {
     const currentSpan = Math.max(TREND_ZOOM_MIN_SPAN_MS, visibleRange.to - visibleRange.from);
     const nextSpan = clamp(Math.round(currentSpan * factor), TREND_ZOOM_MIN_SPAN_MS, TREND_ZOOM_MAX_SPAN_MS);
-    const center = (visibleRange.from + visibleRange.to) / 2;
     applyRangeAndQuery({
-      from: Math.round(center - nextSpan / 2),
-      to: Math.round(center + nextSpan / 2),
+      from: Math.round(visibleRange.to - nextSpan),
+      to: Math.round(visibleRange.to),
     });
   };
 
@@ -1234,6 +1233,31 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             }}
             onChartApiReady={(api) => {
               chartApiRef.current = api;
+            }}
+            onAxisManualRangeCommit={(axisId, range) => {
+              setManualAxes((prev) => {
+                let changed = false;
+                const next = prev.map((axis) => {
+                  if (axis.id !== axisId) {
+                    return axis;
+                  }
+                  if (!range) {
+                    const nextMin: TrendAxisConfig["min"] = "auto";
+                    const nextMax: TrendAxisConfig["max"] = "auto";
+                    if (axis.min === nextMin && axis.max === nextMax) {
+                      return axis;
+                    }
+                    changed = true;
+                    return { ...axis, min: nextMin, max: nextMax };
+                  }
+                  if (axis.min === range.min && axis.max === range.max) {
+                    return axis;
+                  }
+                  changed = true;
+                  return { ...axis, min: range.min, max: range.max };
+                });
+                return changed ? next : prev;
+              });
             }}
           />
         )}
