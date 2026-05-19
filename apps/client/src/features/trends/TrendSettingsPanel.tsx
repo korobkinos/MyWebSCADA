@@ -45,6 +45,7 @@ const SERIES_COLUMNS = [
   { id: "mode", label: "Mode", width: 96, min: 82 },
   { id: "lineWidth", label: "Width", width: 70, min: 64 },
   { id: "axis", label: "Axis", width: 170, min: 120 },
+  { id: "actions", label: "", width: 124, min: 112 },
 ] as const;
 
 type AxisColumnId = (typeof AXES_COLUMNS)[number]["id"];
@@ -177,6 +178,28 @@ export function TrendSettingsPanel({
 
   const updateSeries = (tag: string, patch: Partial<TrendTagSelection>) => {
     setDraftSelectedTags((prev) => prev.map((item) => (item.tag === tag ? { ...item, ...patch } : item)));
+  };
+  const removeSeriesTag = (tag: string) => {
+    setDraftSelectedTags((prev) => prev.filter((item) => item.tag !== tag));
+  };
+  const moveSeriesTag = (tag: string, direction: -1 | 1) => {
+    setDraftSelectedTags((prev) => {
+      const index = prev.findIndex((item) => item.tag === tag);
+      if (index < 0) {
+        return prev;
+      }
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const [item] = next.splice(index, 1);
+      if (!item) {
+        return prev;
+      }
+      next.splice(nextIndex, 0, item);
+      return next;
+    });
   };
 
   const onNumericInput = (event: ChangeEvent<HTMLInputElement>, apply: (value: number) => void) => {
@@ -424,6 +447,7 @@ export function TrendSettingsPanel({
                       <input
                         className="workbench-input"
                         type="number"
+                        step="0.1"
                         disabled={axis.min === "auto" || axis.min === undefined}
                         value={axis.min === "auto" || axis.min === undefined ? "" : axis.min}
                         onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { min: value }))}
@@ -437,6 +461,7 @@ export function TrendSettingsPanel({
                       <input
                         className="workbench-input"
                         type="number"
+                        step="0.1"
                         disabled={axis.max === "auto" || axis.max === undefined}
                         value={axis.max === "auto" || axis.max === undefined ? "" : axis.max}
                         onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { max: value }))}
@@ -490,7 +515,7 @@ export function TrendSettingsPanel({
                     </div>
                   ))}
                 </div>
-                {draftSelectedTags.map((tag) => (
+                {draftSelectedTags.map((tag, index) => (
                   <div key={tag.tag} className="screen-editor-tags-row trends-settings-table__row" style={{ gridTemplateColumns: seriesTemplate }}>
                     <div className="screen-editor-tags-cell trends-settings-table__cell">
                       <input type="checkbox" checked={tag.visible !== false} onChange={(event) => updateSeries(tag.tag, { visible: event.target.checked })} />
@@ -536,6 +561,13 @@ export function TrendSettingsPanel({
                           <option key={axis.id} value={axis.id}>{axis.name || axis.id}</option>
                         ))}
                       </select>
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <div className="trends-settings-table__actions">
+                        <button type="button" className="workbench-button" onClick={() => moveSeriesTag(tag.tag, -1)} disabled={index === 0}>Up</button>
+                        <button type="button" className="workbench-button" onClick={() => moveSeriesTag(tag.tag, 1)} disabled={index === draftSelectedTags.length - 1}>Down</button>
+                        <button type="button" className="workbench-button workbench-button--danger" onClick={() => removeSeriesTag(tag.tag)}>Delete</button>
+                      </div>
                     </div>
                   </div>
                 ))}

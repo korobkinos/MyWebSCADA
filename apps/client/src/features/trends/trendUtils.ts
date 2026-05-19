@@ -9,6 +9,10 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function roundToOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 export function defaultTrendSettings(): TrendSettings {
   return {
     theme: "workbench-dark",
@@ -202,8 +206,8 @@ export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: Tr
     const idx = positionIndex[axis.position];
     axis.offset = clamp(Number(axis.offset ?? idx * settings.axisOffsetStep), 0, 2400);
     axis.name = (axis.name ?? axis.id).trim() || axis.id;
-    axis.min = axis.min ?? "auto";
-    axis.max = axis.max ?? "auto";
+    axis.min = typeof axis.min === "number" ? roundToOneDecimal(axis.min) : (axis.min ?? "auto");
+    axis.max = typeof axis.max === "number" ? roundToOneDecimal(axis.max) : (axis.max ?? "auto");
     axis.axisLabelFontSize = clamp(Number(axis.axisLabelFontSize ?? 12), 9, 24);
     axis.axisLabelMargin = clamp(Number(axis.axisLabelMargin ?? 6), 0, 24);
     axis.axisNameFontSize = clamp(Number(axis.axisNameFontSize ?? 12), 9, 24);

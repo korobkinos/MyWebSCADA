@@ -6666,6 +6666,16 @@ body {
   height: 22px;
   line-height: 20px;
 }
+.trends-settings-table__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.trends-settings-table__actions .workbench-button {
+  min-width: 0;
+  padding: 2px 6px;
+  height: 22px;
+}
 .trends-time-range-dialog-body {
   padding: 10px !important;
 }

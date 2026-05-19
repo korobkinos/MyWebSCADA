@@ -1442,7 +1442,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         onClose={() => setTagDialogOpen(false)}
         onFiltersChange={setTagPickerFilters}
         onApply={(nextTags, nextAxes) => {
-          setSelectedTags(nextTags.map((tag) => ({ ...tag, visible: true })));
+          setSelectedTags(nextTags);
           setManualAxes(normalizeTrendAxes(nextAxes, settings));
           setTagDialogOpen(false);
         }}
