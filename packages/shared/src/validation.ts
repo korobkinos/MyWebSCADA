@@ -807,6 +807,11 @@ const trendChartAxisSchema = z.object({
   max: z.union([z.number(), z.literal("auto")]).optional(),
   color: z.string().optional(),
   axisPointerLabelBackgroundColor: z.string().optional(),
+  verticalLabelOffsetX: z.number().optional(),
+  axisTitleMode: z.preprocess(
+    (value) => (value === "topBadge" || value === "tooltipOnly" ? "hidden" : value),
+    z.enum(["hidden", "compactLabel", "verticalLabel"]).optional(),
+  ),
 });
 
 const trendChartSettingsSchema = z.object({
@@ -836,6 +841,7 @@ const trendChartSettingsSchema = z.object({
   separateAxisPerTag: z.boolean().optional(),
   axisPlacement: z.enum(["left", "right", "split"]).optional(),
   axisOffsetStep: z.number().optional(),
+  axisScaleGap: z.number().optional(),
   showSeriesTable: z.boolean().optional(),
   seriesTableRows: z.number().optional(),
   table: z.object({

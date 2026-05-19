@@ -1735,12 +1735,13 @@ function ObjectNode({
       y: resolvedObject.y,
       width: Math.max(1, resolvedObject.width),
       height: Math.max(1, resolvedObject.height),
-      content: <TrendRuntimeWidget object={resolvedObject} />,
+      content: <TrendRuntimeWidget object={resolvedObject} userRoleLevel={renderContext.userRoleLevel} />,
     });
   }, [
     flowOnlyPass,
     onRemoveWidgetOverlay,
     onUpsertWidgetOverlay,
+    renderContext.userRoleLevel,
     resolvedObject,
     runtimeMode,
   ]);

@@ -37,7 +37,7 @@ describe("trend runtime state persistence", () => {
       customTo: "2026-01-01T13:00",
       settings: { aggregation: "raw" },
       selectedTags: [{ tag: "tag.a" }],
-      manualAxes: [{ id: "axis:default", position: "left" }],
+      manualAxes: [{ id: "axis:default", position: "left", axisTitleMode: "topBadge" }],
     });
 
     const result = resolveRuntimeViewState({
@@ -51,5 +51,6 @@ describe("trend runtime state persistence", () => {
     expect(result?.settings.aggregation).toBe("raw");
     expect(result?.tagPickerFilters.selectionFilter).toBe("all");
     expect(result?.seriesColumnWidths.tag).toBe(defaultWidths.tag);
+    expect(result?.manualAxes[0]?.axisTitleMode).toBe("hidden");
   });
 });

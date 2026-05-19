@@ -536,6 +536,9 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         liveMode: false,
         showToolbar: true,
         showStatusBar: true,
+        showRuntimeSettingsButton: true,
+        allowRuntimeSettings: true,
+        runtimeSettingsRequiredRole: 0,
         settings: {
           theme: "workbench-dark",
           background: "#1e1e1e",
@@ -563,7 +566,9 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
           separateAxisPerTag: false,
           axisPlacement: "split",
           axisOffsetStep: 46,
+          axisScaleGap: 6,
           showSeriesTable: true,
+          showToolbarSettingsButton: true,
         },
       };
     default:

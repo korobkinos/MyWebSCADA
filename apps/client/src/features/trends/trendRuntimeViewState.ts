@@ -17,6 +17,7 @@ type TrendRuntimeViewStateData = {
   manualAxes: TrendAxisConfig[];
   tagPickerFilters: TrendTagPickerFilters;
   seriesColumnWidths: TrendSeriesColumnWidths;
+  defaultsSignature?: string;
 };
 
 type TrendRuntimeViewStateEnvelope = {
@@ -28,6 +29,7 @@ type RuntimeViewStateReadOptions = {
   objectId: string;
   defaultTagPickerFilters: TrendTagPickerFilters;
   defaultSeriesColumnWidths: TrendSeriesColumnWidths;
+  objectDefaultsSignature?: string;
 };
 
 type RuntimeViewStateWriteOptions = {
@@ -39,6 +41,7 @@ type RuntimeViewStateResolveOptions = {
   raw: string;
   defaultTagPickerFilters: TrendTagPickerFilters;
   defaultSeriesColumnWidths: TrendSeriesColumnWidths;
+  objectDefaultsSignature?: string;
 };
 
 export type { TrendRuntimeViewStateData };
@@ -69,6 +72,7 @@ function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
+    axisScaleGap: clamp(Number(source.axisScaleGap ?? defaults.axisScaleGap), 0, 64),
     seriesTableRows: clamp(Number(source.seriesTableRows ?? defaults.seriesTableRows), 2, 24),
     table: normalizeTrendTableSettings(source.table ?? defaults.table),
   };
@@ -98,6 +102,21 @@ function normalizeTagPickerFilters(source: unknown, defaults: TrendTagPickerFilt
   };
 }
 
+function normalizeAxisTitleMode(value: unknown): "hidden" | "compactLabel" | "verticalLabel" {
+  if (value === "compactLabel" || value === "verticalLabel") {
+    return value;
+  }
+  return "hidden";
+}
+
+function normalizeVerticalLabelOffsetX(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return clamp(Math.round(numeric), -160, 160);
+}
+
 function parseLegacyOrCurrent(raw: string): Partial<TrendRuntimeViewStateData> | null {
   const parsed = JSON.parse(raw) as unknown;
   if (!parsed || typeof parsed !== "object") {
@@ -118,7 +137,9 @@ export function resolveRuntimeViewState({
   raw,
   defaultTagPickerFilters,
   defaultSeriesColumnWidths,
+  objectDefaultsSignature,
 }: RuntimeViewStateResolveOptions): TrendRuntimeViewStateData | null {
+  void objectDefaultsSignature;
   try {
     const parsed = parseLegacyOrCurrent(raw);
     if (!parsed) {
@@ -137,7 +158,13 @@ export function resolveRuntimeViewState({
       ? parsed.selectedTags.filter((item) => typeof item?.tag === "string" && item.tag.trim().length > 0)
       : [];
     const manualAxes = Array.isArray(parsed.manualAxes)
-      ? parsed.manualAxes.filter((axis) => typeof axis?.id === "string" && (axis?.position === "left" || axis?.position === "right"))
+      ? parsed.manualAxes
+        .filter((axis) => typeof axis?.id === "string" && (axis?.position === "left" || axis?.position === "right"))
+        .map((axis) => ({
+          ...axis,
+          axisTitleMode: normalizeAxisTitleMode((axis as { axisTitleMode?: unknown }).axisTitleMode),
+          verticalLabelOffsetX: normalizeVerticalLabelOffsetX((axis as { verticalLabelOffsetX?: unknown }).verticalLabelOffsetX),
+        }))
       : [];
 
     return {
@@ -154,6 +181,7 @@ export function resolveRuntimeViewState({
         parsed.seriesColumnWidths as Partial<Record<TrendSeriesColumnId, unknown>> | undefined,
         defaultSeriesColumnWidths,
       ),
+      defaultsSignature: typeof parsed.defaultsSignature === "string" ? parsed.defaultsSignature : undefined,
     };
   } catch {
     return null;
@@ -164,7 +192,9 @@ export function readRuntimeViewState({
   objectId,
   defaultTagPickerFilters,
   defaultSeriesColumnWidths,
+  objectDefaultsSignature,
 }: RuntimeViewStateReadOptions): TrendRuntimeViewStateData | null {
+  void objectDefaultsSignature;
   if (typeof window === "undefined") {
     return null;
   }
@@ -176,6 +206,7 @@ export function readRuntimeViewState({
     raw,
     defaultTagPickerFilters,
     defaultSeriesColumnWidths,
+    objectDefaultsSignature,
   });
 }
 

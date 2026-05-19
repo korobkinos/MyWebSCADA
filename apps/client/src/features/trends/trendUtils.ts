@@ -113,6 +113,7 @@ export function defaultTrendSettings(): TrendSettings {
     separateAxisPerTag: false,
     axisPlacement: "split",
     axisOffsetStep: 46,
+    axisScaleGap: 6,
     showSeriesTable: true,
     seriesTableRows: 6,
     showToolbarMenuButton: true,
@@ -148,6 +149,7 @@ export function loadTrendSettings(): TrendSettings {
       zoomDebounceMs: clamp(Number(parsed.zoomDebounceMs ?? fallback.zoomDebounceMs), 100, 1200),
       defaultLineWidth: clamp(Number(parsed.defaultLineWidth ?? fallback.defaultLineWidth), 1, 5),
       axisOffsetStep: clamp(Number(parsed.axisOffsetStep ?? fallback.axisOffsetStep), 8, 220),
+      axisScaleGap: clamp(Number(parsed.axisScaleGap ?? fallback.axisScaleGap), 0, 64),
       seriesTableRows: clamp(Number(parsed.seriesTableRows ?? fallback.seriesTableRows), 2, 24),
       table: normalizeTrendTableSettings(parsed.table),
     };
@@ -251,9 +253,11 @@ export function createTrendAxisConfig(settings: TrendSettings, id: string, index
     axisLabelFontSize: 12,
     axisLabelMargin: 6,
     axisNameFontSize: 12,
-    axisNameGap: 30,
+    axisNameGap: 6,
     axisNamePaddingX: 6,
-    axisNamePaddingY: 3,
+    axisNamePaddingY: 4,
+    verticalLabelOffsetX: 0,
+    axisTitleMode: "verticalLabel",
   };
 }
 
@@ -274,7 +278,7 @@ export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: Tr
 
   const axes = [...nextAxesById.values()];
   const positionIndex: Record<"left" | "right", number> = { left: 0, right: 0 };
-  const minAxisSeparation = clamp(Math.round(settings.axisOffsetStep * 0.6), 10, 140);
+  const minAxisSeparation = clamp(Math.round(settings.axisScaleGap), 0, 140);
   for (const axis of axes) {
     const idx = positionIndex[axis.position];
     axis.offset = clamp(Number(axis.offset ?? idx * settings.axisOffsetStep), 0, 2400);
@@ -284,9 +288,15 @@ export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: Tr
     axis.axisLabelFontSize = clamp(Number(axis.axisLabelFontSize ?? 12), 9, 24);
     axis.axisLabelMargin = clamp(Number(axis.axisLabelMargin ?? 6), 0, 24);
     axis.axisNameFontSize = clamp(Number(axis.axisNameFontSize ?? 12), 9, 24);
-    axis.axisNameGap = clamp(Number(axis.axisNameGap ?? 30), 12, 80);
+    axis.axisNameGap = clamp(Number(axis.axisNameGap ?? 6), 0, 80);
     axis.axisNamePaddingX = clamp(Number(axis.axisNamePaddingX ?? 6), 0, 24);
-    axis.axisNamePaddingY = clamp(Number(axis.axisNamePaddingY ?? 3), 0, 16);
+    axis.axisNamePaddingY = clamp(Number(axis.axisNamePaddingY ?? 4), 0, 16);
+    axis.verticalLabelOffsetX = clamp(Math.round(Number(axis.verticalLabelOffsetX ?? 0)), -160, 160);
+    axis.axisTitleMode = axis.axisTitleMode === "hidden"
+      || axis.axisTitleMode === "compactLabel"
+      || axis.axisTitleMode === "verticalLabel"
+      ? axis.axisTitleMode
+      : "verticalLabel";
     axis.axisTextColor = normalizeOptionalHexColor(axis.axisTextColor ?? axis.color);
     axis.axisGridLineColor = normalizeOptionalHexColor(axis.axisGridLineColor);
     axis.axisPointerLabelBackgroundColor = normalizeOptionalHexColor(axis.axisPointerLabelBackgroundColor);

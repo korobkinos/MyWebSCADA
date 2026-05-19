@@ -26,6 +26,7 @@ import { TagPicker } from "./tag-picker";
 import { IndexedAddressEditorWindow } from "./indexed-address-editor-window";
 import { WorkbenchButton, WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
 import { TrendTagPickerDialog } from "../features/trends/TrendTagPickerDialog";
+import { TrendSettingsPanel } from "../features/trends/TrendSettingsPanel";
 import type { TrendTagInfo } from "../features/trends/trendTypes";
 import { defaultTrendSettings } from "../features/trends/trendUtils";
 import { getAssetDisplayPath } from "../utils/asset-path";
@@ -1212,6 +1213,8 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     rawTagName?: string;
   } | null>(null);
   const [trendTagPickerOpen, setTrendTagPickerOpen] = useState(false);
+  const [trendSettingsOpen, setTrendSettingsOpen] = useState(false);
+  const [trendSettingsInitialTab, setTrendSettingsInitialTab] = useState<"appearance" | "performance" | "axes" | "series" | "table" | "toolbar">("appearance");
   const editorRuntimeValues = buildIndexedAddressRuntimeValues({ variables: project.variables });
   const driverById = useMemo(
     () => new Map(project.drivers.map((driver) => [driver.id, driver] as const)),
@@ -1241,6 +1244,8 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
   useEffect(() => {
     setIndexedEditorTarget(null);
     setTrendTagPickerOpen(false);
+    setTrendSettingsOpen(false);
+    setTrendSettingsInitialTab("appearance");
   }, [object.id]);
 
   const getFieldIndexedConfig = (fieldName: string, rawTagName: string | undefined): IndexedTagAddress => {
@@ -1465,6 +1470,10 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
       elementBindings={elementBindings}
       buildIndexControl={buildIndexControl}
       onOpenTrendTagPicker={() => setTrendTagPickerOpen(true)}
+      onOpenTrendSettings={(tab) => {
+        setTrendSettingsInitialTab(tab ?? "appearance");
+        setTrendSettingsOpen(true);
+      }}
       onPatch={onPatch}
     />
   );
@@ -1732,20 +1741,33 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
         />
       ) : null}
       {object.type === "trendChart" ? (
-        <TrendTagPickerDialog
-          open={trendTagPickerOpen}
-          tags={trendAvailableTags}
-          selectedTags={object.selectedTags ?? []}
-          axes={object.axes ?? []}
-          onClose={() => setTrendTagPickerOpen(false)}
-          onApply={(nextTags, nextAxes) => {
-            onPatch({
-              selectedTags: nextTags.map((tag) => ({ ...tag, visible: true })),
-              axes: nextAxes,
-            } as Partial<HmiObject>);
-            setTrendTagPickerOpen(false);
-          }}
-        />
+        <>
+          <TrendTagPickerDialog
+            open={trendTagPickerOpen}
+            tags={trendAvailableTags}
+            selectedTags={object.selectedTags ?? []}
+            axes={object.axes ?? []}
+            onClose={() => setTrendTagPickerOpen(false)}
+            onApply={(nextTags, nextAxes) => {
+              onPatch({
+                selectedTags: nextTags,
+                axes: nextAxes,
+              } as Partial<HmiObject>);
+              setTrendTagPickerOpen(false);
+            }}
+          />
+          <TrendSettingsPanel
+            open={trendSettingsOpen}
+            settings={{ ...defaultTrendSettings(), ...(object.settings ?? {}) }}
+            axes={object.axes ?? []}
+            selectedTags={object.selectedTags ?? []}
+            initialTab={trendSettingsInitialTab}
+            onClose={() => setTrendSettingsOpen(false)}
+            onSettingsChange={(next) => onPatch({ settings: next } as Partial<HmiObject>)}
+            onAxesChange={(next) => onPatch({ axes: next } as Partial<HmiObject>)}
+            onSelectedTagsChange={(next) => onPatch({ selectedTags: next } as Partial<HmiObject>)}
+          />
+        </>
       ) : null}
     </div>
   );
@@ -1760,6 +1782,7 @@ function SpecificPropertyFields({
   buildIndexControl,
   numericInputSection,
   onOpenTrendTagPicker,
+  onOpenTrendSettings,
   onPatch,
 }: {
   project: ScadaProject;
@@ -1776,6 +1799,7 @@ function SpecificPropertyFields({
     };
   numericInputSection?: "value" | "appearance" | "error" | "dialog";
   onOpenTrendTagPicker?: () => void;
+  onOpenTrendSettings?: (tab?: "appearance" | "performance" | "axes" | "series" | "table" | "toolbar") => void;
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
   const [stateImagePreviewValue, setStateImagePreviewValue] = useState<string>("0");
@@ -3952,7 +3976,11 @@ function SpecificPropertyFields({
           <div className="object-property-trend__stat-row"><span>Selected series</span><strong>{selectedTags.length}</strong></div>
           <div className="object-property-trend__stat-row"><span>Axes</span><strong>{axes.length}</strong></div>
           <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
-            <WorkbenchButton variant="primary" onClick={() => onOpenTrendTagPicker?.()}>Add / Remove Tags...</WorkbenchButton>
+            <Space wrap>
+              <WorkbenchButton variant="primary" onClick={() => onOpenTrendTagPicker?.()}>Add / Remove Tags...</WorkbenchButton>
+              <WorkbenchButton onClick={() => onOpenTrendSettings?.("appearance")}>Trend Settings...</WorkbenchButton>
+              <WorkbenchButton onClick={() => onOpenTrendSettings?.("axes")}>Axis Titles...</WorkbenchButton>
+            </Space>
           </Form.Item>
         </div>
 
@@ -3997,6 +4025,25 @@ function SpecificPropertyFields({
         </div>
 
         <div className="object-property-trend__section">
+          <div className="object-property-trend__title">Runtime Access</div>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Show settings button in runtime</span>
+            <Switch checked={object.showRuntimeSettingsButton ?? true} onChange={(checked) => onPatch({ showRuntimeSettingsButton: checked } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Allow runtime settings editor</span>
+            <Switch checked={object.allowRuntimeSettings ?? true} onChange={(checked) => onPatch({ allowRuntimeSettings: checked } as Partial<HmiObject>)} />
+          </Space>
+          <Form.Item label="Trend settings role">
+            <Select
+              value={(object.runtimeSettingsRequiredRole ?? 0) as AccessRoleLevel}
+              options={accessRoleOptions}
+              onChange={(value) => onPatch({ runtimeSettingsRequiredRole: Number(value) as AccessRoleLevel } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+        </div>
+
+        <div className="object-property-trend__section">
           <div className="object-property-trend__title">Performance</div>
           <Form.Item label="Aggregation">
             <Select
@@ -4020,123 +4067,15 @@ function SpecificPropertyFields({
               onChange={(value) => onPatch({ settings: { ...settings, maxPointsPerSeries: Math.max(1000, Math.min(8000, Number(value ?? 4000))) } } as Partial<HmiObject>)}
             />
           </Form.Item>
-          <Form.Item label="Zoom Debounce (ms)">
-            <InputNumber
-              style={{ width: "100%" }}
-              min={100}
-              max={1200}
-              value={settings.zoomDebounceMs}
-              onChange={(value) => onPatch({ settings: { ...settings, zoomDebounceMs: Math.max(100, Math.min(1200, Number(value ?? 350))) } } as Partial<HmiObject>)}
-            />
+          <Form.Item label="Live Buffer Limit">
+            <InputNumber style={{ width: "100%" }} min={200} max={20000} value={settings.liveBufferLimit} onChange={(value) => onPatch({ settings: { ...settings, liveBufferLimit: Math.max(200, Math.min(20000, Number(value ?? 5000))) } } as Partial<HmiObject>)} />
           </Form.Item>
           <Space className="object-property-panel__runtime-switch-row">
             <span>Cache Enabled</span>
             <Switch checked={settings.cacheEnabled} onChange={(checked) => onPatch({ settings: { ...settings, cacheEnabled: checked } } as Partial<HmiObject>)} />
           </Space>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Progressive Rendering</span>
-            <Switch checked={settings.progressive} onChange={(checked) => onPatch({ settings: { ...settings, progressive: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Disable Animation on Large Data</span>
-            <Switch checked={settings.disableAnimationsLargeData} onChange={(checked) => onPatch({ settings: { ...settings, disableAnimationsLargeData: checked } } as Partial<HmiObject>)} />
-          </Space>
-        </div>
-
-        <div className="object-property-trend__section">
-          <div className="object-property-trend__title">Appearance</div>
-          <Form.Item label="Theme">
-            <Select
-              value={settings.theme}
-              options={[
-                { value: "workbench-dark", label: "Workbench dark" },
-                { value: "echarts-dark", label: "ECharts dark" },
-                { value: "custom", label: "Custom" },
-              ]}
-              onChange={(value) => onPatch({ settings: { ...settings, theme: value } } as Partial<HmiObject>)}
-            />
-          </Form.Item>
-          <ColorField label="Background" value={settings.background} fallback="#1e1e1e" onChange={(next) => onPatch({ settings: { ...settings, background: next } } as Partial<HmiObject>)} />
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Legend</span>
-            <Switch checked={settings.legend} onChange={(checked) => onPatch({ settings: { ...settings, legend: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Tooltip</span>
-            <Switch checked={settings.tooltip} onChange={(checked) => onPatch({ settings: { ...settings, tooltip: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Grid Lines</span>
-            <Switch checked={settings.gridLines} onChange={(checked) => onPatch({ settings: { ...settings, gridLines: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Axis Labels</span>
-            <Switch checked={settings.axisLabels} onChange={(checked) => onPatch({ settings: { ...settings, axisLabels: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>DataZoom Slider</span>
-            <Switch checked={settings.dataZoomSlider} onChange={(checked) => onPatch({ settings: { ...settings, dataZoomSlider: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Form.Item label="Bottom Table Rows">
-            <InputNumber
-              style={{ width: "100%" }}
-              min={2}
-              max={24}
-              value={settings.seriesTableRows}
-              onChange={(value) => onPatch({ settings: { ...settings, seriesTableRows: Math.max(2, Math.min(24, Number(value ?? 6))) } } as Partial<HmiObject>)}
-            />
-          </Form.Item>
-        </div>
-
-        <div className="object-property-trend__section">
-          <div className="object-property-trend__title">Axes & Layout</div>
-          <Form.Item label="Axis Placement">
-            <Select
-              value={settings.axisPlacement}
-              options={[
-                { value: "split", label: "Split left/right" },
-                { value: "left", label: "Left only" },
-                { value: "right", label: "Right only" },
-              ]}
-              onChange={(value) => onPatch({ settings: { ...settings, axisPlacement: value } } as Partial<HmiObject>)}
-            />
-          </Form.Item>
-          <Form.Item label="Axis Offset Step">
-            <InputNumber
-              style={{ width: "100%" }}
-              min={8}
-              max={220}
-              value={settings.axisOffsetStep}
-              onChange={(value) => onPatch({ settings: { ...settings, axisOffsetStep: Math.max(8, Math.min(220, Number(value ?? 46))) } } as Partial<HmiObject>)}
-            />
-          </Form.Item>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Auto Scale</span>
-            <Switch checked={settings.autoScale} onChange={(checked) => onPatch({ settings: { ...settings, autoScale: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Form.Item label="Default Axis Min">
-            <InputNumber
-              style={{ width: "100%" }}
-              disabled={settings.defaultAxisMin === "auto"}
-              value={typeof settings.defaultAxisMin === "number" ? settings.defaultAxisMin : undefined}
-              onChange={(value) => onPatch({ settings: { ...settings, defaultAxisMin: Number(value ?? 0) } } as Partial<HmiObject>)}
-            />
-            <Space className="object-property-panel__runtime-switch-row">
-              <span>Min Auto</span>
-              <Switch checked={settings.defaultAxisMin === "auto" || settings.defaultAxisMin === undefined} onChange={(checked) => onPatch({ settings: { ...settings, defaultAxisMin: checked ? "auto" : 0 } } as Partial<HmiObject>)} />
-            </Space>
-          </Form.Item>
-          <Form.Item label="Default Axis Max">
-            <InputNumber
-              style={{ width: "100%" }}
-              disabled={settings.defaultAxisMax === "auto"}
-              value={typeof settings.defaultAxisMax === "number" ? settings.defaultAxisMax : undefined}
-              onChange={(value) => onPatch({ settings: { ...settings, defaultAxisMax: Number(value ?? 100) } } as Partial<HmiObject>)}
-            />
-            <Space className="object-property-panel__runtime-switch-row">
-              <span>Max Auto</span>
-              <Switch checked={settings.defaultAxisMax === "auto" || settings.defaultAxisMax === undefined} onChange={(checked) => onPatch({ settings: { ...settings, defaultAxisMax: checked ? "auto" : 100 } } as Partial<HmiObject>)} />
-            </Space>
+          <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
+            <WorkbenchButton onClick={() => onOpenTrendSettings?.("performance")}>Advanced Trend Settings...</WorkbenchButton>
           </Form.Item>
         </div>
       </div>

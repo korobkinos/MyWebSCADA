@@ -1,7 +1,7 @@
 import { type CSSProperties, type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ColorPicker, Spin } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
-import type { TagValue, TrendChartObject } from "@web-scada/shared";
+import { hasRoleAccess, type TagValue, type TrendChartObject } from "@web-scada/shared";
 import { createRuntimeSocket } from "../../services/ws";
 import type { TrendTagInfo } from "../../services/api";
 import { WorkbenchButton, WorkbenchIconButton } from "../../components/workbench";
@@ -111,6 +111,7 @@ type ResolvedSeriesTableTheme = {
 
 function resolveSeriesTableTheme(settings: TrendSettings, uiTheme: ReturnType<typeof resolveTrendTheme>): ResolvedSeriesTableTheme {
   const table = normalizeTrendTableSettings(settings.table);
+  const useTableColorOverrides = settings.theme === "custom";
   const rowHeight = clamp(Math.round(table?.rowHeight ?? TREND_SERIES_TABLE_ROW_PX), 20, 48);
   const headerHeight = clamp(Math.round(table?.headerHeight ?? TREND_SERIES_TABLE_HEADER_PX), 20, 48);
   const fontSize = clamp(Math.round(table?.fontSize ?? 12), 10, 16);
@@ -118,13 +119,13 @@ function resolveSeriesTableTheme(settings: TrendSettings, uiTheme: ReturnType<ty
   const cellPaddingY = clamp(Math.round(table?.cellPaddingY ?? 3), 1, 10);
 
   return {
-    background: normalizeHexColor(table?.background, uiTheme.tableBg),
-    headerBackground: normalizeHexColor(table?.headerBackground, uiTheme.panel),
-    textColor: normalizeHexColor(table?.textColor, uiTheme.text),
-    mutedTextColor: normalizeHexColor(table?.mutedTextColor, uiTheme.mutedText),
-    borderColor: normalizeHexColor(table?.borderColor, uiTheme.tableBorder),
-    hoverBackground: normalizeHexColor(table?.hoverBackground, uiTheme.buttonHoverBg),
-    valueTextColor: normalizeHexColor(table?.valueTextColor, normalizeHexColor(table?.textColor, uiTheme.text)),
+    background: normalizeHexColor(useTableColorOverrides ? table?.background : undefined, uiTheme.tableBg),
+    headerBackground: normalizeHexColor(useTableColorOverrides ? table?.headerBackground : undefined, uiTheme.panel),
+    textColor: normalizeHexColor(useTableColorOverrides ? table?.textColor : undefined, uiTheme.text),
+    mutedTextColor: normalizeHexColor(useTableColorOverrides ? table?.mutedTextColor : undefined, uiTheme.mutedText),
+    borderColor: normalizeHexColor(useTableColorOverrides ? table?.borderColor : undefined, uiTheme.tableBorder),
+    hoverBackground: normalizeHexColor(useTableColorOverrides ? table?.hoverBackground : undefined, uiTheme.buttonHoverBg),
+    valueTextColor: normalizeHexColor(useTableColorOverrides ? table?.valueTextColor : undefined, normalizeHexColor(useTableColorOverrides ? table?.textColor : undefined, uiTheme.text)),
     rowHeight,
     headerHeight,
     fontSize,
@@ -247,13 +248,30 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
+    axisScaleGap: clamp(Number(source.axisScaleGap ?? defaults.axisScaleGap), 0, 64),
     seriesTableRows: clamp(Number(source.seriesTableRows ?? defaults.seriesTableRows), 2, 24),
     table: normalizeTrendTableSettings(source.table),
   };
 }
 
+function buildObjectDefaultsSignature(object: TrendChartObject): string {
+  const payload = {
+    selectedTags: object.selectedTags ?? [],
+    axes: object.axes ?? [],
+    settings: resolveSettingsFromObject(object),
+    rangePreset: object.rangePreset ?? "1h",
+    customFrom: object.customFrom ?? null,
+    customTo: object.customTo ?? null,
+    liveMode: Boolean(object.liveMode),
+    showToolbar: object.showToolbar ?? true,
+    showStatusBar: object.showStatusBar ?? true,
+  };
+  return JSON.stringify(payload);
+}
+
 type TrendRuntimeWidgetProps = {
   object: TrendChartObject;
+  userRoleLevel?: number;
 };
 
 type TrendContextMenuState = {
@@ -274,12 +292,14 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
   const objectRange = resolveRangeFromObject(object);
   const resolvedSettings = resolveSettingsFromObject(object);
   const normalizedAxes = normalizeTrendAxes(object.axes ?? [], resolvedSettings);
+  const objectDefaultsSignature = buildObjectDefaultsSignature(object);
   const restored = readRuntimeViewState({
     objectId: object.id,
     defaultTagPickerFilters: DEFAULT_TAG_PICKER_FILTERS,
     defaultSeriesColumnWidths: DEFAULT_SERIES_COLUMN_WIDTHS,
+    objectDefaultsSignature,
   });
-  if (restored) {
+  if (restored && restored.defaultsSignature === objectDefaultsSignature) {
     const restoredSettings = restored.settings ?? resolvedSettings;
     const normalizedRestoredAxes = normalizeTrendAxes(restored.manualAxes ?? object.axes ?? [], restoredSettings);
     if (restored.liveMode) {
@@ -293,6 +313,7 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
         ...restored,
         settings: restoredSettings,
         manualAxes: normalizedRestoredAxes,
+        defaultsSignature: objectDefaultsSignature,
         visibleRange: nextRange,
         customFrom: toLocalDateTimeInputValue(nextRange.from),
         customTo: toLocalDateTimeInputValue(nextRange.to),
@@ -302,6 +323,7 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
       ...restored,
       settings: restoredSettings,
       manualAxes: normalizedRestoredAxes,
+      defaultsSignature: objectDefaultsSignature,
     };
   }
   return {
@@ -315,11 +337,13 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
     manualAxes: normalizedAxes,
     tagPickerFilters: DEFAULT_TAG_PICKER_FILTERS,
     seriesColumnWidths: DEFAULT_SERIES_COLUMN_WIDTHS,
+    defaultsSignature: objectDefaultsSignature,
   };
 }
 
-export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
-  const initialViewState = useMemo(() => resolveInitialRuntimeViewState(object), [object.id]);
+export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWidgetProps) {
+  const objectDefaultsSignature = useMemo(() => buildObjectDefaultsSignature(object), [object]);
+  const initialViewState = useMemo(() => resolveInitialRuntimeViewState(object), [object.id, objectDefaultsSignature]);
   const [allTags, setAllTags] = useState<TrendTagInfo[]>([]);
   const [selectedTags, setSelectedTags] = useState<TrendTagSelection[]>(initialViewState.selectedTags ?? object.selectedTags ?? []);
   const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>(
@@ -393,6 +417,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   );
   const selectedTagNames = useMemo(() => selectedTags.map((tag) => tag.tag), [selectedTags]);
   const selectedTagNamesKey = useMemo(() => selectedTagNames.join("|"), [selectedTagNames]);
+  const runtimeSettingsButtonVisible = object.showRuntimeSettingsButton !== false;
+  const runtimeSettingsAllowed = object.allowRuntimeSettings !== false;
+  const runtimeSettingsRoleAllowed = hasRoleAccess(userRoleLevel, object.runtimeSettingsRequiredRole);
+  const canOpenRuntimeSettings = runtimeSettingsButtonVisible && runtimeSettingsAllowed && runtimeSettingsRoleAllowed;
+  const canShowSettingsEntry = settings.showToolbarSettingsButton && runtimeSettingsButtonVisible;
+  const canShowScaleEntry = settings.showToolbarScaleButton && runtimeSettingsButtonVisible;
 
   useEffect(() => {
     livePendingBufferCapRef.current = resolveLivePendingBufferCap(selectedTagNames.length, settings.liveBufferLimit);
@@ -435,7 +465,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     hoverTimestampRef.current = null;
     setHistoryWarning(null);
     setScreenRevision((prev) => prev + 1);
-  }, [object.id]);
+  }, [object.id, objectDefaultsSignature]);
 
   const persistRuntimeViewState = useCallback((rangeForStorage: TrendVisibleRange) => {
     writeRuntimeViewState({
@@ -451,9 +481,10 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         manualAxes,
         tagPickerFilters,
         seriesColumnWidths,
+        defaultsSignature: objectDefaultsSignature,
       },
     });
-  }, [customFrom, customTo, liveMode, manualAxes, object.id, rangePreset, selectedTags, seriesColumnWidths, settings, tagPickerFilters]);
+  }, [customFrom, customTo, liveMode, manualAxes, object.id, objectDefaultsSignature, rangePreset, selectedTags, seriesColumnWidths, settings, tagPickerFilters]);
 
   useEffect(() => {
     if (!liveMode) {
@@ -729,6 +760,15 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     window.addEventListener("mousedown", closeMenu);
     return () => window.removeEventListener("mousedown", closeMenu);
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (canOpenRuntimeSettings) {
+      return;
+    }
+    if (settingsOpen) {
+      setSettingsOpen(false);
+    }
+  }, [canOpenRuntimeSettings, settingsOpen]);
 
   useEffect(() => {
     if (!liveMode || selectedTagNames.length === 0) {
@@ -1098,7 +1138,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const chartBackground = settings.theme === "custom" ? normalizeHexColor(settings.background, uiTheme.background) : uiTheme.background;
   const tableTheme = resolveSeriesTableTheme(settings, uiTheme);
   const seriesTableRows = clamp(Math.round(settings.seriesTableRows), 2, 24);
-  const seriesTableMaxHeightPx = tableTheme.headerHeight + (seriesTableRows * tableTheme.rowHeight);
+  const seriesTableMaxHeightPx = Math.max(0, tableTheme.headerHeight + (seriesTableRows * tableTheme.rowHeight));
   const shellStyle: CSSProperties = {
     "--trends-theme-bg": chartBackground,
     "--trends-theme-panel": uiTheme.panel,
@@ -1214,23 +1254,31 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
           {settings.showToolbarRefreshButton ? (
             <WorkbenchIconButton title="Refresh" onClick={refresh} disabled={!hasSelection} icon={<ToolbarGlyph path="M20 6v6h-6M4 18v-6h6M20 12a8 8 0 0 0-14.3-4M4 12a8 8 0 0 0 14.3 4" />} />
           ) : null}
-          {settings.showToolbarScaleButton ? (
+          {canShowScaleEntry ? (
             <WorkbenchIconButton
               title="Scale Settings"
               onClick={() => {
+                if (!canOpenRuntimeSettings) {
+                  return;
+                }
                 setSettingsInitialTab("axes");
                 setSettingsOpen(true);
               }}
+              disabled={!canOpenRuntimeSettings}
               icon={<ToolbarGlyph path="M6 4v16M12 8v12M18 2v18" />}
             />
           ) : null}
-          {settings.showToolbarSettingsButton ? (
+          {canShowSettingsEntry ? (
             <WorkbenchIconButton
               title="Settings"
               onClick={() => {
+                if (!canOpenRuntimeSettings) {
+                  return;
+                }
                 setSettingsInitialTab("appearance");
                 setSettingsOpen(true);
               }}
+              disabled={!canOpenRuntimeSettings}
               icon={<SettingOutlined />}
             />
           ) : null}
@@ -1398,7 +1446,16 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       {contextMenu ? (
         <div className="trends-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onMouseDown={(event) => event.stopPropagation()}>
           <button type="button" className="trends-context-menu__item" onClick={() => runMenuAction(() => setTagDialogOpen(true))}>Add/Remove Tags</button>
-          <button type="button" className="trends-context-menu__item" onClick={() => runMenuAction(() => setSettingsOpen(true))}>Settings</button>
+          {canShowSettingsEntry ? (
+            <button
+              type="button"
+              className="trends-context-menu__item"
+              onClick={() => runMenuAction(() => setSettingsOpen(true))}
+              disabled={!canOpenRuntimeSettings}
+            >
+              Settings
+            </button>
+          ) : null}
           <button
             type="button"
             className="trends-context-menu__item"
@@ -1520,6 +1577,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             cacheSize: clamp(next.cacheSize, 8, 256),
             liveBufferLimit: clamp(next.liveBufferLimit, 200, 20000),
             axisOffsetStep: clamp(next.axisOffsetStep, 8, 220),
+            axisScaleGap: clamp(next.axisScaleGap, 0, 64),
           });
         }}
         onAxesChange={setManualAxes}

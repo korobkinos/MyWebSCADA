@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { buildAxes, defaultTrendSettings, normalizeTrendTableSettings } from "./trendUtils";
+import { buildAxes, createTrendAxisConfig, defaultTrendSettings, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -49,6 +49,39 @@ describe("buildAxes", () => {
     expect(result.resolvedAxisIdByTag.get("t1")).toBe("axis:default");
     expect(result.resolvedAxisIdByTag.get("t2")).toBe("axis:manual:1");
     expect(result.resolvedAxisIdByTag.get("t3")).toBe("axis:default");
+  });
+});
+
+describe("axis title mode defaults", () => {
+  it("assigns verticalLabel for newly created axes", () => {
+    const settings = defaultTrendSettings();
+    const axis = createTrendAxisConfig(settings, "axis:test", 0);
+    expect(axis.axisTitleMode).toBe("verticalLabel");
+    expect(axis.verticalLabelOffsetX).toBe(0);
+  });
+
+  it("normalizes missing axisTitleMode to verticalLabel", () => {
+    const settings = defaultTrendSettings();
+    const axes = normalizeTrendAxes([{ id: "axis:default", name: "Default", position: "left" }], settings);
+    expect(axes[0]?.axisTitleMode).toBe("verticalLabel");
+  });
+
+  it("normalizes removed modes to verticalLabel", () => {
+    const settings = defaultTrendSettings();
+    const axes = normalizeTrendAxes([
+      { id: "axis:default", name: "Default", position: "left", axisTitleMode: "topBadge" as never },
+      { id: "axis:manual:1", name: "Secondary", position: "right", axisTitleMode: "tooltipOnly" as never },
+    ], settings);
+    expect(axes[0]?.axisTitleMode).toBe("verticalLabel");
+    expect(axes[1]?.axisTitleMode).toBe("verticalLabel");
+  });
+
+  it("keeps hidden mode when explicitly set", () => {
+    const settings = defaultTrendSettings();
+    const axes = normalizeTrendAxes([
+      { id: "axis:default", name: "Default", position: "left", axisTitleMode: "hidden" },
+    ], settings);
+    expect(axes[0]?.axisTitleMode).toBe("hidden");
   });
 });
 

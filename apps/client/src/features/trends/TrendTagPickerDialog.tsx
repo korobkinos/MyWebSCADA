@@ -274,6 +274,11 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
       position: draftAxes.filter((axis) => axis.position === "left").length <= draftAxes.filter((axis) => axis.position === "right").length ? "left" : "right",
       min: "auto",
       max: "auto",
+      axisNameGap: 6,
+      axisNamePaddingX: 6,
+      axisNamePaddingY: 4,
+      verticalLabelOffsetX: 0,
+      axisTitleMode: "verticalLabel",
     };
     setDraftAxes((prev) => [...prev, newAxis]);
     setDraftTags((prev) => prev.map((item) => (item.tag === selectedTagName ? { ...item, axisMode: "manual", axisId: id } : item)));

@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as echarts from "echarts/core";
 import { LineChart } from "echarts/charts";
-import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent } from "echarts/components";
+import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, GraphicComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
-import type { TrendAxisConfig, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
+import type { TrendAxisConfig, TrendAxisTitleMode, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { isTrendPerfDebugEnabled, logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
 
-echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, CanvasRenderer]);
+echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, GraphicComponent, CanvasRenderer]);
 const LIVE_GAP_MIN_BREAK_MS = 10_000;
 const LIVE_RIGHT_DRIFT_LIMIT_MS = 5_000;
 const LIVE_TRIM_GRACE_MS = 15_000;
@@ -19,9 +19,14 @@ const Y_AXIS_HIT_ZONE_MIN_PX = 42;
 const Y_AXIS_HIT_ZONE_MAX_PX = 96;
 const Y_AXIS_INNER_GAP_PX = 2;
 const Y_AXIS_EDGE_PADDING_PX = 10;
-const Y_AXIS_STACK_GAP_PX = 6;
 const Y_AXIS_MIN_SPAN = 1e-6;
 const Y_AXIS_WHEEL_ZOOM_BASE = 0.12;
+const Y_AXIS_LABEL_CHAR_BUDGET = 8;
+const Y_AXIS_VERTICAL_LABEL_MAX_CHARS = 28;
+const Y_AXIS_COMPACT_LABEL_MAX_CHARS = 18;
+const Y_AXIS_VERTICAL_LABEL_ROTATION_RAD = Math.PI / 2;
+const Y_AXIS_VERTICAL_LABEL_MIN_PADDING_X = 4;
+const Y_AXIS_VERTICAL_LABEL_MIN_PADDING_Y = 2;
 
 type TrendChartProps = {
   data: TrendQueryResponse | null;
@@ -637,6 +642,7 @@ export function TrendChart({
       offset: 0,
       min: "auto",
       max: "auto",
+      axisTitleMode: "hidden",
     };
     const baseAxes: TrendAxisConfig[] = axes.length > 0 ? axes : [fallbackAxis];
     const knownAxisIds = new Set(baseAxes.map((axis) => axis.id));
@@ -685,16 +691,74 @@ export function TrendChart({
       }
     }
 
-    const resolveAxisNameOutwardPx = (axis: TrendAxisConfig) => {
+    const resolveAxisTitleMode = (axis: TrendAxisConfig): TrendAxisTitleMode => {
+      return axis.axisTitleMode === "hidden"
+        || axis.axisTitleMode === "compactLabel"
+        || axis.axisTitleMode === "verticalLabel"
+        ? axis.axisTitleMode
+        : "hidden";
+    };
+    const axisScaleGapPx = Math.max(0, Math.round(Number(settings.axisScaleGap ?? 6)));
+    const resolveAxisTitleGapPx = (axis: TrendAxisConfig): number => {
+      return Math.max(0, Math.round(Number(axis.axisNameGap ?? 6)));
+    };
+    const resolveAxisNameOutwardPx = (axis: TrendAxisConfig, axisTitleMode: TrendAxisTitleMode) => {
+      if (axisTitleMode === "hidden") {
+        return 0;
+      }
       const fontSize = Math.max(9, Number(axis.axisNameFontSize ?? 12));
       const padX = Math.max(0, Number(axis.axisNamePaddingX ?? 6));
-      const gap = Math.max(12, Number(axis.axisNameGap ?? 30));
-      return fontSize + (padX * 2) + gap + 10;
+      const padY = Math.max(0, Number(axis.axisNamePaddingY ?? 4));
+      const titleGap = resolveAxisTitleGapPx(axis);
+      if (axisTitleMode === "verticalLabel") {
+        const textHeight = Math.ceil(Math.max(10, fontSize * 1.2));
+        return Math.ceil(textHeight + (padY * 2) + 2 + titleGap);
+      }
+      const axisName = (axis.name || axis.unit || axis.id || "").trim();
+      if (!axisName) {
+        return 0;
+      }
+      const rawName = axisName.length > Y_AXIS_COMPACT_LABEL_MAX_CHARS
+        ? `${axisName.slice(0, Math.max(1, Y_AXIS_COMPACT_LABEL_MAX_CHARS - 3))}...`
+        : axisName;
+      const textWidth = Math.ceil(Math.max(1, rawName.length) * fontSize * 0.62);
+      return Math.ceil(textWidth + (padX * 2) + 4 + titleGap);
     };
     const resolveAxisLabelOutwardPx = (axis: TrendAxisConfig) => {
+      if (!settings.axisLabels) {
+        return 8;
+      }
       const fontSize = Math.max(9, Number(axis.axisLabelFontSize ?? 12));
       const margin = Math.max(0, Number(axis.axisLabelMargin ?? 6));
-      return fontSize + margin + 8;
+      const approxCharWidth = fontSize * 0.62;
+      const valueCandidates: number[] = [];
+      const override = yAxisOverrideRef.current.get(axis.id);
+      if (override) {
+        valueCandidates.push(override.min, override.max);
+      }
+      if (typeof axis.min === "number") {
+        valueCandidates.push(axis.min);
+      }
+      if (typeof axis.max === "number") {
+        valueCandidates.push(axis.max);
+      }
+      const range = axisRangeById.get(axis.id);
+      if (range) {
+        valueCandidates.push(range.min, range.max);
+      }
+      if (valueCandidates.length === 0) {
+        valueCandidates.push(0);
+      }
+      let maxLabelChars = 1;
+      for (const value of valueCandidates) {
+        const text = String(Math.round(Number(value)));
+        if (text.length > maxLabelChars) {
+          maxLabelChars = text.length;
+        }
+      }
+      const estimatedChars = Math.max(3, Math.min(Y_AXIS_LABEL_CHAR_BUDGET, maxLabelChars + 1));
+      const labelWidth = Math.ceil(estimatedChars * approxCharWidth);
+      return Math.max(fontSize + margin + 8, labelWidth + margin + 12);
     };
     const axisLayoutById = new Map<string, { offset: number; outward: number }>();
     for (const side of ["left", "right"] as const) {
@@ -704,10 +768,11 @@ export function TrendChart({
         .sort((a, b) => (Number(a.axis.offset ?? 0) - Number(b.axis.offset ?? 0)) || (a.index - b.index));
       let previousOccupiedEnd = Number.NEGATIVE_INFINITY;
       for (const entry of sideAxes) {
-        const outward = resolveAxisNameOutwardPx(entry.axis) + resolveAxisLabelOutwardPx(entry.axis);
+        const axisTitleMode = resolveAxisTitleMode(entry.axis);
+        const outward = resolveAxisNameOutwardPx(entry.axis, axisTitleMode) + resolveAxisLabelOutwardPx(entry.axis);
         const requestedOffset = Math.max(0, Number(entry.axis.offset ?? 0));
         const offset = Number.isFinite(previousOccupiedEnd)
-          ? Math.max(requestedOffset, previousOccupiedEnd + Y_AXIS_STACK_GAP_PX)
+          ? Math.max(requestedOffset, previousOccupiedEnd + axisScaleGapPx)
           : requestedOffset;
         axisLayoutById.set(entry.axis.id, { offset, outward });
         previousOccupiedEnd = offset + outward;
@@ -715,7 +780,8 @@ export function TrendChart({
     }
     yAxisRuntimeInfoRef.current = safeAxes.map((axis, index) => {
       const layout = axisLayoutById.get(axis.id);
-      const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis) + resolveAxisLabelOutwardPx(axis));
+      const axisTitleMode = resolveAxisTitleMode(axis);
+      const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis, axisTitleMode) + resolveAxisLabelOutwardPx(axis));
       return {
         id: axis.id,
         position: axis.position,
@@ -726,17 +792,20 @@ export function TrendChart({
     });
 
     const yAxis = safeAxes.map((axis) => {
-      const axisName = axis.name || axis.unit || axis.id;
+      const axisLabelMargin = Math.max(0, Number(axis.axisLabelMargin ?? 6));
+      const axisLabelFontSize = Math.max(9, Number(axis.axisLabelFontSize ?? 12));
+      const axisLabelWidth = Math.ceil((axisLabelFontSize * 0.62) * Y_AXIS_LABEL_CHAR_BUDGET);
       const override = yAxisOverrideRef.current.get(axis.id);
       const layout = axisLayoutById.get(axis.id);
       const axisTextColor = axis.axisTextColor ?? axis.color ?? uiTheme.text;
       const axisGridLineColor = axis.axisGridLineColor ?? uiTheme.gridLine;
       const axisPointerLabelBackgroundColor = axis.axisPointerLabelBackgroundColor ?? uiTheme.tooltipBg;
+      const axisPointerLabelFontSize = Math.max(11, axisLabelFontSize);
       return ({
       type: "value" as const,
-      zlevel: 0,
-      z: 1,
-      name: `{axisName|${axisName}}`,
+      zlevel: -5,
+      z: -5,
+      name: "",
       position: axis.position,
       offset: layout?.offset ?? Math.max(0, Number(axis.offset ?? 0)),
       scale: settings.autoScale,
@@ -781,41 +850,25 @@ export function TrendChart({
         return null;
       })(),
       nameLocation: "middle" as const,
-      nameRotate: axis.position === "left" ? 90 : -90,
-      nameGap: Math.max(12, Number(axis.axisNameGap ?? 30)),
-      nameTextStyle: {
-        rich: {
-          axisName: {
-            color: axisTextColor,
-            align: "center",
-            verticalAlign: "middle",
-            fontSize: Math.max(9, Number(axis.axisNameFontSize ?? 12)),
-            backgroundColor: uiTheme.toolbarBg,
-            borderColor: uiTheme.border,
-            borderWidth: 1,
-            padding: [
-              Math.max(0, Number(axis.axisNamePaddingY ?? 3)),
-              Math.max(0, Number(axis.axisNamePaddingX ?? 6)),
-              Math.max(0, Number(axis.axisNamePaddingY ?? 3)),
-              Math.max(0, Number(axis.axisNamePaddingX ?? 6)),
-            ],
-            borderRadius: 3,
-          },
-        },
-      },
+      nameRotate: 0,
+      nameGap: 0,
       axisLine: { show: true, lineStyle: { color: axisTextColor } },
       axisPointer: {
         show: true,
-        z: 30,
-        zlevel: 1,
+        z: 220,
+        zlevel: 220,
         label: {
           show: true,
-          z: 30,
-          zlevel: 1,
-          color: axisTextColor,
+          z: 220,
+          zlevel: 220,
+          color: uiTheme.text,
           backgroundColor: axisPointerLabelBackgroundColor,
           borderColor: uiTheme.border,
           borderWidth: 1,
+          padding: [3, 8, 3, 8],
+          fontSize: axisPointerLabelFontSize,
+          fontWeight: 600,
+          lineHeight: axisPointerLabelFontSize + 2,
         },
       },
       axisLabel: {
@@ -824,8 +877,13 @@ export function TrendChart({
         hideOverlap: false,
         showMinLabel: true,
         showMaxLabel: true,
-        margin: Math.max(0, Number(axis.axisLabelMargin ?? 6)),
-        fontSize: Math.max(9, Number(axis.axisLabelFontSize ?? 12)),
+        margin: axisLabelMargin,
+        fontSize: axisLabelFontSize,
+        width: axisLabelWidth,
+        overflow: "truncate",
+        ellipsis: "...",
+        align: axis.position === "left" ? "right" : "left",
+        verticalAlign: "middle",
         formatter: (value: number) => {
           const numeric = Number(value);
           return Number.isFinite(numeric) ? String(Math.round(numeric)) : String(value);
@@ -835,6 +893,34 @@ export function TrendChart({
       splitLine: { show: settings.gridLines, lineStyle: { color: axisGridLineColor, type: "dashed" } },
     });
     });
+    const axisTitleLabelSpecs = safeAxes
+      .map((axis) => {
+        const axisTitleMode = resolveAxisTitleMode(axis);
+        if (axisTitleMode === "hidden") {
+          return null;
+        }
+        const axisName = (axis.name || axis.unit || axis.id || "").trim();
+        if (!axisName) {
+          return null;
+        }
+        const axisTextColor = axis.axisTextColor ?? axis.color ?? uiTheme.text;
+        const layout = axisLayoutById.get(axis.id);
+        return {
+          axisName,
+          position: axis.position,
+          offset: layout?.offset ?? Math.max(0, Number(axis.offset ?? 0)),
+          horizontalOffsetX: Math.round(Number(axis.verticalLabelOffsetX ?? 0)),
+          fontSize: Math.max(9, Number(axis.axisNameFontSize ?? 12)),
+          paddingX: Math.max(0, Number(axis.axisNamePaddingX ?? 6)),
+          paddingY: Math.max(0, Number(axis.axisNamePaddingY ?? 4)),
+          titleGap: resolveAxisTitleGapPx(axis),
+          color: axisTextColor,
+          mode: axisTitleMode,
+          axisId: axis.id,
+          backgroundColor: chartBackground,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
     const totalPointCount = activeTags.reduce((acc, tag) => acc + (seriesPointsRef.current.get(tag.tag)?.length ?? 0), 0);
     const isLargeDataset = totalPointCount >= 5000;
@@ -960,7 +1046,8 @@ export function TrendChart({
       .reduce((max, axis) => {
         const layout = axisLayoutById.get(axis.id);
         const offset = layout?.offset ?? Math.max(0, Number(axis.offset ?? 0));
-        const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis) + resolveAxisLabelOutwardPx(axis));
+        const axisTitleMode = resolveAxisTitleMode(axis);
+        const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis, axisTitleMode) + resolveAxisLabelOutwardPx(axis));
         return Math.max(max, offset + outward);
       }, 0);
     const rightAxisOutward = safeAxes
@@ -968,7 +1055,8 @@ export function TrendChart({
       .reduce((max, axis) => {
         const layout = axisLayoutById.get(axis.id);
         const offset = layout?.offset ?? Math.max(0, Number(axis.offset ?? 0));
-        const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis) + resolveAxisLabelOutwardPx(axis));
+        const axisTitleMode = resolveAxisTitleMode(axis);
+        const outward = layout?.outward ?? (resolveAxisNameOutwardPx(axis, axisTitleMode) + resolveAxisLabelOutwardPx(axis));
         return Math.max(max, offset + outward);
       }, 0);
     const gridLeft = Math.max(2, Math.round(leftAxisOutward + 1));
@@ -984,6 +1072,90 @@ export function TrendChart({
         top: gridTop,
         bottom: Math.max(gridTop + 20, rootHeight - gridBottom),
       };
+    }
+    const verticalAxisLabelGraphics: any[] = [];
+    if (rootWidth > 0 && rootHeight > 0) {
+      const axisCenterY = Math.round((gridTop + (rootHeight - gridBottom)) / 2);
+      for (let index = 0; index < axisTitleLabelSpecs.length; index += 1) {
+        const spec = axisTitleLabelSpecs[index];
+        if (!spec) {
+          continue;
+        }
+        const nameLimit = spec.mode === "verticalLabel" ? Y_AXIS_VERTICAL_LABEL_MAX_CHARS : Y_AXIS_COMPACT_LABEL_MAX_CHARS;
+        const rawName = spec.axisName.length > nameLimit
+          ? `${spec.axisName.slice(0, Math.max(1, nameLimit - 3))}...`
+          : spec.axisName;
+        const paddingX = Math.max(Y_AXIS_VERTICAL_LABEL_MIN_PADDING_X, spec.paddingX);
+        const paddingY = Math.max(Y_AXIS_VERTICAL_LABEL_MIN_PADDING_Y, spec.paddingY);
+        const textWidth = Math.ceil(Math.max(1, rawName.length) * spec.fontSize * 0.62);
+        const textHeight = Math.ceil(Math.max(10, spec.fontSize * 1.2));
+        const rectWidth = Math.ceil(textWidth + (paddingX * 2) + 2);
+        const rectHeight = Math.ceil(textHeight + (paddingY * 2) + 2);
+        const axisX = spec.position === "left"
+          ? Math.round(gridLeft - spec.offset)
+          : Math.round(rootWidth - gridRight + spec.offset);
+        const layerShiftX = spec.mode === "verticalLabel"
+          ? Math.ceil((rectHeight / 2) + spec.titleGap)
+          : Math.ceil((rectWidth / 2) + spec.titleGap);
+        const labelCenterX = axisX + (
+          spec.position === "left"
+            ? -layerShiftX
+            : layerShiftX
+        ) + spec.horizontalOffsetX;
+        const centerY = axisCenterY;
+        verticalAxisLabelGraphics.push({
+          id: `trend-axis-label-group-${spec.axisId}`,
+          type: "group",
+          silent: true,
+          zlevel: 40,
+          z: 40,
+          x: labelCenterX,
+          y: centerY,
+          rotation: spec.mode === "verticalLabel" ? Y_AXIS_VERTICAL_LABEL_ROTATION_RAD : 0,
+          originX: 0,
+          originY: 0,
+          children: [
+            {
+              id: `trend-axis-label-bg-${spec.axisId}`,
+              type: "rect",
+              silent: true,
+              z: 0,
+              shape: {
+                x: Math.round(-rectWidth / 2),
+                y: Math.round(-rectHeight / 2),
+                width: rectWidth,
+                height: rectHeight,
+                r: 3,
+              },
+              style: {
+                fill: spec.backgroundColor,
+                opacity: 1,
+                stroke: uiTheme.border,
+                lineWidth: 1,
+              },
+            },
+            {
+              id: `trend-axis-label-text-${spec.axisId}`,
+              type: "text",
+              silent: true,
+              zlevel: 40,
+              z: 2,
+              style: {
+                x: 0,
+                y: 0,
+                text: rawName,
+                textAlign: "center",
+                textVerticalAlign: "middle",
+                fill: spec.color,
+                fontSize: spec.fontSize,
+                fontFamily: "Consolas",
+                overflow: "truncate",
+                width: textWidth,
+              },
+            },
+          ],
+        });
+      }
     }
 
     const option: EChartsCoreOption = {
@@ -1034,6 +1206,7 @@ export function TrendChart({
         axisLabel: { show: settings.axisLabels, color: uiTheme.mutedText },
         splitLine: { show: settings.gridLines, lineStyle: { color: uiTheme.gridLine } },
       },
+      graphic: verticalAxisLabelGraphics,
       yAxis,
       dataZoom: interactiveZoomEnabled
         ? [
@@ -1092,7 +1265,7 @@ export function TrendChart({
     optionGuardRef.current = true;
     const setOptionStartedAt = debugPerf ? performance.now() : 0;
     const lazyUpdate = !liveModeRef.current;
-    const replaceMerge: Array<"series" | "yAxis"> = liveModeRef.current ? ["series"] : ["series", "yAxis"];
+    const replaceMerge: string[] = liveModeRef.current ? ["series", "yAxis", "graphic"] : ["series", "yAxis", "graphic"];
     chart.setOption(option, { notMerge: false, lazyUpdate, replaceMerge });
     const hasPointerPixels = pointerInsideRef.current
       && lastPointerPixelXRef.current !== null

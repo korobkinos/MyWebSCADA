@@ -8,6 +8,7 @@ export type TrendSeriesColumnWidths = Record<TrendSeriesColumnId, number>;
 
 export type TrendLineType = "solid" | "dashed" | "dotted";
 export type TrendRenderMode = "line" | "step" | "points";
+export type TrendAxisTitleMode = "hidden" | "compactLabel" | "verticalLabel";
 
 export type TrendAxisConfig = {
   id: string;
@@ -27,6 +28,8 @@ export type TrendAxisConfig = {
   axisNameGap?: number;
   axisNamePaddingX?: number;
   axisNamePaddingY?: number;
+  verticalLabelOffsetX?: number;
+  axisTitleMode?: TrendAxisTitleMode;
 };
 
 export type TrendTagSelection = {
@@ -94,6 +97,7 @@ export type TrendSettings = {
   separateAxisPerTag: boolean;
   axisPlacement: "left" | "right" | "split";
   axisOffsetStep: number;
+  axisScaleGap: number;
   showSeriesTable: boolean;
   seriesTableRows: number;
   table?: TrendTableSettings;

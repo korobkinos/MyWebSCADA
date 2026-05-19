@@ -698,6 +698,7 @@ export type TrendChartAggregationMode = "auto" | "raw" | "minmax" | "avg" | "ltt
 export type TrendChartRangePreset = "5m" | "15m" | "1h" | "8h" | "24h" | "custom";
 export type TrendChartLineType = "solid" | "dashed" | "dotted";
 export type TrendChartRenderMode = "line" | "step" | "points";
+export type TrendChartAxisTitleMode = "hidden" | "compactLabel" | "verticalLabel";
 
 export type TrendChartAxisConfig = {
   id: string;
@@ -709,6 +710,8 @@ export type TrendChartAxisConfig = {
   max?: number | "auto";
   color?: string;
   axisPointerLabelBackgroundColor?: string;
+  verticalLabelOffsetX?: number;
+  axisTitleMode?: TrendChartAxisTitleMode;
 };
 
 export type TrendChartSeriesConfig = {
@@ -752,6 +755,7 @@ export type TrendChartSettings = {
   separateAxisPerTag?: boolean;
   axisPlacement?: "left" | "right" | "split";
   axisOffsetStep?: number;
+  axisScaleGap?: number;
   showSeriesTable?: boolean;
   seriesTableRows?: number;
   table?: {
@@ -768,7 +772,16 @@ export type TrendChartSettings = {
     cellPaddingX?: number;
     cellPaddingY?: number;
   };
+  showToolbarMenuButton?: boolean;
+  showToolbarTagsButton?: boolean;
+  showToolbarLiveButton?: boolean;
+  showToolbarTimeRangeButton?: boolean;
+  showToolbarQuickRangeButtons?: boolean;
+  showToolbarPanButtons?: boolean;
+  showToolbarZoomButtons?: boolean;
+  showToolbarRefreshButton?: boolean;
   showToolbarScaleButton?: boolean;
+  showToolbarSettingsButton?: boolean;
 };
 
 export type TrendChartObject = HmiObjectBase & {
@@ -782,6 +795,9 @@ export type TrendChartObject = HmiObjectBase & {
   liveMode?: boolean;
   showToolbar?: boolean;
   showStatusBar?: boolean;
+  showRuntimeSettingsButton?: boolean;
+  allowRuntimeSettings?: boolean;
+  runtimeSettingsRequiredRole?: AccessRoleLevel;
 };
 
 export type HmiObject =

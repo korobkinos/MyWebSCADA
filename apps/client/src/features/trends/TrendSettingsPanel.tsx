@@ -1,7 +1,7 @@
 import { type ChangeEvent, type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ColorPicker } from "antd";
 import { WorkbenchButton } from "../../components/workbench";
-import type { TrendAxisConfig, TrendSettings, TrendTagSelection } from "./trendTypes";
+import type { TrendAxisConfig, TrendAxisTitleMode, TrendSettings, TrendTagSelection } from "./trendTypes";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { TREND_DEFAULT_AXIS_ID, createTrendAxisConfig, normalizeTrendAxes } from "./trendUtils";
 import { resolveTrendTheme } from "./trendTheme";
@@ -32,6 +32,7 @@ const TREND_TABLE_CELL_PADDING_Y_DEFAULT = 3;
 const AXES_COLUMNS = [
   { id: "id", label: "Axis", width: 128, min: 100 },
   { id: "name", label: "Name", width: 144, min: 110 },
+  { id: "titleMode", label: "Title Mode", width: 126, min: 114 },
   { id: "position", label: "Side", width: 74, min: 68 },
   { id: "offset", label: "Offset", width: 66, min: 60 },
   { id: "min", label: "Min", width: 132, min: 120 },
@@ -42,6 +43,7 @@ const AXES_COLUMNS = [
   { id: "nameGap", label: "Name Gap", width: 76, min: 70 },
   { id: "padX", label: "Pad X", width: 66, min: 60 },
   { id: "padY", label: "Pad Y", width: 66, min: 60 },
+  { id: "verticalOffsetX", label: "V Off X", width: 76, min: 70 },
   { id: "textColor", label: "Text", width: 86, min: 78 },
   { id: "cursorBg", label: "Cursor", width: 90, min: 82 },
   { id: "gridColor", label: "Grid", width: 86, min: 78 },
@@ -251,19 +253,24 @@ export function TrendSettingsPanel({
   const [activeTab, setActiveTab] = useState<TrendSettingsTab>("appearance");
   const [axisColumnWidths, setAxisColumnWidths] = useState<AxisColumnWidths>(() => readAxisColumnWidths());
   const [seriesColumnWidths, setSeriesColumnWidths] = useState<SeriesColumnWidths>(() => readSeriesColumnWidths());
+  const wasOpenRef = useRef(false);
   const axisResizeStateRef = useRef<{ id: AxisColumnId | null; startX: number; startWidth: number }>({ id: null, startX: 0, startWidth: 0 });
   const seriesResizeStateRef = useRef<{ id: SeriesColumnId | null; startX: number; startWidth: number }>({ id: null, startX: 0, startWidth: 0 });
 
   useEffect(() => {
+    const justOpened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
     if (!open) {
       return;
     }
     setDraftSettings(settings);
     setDraftAxes(normalizeTrendAxes(axes, settings));
     setDraftSelectedTags(selectedTags);
-    setActiveTab(initialTab ?? "appearance");
-    setAxisColumnWidths(readAxisColumnWidths());
-    setSeriesColumnWidths(readSeriesColumnWidths());
+    if (justOpened) {
+      setActiveTab(initialTab ?? "appearance");
+      setAxisColumnWidths(readAxisColumnWidths());
+      setSeriesColumnWidths(readSeriesColumnWidths());
+    }
   }, [axes, initialTab, open, selectedTags, settings]);
 
   useEffect(() => {
@@ -326,9 +333,25 @@ export function TrendSettingsPanel({
   const patchTableSettings = (patch: Partial<NonNullable<TrendSettings["table"]>>) => {
     setDraftSettings((prev) => ({ ...prev, table: { ...(prev.table ?? {}), ...patch } }));
   };
+  const applyAxisOffsetStep = (value: number) => {
+    const nextStep = clamp(Math.round(value), 8, 220);
+    setDraftSettings((prev) => ({ ...prev, axisOffsetStep: nextStep }));
+    setDraftAxes((prev) => {
+      const nextAxes = prev.map((axis) => ({ ...axis }));
+      for (const side of ["left", "right"] as const) {
+        const sideAxes = nextAxes
+          .filter((axis) => axis.position === side)
+          .sort((a, b) => (Number(a.offset ?? 0) - Number(b.offset ?? 0)) || a.id.localeCompare(b.id));
+        sideAxes.forEach((axis, index) => {
+          axis.offset = index * nextStep;
+        });
+      }
+      return nextAxes;
+    });
+  };
 
   const updateAxis = (axisId: string, patch: Partial<TrendAxisConfig>) => {
-    setDraftAxes((prev) => normalizeTrendAxes(prev.map((axis) => (axis.id === axisId ? { ...axis, ...patch } : axis)), draftSettings));
+    setDraftAxes((prev) => prev.map((axis) => (axis.id === axisId ? { ...axis, ...patch } : axis)));
   };
 
   const updateSeries = (tag: string, patch: Partial<TrendTagSelection>) => {
@@ -386,11 +409,10 @@ export function TrendSettingsPanel({
     )));
   };
 
-  const handleSave = () => {
+  const handleApply = () => {
     onSettingsChange(draftSettings);
     onAxesChange(normalizeTrendAxes(draftAxes, draftSettings));
     onSelectedTagsChange(draftSelectedTags);
-    onClose();
   };
 
   const axisUsageCount = useMemo(() => {
@@ -454,7 +476,7 @@ export function TrendSettingsPanel({
       footer={(
         <>
           <WorkbenchButton onClick={onClose}>Cancel</WorkbenchButton>
-          <WorkbenchButton variant="primary" onClick={handleSave}>Save</WorkbenchButton>
+          <WorkbenchButton variant="primary" onClick={handleApply}>Apply</WorkbenchButton>
         </>
       )}
       onClose={onClose}
@@ -593,7 +615,11 @@ export function TrendSettingsPanel({
                     </label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">Axis offset step</span>
-                      <input className="workbench-input" type="number" min={8} max={220} value={draftSettings.axisOffsetStep} onChange={(event) => onNumericInput(event, (value) => patchSettings({ axisOffsetStep: value }))} />
+                      <input className="workbench-input" type="number" min={8} max={220} value={draftSettings.axisOffsetStep} onChange={(event) => onNumericInput(event, applyAxisOffsetStep)} />
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Axis scale gap</span>
+                      <input className="workbench-input" type="number" min={0} max={64} value={draftSettings.axisScaleGap} onChange={(event) => onNumericInput(event, (value) => patchSettings({ axisScaleGap: value }))} />
                     </label>
                   </div>
                   <div className="trends-settings-toolbar-row">
@@ -620,6 +646,17 @@ export function TrendSettingsPanel({
                       <div className="screen-editor-tags-cell trends-settings-table__cell" title={axis.id}>{axis.id}</div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell">
                         <input className="workbench-input" value={axis.name ?? ""} onChange={(event) => updateAxis(axis.id, { name: event.target.value })} />
+                      </div>
+                      <div className="screen-editor-tags-cell trends-settings-table__cell">
+                        <select
+                          className="workbench-select"
+                          value={axis.axisTitleMode ?? "verticalLabel"}
+                          onChange={(event) => updateAxis(axis.id, { axisTitleMode: event.target.value as TrendAxisTitleMode })}
+                        >
+                          <option value="hidden">Hidden</option>
+                          <option value="compactLabel">Compact label</option>
+                          <option value="verticalLabel">Vertical label</option>
+                        </select>
                       </div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell">
                         <select className="workbench-select" value={axis.position} onChange={(event) => updateAxis(axis.id, { position: event.target.value as TrendAxisConfig["position"] })}>
@@ -668,13 +705,21 @@ export function TrendSettingsPanel({
                         <input className="workbench-input" type="number" value={axis.axisNameFontSize ?? 12} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNameFontSize: value }))} />
                       </div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell">
-                        <input className="workbench-input" type="number" value={axis.axisNameGap ?? 30} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNameGap: value }))} />
+                        <input className="workbench-input" type="number" value={axis.axisNameGap ?? 6} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNameGap: value }))} />
                       </div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell">
                         <input className="workbench-input" type="number" value={axis.axisNamePaddingX ?? 6} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNamePaddingX: value }))} />
                       </div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell">
-                        <input className="workbench-input" type="number" value={axis.axisNamePaddingY ?? 3} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNamePaddingY: value }))} />
+                        <input className="workbench-input" type="number" value={axis.axisNamePaddingY ?? 4} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNamePaddingY: value }))} />
+                      </div>
+                      <div className="screen-editor-tags-cell trends-settings-table__cell">
+                        <input
+                          className="workbench-input"
+                          type="number"
+                          value={axis.verticalLabelOffsetX ?? 0}
+                          onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { verticalLabelOffsetX: value }))}
+                        />
                       </div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell trends-settings-table__cell--color">
                         <TrendColorButton
