@@ -239,10 +239,10 @@
       },
       "scanRateMs": 1000,
       "simulation": {
-        "mode": "ramp",
-        "intervalMs": 1000,
         "min": 0,
         "max": 1000,
+        "mode": "ramp",
+        "intervalMs": 1000,
         "step": 1
       },
       "createdAt": "2026-05-11T18:36:38.972Z",

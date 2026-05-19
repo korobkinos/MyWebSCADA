@@ -27,6 +27,14 @@ export type DriverStatus = {
   lastSubscriptionUpdateAt?: number;
   subscriptionError?: string;
   subscriptionState?: "inactive" | "creating" | "active" | "error";
+  simulationTagCount?: number;
+  simulationGroupCount?: number;
+  simulationTagsPerGroup?: number[];
+  simulationLastTickDurationMs?: number;
+  simulationLastBatchSize?: number;
+  simulationGeneratedUpdates?: number;
+  simulationDroppedUpdates?: number;
+  simulationLastError?: string;
 };
 
 export interface Driver {

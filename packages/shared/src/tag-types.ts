@@ -42,14 +42,58 @@ export type SimulatedAddress = {
   value?: TagScalarValue;
 };
 
+export type TagSimulationProfile =
+  | "constant"
+  | "ramp"
+  | "random"
+  | "sin"
+  | "rampNoise"
+  | "sinNoise"
+  | "toggle"
+  | "randomBool";
+
+export type TagSimulationVariationMode = "same" | "perTagSeed" | "perTagPhase" | "perTagOffset" | "perTagNoise";
+
+// Legacy aliases kept for backward compatibility with older project files.
 export type TagSimulationMode = "manual" | "random" | "range" | "ramp" | "toggle" | "sine";
 
 export type TagSimulationSettings = {
-  mode?: TagSimulationMode;
-  intervalMs?: number;
+  enabled?: boolean;
+  profile?: TagSimulationProfile;
+  updateIntervalMs?: number;
   initialValue?: TagScalarValue;
   min?: number;
   max?: number;
+  ramp?: {
+    step?: number;
+    direction?: "up" | "down" | "pingPong";
+    resetOnLimit?: boolean;
+  };
+  random?: {
+    min?: number;
+    max?: number;
+  };
+  sin?: {
+    amplitude?: number;
+    offset?: number;
+    periodMs?: number;
+    phaseDeg?: number;
+  };
+  noise?: {
+    amplitude?: number;
+    type?: "uniform" | "normal";
+  };
+  toggle?: {
+    trueMs?: number;
+    falseMs?: number;
+  };
+  randomBool?: {
+    trueProbability?: number;
+  };
+  variationMode?: TagSimulationVariationMode;
+  // Legacy fields kept for backward compatibility with older project files.
+  mode?: TagSimulationMode;
+  intervalMs?: number;
   step?: number;
 };
 

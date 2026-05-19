@@ -5,6 +5,7 @@ import { SimulatedDriver } from "./simulated-driver";
 describe("SimulatedDriver ramp mode", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("updates numeric tags in ping-pong ramp mode", async () => {
@@ -22,24 +23,27 @@ describe("SimulatedDriver ramp mode", () => {
       dataType: "INT",
       driverId: "sim_ramp",
       simulation: {
-        mode: "ramp",
-        intervalMs: 1000,
+        enabled: true,
+        profile: "ramp",
+        updateIntervalMs: 1000,
         min: 0,
         max: 3,
-        step: 1,
+        ramp: {
+          step: 1,
+          direction: "pingPong",
+        },
         initialValue: 0,
       },
     };
 
-    let now = 1_000_000;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.useFakeTimers();
     await driver.start();
 
     const values: number[] = [];
     for (let i = 0; i < 7; i += 1) {
       const value = await driver.readTag(tag);
       values.push(Number(value.value));
-      now += 1000;
+      await vi.advanceTimersByTimeAsync(1000);
     }
 
     expect(values).toEqual([0, 1, 2, 3, 2, 1, 0]);

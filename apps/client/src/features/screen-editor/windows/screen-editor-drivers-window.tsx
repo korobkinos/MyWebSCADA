@@ -78,10 +78,8 @@ function defaultSimulationDriver(): SimulatedDriverConfig {
     enabled: true,
     name: "Simulation Driver",
     updateIntervalMs: 1000,
-    defaultMode: "ramp",
-    defaultMin: 0,
-    defaultMax: 100,
-    defaultStep: 1,
+    schedulerTickMs: 100,
+    defaultVariationMode: "perTagSeed",
   };
 }
 
@@ -554,6 +552,9 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
         type: "simulated",
         enabled: Boolean(simulationDraft.enabled),
         name: normalizeOptionalText(simulationDraft.name),
+        updateIntervalMs: typeof simulationDraft.updateIntervalMs === "number" ? Math.max(100, Math.round(simulationDraft.updateIntervalMs)) : undefined,
+        schedulerTickMs: typeof simulationDraft.schedulerTickMs === "number" ? Math.max(50, Math.round(simulationDraft.schedulerTickMs)) : undefined,
+        globalSeed: typeof simulationDraft.globalSeed === "number" ? Math.round(simulationDraft.globalSeed) : undefined,
       };
       updateProjectJson(upsertProjectDriver(project, normalized));
       await saveProject();
@@ -1190,45 +1191,43 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                     />
                   </label>
                   <label className="screen-editor-settings-field">
-                    <span>Mode</span>
+                    <span>Scheduler Tick (ms)</span>
+                    <input
+                      className="workbench-input"
+                      type="number"
+                      min={50}
+                      value={simulationDraft.schedulerTickMs ?? ""}
+                      onChange={(event) => setSimulationDraft((prev) => (prev ? { ...prev, schedulerTickMs: toOptionalNumber(event.target.value) } : prev))}
+                    />
+                  </label>
+                  <label className="screen-editor-settings-field">
+                    <span>Global Seed</span>
+                    <input
+                      className="workbench-input"
+                      type="number"
+                      value={simulationDraft.globalSeed ?? ""}
+                      onChange={(event) => setSimulationDraft((prev) => (prev ? { ...prev, globalSeed: toOptionalNumber(event.target.value) } : prev))}
+                    />
+                  </label>
+                  <label className="screen-editor-settings-field">
+                    <span>Default Variation</span>
                     <select
                       className="workbench-select"
-                      value={simulationDraft.defaultMode ?? "ramp"}
-                      onChange={(event) => setSimulationDraft((prev) => (prev
-                        ? { ...prev, defaultMode: event.target.value as SimulatedDriverConfig["defaultMode"] }
-                        : prev))}
+                      value={simulationDraft.defaultVariationMode ?? "perTagSeed"}
+                      onChange={(event) =>
+                        setSimulationDraft((prev) => (prev
+                          ? {
+                            ...prev,
+                            defaultVariationMode: event.target.value as NonNullable<SimulatedDriverConfig["defaultVariationMode"]>,
+                          }
+                          : prev))}
                     >
-                      <option value="manual">Manual</option>
-                      <option value="random">Random</option>
-                      <option value="ramp">Ramp</option>
+                      <option value="perTagSeed">Per-tag Seed</option>
+                      <option value="same">Same</option>
+                      <option value="perTagPhase">Per-tag Phase</option>
+                      <option value="perTagOffset">Per-tag Offset</option>
+                      <option value="perTagNoise">Per-tag Noise</option>
                     </select>
-                  </label>
-                  <label className="screen-editor-settings-field">
-                    <span>Default Analog Min</span>
-                    <input
-                      className="workbench-input"
-                      type="number"
-                      value={simulationDraft.defaultMin ?? ""}
-                      onChange={(event) => setSimulationDraft((prev) => (prev ? { ...prev, defaultMin: toOptionalNumber(event.target.value) } : prev))}
-                    />
-                  </label>
-                  <label className="screen-editor-settings-field">
-                    <span>Default Analog Max</span>
-                    <input
-                      className="workbench-input"
-                      type="number"
-                      value={simulationDraft.defaultMax ?? ""}
-                      onChange={(event) => setSimulationDraft((prev) => (prev ? { ...prev, defaultMax: toOptionalNumber(event.target.value) } : prev))}
-                    />
-                  </label>
-                  <label className="screen-editor-settings-field">
-                    <span>Default Step</span>
-                    <input
-                      className="workbench-input"
-                      type="number"
-                      value={simulationDraft.defaultStep ?? ""}
-                      onChange={(event) => setSimulationDraft((prev) => (prev ? { ...prev, defaultStep: toOptionalNumber(event.target.value) } : prev))}
-                    />
                   </label>
                 </>
               ) : (
@@ -1249,8 +1248,40 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                 <span>Simulated Tags</span>
                 <strong>{simulatedTagsCount}</strong>
               </div>
+              <div className="screen-editor-drivers-status-line">
+                <span>Simulation Groups</span>
+                <strong>{simulationStatus?.simulationGroupCount ?? 0}</strong>
+              </div>
+              <div className="screen-editor-drivers-status-line">
+                <span>Last Tick Duration</span>
+                <strong>
+                  {typeof simulationStatus?.simulationLastTickDurationMs === "number"
+                    ? `${simulationStatus.simulationLastTickDurationMs} ms`
+                    : "-"}
+                </strong>
+              </div>
+              <div className="screen-editor-drivers-status-line">
+                <span>Last Batch Size</span>
+                <strong>{simulationStatus?.simulationLastBatchSize ?? 0}</strong>
+              </div>
+              <div className="screen-editor-drivers-status-line">
+                <span>Generated Updates</span>
+                <strong>{simulationStatus?.simulationGeneratedUpdates ?? 0}</strong>
+              </div>
+              <div className="screen-editor-drivers-status-line">
+                <span>Dropped Updates</span>
+                <strong>{simulationStatus?.simulationDroppedUpdates ?? 0}</strong>
+              </div>
+              <div className="screen-editor-drivers-status-line">
+                <span>Tags per Group</span>
+                <strong>{(simulationStatus?.simulationTagsPerGroup ?? []).join(", ") || "-"}</strong>
+              </div>
+              <div className="screen-editor-drivers-status-line">
+                <span>Last Error</span>
+                <strong>{simulationStatus?.simulationLastError ?? "-"}</strong>
+              </div>
               <div className="screen-editor-drivers-note">
-                Per-tag simulation behavior is configured in Tags window for tags with Source Type = Simulated.
+                Per-tag simulation behavior is configured only in Tags window for tags with Source Type = Simulated.
               </div>
             </div>
           </WorkbenchSection>

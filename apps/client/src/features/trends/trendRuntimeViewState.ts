@@ -91,6 +91,7 @@ function normalizeTagPickerFilters(source: unknown, defaults: TrendTagPickerFilt
   return {
     search: typeof value?.search === "string" ? value.search : defaults.search,
     groupFilter: typeof value?.groupFilter === "string" ? value.groupFilter : defaults.groupFilter,
+    driverFilter: typeof value?.driverFilter === "string" ? value.driverFilter : defaults.driverFilter,
     selectionFilter: value?.selectionFilter === "added" ? "added" : "all",
   };
 }

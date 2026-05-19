@@ -1,13 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { TagDefinition, TagScalarValue, TagSimulationMode, TagSimulationSettings, TagSourceType } from "@web-scada/shared";
-import { message } from "antd";
+import type { TagDefinition, TagScalarValue, TagSimulationProfile, TagSimulationSettings, TagSourceType } from "@web-scada/shared";
+import { message, Modal } from "antd";
 import { WorkbenchButton, WorkbenchWindow, type WorkbenchWindowRect } from "../../../components/workbench";
 import { api, type OpcUaBrowseItem } from "../../../services/api";
 import { useScadaStore } from "../../../store/scada-store";
 
 type TagEditorMode = "view" | "add" | "edit";
 type SourceFilter = "all" | TagSourceType;
+type SimulationBulkMode = "patch" | "replace" | "fillEmpty";
+type BulkFieldKey =
+  | "enabled"
+  | "profile"
+  | "updateIntervalMs"
+  | "min"
+  | "max"
+  | "initialValue"
+  | "ramp.step"
+  | "ramp.direction"
+  | "ramp.resetOnLimit"
+  | "random.min"
+  | "random.max"
+  | "sin.amplitude"
+  | "sin.offset"
+  | "sin.periodMs"
+  | "sin.phaseDeg"
+  | "noise.amplitude"
+  | "noise.type"
+  | "toggle.trueMs"
+  | "toggle.falseMs"
+  | "randomBool.trueProbability"
+  | "variationMode";
 type TagColumnId = "name" | "source" | "dataType" | "driver" | "address" | "group" | "writable";
 type TagColumnConfig = {
   id: TagColumnId;
@@ -39,6 +62,9 @@ const DEFAULT_PAGE_SIZE = 100;
 const OPC_BROWSER_MIN_WIDTH = 720;
 const OPC_BROWSER_MIN_HEIGHT = 420;
 const OPC_BROWSER_DEFAULT_RECT: WorkbenchWindowRect = { x: 120, y: 80, width: 980, height: 650 };
+const CREATE_SIMULATION_MIN_WIDTH = 720;
+const CREATE_SIMULATION_MIN_HEIGHT = 520;
+const CREATE_SIMULATION_DEFAULT_RECT: WorkbenchWindowRect = { x: 180, y: 90, width: 900, height: 680 };
 const OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES = 20_000;
 const OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE = 500;
 
@@ -140,6 +166,31 @@ const dataTypeOptions: TagDefinition["dataType"][] = [
 ];
 const OPC_UA_BROWSE_ROOT_NODE_ID = "RootFolder";
 const NUMERIC_TAG_DATA_TYPES = new Set<TagDefinition["dataType"]>(["INT", "UINT", "DINT", "UDINT", "REAL"]);
+const SIMULATION_MIN_INTERVAL_MS = 100;
+const SIMULATION_BULK_CREATE_LIMIT = 5000;
+const BULK_FIELD_KEYS: BulkFieldKey[] = [
+  "enabled",
+  "profile",
+  "updateIntervalMs",
+  "min",
+  "max",
+  "initialValue",
+  "ramp.step",
+  "ramp.direction",
+  "ramp.resetOnLimit",
+  "random.min",
+  "random.max",
+  "sin.amplitude",
+  "sin.offset",
+  "sin.periodMs",
+  "sin.phaseDeg",
+  "noise.amplitude",
+  "noise.type",
+  "toggle.trueMs",
+  "toggle.falseMs",
+  "randomBool.trueProbability",
+  "variationMode",
+];
 
 function isBoolType(dataType: TagDefinition["dataType"]): boolean {
   return dataType === "BOOL";
@@ -153,111 +204,196 @@ function isNumericType(dataType: TagDefinition["dataType"]): boolean {
   return NUMERIC_TAG_DATA_TYPES.has(dataType);
 }
 
-function getDefaultSimulationMode(dataType: TagDefinition["dataType"]): TagSimulationMode {
+function getDefaultSimulationProfile(dataType: TagDefinition["dataType"]): TagSimulationProfile {
   if (isBoolType(dataType)) {
     return "toggle";
   }
   if (isStringType(dataType)) {
-    return "manual";
+    return "constant";
   }
   return "ramp";
 }
 
-function modeFromLegacyPattern(
+function profileFromLegacyPattern(
   pattern: unknown,
   dataType: TagDefinition["dataType"],
-): TagSimulationMode {
+): TagSimulationProfile {
   const value = typeof pattern === "string" ? pattern : "";
   if (isBoolType(dataType)) {
     if (value === "toggle") {
       return "toggle";
     }
     if (value === "random") {
-      return "random";
+      return "randomBool";
     }
-    return "manual";
+    return "constant";
   }
   if (isStringType(dataType)) {
-    return "manual";
+    return "constant";
   }
   if (value === "random") {
-    return "range";
+    return "random";
   }
   if (value === "sine") {
-    return "sine";
+    return "sin";
   }
   if (value === "static") {
-    return "manual";
+    return "constant";
   }
-  return getDefaultSimulationMode(dataType);
+  return getDefaultSimulationProfile(dataType);
 }
 
-function modeToLegacyPattern(
-  mode: TagSimulationMode | undefined,
-  dataType: TagDefinition["dataType"],
-): "toggle" | "sine" | "random" | "static" {
-  if (isBoolType(dataType)) {
-    if (mode === "toggle") {
-      return "toggle";
-    }
-    if (mode === "random") {
-      return "random";
-    }
-    return "static";
-  }
-  if (isStringType(dataType)) {
-    return "static";
-  }
+function profileFromLegacyMode(mode: TagSimulationSettings["mode"] | undefined): TagSimulationProfile | undefined {
   if (mode === "manual") {
-    return "static";
+    return "constant";
   }
   if (mode === "random" || mode === "range") {
     return "random";
   }
+  if (mode === "ramp") {
+    return "ramp";
+  }
+  if (mode === "toggle") {
+    return "toggle";
+  }
   if (mode === "sine") {
+    return "sin";
+  }
+  return undefined;
+}
+
+function profileToLegacyPattern(
+  profile: TagSimulationProfile | undefined,
+  dataType: TagDefinition["dataType"],
+): "toggle" | "sine" | "random" | "static" {
+  if (isBoolType(dataType)) {
+    if (profile === "toggle") {
+      return "toggle";
+    }
+    if (profile === "randomBool" || profile === "random") {
+      return "random";
+    }
+    return "static";
+  }
+  if (isStringType(dataType)) {
+    return "static";
+  }
+  if (profile === "constant") {
+    return "static";
+  }
+  if (profile === "random") {
+    return "random";
+  }
+  if (profile === "sin" || profile === "sinNoise") {
     return "sine";
   }
   return "sine";
 }
 
-function coerceModeForDataType(mode: TagSimulationMode | undefined, dataType: TagDefinition["dataType"]): TagSimulationMode {
+function coerceProfileForDataType(
+  profile: TagSimulationProfile | undefined,
+  dataType: TagDefinition["dataType"],
+): TagSimulationProfile {
   if (isBoolType(dataType)) {
-    if (mode === "toggle" || mode === "random" || mode === "manual") {
-      return mode;
+    if (profile === "constant" || profile === "toggle" || profile === "randomBool" || profile === "random") {
+      return profile;
     }
-    return "manual";
+    return "toggle";
   }
   if (isStringType(dataType)) {
-    return "manual";
+    return "constant";
   }
-  if (mode === "toggle") {
-    return "manual";
+  if (profile === "toggle" || profile === "randomBool") {
+    return "random";
   }
-  if (mode === "random") {
-    return "range";
+  if (
+    profile === "constant"
+    || profile === "ramp"
+    || profile === "random"
+    || profile === "sin"
+    || profile === "rampNoise"
+    || profile === "sinNoise"
+  ) {
+    return profile;
   }
-  if (mode === "manual" || mode === "range" || mode === "ramp" || mode === "sine") {
-    return mode;
-  }
-  return getDefaultSimulationMode(dataType);
+  return getDefaultSimulationProfile(dataType);
 }
 
 function toSimulationSettings(tag: TagDefinition): TagSimulationSettings {
+  const address = (tag.address ?? {}) as Record<string, unknown>;
+  const profile = coerceProfileForDataType(
+    tag.simulation?.profile
+      ?? profileFromLegacyMode(tag.simulation?.mode)
+      ?? profileFromLegacyPattern(address.pattern, tag.dataType),
+    tag.dataType,
+  );
   if (tag.simulation) {
+    const min = typeof tag.simulation.min === "number" ? tag.simulation.min : (typeof address.min === "number" ? address.min : undefined);
+    const max = typeof tag.simulation.max === "number" ? tag.simulation.max : (typeof address.max === "number" ? address.max : undefined);
     return {
       ...tag.simulation,
-      mode: coerceModeForDataType(tag.simulation.mode, tag.dataType),
+      enabled: tag.simulation.enabled ?? true,
+      profile,
+      updateIntervalMs: tag.simulation.updateIntervalMs ?? tag.simulation.intervalMs ?? (typeof address.periodMs === "number" ? address.periodMs : tag.scanRateMs),
+      min,
+      max,
+      ramp: {
+        step: tag.simulation.ramp?.step ?? tag.simulation.step,
+        direction: tag.simulation.ramp?.direction ?? "pingPong",
+        resetOnLimit: tag.simulation.ramp?.resetOnLimit ?? false,
+      },
+      random: {
+        min: tag.simulation.random?.min ?? min,
+        max: tag.simulation.random?.max ?? max,
+      },
+      sin: {
+        amplitude: tag.simulation.sin?.amplitude,
+        offset: tag.simulation.sin?.offset,
+        periodMs: tag.simulation.sin?.periodMs ?? (typeof address.periodMs === "number" ? address.periodMs : undefined),
+        phaseDeg: tag.simulation.sin?.phaseDeg ?? 0,
+      },
+      noise: {
+        amplitude: tag.simulation.noise?.amplitude ?? 0,
+        type: tag.simulation.noise?.type ?? "uniform",
+      },
+      toggle: {
+        trueMs: tag.simulation.toggle?.trueMs,
+        falseMs: tag.simulation.toggle?.falseMs,
+      },
+      randomBool: {
+        trueProbability: tag.simulation.randomBool?.trueProbability ?? 0.5,
+      },
+      variationMode: tag.simulation.variationMode ?? "perTagSeed",
     };
   }
-  const address = (tag.address ?? {}) as Record<string, unknown>;
-  const mode = coerceModeForDataType(modeFromLegacyPattern(address.pattern, tag.dataType), tag.dataType);
   return {
-    mode,
-    intervalMs: typeof address.periodMs === "number" ? address.periodMs : tag.scanRateMs,
+    enabled: true,
+    profile,
+    updateIntervalMs: typeof address.periodMs === "number" ? address.periodMs : tag.scanRateMs,
     initialValue: (address.value as TagScalarValue | undefined) ?? undefined,
     min: typeof address.min === "number" ? address.min : undefined,
     max: typeof address.max === "number" ? address.max : undefined,
-    step: typeof address.step === "number" ? address.step : undefined,
+    ramp: {
+      step: typeof address.step === "number" ? address.step : undefined,
+      direction: "pingPong",
+      resetOnLimit: false,
+    },
+    random: {
+      min: typeof address.min === "number" ? address.min : undefined,
+      max: typeof address.max === "number" ? address.max : undefined,
+    },
+    sin: {
+      periodMs: typeof address.periodMs === "number" ? address.periodMs : undefined,
+      phaseDeg: 0,
+    },
+    noise: {
+      amplitude: 0,
+      type: "uniform",
+    },
+    randomBool: {
+      trueProbability: 0.5,
+    },
+    variationMode: "perTagSeed",
   };
 }
 
@@ -271,10 +407,10 @@ function syncLegacySimulationAddress(tag: TagDefinition): TagDefinition {
   const simulation = tag.simulation;
   const nextAddress: Record<string, unknown> = {
     ...baseAddress,
-    pattern: modeToLegacyPattern(simulation.mode, tag.dataType),
+    pattern: profileToLegacyPattern(simulation.profile, tag.dataType),
   };
-  if (typeof simulation.intervalMs === "number") {
-    nextAddress.periodMs = simulation.intervalMs;
+  if (typeof simulation.updateIntervalMs === "number") {
+    nextAddress.periodMs = simulation.updateIntervalMs;
   } else {
     delete nextAddress.periodMs;
   }
@@ -288,8 +424,8 @@ function syncLegacySimulationAddress(tag: TagDefinition): TagDefinition {
   } else {
     delete nextAddress.max;
   }
-  if (typeof simulation.step === "number") {
-    nextAddress.step = simulation.step;
+  if (typeof simulation.ramp?.step === "number") {
+    nextAddress.step = simulation.ramp.step;
   } else {
     delete nextAddress.step;
   }
@@ -319,10 +455,89 @@ function withSimulationPatch(
     ...tag,
     simulation: {
       ...nextSimulation,
-      mode: coerceModeForDataType(nextSimulation.mode, tag.dataType),
+      profile: coerceProfileForDataType(nextSimulation.profile, tag.dataType),
     },
   };
   return syncLegacySimulationAddress(normalized);
+}
+
+function getSimulationFieldValue(simulation: TagSimulationSettings, key: BulkFieldKey): unknown {
+  const parts = key.split(".");
+  let cursor: unknown = simulation;
+  for (const part of parts) {
+    if (!cursor || typeof cursor !== "object") {
+      return undefined;
+    }
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  return cursor;
+}
+
+function setSimulationFieldValue(simulation: TagSimulationSettings, key: BulkFieldKey, value: unknown): TagSimulationSettings {
+  const next = structuredClone(simulation) as Record<string, unknown>;
+  const parts = key.split(".");
+  let cursor: Record<string, unknown> = next;
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const part = parts[index]!;
+    const current = cursor[part];
+    if (!current || typeof current !== "object") {
+      cursor[part] = {};
+    }
+    cursor = cursor[part] as Record<string, unknown>;
+  }
+  cursor[parts[parts.length - 1]!] = value;
+  return next as TagSimulationSettings;
+}
+
+function isEmptyBulkValue(value: unknown): boolean {
+  return value === undefined || value === null || value === "";
+}
+
+function normalizeSimulationForSave(simulation: TagSimulationSettings, dataType: TagDefinition["dataType"]): TagSimulationSettings {
+  const normalized = {
+    ...simulation,
+    profile: coerceProfileForDataType(simulation.profile, dataType),
+  };
+  if (typeof normalized.updateIntervalMs === "number") {
+    normalized.updateIntervalMs = Math.max(SIMULATION_MIN_INTERVAL_MS, Math.round(normalized.updateIntervalMs));
+  }
+  return normalized;
+}
+
+function coerceInitialValueByDataType(value: TagScalarValue | undefined, dataType: TagDefinition["dataType"]): TagScalarValue | undefined {
+  if (value === undefined || value === null) {
+    return value;
+  }
+  if (isBoolType(dataType)) {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      return value.toLowerCase() === "true";
+    }
+    if (typeof value === "number") {
+      return value !== 0;
+    }
+    return false;
+  }
+  if (isStringType(dataType)) {
+    return String(value);
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function createBulkApplyFlags(): Record<BulkFieldKey, boolean> {
+  return BULK_FIELD_KEYS.reduce<Record<BulkFieldKey, boolean>>((acc, key) => {
+    acc[key] = key === "profile" || key === "enabled" || key === "updateIntervalMs";
+    return acc;
+  }, {} as Record<BulkFieldKey, boolean>);
 }
 
 function clampOpcBrowserRect(rect: WorkbenchWindowRect): WorkbenchWindowRect {
@@ -331,6 +546,15 @@ function clampOpcBrowserRect(rect: WorkbenchWindowRect): WorkbenchWindowRect {
     y: Math.max(0, Math.round(rect.y)),
     width: Math.max(OPC_BROWSER_MIN_WIDTH, Math.round(rect.width)),
     height: Math.max(OPC_BROWSER_MIN_HEIGHT, Math.round(rect.height)),
+  };
+}
+
+function clampCreateSimulationRect(rect: WorkbenchWindowRect): WorkbenchWindowRect {
+  return {
+    x: Math.max(0, Math.round(rect.x)),
+    y: Math.max(0, Math.round(rect.y)),
+    width: Math.max(CREATE_SIMULATION_MIN_WIDTH, Math.round(rect.width)),
+    height: Math.max(CREATE_SIMULATION_MIN_HEIGHT, Math.round(rect.height)),
   };
 }
 
@@ -827,12 +1051,28 @@ function normalizeDraft(draft: TagDefinition, isEditing: boolean): TagDefinition
       ...normalized,
       simulation: {
         ...simulation,
-        mode: coerceModeForDataType(simulation.mode, normalized.dataType),
+        profile: coerceProfileForDataType(simulation.profile, normalized.dataType),
       },
     });
   }
 
   return normalized;
+}
+
+function createDefaultSimulationSettingsDraft(dataType: TagDefinition["dataType"]): TagSimulationSettings {
+  return normalizeSimulationForSave(
+    toSimulationSettings({
+      name: "__simulation_draft__",
+      sourceType: "simulated",
+      dataType,
+      simulation: {
+        enabled: true,
+        profile: getDefaultSimulationProfile(dataType),
+        updateIntervalMs: 1000,
+      },
+    }),
+    dataType,
+  );
 }
 
 export function ScreenEditorTagsWindow() {
@@ -850,6 +1090,7 @@ export function ScreenEditorTagsWindow() {
   const [driverFilter, setDriverFilter] = useState<string | "all">("all");
   const [groupFilter, setGroupFilter] = useState<string | "all">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedTagKeys, setSelectedTagKeys] = useState<Set<string>>(() => new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editorMode, setEditorMode] = useState<TagEditorMode>("view");
   const [draftTag, setDraftTag] = useState<TagDefinition | null>(null);
@@ -893,6 +1134,8 @@ export function ScreenEditorTagsWindow() {
     return parseStoredOpcBrowserRect(window.localStorage.getItem(OPC_BROWSER_RECT_STORAGE_KEY));
   });
   const [opcBrowserZIndex, setOpcBrowserZIndex] = useState(40);
+  const [createSimulationRect, setCreateSimulationRect] = useState<WorkbenchWindowRect>(CREATE_SIMULATION_DEFAULT_RECT);
+  const [createSimulationZIndex, setCreateSimulationZIndex] = useState(45);
   const [opcBrowseDriverId, setOpcBrowseDriverId] = useState("");
   const [opcBrowseNodeId, setOpcBrowseNodeId] = useState(OPC_UA_BROWSE_ROOT_NODE_ID);
   const [opcBrowseSearch, setOpcBrowseSearch] = useState("");
@@ -910,6 +1153,20 @@ export function ScreenEditorTagsWindow() {
   const [opcImportSubtreeScanRateMs, setOpcImportSubtreeScanRateMs] = useState(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE));
   const [opcImportSubtreeMaxNodes, setOpcImportSubtreeMaxNodes] = useState(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES));
   const [opcReadLoading, setOpcReadLoading] = useState(false);
+  const [bulkSimulationOpen, setBulkSimulationOpen] = useState(false);
+  const [bulkSimulationMode, setBulkSimulationMode] = useState<SimulationBulkMode>("patch");
+  const [bulkApplyFlags, setBulkApplyFlags] = useState<Record<BulkFieldKey, boolean>>(() => createBulkApplyFlags());
+  const [bulkSimulationDraft, setBulkSimulationDraft] = useState<TagSimulationSettings>(() => createDefaultSimulationSettingsDraft("REAL"));
+  const [bulkApplyToFiltered, setBulkApplyToFiltered] = useState(false);
+  const [createSimulationOpen, setCreateSimulationOpen] = useState(false);
+  const [createSimulationPrefix, setCreateSimulationPrefix] = useState("AI_SIM");
+  const [createSimulationStartIndex, setCreateSimulationStartIndex] = useState(1);
+  const [createSimulationCount, setCreateSimulationCount] = useState(100);
+  const [createSimulationPadding, setCreateSimulationPadding] = useState(3);
+  const [createSimulationDataType, setCreateSimulationDataType] = useState<TagDefinition["dataType"]>("REAL");
+  const [createSimulationGroup, setCreateSimulationGroup] = useState("");
+  const [createSimulationAddressPattern, setCreateSimulationAddressPattern] = useState("SIM.{index}");
+  const [createSimulationDraft, setCreateSimulationDraft] = useState<TagSimulationSettings>(() => createDefaultSimulationSettingsDraft("REAL"));
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const detailsWidthDraftRef = useRef(detailsWidth);
@@ -962,6 +1219,13 @@ export function ScreenEditorTagsWindow() {
     setPage(1);
   }, [search, sourceFilter, driverFilter, groupFilter]);
 
+  useEffect(() => {
+    setCreateSimulationDraft((prev) => normalizeSimulationForSave({
+      ...prev,
+      profile: coerceProfileForDataType(prev.profile, createSimulationDataType),
+    }, createSimulationDataType));
+  }, [createSimulationDataType]);
+
   const totalRows = filteredTags.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -994,7 +1258,7 @@ export function ScreenEditorTagsWindow() {
   const isSimBool = isBoolType(simulationDataType);
   const isSimString = isStringType(simulationDataType);
   const isSimNumeric = isNumericType(simulationDataType);
-  const simulationMode = coerceModeForDataType(draftSimulation?.mode, simulationDataType);
+  const simulationProfile = coerceProfileForDataType(draftSimulation?.profile, simulationDataType);
   const editorDriverOptions = drivers.filter((driver) => {
     if (sourceType === "opcua") {
       return driver.type === "opcua";
@@ -1004,6 +1268,50 @@ export function ScreenEditorTagsWindow() {
     }
     return false;
   });
+  const simulationDrivers = useMemo(
+    () => drivers.filter((driver) => driver.type === "simulated"),
+    [drivers],
+  );
+  const filteredTagKeys = useMemo(() => new Set(filteredTags.map((tag) => tagKey(tag))), [filteredTags]);
+  const selectedFilteredTags = useMemo(
+    () => filteredTags.filter((tag) => selectedTagKeys.has(tagKey(tag))),
+    [filteredTags, selectedTagKeys],
+  );
+  const selectedSimulationTargets = useMemo(
+    () => selectedFilteredTags.filter((tag) => (tag.sourceType ?? "simulated") === "simulated"),
+    [selectedFilteredTags],
+  );
+  const createSimulationNamePreview = useMemo(() => {
+    const prefix = createSimulationPrefix.trim() || "AI_SIM";
+    const count = Math.max(0, Math.floor(createSimulationCount));
+    const startIndex = Math.floor(createSimulationStartIndex);
+    const padding = Math.max(0, Math.floor(createSimulationPadding));
+    const names = Array.from({ length: Math.min(count, 6) }, (_, index) => {
+      const current = startIndex + index;
+      return `${prefix}_${String(Math.max(0, current)).padStart(padding, "0")}`;
+    });
+    if (count > 6) {
+      const tailStart = Math.max(0, count - 3);
+      for (let index = tailStart; index < count; index += 1) {
+        const current = startIndex + index;
+        names.push(`${prefix}_${String(Math.max(0, current)).padStart(padding, "0")}`);
+      }
+    }
+    return names;
+  }, [createSimulationCount, createSimulationPadding, createSimulationPrefix, createSimulationStartIndex]);
+
+  useEffect(() => {
+    const existingKeys = new Set(tags.map((tag) => tagKey(tag)));
+    setSelectedTagKeys((prev) => {
+      const next = new Set<string>();
+      for (const key of prev) {
+        if (existingKeys.has(key)) {
+          next.add(key);
+        }
+      }
+      return next;
+    });
+  }, [tags]);
 
   const saveTags = (nextTags: TagDefinition[]): void => {
     updateProjectJson({
@@ -1402,6 +1710,10 @@ export function ScreenEditorTagsWindow() {
     setOpcBrowserZIndex((value) => value + 1);
   }, []);
 
+  const focusCreateSimulationWindow = useCallback(() => {
+    setCreateSimulationZIndex((value) => value + 1);
+  }, []);
+
   const handleOpcDriverChange = (nextDriverId: string): void => {
     setOpcBrowseDriverId(nextDriverId);
     setOpcBrowseNodeId(OPC_UA_BROWSE_ROOT_NODE_ID);
@@ -1511,10 +1823,10 @@ export function ScreenEditorTagsWindow() {
     if (normalized.sourceType === "simulated") {
       const simulation = {
         ...toSimulationSettings(normalized),
-        mode: coerceModeForDataType(normalized.simulation?.mode, normalized.dataType),
+        profile: coerceProfileForDataType(normalized.simulation?.profile, normalized.dataType),
       };
-      if (typeof simulation.intervalMs === "number" && simulation.intervalMs <= 0) {
-        void message.error("Simulation interval must be greater than 0 ms");
+      if (typeof simulation.updateIntervalMs === "number" && simulation.updateIntervalMs < SIMULATION_MIN_INTERVAL_MS) {
+        void message.error(`Simulation interval must be at least ${SIMULATION_MIN_INTERVAL_MS} ms`);
         return;
       }
       if (isNumericType(normalized.dataType)) {
@@ -1522,11 +1834,15 @@ export function ScreenEditorTagsWindow() {
           void message.error("Simulation Min must be less than or equal to Max");
           return;
         }
-        if (typeof simulation.step === "number" && simulation.step < 0) {
+        if (typeof simulation.noise?.amplitude === "number" && simulation.noise.amplitude < 0) {
+          void message.error("Simulation Noise amplitude must be greater than or equal to 0");
+          return;
+        }
+        if (typeof simulation.ramp?.step === "number" && simulation.ramp.step < 0) {
           void message.error("Simulation Step must be greater than or equal to 0");
           return;
         }
-        if (simulation.mode === "ramp" && typeof simulation.step === "number" && simulation.step <= 0) {
+        if (simulation.profile === "ramp" && typeof simulation.ramp?.step === "number" && simulation.ramp.step <= 0) {
           void message.error("Ramp mode requires Step greater than 0");
           return;
         }
@@ -1600,6 +1916,172 @@ export function ScreenEditorTagsWindow() {
     const nextTags = [...tags, duplicated];
     saveTags(nextTags);
     setSelectedId(tagKey(duplicated));
+  };
+
+  const toggleTagSelection = (key: string): void => {
+    setSelectedTagKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = (): void => {
+    setSelectedTagKeys((prev) => {
+      const next = new Set(prev);
+      const allSelected = filteredTags.length > 0 && filteredTags.every((tag) => next.has(tagKey(tag)));
+      if (allSelected) {
+        for (const tag of filteredTags) {
+          next.delete(tagKey(tag));
+        }
+      } else {
+        for (const tag of filteredTags) {
+          next.add(tagKey(tag));
+        }
+      }
+      return next;
+    });
+  };
+
+  const openBulkSimulationDialog = (): void => {
+    const source = selectedSimulationTargets[0] ?? filteredTags.find((tag) => (tag.sourceType ?? "simulated") === "simulated");
+    if (source) {
+      setBulkSimulationDraft(toSimulationSettings(source));
+    } else {
+      setBulkSimulationDraft(createDefaultSimulationSettingsDraft("REAL"));
+    }
+    setBulkApplyFlags(createBulkApplyFlags());
+    setBulkSimulationMode("patch");
+    setBulkApplyToFiltered(false);
+    setBulkSimulationOpen(true);
+  };
+
+  const openCreateSimulationWindow = (): void => {
+    setCreateSimulationZIndex((value) => value + 1);
+    setCreateSimulationOpen(true);
+  };
+
+  const applyBulkSimulation = (): void => {
+    const selectedKeys = bulkApplyToFiltered ? filteredTagKeys : selectedTagKeys;
+    const targets = tags.filter((tag) => selectedKeys.has(tagKey(tag)) && (tag.sourceType ?? "simulated") === "simulated");
+    if (targets.length === 0) {
+      void message.warning("Select simulated tags or enable Apply to filtered tags");
+      return;
+    }
+
+    const applySingle = (tag: TagDefinition): TagDefinition => {
+      const current = toSimulationSettings(tag);
+      let next = bulkSimulationMode === "replace"
+        ? normalizeSimulationForSave(structuredClone(bulkSimulationDraft), tag.dataType)
+        : structuredClone(current);
+
+      if (bulkSimulationMode !== "replace") {
+        for (const fieldKey of BULK_FIELD_KEYS) {
+          if (!bulkApplyFlags[fieldKey]) {
+            continue;
+          }
+          const incoming = getSimulationFieldValue(bulkSimulationDraft, fieldKey);
+          if (bulkSimulationMode === "fillEmpty") {
+            const existing = getSimulationFieldValue(next, fieldKey);
+            if (!isEmptyBulkValue(existing)) {
+              continue;
+            }
+          }
+          next = setSimulationFieldValue(next, fieldKey, incoming);
+        }
+      }
+
+      next.initialValue = coerceInitialValueByDataType(next.initialValue, tag.dataType);
+      next = normalizeSimulationForSave(next, tag.dataType);
+      return syncLegacySimulationAddress({
+        ...tag,
+        simulation: next,
+      });
+    };
+
+    const nextTags = tags.map((tag) => (
+      selectedKeys.has(tagKey(tag)) && (tag.sourceType ?? "simulated") === "simulated"
+        ? applySingle(tag)
+        : tag
+    ));
+    saveTags(nextTags);
+    setBulkSimulationOpen(false);
+    void message.success(`Applied simulation profile to ${targets.length} tag(s)`);
+  };
+
+  const applyCreateSimulationTags = (): void => {
+    const prefix = createSimulationPrefix.trim();
+    const count = Math.max(0, Math.floor(createSimulationCount));
+    const startIndex = Math.floor(createSimulationStartIndex);
+    const padding = Math.max(0, Math.floor(createSimulationPadding));
+    if (!prefix) {
+      void message.error("Prefix is required");
+      return;
+    }
+    if (count <= 0) {
+      void message.error("Count must be greater than 0");
+      return;
+    }
+    if (count > SIMULATION_BULK_CREATE_LIMIT) {
+      void message.error(`Count exceeds limit (${SIMULATION_BULK_CREATE_LIMIT})`);
+      return;
+    }
+    const usedNames = new Set(tags.map((tag) => tag.name));
+    const createdNames: string[] = [];
+    const duplicates: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const current = startIndex + index;
+      const indexText = String(Math.max(0, current)).padStart(padding, "0");
+      const name = `${prefix}_${indexText}`;
+      if (usedNames.has(name)) {
+        duplicates.push(name);
+      } else {
+        createdNames.push(name);
+        usedNames.add(name);
+      }
+    }
+    if (duplicates.length > 0) {
+      void message.error(`Generated names already exist: ${duplicates.slice(0, 5).join(", ")}${duplicates.length > 5 ? "..." : ""}`);
+      return;
+    }
+
+    const defaultDriverId = simulationDrivers[0]?.id;
+    const simulationSettings = normalizeSimulationForSave({
+      ...structuredClone(createSimulationDraft),
+      initialValue: coerceInitialValueByDataType(createSimulationDraft.initialValue, createSimulationDataType),
+    }, createSimulationDataType);
+    const nextTags = [...tags];
+    for (let index = 0; index < createdNames.length; index += 1) {
+      const name = createdNames[index]!;
+      const number = startIndex + index;
+      const indexText = String(Math.max(0, number)).padStart(padding, "0");
+      const addressRaw = createSimulationAddressPattern.trim()
+        ? createSimulationAddressPattern.replaceAll("{index}", indexText).replaceAll("{name}", name)
+        : name;
+      const nextTag: TagDefinition = syncLegacySimulationAddress({
+        id: createId(),
+        name,
+        description: "",
+        sourceType: "simulated",
+        dataType: createSimulationDataType,
+        driverId: defaultDriverId,
+        group: createSimulationGroup.trim() || undefined,
+        writable: false,
+        scanRateMs: simulationSettings.updateIntervalMs,
+        address: addressRaw ? { raw: addressRaw } : undefined,
+        simulation: simulationSettings,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      });
+      nextTags.push(nextTag);
+    }
+    saveTags(nextTags);
+    setCreateSimulationOpen(false);
+    void message.success(`Created ${createdNames.length} simulation tag(s)`);
   };
 
   const exportCsv = (): void => {
@@ -1879,6 +2361,12 @@ export function ScreenEditorTagsWindow() {
         <WorkbenchButton onClick={openOpcBrowseImport} disabled={opcUaDrivers.length === 0}>
           Import from OPC UA
         </WorkbenchButton>
+        <WorkbenchButton onClick={openBulkSimulationDialog}>
+          Apply Simulation Profile
+        </WorkbenchButton>
+        <WorkbenchButton onClick={openCreateSimulationWindow}>
+          Create Simulation Tags
+        </WorkbenchButton>
         <WorkbenchButton
           variant="danger"
           onClick={() => void deleteOpcUaTagsForSelectedDriver()}
@@ -1957,7 +2445,7 @@ export function ScreenEditorTagsWindow() {
           ))}
         </select>
         <div className="screen-editor-tags-window__toolbar-meta">
-          Total: {tags.length} | Filtered: {totalRows} | Runtime: {Object.keys(runtimeTags).length}
+          Total: {tags.length} | Filtered: {totalRows} | Selected: {selectedTagKeys.size} | Runtime: {Object.keys(runtimeTags).length}
         </div>
       </div>
 
@@ -1991,8 +2479,15 @@ export function ScreenEditorTagsWindow() {
           <div className="screen-editor-tags-table">
             <div
               className="screen-editor-tags-row screen-editor-tags-row--header"
-              style={{ gridTemplateColumns: tagGridTemplateColumns }}
+              style={{ gridTemplateColumns: `42px ${tagGridTemplateColumns}` }}
             >
+              <div className="screen-editor-tags-cell screen-editor-tags-header-cell">
+                <input
+                  type="checkbox"
+                  checked={filteredTags.length > 0 && filteredTags.every((tag) => selectedTagKeys.has(tagKey(tag)))}
+                  onChange={toggleSelectAllFiltered}
+                />
+              </div>
               {visibleColumns.map((column) => (
                 <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell">
                   <span>{column.title}</span>
@@ -2006,6 +2501,7 @@ export function ScreenEditorTagsWindow() {
             {pageRows.map((tag) => {
               const key = tagKey(tag);
               const selected = selectedTag ? tagKey(selectedTag) === key : false;
+              const checked = selectedTagKeys.has(key);
               const address = formatAddressCell(tag);
               const rowCells: Record<TagColumnId, string> = {
                 name: tag.name,
@@ -2030,8 +2526,16 @@ export function ScreenEditorTagsWindow() {
                     }
                   }}
                   onDoubleClick={() => openEdit(tag)}
-                  style={{ gridTemplateColumns: tagGridTemplateColumns }}
+                  style={{ gridTemplateColumns: `42px ${tagGridTemplateColumns}` }}
                 >
+                  <div className="screen-editor-tags-cell">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleTagSelection(key)}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </div>
                   {visibleColumns.map((column) => {
                     const value = rowCells[column.id];
                     return (
@@ -2098,7 +2602,7 @@ export function ScreenEditorTagsWindow() {
                               event.target.value === "simulated"
                                 ? {
                                   ...toSimulationSettings(prev),
-                                  mode: coerceModeForDataType(prev.simulation?.mode, prev.dataType),
+                                  profile: coerceProfileForDataType(prev.simulation?.profile, prev.dataType),
                                 }
                                 : prev.simulation,
                           }
@@ -2136,7 +2640,7 @@ export function ScreenEditorTagsWindow() {
                             ...prev,
                             dataType,
                           },
-                          { mode: coerceModeForDataType(prev.simulation?.mode, dataType) },
+                          { profile: coerceProfileForDataType(prev.simulation?.profile, dataType) },
                         );
                       })}
                   >
@@ -2270,50 +2774,72 @@ export function ScreenEditorTagsWindow() {
                       These settings are used by the Simulation runtime for this tag.
                     </span>
 
+                    <label className="screen-editor-tags-checkbox-field">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(draftSimulation?.enabled ?? true)}
+                        onChange={(event) => setDraftTag((prev) => (prev ? withSimulationPatch(prev, { enabled: event.target.checked }) : prev))}
+                      />
+                      <span>Simulation Enabled</span>
+                    </label>
+
                     <label className="workbench-field">
-                      <span className="workbench-field__label">Simulation Mode</span>
+                      <span className="workbench-field__label">Simulation Profile</span>
                       <select
                         className="workbench-select"
-                        value={simulationMode}
+                        value={simulationProfile}
                         onChange={(event) =>
                           setDraftTag((prev) => {
                             if (!prev) {
                               return prev;
                             }
-                            const nextMode = event.target.value as TagSimulationMode;
-                            return withSimulationPatch(prev, { mode: nextMode });
+                            const nextProfile = event.target.value as TagSimulationProfile;
+                            return withSimulationPatch(prev, { profile: nextProfile });
                           })}
                       >
-                        <option value="manual">Manual</option>
-                        {isSimBool ? <option value="toggle">Toggle</option> : null}
-                        {isSimBool ? <option value="random">Random</option> : null}
-                        {isSimNumeric ? <option value="range">Random Range</option> : null}
+                        <option value="constant">Constant</option>
                         {isSimNumeric ? <option value="ramp">Ramp</option> : null}
-                        {isSimNumeric ? <option value="sine">Sine</option> : null}
+                        {isSimNumeric ? <option value="random">Random</option> : null}
+                        {isSimNumeric ? <option value="sin">Sin</option> : null}
+                        {isSimNumeric ? <option value="rampNoise">Ramp + Noise</option> : null}
+                        {isSimNumeric ? <option value="sinNoise">Sin + Noise</option> : null}
+                        {isSimBool ? <option value="toggle">Toggle</option> : null}
+                        {isSimBool ? <option value="randomBool">Random Bool</option> : null}
                       </select>
                     </label>
-                    {!isSimNumeric && (draftTag?.simulation?.mode === "ramp" || draftTag?.simulation?.mode === "range" || draftTag?.simulation?.mode === "sine") ? (
-                      <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
-                        Ramp and Random Range are available only for numeric tags.
-                      </span>
-                    ) : null}
 
                     <label className="workbench-field">
                       <span className="workbench-field__label">Interval (ms)</span>
                       <input
                         className="workbench-input"
                         type="number"
-                        min={1}
-                        value={draftSimulation?.intervalMs ?? ""}
+                        min={SIMULATION_MIN_INTERVAL_MS}
+                        value={draftSimulation?.updateIntervalMs ?? ""}
                         onChange={(event) =>
                           setDraftTag((prev) => {
                             if (!prev) {
                               return prev;
                             }
-                            const intervalMs = toOptionalNumber(event.target.value);
-                            return withSimulationPatch(prev, { intervalMs });
+                            const updateIntervalMs = toOptionalNumber(event.target.value);
+                            return withSimulationPatch(prev, { updateIntervalMs });
                           })}
                       />
+                    </label>
+
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Variation Mode</span>
+                      <select
+                        className="workbench-select"
+                        value={draftSimulation?.variationMode ?? "perTagSeed"}
+                        onChange={(event) =>
+                          setDraftTag((prev) => (prev ? withSimulationPatch(prev, { variationMode: event.target.value as TagSimulationSettings["variationMode"] }) : prev))}
+                      >
+                        <option value="perTagSeed">Per-tag Seed</option>
+                        <option value="same">Same</option>
+                        <option value="perTagPhase">Per-tag Phase</option>
+                        <option value="perTagOffset">Per-tag Offset</option>
+                        <option value="perTagNoise">Per-tag Noise</option>
+                      </select>
                     </label>
 
                     {isSimBool ? (
@@ -2381,18 +2907,285 @@ export function ScreenEditorTagsWindow() {
                               setDraftTag((prev) => (prev ? withSimulationPatch(prev, { max: toOptionalNumber(event.target.value) }) : prev))}
                           />
                         </label>
+                      </>
+                    ) : null}
+
+                    {isSimNumeric && (simulationProfile === "ramp" || simulationProfile === "rampNoise") ? (
+                      <>
                         <label className="workbench-field">
                           <span className="workbench-field__label">Step</span>
                           <input
                             className="workbench-input"
                             type="number"
                             min={0}
-                            value={draftSimulation?.step ?? ""}
+                            value={draftSimulation?.ramp?.step ?? ""}
                             onChange={(event) =>
-                              setDraftTag((prev) => (prev ? withSimulationPatch(prev, { step: toOptionalNumber(event.target.value) }) : prev))}
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  ramp: {
+                                    ...toSimulationSettings(prev).ramp,
+                                    step: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Direction</span>
+                          <select
+                            className="workbench-select"
+                            value={draftSimulation?.ramp?.direction ?? "pingPong"}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  ramp: {
+                                    ...toSimulationSettings(prev).ramp,
+                                    direction: event.target.value as NonNullable<TagSimulationSettings["ramp"]>["direction"],
+                                  },
+                                })
+                                : prev))}
+                          >
+                            <option value="pingPong">PingPong</option>
+                            <option value="up">Up</option>
+                            <option value="down">Down</option>
+                          </select>
+                        </label>
+                        <label className="screen-editor-tags-checkbox-field">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(draftSimulation?.ramp?.resetOnLimit)}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  ramp: {
+                                    ...toSimulationSettings(prev).ramp,
+                                    resetOnLimit: event.target.checked,
+                                  },
+                                })
+                                : prev))}
+                          />
+                          <span>Reset On Limit</span>
+                        </label>
+                      </>
+                    ) : null}
+
+                    {isSimNumeric && simulationProfile === "random" ? (
+                      <>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Random Min</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            value={draftSimulation?.random?.min ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  random: {
+                                    ...toSimulationSettings(prev).random,
+                                    min: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Random Max</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            value={draftSimulation?.random?.max ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  random: {
+                                    ...toSimulationSettings(prev).random,
+                                    max: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
                           />
                         </label>
                       </>
+                    ) : null}
+
+                    {isSimNumeric && (simulationProfile === "sin" || simulationProfile === "sinNoise") ? (
+                      <>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Amplitude</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            value={draftSimulation?.sin?.amplitude ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  sin: {
+                                    ...toSimulationSettings(prev).sin,
+                                    amplitude: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Offset</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            value={draftSimulation?.sin?.offset ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  sin: {
+                                    ...toSimulationSettings(prev).sin,
+                                    offset: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Period (ms)</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            min={SIMULATION_MIN_INTERVAL_MS}
+                            value={draftSimulation?.sin?.periodMs ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  sin: {
+                                    ...toSimulationSettings(prev).sin,
+                                    periodMs: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Phase (deg)</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            value={draftSimulation?.sin?.phaseDeg ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  sin: {
+                                    ...toSimulationSettings(prev).sin,
+                                    phaseDeg: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                      </>
+                    ) : null}
+
+                    {isSimNumeric && (simulationProfile === "rampNoise" || simulationProfile === "sinNoise") ? (
+                      <>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Noise Amplitude</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            min={0}
+                            value={draftSimulation?.noise?.amplitude ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  noise: {
+                                    ...toSimulationSettings(prev).noise,
+                                    amplitude: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Noise Type</span>
+                          <select
+                            className="workbench-select"
+                            value={draftSimulation?.noise?.type ?? "uniform"}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  noise: {
+                                    ...toSimulationSettings(prev).noise,
+                                    type: event.target.value as NonNullable<TagSimulationSettings["noise"]>["type"],
+                                  },
+                                })
+                                : prev))}
+                          >
+                            <option value="uniform">Uniform</option>
+                            <option value="normal">Normal</option>
+                          </select>
+                        </label>
+                      </>
+                    ) : null}
+
+                    {isSimBool && simulationProfile === "toggle" ? (
+                      <>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">True Duration (ms)</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            min={SIMULATION_MIN_INTERVAL_MS}
+                            value={draftSimulation?.toggle?.trueMs ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  toggle: {
+                                    ...toSimulationSettings(prev).toggle,
+                                    trueMs: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">False Duration (ms)</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            min={SIMULATION_MIN_INTERVAL_MS}
+                            value={draftSimulation?.toggle?.falseMs ?? ""}
+                            onChange={(event) =>
+                              setDraftTag((prev) => (prev
+                                ? withSimulationPatch(prev, {
+                                  toggle: {
+                                    ...toSimulationSettings(prev).toggle,
+                                    falseMs: toOptionalNumber(event.target.value),
+                                  },
+                                })
+                                : prev))}
+                          />
+                        </label>
+                      </>
+                    ) : null}
+
+                    {isSimBool && simulationProfile === "randomBool" ? (
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">True Probability (0..1)</span>
+                        <input
+                          className="workbench-input"
+                          type="number"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={draftSimulation?.randomBool?.trueProbability ?? ""}
+                          onChange={(event) =>
+                            setDraftTag((prev) => (prev
+                              ? withSimulationPatch(prev, {
+                                randomBool: {
+                                  ...toSimulationSettings(prev).randomBool,
+                                  trueProbability: toOptionalNumber(event.target.value),
+                                },
+                              })
+                              : prev))}
+                        />
+                      </label>
                     ) : null}
                   </>
                 ) : null}
@@ -2539,6 +3332,362 @@ export function ScreenEditorTagsWindow() {
           </div>
         </div>
       </div>
+
+      <Modal
+        title="Apply Simulation Profile"
+        open={bulkSimulationOpen}
+        onCancel={() => setBulkSimulationOpen(false)}
+        onOk={applyBulkSimulation}
+        okText="Apply"
+      >
+        <div style={{ display: "grid", gap: 8 }}>
+          <label className="screen-editor-settings-check">
+            <input
+              type="checkbox"
+              checked={bulkApplyToFiltered}
+              onChange={(event) => setBulkApplyToFiltered(event.target.checked)}
+            />
+            <span>Apply to all filtered tags ({filteredTags.length})</span>
+          </label>
+          <div>Selected tags: <strong>{selectedTagKeys.size}</strong>, simulated in selection: <strong>{selectedSimulationTargets.length}</strong></div>
+          <label className="workbench-field">
+            <span className="workbench-field__label">Bulk Mode</span>
+            <select className="workbench-select" value={bulkSimulationMode} onChange={(event) => setBulkSimulationMode(event.target.value as SimulationBulkMode)}>
+              <option value="patch">Patch selected fields only</option>
+              <option value="replace">Replace full simulation config</option>
+              <option value="fillEmpty">Fill empty fields only</option>
+            </select>
+          </label>
+
+          <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8 }}>
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags.profile} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, profile: event.target.checked }))} />
+              <span>Profile</span>
+            </label>
+            <select className="workbench-select" value={bulkSimulationDraft.profile ?? "constant"} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "profile", event.target.value as TagSimulationProfile))}>
+              <option value="constant">Constant</option>
+              <option value="ramp">Ramp</option>
+              <option value="random">Random</option>
+              <option value="sin">Sin</option>
+              <option value="rampNoise">Ramp + Noise</option>
+              <option value="sinNoise">Sin + Noise</option>
+              <option value="toggle">Toggle</option>
+              <option value="randomBool">Random Bool</option>
+            </select>
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags.enabled} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, enabled: event.target.checked }))} />
+              <span>Enabled</span>
+            </label>
+            <select className="workbench-select" value={String(Boolean(bulkSimulationDraft.enabled ?? true))} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "enabled", event.target.value === "true"))}>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags.updateIntervalMs} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, updateIntervalMs: event.target.checked }))} />
+              <span>Interval</span>
+            </label>
+            <input className="workbench-input" type="number" min={SIMULATION_MIN_INTERVAL_MS} value={bulkSimulationDraft.updateIntervalMs ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "updateIntervalMs", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags.min} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, min: event.target.checked }))} />
+              <span>Min</span>
+            </label>
+            <input className="workbench-input" type="number" value={bulkSimulationDraft.min ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "min", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags.max} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, max: event.target.checked }))} />
+              <span>Max</span>
+            </label>
+            <input className="workbench-input" type="number" value={bulkSimulationDraft.max ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "max", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["ramp.step"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "ramp.step": event.target.checked }))} />
+              <span>Ramp Step</span>
+            </label>
+            <input className="workbench-input" type="number" min={0} value={bulkSimulationDraft.ramp?.step ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "ramp.step", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["sin.periodMs"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "sin.periodMs": event.target.checked }))} />
+              <span>Sin Period</span>
+            </label>
+            <input className="workbench-input" type="number" min={SIMULATION_MIN_INTERVAL_MS} value={bulkSimulationDraft.sin?.periodMs ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "sin.periodMs", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["noise.amplitude"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "noise.amplitude": event.target.checked }))} />
+              <span>Noise Amp</span>
+            </label>
+            <input className="workbench-input" type="number" min={0} value={bulkSimulationDraft.noise?.amplitude ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "noise.amplitude", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["noise.type"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "noise.type": event.target.checked }))} />
+              <span>Noise Type</span>
+            </label>
+            <select className="workbench-select" value={bulkSimulationDraft.noise?.type ?? "uniform"} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "noise.type", event.target.value))}>
+              <option value="uniform">uniform</option>
+              <option value="normal">normal</option>
+            </select>
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["ramp.direction"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "ramp.direction": event.target.checked }))} />
+              <span>Ramp Dir</span>
+            </label>
+            <select className="workbench-select" value={bulkSimulationDraft.ramp?.direction ?? "pingPong"} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "ramp.direction", event.target.value))}>
+              <option value="pingPong">pingPong</option>
+              <option value="up">up</option>
+              <option value="down">down</option>
+            </select>
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["ramp.resetOnLimit"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "ramp.resetOnLimit": event.target.checked }))} />
+              <span>Ramp Reset</span>
+            </label>
+            <select className="workbench-select" value={String(Boolean(bulkSimulationDraft.ramp?.resetOnLimit))} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "ramp.resetOnLimit", event.target.value === "true"))}>
+              <option value="false">false</option>
+              <option value="true">true</option>
+            </select>
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["random.min"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "random.min": event.target.checked }))} />
+              <span>Rnd Min</span>
+            </label>
+            <input className="workbench-input" type="number" value={bulkSimulationDraft.random?.min ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "random.min", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["random.max"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "random.max": event.target.checked }))} />
+              <span>Rnd Max</span>
+            </label>
+            <input className="workbench-input" type="number" value={bulkSimulationDraft.random?.max ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "random.max", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["sin.amplitude"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "sin.amplitude": event.target.checked }))} />
+              <span>Sin Amp</span>
+            </label>
+            <input className="workbench-input" type="number" value={bulkSimulationDraft.sin?.amplitude ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "sin.amplitude", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["sin.offset"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "sin.offset": event.target.checked }))} />
+              <span>Sin Offset</span>
+            </label>
+            <input className="workbench-input" type="number" value={bulkSimulationDraft.sin?.offset ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "sin.offset", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["sin.phaseDeg"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "sin.phaseDeg": event.target.checked }))} />
+              <span>Sin Phase</span>
+            </label>
+            <input className="workbench-input" type="number" value={bulkSimulationDraft.sin?.phaseDeg ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "sin.phaseDeg", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["toggle.trueMs"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "toggle.trueMs": event.target.checked }))} />
+              <span>True ms</span>
+            </label>
+            <input className="workbench-input" type="number" min={SIMULATION_MIN_INTERVAL_MS} value={bulkSimulationDraft.toggle?.trueMs ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "toggle.trueMs", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["toggle.falseMs"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "toggle.falseMs": event.target.checked }))} />
+              <span>False ms</span>
+            </label>
+            <input className="workbench-input" type="number" min={SIMULATION_MIN_INTERVAL_MS} value={bulkSimulationDraft.toggle?.falseMs ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "toggle.falseMs", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags.variationMode} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, variationMode: event.target.checked }))} />
+              <span>Variation</span>
+            </label>
+            <select className="workbench-select" value={bulkSimulationDraft.variationMode ?? "perTagSeed"} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "variationMode", event.target.value))}>
+              <option value="perTagSeed">perTagSeed</option>
+              <option value="same">same</option>
+              <option value="perTagPhase">perTagPhase</option>
+              <option value="perTagOffset">perTagOffset</option>
+              <option value="perTagNoise">perTagNoise</option>
+            </select>
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags["randomBool.trueProbability"]} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, "randomBool.trueProbability": event.target.checked }))} />
+              <span>Bool Prob</span>
+            </label>
+            <input className="workbench-input" type="number" min={0} max={1} step={0.01} value={bulkSimulationDraft.randomBool?.trueProbability ?? ""} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "randomBool.trueProbability", toOptionalNumber(event.target.value)))} />
+
+            <label className="screen-editor-settings-check">
+              <input type="checkbox" checked={bulkApplyFlags.initialValue} onChange={(event) => setBulkApplyFlags((prev) => ({ ...prev, initialValue: event.target.checked }))} />
+              <span>Initial</span>
+            </label>
+            <input className="workbench-input" value={String(bulkSimulationDraft.initialValue ?? "")} onChange={(event) => setBulkSimulationDraft((prev) => setSimulationFieldValue(prev, "initialValue", event.target.value))} />
+          </div>
+        </div>
+      </Modal>
+
+      {createSimulationOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div className="screen-editor-opc-browser-layer">
+              <WorkbenchWindow
+                id="createSimulationTags"
+                title="CREATE SIMULATION TAGS"
+                rect={createSimulationRect}
+                zIndex={createSimulationZIndex}
+                minWidth={CREATE_SIMULATION_MIN_WIDTH}
+                minHeight={CREATE_SIMULATION_MIN_HEIGHT}
+                onClose={() => setCreateSimulationOpen(false)}
+                onFocus={focusCreateSimulationWindow}
+                onMove={(x, y) =>
+                  setCreateSimulationRect((prev) =>
+                    clampCreateSimulationRect({ ...prev, x, y }),
+                  )}
+                onResize={(rect) => setCreateSimulationRect(clampCreateSimulationRect(rect))}
+              >
+                <div className="screen-editor-simulation-create-window">
+                  <div className="screen-editor-simulation-create-body screen-editor-tag-editor">
+                    <div className="screen-editor-simulation-create-grid">
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Prefix</span>
+                        <input className="workbench-input" value={createSimulationPrefix} onChange={(event) => setCreateSimulationPrefix(event.target.value)} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Start Index</span>
+                        <input className="workbench-input" type="number" value={createSimulationStartIndex} onChange={(event) => setCreateSimulationStartIndex(Number(event.target.value || 0))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Count</span>
+                        <input className="workbench-input" type="number" min={1} max={SIMULATION_BULK_CREATE_LIMIT} value={createSimulationCount} onChange={(event) => setCreateSimulationCount(Number(event.target.value || 0))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Padding</span>
+                        <input className="workbench-input" type="number" min={0} value={createSimulationPadding} onChange={(event) => setCreateSimulationPadding(Number(event.target.value || 0))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Data Type</span>
+                        <select className="workbench-select" value={createSimulationDataType} onChange={(event) => setCreateSimulationDataType(event.target.value as TagDefinition["dataType"])}>
+                          {dataTypeOptions.map((type) => (
+                            <option key={type} value={type}>{type}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Group</span>
+                        <input className="workbench-input" value={createSimulationGroup} onChange={(event) => setCreateSimulationGroup(event.target.value)} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Address Pattern ({`{index}`}, {`{name}`})</span>
+                        <input className="workbench-input" value={createSimulationAddressPattern} onChange={(event) => setCreateSimulationAddressPattern(event.target.value)} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Profile</span>
+                        <select
+                          className="workbench-select"
+                          value={createSimulationDraft.profile ?? "constant"}
+                          onChange={(event) => setCreateSimulationDraft((prev) => normalizeSimulationForSave(setSimulationFieldValue(prev, "profile", event.target.value as TagSimulationProfile), createSimulationDataType))}
+                        >
+                          <option value="constant">Constant</option>
+                          <option value="ramp">Ramp</option>
+                          <option value="random">Random</option>
+                          <option value="sin">Sin</option>
+                          <option value="rampNoise">Ramp + Noise</option>
+                          <option value="sinNoise">Sin + Noise</option>
+                          <option value="toggle">Toggle</option>
+                          <option value="randomBool">Random Bool</option>
+                        </select>
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Interval (ms)</span>
+                        <input className="workbench-input" type="number" min={SIMULATION_MIN_INTERVAL_MS} value={createSimulationDraft.updateIntervalMs ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "updateIntervalMs", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Min</span>
+                        <input className="workbench-input" type="number" value={createSimulationDraft.min ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "min", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Max</span>
+                        <input className="workbench-input" type="number" value={createSimulationDraft.max ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "max", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Initial Value</span>
+                        <input className="workbench-input" value={String(createSimulationDraft.initialValue ?? "")} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "initialValue", event.target.value))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Ramp Step</span>
+                        <input className="workbench-input" type="number" min={0} value={createSimulationDraft.ramp?.step ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "ramp.step", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Ramp Direction</span>
+                        <select className="workbench-select" value={createSimulationDraft.ramp?.direction ?? "pingPong"} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "ramp.direction", event.target.value))}>
+                          <option value="pingPong">pingPong</option>
+                          <option value="up">up</option>
+                          <option value="down">down</option>
+                        </select>
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Random Min</span>
+                        <input className="workbench-input" type="number" value={createSimulationDraft.random?.min ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "random.min", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Random Max</span>
+                        <input className="workbench-input" type="number" value={createSimulationDraft.random?.max ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "random.max", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Sin Amplitude</span>
+                        <input className="workbench-input" type="number" value={createSimulationDraft.sin?.amplitude ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "sin.amplitude", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Sin Offset</span>
+                        <input className="workbench-input" type="number" value={createSimulationDraft.sin?.offset ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "sin.offset", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Sin Period (ms)</span>
+                        <input className="workbench-input" type="number" min={SIMULATION_MIN_INTERVAL_MS} value={createSimulationDraft.sin?.periodMs ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "sin.periodMs", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Sin Phase (deg)</span>
+                        <input className="workbench-input" type="number" value={createSimulationDraft.sin?.phaseDeg ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "sin.phaseDeg", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Noise Amplitude</span>
+                        <input className="workbench-input" type="number" min={0} value={createSimulationDraft.noise?.amplitude ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "noise.amplitude", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Noise Type</span>
+                        <select className="workbench-select" value={createSimulationDraft.noise?.type ?? "uniform"} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "noise.type", event.target.value))}>
+                          <option value="uniform">uniform</option>
+                          <option value="normal">normal</option>
+                        </select>
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Toggle trueMs</span>
+                        <input className="workbench-input" type="number" min={SIMULATION_MIN_INTERVAL_MS} value={createSimulationDraft.toggle?.trueMs ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "toggle.trueMs", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Toggle falseMs</span>
+                        <input className="workbench-input" type="number" min={SIMULATION_MIN_INTERVAL_MS} value={createSimulationDraft.toggle?.falseMs ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "toggle.falseMs", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Random Bool p</span>
+                        <input className="workbench-input" type="number" min={0} max={1} step={0.01} value={createSimulationDraft.randomBool?.trueProbability ?? ""} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "randomBool.trueProbability", toOptionalNumber(event.target.value)))} />
+                      </label>
+                      <label className="workbench-field">
+                        <span className="workbench-field__label">Variation</span>
+                        <select className="workbench-select" value={createSimulationDraft.variationMode ?? "perTagSeed"} onChange={(event) => setCreateSimulationDraft((prev) => setSimulationFieldValue(prev, "variationMode", event.target.value))}>
+                          <option value="perTagSeed">Per-tag Seed</option>
+                          <option value="same">Same</option>
+                          <option value="perTagPhase">Per-tag Phase</option>
+                          <option value="perTagOffset">Per-tag Offset</option>
+                          <option value="perTagNoise">Per-tag Noise</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="screen-editor-simulation-create-summary">
+                      <div>Driver: <strong>{simulationDrivers[0]?.name ?? simulationDrivers[0]?.id ?? "no simulated driver"}</strong></div>
+                      <div>Preview: <strong>{createSimulationNamePreview.join(", ")}</strong></div>
+                    </div>
+                  </div>
+                  <div className="screen-editor-simulation-create-footer">
+                    <WorkbenchButton onClick={() => setCreateSimulationOpen(false)}>Cancel</WorkbenchButton>
+                    <WorkbenchButton variant="primary" onClick={applyCreateSimulationTags}>Create</WorkbenchButton>
+                  </div>
+                </div>
+              </WorkbenchWindow>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {opcBrowseOpen && typeof document !== "undefined"
         ? createPortal(

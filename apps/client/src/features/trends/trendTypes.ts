@@ -39,6 +39,7 @@ export type TrendTagPickerSelectionFilter = "all" | "added";
 export type TrendTagPickerFilters = {
   search: string;
   groupFilter: string;
+  driverFilter: string;
   selectionFilter: TrendTagPickerSelectionFilter;
 };
 

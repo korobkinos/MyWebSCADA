@@ -294,6 +294,7 @@ export function ArchivePage() {
 
   const [search, setSearch] = useState("");
   const [policyFilter, setPolicyFilter] = useState<number | "all">("all");
+  const [driverFilter, setDriverFilter] = useState<"all" | "opcua" | "simulated">("all");
   const [bulkPolicyId, setBulkPolicyId] = useState("0");
   const [policyManageId, setPolicyManageId] = useState("0");
   const [columnsPanelOpen, setColumnsPanelOpen] = useState(false);
@@ -519,6 +520,39 @@ export function ArchivePage() {
     [normalizedSearch, tagConfigs],
   );
 
+  const driverFilterOptions = useMemo(() => {
+    const hasOpcUa = tagConfigs.some((tagConfig) => {
+      const sourceType = (tagConfig.sourceType ?? "").toLowerCase();
+      const driverType = (tagConfig.driverType ?? "").toLowerCase();
+      return sourceType === "opcua" || driverType === "opcua";
+    });
+    const hasSimulated = tagConfigs.some((tagConfig) => {
+      const sourceType = (tagConfig.sourceType ?? "").toLowerCase();
+      const driverType = (tagConfig.driverType ?? "").toLowerCase();
+      return sourceType === "simulated" || driverType === "simulated";
+    });
+    const options: Array<{ value: "all" | "opcua" | "simulated"; label: string }> = [
+      { value: "all", label: "All drivers" },
+    ];
+    if (hasOpcUa) {
+      options.push({ value: "opcua", label: "OPC UA" });
+    }
+    if (hasSimulated) {
+      options.push({ value: "simulated", label: "Simulation" });
+    }
+    return options;
+  }, [tagConfigs]);
+
+  useEffect(() => {
+    if (driverFilter === "all") {
+      return;
+    }
+    const exists = driverFilterOptions.some((option) => option.value === driverFilter);
+    if (!exists) {
+      setDriverFilter("all");
+    }
+  }, [driverFilter, driverFilterOptions]);
+
   const filteredTags = useMemo(() => {
     return tagConfigs.filter((tagConfig) => {
       if (normalizedSearch && !tagConfig.tagName.toLowerCase().includes(normalizedSearch)) {
@@ -527,9 +561,19 @@ export function ArchivePage() {
       if (policyFilter !== "all" && (tagConfig.policyId ?? 0) !== policyFilter) {
         return false;
       }
+      if (driverFilter !== "all") {
+        const sourceType = (tagConfig.sourceType ?? "").toLowerCase();
+        const driverType = (tagConfig.driverType ?? "").toLowerCase();
+        if (driverFilter === "opcua" && sourceType !== "opcua" && driverType !== "opcua") {
+          return false;
+        }
+        if (driverFilter === "simulated" && sourceType !== "simulated" && driverType !== "simulated") {
+          return false;
+        }
+      }
       return true;
     });
-  }, [normalizedSearch, policyFilter, tagConfigs]);
+  }, [driverFilter, normalizedSearch, policyFilter, tagConfigs]);
 
   useEffect(() => {
     if (filteredTags.length === 0) {
@@ -962,13 +1006,28 @@ export function ArchivePage() {
             </option>
           ))}
         </select>
+        <select
+          className="workbench-select screen-editor-tags-window__toolbar-select"
+          value={driverFilter}
+          onChange={(event) => {
+            setDriverFilter(event.target.value as "all" | "opcua" | "simulated");
+            setPage(1);
+          }}
+        >
+          {driverFilterOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
         <WorkbenchButton
           onClick={() => {
             setSearch("");
             setPolicyFilter("all");
+            setDriverFilter("all");
             setPage(1);
           }}
-          disabled={search === "" && policyFilter === "all"}
+          disabled={search === "" && policyFilter === "all" && driverFilter === "all"}
         >
           Clear
         </WorkbenchButton>

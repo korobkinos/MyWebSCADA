@@ -224,6 +224,7 @@ type PendingToolbarRange = { range: TrendVisibleRange; preset: TrendRangePreset 
 const DEFAULT_TAG_PICKER_FILTERS: TrendTagPickerFilters = {
   search: "",
   groupFilter: "all",
+  driverFilter: "all",
   selectionFilter: "all",
 };
 function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeViewStateData {

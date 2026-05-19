@@ -30,6 +30,14 @@ export type DriverStatus = {
   lastSubscriptionUpdateAt?: number;
   subscriptionError?: string;
   subscriptionState?: "inactive" | "creating" | "active" | "error";
+  simulationTagCount?: number;
+  simulationGroupCount?: number;
+  simulationTagsPerGroup?: number[];
+  simulationLastTickDurationMs?: number;
+  simulationLastBatchSize?: number;
+  simulationGeneratedUpdates?: number;
+  simulationDroppedUpdates?: number;
+  simulationLastError?: string;
 };
 
 export type DriverBaseConfig = {
@@ -42,6 +50,10 @@ export type DriverBaseConfig = {
 export type SimulatedDriverConfig = DriverBaseConfig & {
   type: "simulated";
   updateIntervalMs?: number;
+  schedulerTickMs?: number;
+  globalSeed?: number;
+  defaultVariationMode?: "same" | "perTagSeed" | "perTagPhase" | "perTagOffset" | "perTagNoise";
+  // Legacy fields kept for backward compatibility with older project files.
   defaultMode?: "manual" | "random" | "ramp";
   defaultMin?: number;
   defaultMax?: number;

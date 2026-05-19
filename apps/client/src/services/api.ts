@@ -62,6 +62,10 @@ export type SimulatedDriverSettingsInput = {
   enabled?: boolean;
   name?: string;
   updateIntervalMs?: number;
+  schedulerTickMs?: number;
+  globalSeed?: number;
+  defaultVariationMode?: "same" | "perTagSeed" | "perTagPhase" | "perTagOffset" | "perTagNoise";
+  // Legacy fields kept for backward compatibility with older project files.
   defaultMode?: "manual" | "random" | "ramp";
   defaultMin?: number;
   defaultMax?: number;
@@ -123,6 +127,8 @@ export type ArchiveTagOverride = {
 export type ArchiveTagConfig = {
   tagId: number;
   tagName: string;
+  sourceType?: string;
+  driverType?: string;
   policyId: number | null;
   policyName: string | null;
   enabled: boolean;
@@ -171,6 +177,8 @@ export type TrendTagInfo = {
   group?: string;
   min?: number;
   max?: number;
+  sourceType?: string;
+  driverType?: string;
 };
 export type TrendPoint = {
   t: number;

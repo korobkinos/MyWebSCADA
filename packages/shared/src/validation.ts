@@ -1070,11 +1070,42 @@ const simulatedAddressSchema = z.object({
 });
 
 const tagSimulationSchema = z.object({
-  mode: z.enum(["manual", "random", "range", "ramp", "toggle", "sine"]).optional(),
-  intervalMs: z.number().positive().optional(),
+  enabled: z.boolean().optional(),
+  profile: z.enum(["constant", "ramp", "random", "sin", "rampNoise", "sinNoise", "toggle", "randomBool"]).optional(),
+  updateIntervalMs: z.number().positive().optional(),
   initialValue: z.union([z.boolean(), z.number(), z.string(), z.null()]).optional(),
   min: z.number().optional(),
   max: z.number().optional(),
+  ramp: z.object({
+    step: z.number().positive().optional(),
+    direction: z.enum(["up", "down", "pingPong"]).optional(),
+    resetOnLimit: z.boolean().optional(),
+  }).optional(),
+  random: z.object({
+    min: z.number().optional(),
+    max: z.number().optional(),
+  }).optional(),
+  sin: z.object({
+    amplitude: z.number().optional(),
+    offset: z.number().optional(),
+    periodMs: z.number().positive().optional(),
+    phaseDeg: z.number().optional(),
+  }).optional(),
+  noise: z.object({
+    amplitude: z.number().nonnegative().optional(),
+    type: z.enum(["uniform", "normal"]).optional(),
+  }).optional(),
+  toggle: z.object({
+    trueMs: z.number().positive().optional(),
+    falseMs: z.number().positive().optional(),
+  }).optional(),
+  randomBool: z.object({
+    trueProbability: z.number().min(0).max(1).optional(),
+  }).optional(),
+  variationMode: z.enum(["same", "perTagSeed", "perTagPhase", "perTagOffset", "perTagNoise"]).optional(),
+  // Legacy fields kept for backward compatibility with older project files.
+  mode: z.enum(["manual", "random", "range", "ramp", "toggle", "sine"]).optional(),
+  intervalMs: z.number().positive().optional(),
   step: z.number().nonnegative().optional(),
 });
 
@@ -1161,6 +1192,10 @@ const simulatedDriverSchema = z.object({
   enabled: z.boolean(),
   name: z.string().optional(),
   updateIntervalMs: z.number().int().positive().optional(),
+  schedulerTickMs: z.number().int().positive().optional(),
+  globalSeed: z.number().int().optional(),
+  defaultVariationMode: z.enum(["same", "perTagSeed", "perTagPhase", "perTagOffset", "perTagNoise"]).optional(),
+  // Legacy fields kept for backward compatibility with older project files.
   defaultMode: z.enum(["manual", "random", "ramp"]).optional(),
   defaultMin: z.number().optional(),
   defaultMax: z.number().optional(),

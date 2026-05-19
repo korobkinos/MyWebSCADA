@@ -73,6 +73,8 @@ export type ArchiveTagOverrideInput = {
 export type ArchiveTagConfigRow = {
   tagId: number;
   tagName: string;
+  sourceType?: string;
+  driverType?: string;
   policyId: number | null;
   policyName: string | null;
   enabled: boolean;
@@ -129,6 +131,8 @@ export type TrendTagInfoRow = {
   group?: string;
   min?: number;
   max?: number;
+  sourceType?: string;
+  driverType?: string;
 };
 
 export type TrendPointRow = {
@@ -161,6 +165,8 @@ type TrendTagMetaRow = {
   group: string | null;
   min: number | null;
   max: number | null;
+  sourceTypeCode: string | null;
+  driverType: string | null;
   archiveEnabled: boolean;
 };
 
@@ -389,6 +395,8 @@ export class ArchiveRepository {
       group: row.group ?? undefined,
       min: row.min ?? undefined,
       max: row.max ?? undefined,
+      sourceType: row.sourceTypeCode ?? undefined,
+      driverType: row.driverType ?? undefined,
     }));
   }
 
@@ -596,6 +604,8 @@ export class ArchiveRepository {
     const result = await this.pool.query<{
       tag_id: number;
       tag_name: string;
+      source_type_code: string | null;
+      driver_type: string | null;
       policy_id: number | null;
       policy_name: string | null;
       enabled: boolean;
@@ -618,6 +628,8 @@ export class ArchiveRepository {
       SELECT
           t.id AS tag_id,
           t.name AS tag_name,
+          st.code AS source_type_code,
+          d.type AS driver_type,
           p.id AS policy_id,
           p.name AS policy_name,
           COALESCE(o.enabled, p.enabled, false) AS enabled,
@@ -636,6 +648,8 @@ export class ArchiveRepository {
           o.compression_after_days AS override_compression_after_days,
           o.tag_id IS NOT NULL AS has_override
       FROM tags t
+      LEFT JOIN tag_source_types st ON st.id = t.source_type_id
+      LEFT JOIN drivers d ON d.id = t.driver_id
       LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
       LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
       ORDER BY t.name ASC
@@ -645,6 +659,8 @@ export class ArchiveRepository {
     return result.rows.map((row) => ({
       tagId: row.tag_id,
       tagName: row.tag_name,
+      sourceType: row.source_type_code ?? undefined,
+      driverType: row.driver_type ?? undefined,
       policyId: row.policy_id,
       policyName: row.policy_name,
       enabled: row.enabled,
@@ -994,6 +1010,8 @@ export class ArchiveRepository {
       group_name: string | null;
       min_value: number | null;
       max_value: number | null;
+      source_type_code: string | null;
+      driver_type: string | null;
       archive_enabled: boolean;
     }>(
       `
@@ -1007,9 +1025,13 @@ export class ArchiveRepository {
           grp.group_name,
           NULL::double precision AS min_value,
           NULL::double precision AS max_value,
+          st.code AS source_type_code,
+          drv.type AS driver_type,
           COALESCE(o.enabled, p.enabled, false) AS archive_enabled
       FROM tags t
       JOIN tag_data_types dt ON dt.id = t.data_type_id
+      LEFT JOIN tag_source_types st ON st.id = t.source_type_id
+      LEFT JOIN drivers drv ON drv.id = t.driver_id
       LEFT JOIN units u ON u.id = t.unit_id
       LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
       LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
@@ -1038,6 +1060,8 @@ export class ArchiveRepository {
       group: row.group_name,
       min: row.min_value,
       max: row.max_value,
+      sourceTypeCode: row.source_type_code,
+      driverType: row.driver_type,
       archiveEnabled: row.archive_enabled,
     }));
   }

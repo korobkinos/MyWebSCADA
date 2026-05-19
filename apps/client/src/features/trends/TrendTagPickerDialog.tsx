@@ -66,6 +66,7 @@ function nextManualAxisId(existingAxes: TrendAxisConfig[]): string {
 export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFilters, onClose, onApply, onFiltersChange }: TrendTagPickerDialogProps) {
   const [search, setSearch] = useState(initialFilters?.search ?? "");
   const [groupFilter, setGroupFilter] = useState<string>(initialFilters?.groupFilter ?? "all");
+  const [driverFilter, setDriverFilter] = useState<string>(initialFilters?.driverFilter ?? "all");
   const [selectionFilter, setSelectionFilter] = useState<TrendTagPickerFilters["selectionFilter"]>(initialFilters?.selectionFilter ?? "all");
   const [selectedTagName, setSelectedTagName] = useState<string>("");
   const [draftTags, setDraftTags] = useState<TrendTagSelection[]>(selectedTags);
@@ -124,11 +125,12 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
     }
     setSearch(initialFilters?.search ?? "");
     setGroupFilter(initialFilters?.groupFilter ?? "all");
+    setDriverFilter(initialFilters?.driverFilter ?? "all");
     setSelectionFilter(initialFilters?.selectionFilter ?? "all");
     setDraftTags(selectedTags);
     setDraftAxes(axes);
     setSelectedTagName((selectedTags[0]?.tag ?? tags[0]?.name ?? ""));
-  }, [axes, initialFilters?.groupFilter, initialFilters?.search, initialFilters?.selectionFilter, open, selectedTags, tags]);
+  }, [axes, initialFilters?.driverFilter, initialFilters?.groupFilter, initialFilters?.search, initialFilters?.selectionFilter, open, selectedTags, tags]);
 
   const draftTagMap = useMemo(() => new Map(draftTags.map((item) => [item.tag, item])), [draftTags]);
   const tagsByName = useMemo(() => new Map(tags.map((tag) => [tag.name, tag])), [tags]);
@@ -140,12 +142,43 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
     return ["all", ...Array.from(values).sort((a, b) => a.localeCompare(b))];
   }, [tags]);
 
+  const driverTypeOptions = useMemo(() => {
+    const values = new Set<string>();
+    for (const tag of tags) {
+      const sourceType = (tag.sourceType ?? "").toLowerCase();
+      const driverType = (tag.driverType ?? "").toLowerCase();
+      if (sourceType === "opcua" || driverType === "opcua") {
+        values.add("opcua");
+        continue;
+      }
+      if (sourceType === "simulated" || driverType === "simulated") {
+        values.add("simulated");
+      }
+    }
+    const options = [{ value: "all", label: "All drivers" }];
+    if (values.has("opcua")) {
+      options.push({ value: "opcua", label: "OPC UA" });
+    }
+    if (values.has("simulated")) {
+      options.push({ value: "simulated", label: "Simulation" });
+    }
+    return options;
+  }, [tags]);
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return tags.filter((tag) => {
       const group = tag.group?.trim() || "Ungrouped";
       const selected = draftTagMap.has(tag.name);
+      const sourceType = (tag.sourceType ?? "").toLowerCase();
+      const driverType = (tag.driverType ?? "").toLowerCase();
       if (groupFilter !== "all" && group !== groupFilter) {
+        return false;
+      }
+      if (driverFilter === "opcua" && !(sourceType === "opcua" || driverType === "opcua")) {
+        return false;
+      }
+      if (driverFilter === "simulated" && !(sourceType === "simulated" || driverType === "simulated")) {
         return false;
       }
       if (selectionFilter === "added" && !selected) {
@@ -158,14 +191,14 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
         || (tag.displayName ?? "").toLowerCase().includes(term)
         || group.toLowerCase().includes(term);
     });
-  }, [draftTagMap, groupFilter, search, selectionFilter, tags]);
+  }, [draftTagMap, driverFilter, groupFilter, search, selectionFilter, tags]);
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    onFiltersChange?.({ search, groupFilter, selectionFilter });
-  }, [groupFilter, onFiltersChange, open, search, selectionFilter]);
+    onFiltersChange?.({ search, groupFilter, driverFilter, selectionFilter });
+  }, [driverFilter, groupFilter, onFiltersChange, open, search, selectionFilter]);
 
   const selectedTagInfo = tagsByName.get(selectedTagName);
   const current = selectedTagInfo ? draftTagMap.get(selectedTagInfo.name) : undefined;
@@ -419,11 +452,16 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                 <option key={group} value={group}>{group === "all" ? "All groups" : group}</option>
               ))}
             </select>
+            <select className="workbench-select screen-editor-tags-window__toolbar-select" value={driverFilter} onChange={(event) => setDriverFilter(event.target.value)}>
+              {driverTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
             <select className="workbench-select screen-editor-tags-window__toolbar-select" value={selectionFilter} onChange={(event) => setSelectionFilter(event.target.value as TrendTagPickerFilters["selectionFilter"])}>
               <option value="all">All tags</option>
               <option value="added">Added to chart</option>
             </select>
-            <WorkbenchButton onClick={() => { setSearch(""); setGroupFilter("all"); setSelectionFilter("all"); }} disabled={!search && groupFilter === "all" && selectionFilter === "all"}>Clear Filter</WorkbenchButton>
+            <WorkbenchButton onClick={() => { setSearch(""); setGroupFilter("all"); setDriverFilter("all"); setSelectionFilter("all"); }} disabled={!search && groupFilter === "all" && driverFilter === "all" && selectionFilter === "all"}>Clear Filter</WorkbenchButton>
           </div>
 
           <div

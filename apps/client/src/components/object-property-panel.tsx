@@ -1213,6 +1213,10 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
   } | null>(null);
   const [trendTagPickerOpen, setTrendTagPickerOpen] = useState(false);
   const editorRuntimeValues = buildIndexedAddressRuntimeValues({ variables: project.variables });
+  const driverById = useMemo(
+    () => new Map(project.drivers.map((driver) => [driver.id, driver] as const)),
+    [project.drivers],
+  );
   const trendAvailableTags = useMemo<TrendTagInfo[]>(
     () => project.tags.map((tag): TrendTagInfo => ({
       id: tag.id ?? tag.name,
@@ -1228,8 +1232,10 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
       group: tag.group,
       min: tag.min,
       max: tag.max,
+      sourceType: tag.sourceType,
+      driverType: tag.driverId ? driverById.get(tag.driverId)?.type : undefined,
     })),
-    [project.tags],
+    [driverById, project.tags],
   );
 
   useEffect(() => {
@@ -3940,161 +3946,167 @@ function SpecificPropertyFields({
     const selectedTags = object.selectedTags ?? [];
     const axes = object.axes ?? [];
     return (
-      <>
-        <Typography.Text strong>Series & Axes</Typography.Text>
-        <div className="screen-editor-tag-editor__kv"><span>Selected series</span><strong>{selectedTags.length}</strong></div>
-        <div className="screen-editor-tag-editor__kv"><span>Axes</span><strong>{axes.length}</strong></div>
-        <Form.Item style={{ marginTop: 8 }}>
-          <WorkbenchButton variant="primary" onClick={() => onOpenTrendTagPicker?.()}>Add / Remove Tags...</WorkbenchButton>
-        </Form.Item>
+      <div className="object-property-trend">
+        <div className="object-property-trend__section">
+          <div className="object-property-trend__title">Series & Axes</div>
+          <div className="object-property-trend__stat-row"><span>Selected series</span><strong>{selectedTags.length}</strong></div>
+          <div className="object-property-trend__stat-row"><span>Axes</span><strong>{axes.length}</strong></div>
+          <Form.Item style={{ marginTop: 8, marginBottom: 0 }}>
+            <WorkbenchButton variant="primary" onClick={() => onOpenTrendTagPicker?.()}>Add / Remove Tags...</WorkbenchButton>
+          </Form.Item>
+        </div>
 
-        <Divider style={{ margin: "10px 0" }} />
-        <Typography.Text strong>Range & Live</Typography.Text>
-        <Form.Item label="Default Range">
-          <Select
-            value={object.rangePreset ?? "1h"}
-            options={[
-              { value: "5m", label: "Last 5 min" },
-              { value: "15m", label: "Last 15 min" },
-              { value: "1h", label: "Last 1 hour" },
-              { value: "8h", label: "Last 8 hours" },
-              { value: "24h", label: "Last 24 hours" },
-              { value: "custom", label: "Custom" },
-            ]}
-            onChange={(value) => onPatch({ rangePreset: value } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        {(object.rangePreset ?? "1h") === "custom" ? (
-          <>
-            <Form.Item label="Custom From (unix ms)">
-              <InputNumber style={{ width: "100%" }} value={object.customFrom} onChange={(value) => onPatch({ customFrom: Number(value ?? Date.now() - 3600000) } as Partial<HmiObject>)} />
-            </Form.Item>
-            <Form.Item label="Custom To (unix ms)">
-              <InputNumber style={{ width: "100%" }} value={object.customTo} onChange={(value) => onPatch({ customTo: Number(value ?? Date.now()) } as Partial<HmiObject>)} />
-            </Form.Item>
-          </>
-        ) : null}
-        <Space style={{ marginBottom: 8 }}>
-          <span>Start Live Mode</span>
-          <Switch checked={object.liveMode ?? false} onChange={(checked) => onPatch({ liveMode: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Show Toolbar</span>
-          <Switch checked={object.showToolbar ?? true} onChange={(checked) => onPatch({ showToolbar: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Show Status Bar</span>
-          <Switch checked={object.showStatusBar ?? true} onChange={(checked) => onPatch({ showStatusBar: checked } as Partial<HmiObject>)} />
-        </Space>
+        <div className="object-property-trend__section">
+          <div className="object-property-trend__title">Range & Live</div>
+          <Form.Item label="Default Range">
+            <Select
+              value={object.rangePreset ?? "1h"}
+              options={[
+                { value: "5m", label: "Last 5 min" },
+                { value: "15m", label: "Last 15 min" },
+                { value: "1h", label: "Last 1 hour" },
+                { value: "8h", label: "Last 8 hours" },
+                { value: "24h", label: "Last 24 hours" },
+                { value: "custom", label: "Custom" },
+              ]}
+              onChange={(value) => onPatch({ rangePreset: value } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+          {(object.rangePreset ?? "1h") === "custom" ? (
+            <>
+              <Form.Item label="Custom From (unix ms)">
+                <InputNumber style={{ width: "100%" }} value={object.customFrom} onChange={(value) => onPatch({ customFrom: Number(value ?? Date.now() - 3600000) } as Partial<HmiObject>)} />
+              </Form.Item>
+              <Form.Item label="Custom To (unix ms)">
+                <InputNumber style={{ width: "100%" }} value={object.customTo} onChange={(value) => onPatch({ customTo: Number(value ?? Date.now()) } as Partial<HmiObject>)} />
+              </Form.Item>
+            </>
+          ) : null}
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Start Live Mode</span>
+            <Switch checked={object.liveMode ?? false} onChange={(checked) => onPatch({ liveMode: checked } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Show Toolbar</span>
+            <Switch checked={object.showToolbar ?? true} onChange={(checked) => onPatch({ showToolbar: checked } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Show Status Bar</span>
+            <Switch checked={object.showStatusBar ?? true} onChange={(checked) => onPatch({ showStatusBar: checked } as Partial<HmiObject>)} />
+          </Space>
+        </div>
 
-        <Divider style={{ margin: "10px 0" }} />
-        <Typography.Text strong>Performance</Typography.Text>
-        <Form.Item label="Aggregation">
-          <Select
-            value={settings.aggregation}
-            options={[
-              { value: "auto", label: "auto" },
-              { value: "raw", label: "raw" },
-              { value: "minmax", label: "minmax" },
-              { value: "avg", label: "avg" },
-              { value: "lttb", label: "lttb" },
-            ]}
-            onChange={(value) => onPatch({ settings: { ...settings, aggregation: value } } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        <Form.Item label="Max Points / Series">
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1000}
-            max={8000}
-            value={settings.maxPointsPerSeries}
-            onChange={(value) => onPatch({ settings: { ...settings, maxPointsPerSeries: Math.max(1000, Math.min(8000, Number(value ?? 4000))) } } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        <Form.Item label="Zoom Debounce (ms)">
-          <InputNumber
-            style={{ width: "100%" }}
-            min={100}
-            max={1200}
-            value={settings.zoomDebounceMs}
-            onChange={(value) => onPatch({ settings: { ...settings, zoomDebounceMs: Math.max(100, Math.min(1200, Number(value ?? 350))) } } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Cache Enabled</span>
-          <Switch checked={settings.cacheEnabled} onChange={(checked) => onPatch({ settings: { ...settings, cacheEnabled: checked } } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Progressive Rendering</span>
-          <Switch checked={settings.progressive} onChange={(checked) => onPatch({ settings: { ...settings, progressive: checked } } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Disable Animation on Large Data</span>
-          <Switch checked={settings.disableAnimationsLargeData} onChange={(checked) => onPatch({ settings: { ...settings, disableAnimationsLargeData: checked } } as Partial<HmiObject>)} />
-        </Space>
+        <div className="object-property-trend__section">
+          <div className="object-property-trend__title">Performance</div>
+          <Form.Item label="Aggregation">
+            <Select
+              value={settings.aggregation}
+              options={[
+                { value: "auto", label: "auto" },
+                { value: "raw", label: "raw" },
+                { value: "minmax", label: "minmax" },
+                { value: "avg", label: "avg" },
+                { value: "lttb", label: "lttb" },
+              ]}
+              onChange={(value) => onPatch({ settings: { ...settings, aggregation: value } } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+          <Form.Item label="Max Points / Series">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={1000}
+              max={8000}
+              value={settings.maxPointsPerSeries}
+              onChange={(value) => onPatch({ settings: { ...settings, maxPointsPerSeries: Math.max(1000, Math.min(8000, Number(value ?? 4000))) } } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+          <Form.Item label="Zoom Debounce (ms)">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={100}
+              max={1200}
+              value={settings.zoomDebounceMs}
+              onChange={(value) => onPatch({ settings: { ...settings, zoomDebounceMs: Math.max(100, Math.min(1200, Number(value ?? 350))) } } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Cache Enabled</span>
+            <Switch checked={settings.cacheEnabled} onChange={(checked) => onPatch({ settings: { ...settings, cacheEnabled: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Progressive Rendering</span>
+            <Switch checked={settings.progressive} onChange={(checked) => onPatch({ settings: { ...settings, progressive: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Disable Animation on Large Data</span>
+            <Switch checked={settings.disableAnimationsLargeData} onChange={(checked) => onPatch({ settings: { ...settings, disableAnimationsLargeData: checked } } as Partial<HmiObject>)} />
+          </Space>
+        </div>
 
-        <Divider style={{ margin: "10px 0" }} />
-        <Typography.Text strong>Appearance</Typography.Text>
-        <Form.Item label="Theme">
-          <Select
-            value={settings.theme}
-            options={[
-              { value: "workbench-dark", label: "Workbench dark" },
-              { value: "echarts-dark", label: "ECharts dark" },
-              { value: "custom", label: "Custom" },
-            ]}
-            onChange={(value) => onPatch({ settings: { ...settings, theme: value } } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        <ColorField label="Background" value={settings.background} fallback="#1e1e1e" onChange={(next) => onPatch({ settings: { ...settings, background: next } } as Partial<HmiObject>)} />
-        <Space style={{ marginBottom: 8 }}>
-          <span>Legend</span>
-          <Switch checked={settings.legend} onChange={(checked) => onPatch({ settings: { ...settings, legend: checked } } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Tooltip</span>
-          <Switch checked={settings.tooltip} onChange={(checked) => onPatch({ settings: { ...settings, tooltip: checked } } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Grid Lines</span>
-          <Switch checked={settings.gridLines} onChange={(checked) => onPatch({ settings: { ...settings, gridLines: checked } } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Axis Labels</span>
-          <Switch checked={settings.axisLabels} onChange={(checked) => onPatch({ settings: { ...settings, axisLabels: checked } } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginBottom: 8 }}>
-          <span>DataZoom Slider</span>
-          <Switch checked={settings.dataZoomSlider} onChange={(checked) => onPatch({ settings: { ...settings, dataZoomSlider: checked } } as Partial<HmiObject>)} />
-        </Space>
+        <div className="object-property-trend__section">
+          <div className="object-property-trend__title">Appearance</div>
+          <Form.Item label="Theme">
+            <Select
+              value={settings.theme}
+              options={[
+                { value: "workbench-dark", label: "Workbench dark" },
+                { value: "echarts-dark", label: "ECharts dark" },
+                { value: "custom", label: "Custom" },
+              ]}
+              onChange={(value) => onPatch({ settings: { ...settings, theme: value } } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+          <ColorField label="Background" value={settings.background} fallback="#1e1e1e" onChange={(next) => onPatch({ settings: { ...settings, background: next } } as Partial<HmiObject>)} />
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Legend</span>
+            <Switch checked={settings.legend} onChange={(checked) => onPatch({ settings: { ...settings, legend: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Tooltip</span>
+            <Switch checked={settings.tooltip} onChange={(checked) => onPatch({ settings: { ...settings, tooltip: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Grid Lines</span>
+            <Switch checked={settings.gridLines} onChange={(checked) => onPatch({ settings: { ...settings, gridLines: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Axis Labels</span>
+            <Switch checked={settings.axisLabels} onChange={(checked) => onPatch({ settings: { ...settings, axisLabels: checked } } as Partial<HmiObject>)} />
+          </Space>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>DataZoom Slider</span>
+            <Switch checked={settings.dataZoomSlider} onChange={(checked) => onPatch({ settings: { ...settings, dataZoomSlider: checked } } as Partial<HmiObject>)} />
+          </Space>
+        </div>
 
-        <Divider style={{ margin: "10px 0" }} />
-        <Typography.Text strong>Axes & Layout</Typography.Text>
-        <Form.Item label="Axis Placement">
-          <Select
-            value={settings.axisPlacement}
-            options={[
-              { value: "split", label: "Split left/right" },
-              { value: "left", label: "Left only" },
-              { value: "right", label: "Right only" },
-            ]}
-            onChange={(value) => onPatch({ settings: { ...settings, axisPlacement: value } } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        <Form.Item label="Axis Offset Step">
-          <InputNumber
-            style={{ width: "100%" }}
-            min={8}
-            max={220}
-            value={settings.axisOffsetStep}
-            onChange={(value) => onPatch({ settings: { ...settings, axisOffsetStep: Math.max(8, Math.min(220, Number(value ?? 46))) } } as Partial<HmiObject>)}
-          />
-        </Form.Item>
-        <Space style={{ marginBottom: 8 }}>
-          <span>Auto Scale</span>
-          <Switch checked={settings.autoScale} onChange={(checked) => onPatch({ settings: { ...settings, autoScale: checked } } as Partial<HmiObject>)} />
-        </Space>
-      </>
+        <div className="object-property-trend__section">
+          <div className="object-property-trend__title">Axes & Layout</div>
+          <Form.Item label="Axis Placement">
+            <Select
+              value={settings.axisPlacement}
+              options={[
+                { value: "split", label: "Split left/right" },
+                { value: "left", label: "Left only" },
+                { value: "right", label: "Right only" },
+              ]}
+              onChange={(value) => onPatch({ settings: { ...settings, axisPlacement: value } } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+          <Form.Item label="Axis Offset Step">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={8}
+              max={220}
+              value={settings.axisOffsetStep}
+              onChange={(value) => onPatch({ settings: { ...settings, axisOffsetStep: Math.max(8, Math.min(220, Number(value ?? 46))) } } as Partial<HmiObject>)}
+            />
+          </Form.Item>
+          <Space className="object-property-panel__runtime-switch-row">
+            <span>Auto Scale</span>
+            <Switch checked={settings.autoScale} onChange={(checked) => onPatch({ settings: { ...settings, autoScale: checked } } as Partial<HmiObject>)} />
+          </Space>
+        </div>
+      </div>
     );
   }
 

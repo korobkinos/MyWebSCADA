@@ -5,6 +5,7 @@ import type { TrendSeriesColumnWidths, TrendTagPickerFilters } from "./trendType
 const defaultFilters: TrendTagPickerFilters = {
   search: "",
   groupFilter: "all",
+  driverFilter: "all",
   selectionFilter: "all",
 };
 
