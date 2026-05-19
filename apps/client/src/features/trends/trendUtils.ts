@@ -3,6 +3,7 @@ import { TREND_COLORS, TREND_WORKBENCH_THEME } from "./trendTheme";
 
 export const TREND_SETTINGS_STORAGE_KEY = "mywebscada.trends.settings";
 export const TREND_SELECTED_TAGS_STORAGE_KEY = "mywebscada.trends.selectedTags";
+export const TREND_DEFAULT_AXIS_ID = "axis:default";
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -138,72 +139,80 @@ export function parseQuickRange(preset: "5m" | "15m" | "1h" | "8h" | "24h", now 
 
 export function buildAxes(
   tags: TrendTagSelection[],
-  tagInfoMap: Map<string, TrendTagInfo>,
+  _tagInfoMap: Map<string, TrendTagInfo>,
   settings: TrendSettings,
   existingAxes: TrendAxisConfig[] = [],
 ): { axes: TrendAxisConfig[]; resolvedAxisIdByTag: Map<string, string> } {
+  void _tagInfoMap;
   const resolvedAxisIdByTag = new Map<string, string>();
-  const nextAxesById = new Map(existingAxes.map((axis) => [axis.id, { ...axis }]));
-
-  const createAxis = (id: string, unit: string | undefined, index: number): TrendAxisConfig => {
-    const placement = settings.axisPlacement === "split"
-      ? (index % 2 === 0 ? "left" : "right")
-      : settings.axisPlacement === "right"
-        ? "right"
-        : "left";
-    return {
-      id,
-      unit,
-      name: unit || id,
-      position: placement,
-      offset: Math.floor(index / 2) * settings.axisOffsetStep,
-      min: settings.defaultAxisMin ?? "auto",
-      max: settings.defaultAxisMax ?? "auto",
-    };
-  };
-
-  const unitAxisByUnit = new Map<string, string>();
-  let generatedIndex = 0;
+  const normalizedAxes = normalizeTrendAxes(existingAxes, settings);
+  const axisById = new Map(normalizedAxes.map((axis) => [axis.id, axis]));
 
   for (const tag of tags) {
-    const info = tagInfoMap.get(tag.tag);
-    const unit = tag.unit ?? info?.unit;
-    if (tag.axisMode === "manual" && tag.axisId) {
-      if (!nextAxesById.has(tag.axisId)) {
-        nextAxesById.set(tag.axisId, createAxis(tag.axisId, unit, generatedIndex));
-        generatedIndex += 1;
-      }
-      resolvedAxisIdByTag.set(tag.tag, tag.axisId);
-      continue;
-    }
-
-    const groupKey = settings.groupByUnit ? (unit || "__no_unit") : `${tag.tag}__${unit || ""}`;
-    let axisId = unitAxisByUnit.get(groupKey);
-    if (!axisId || settings.separateAxisPerTag) {
-      axisId = settings.separateAxisPerTag
-        ? `axis:${tag.tag}`
-        : unit
-          ? `axis:unit:${unit}`
-          : "axis:default";
-      unitAxisByUnit.set(groupKey, axisId);
-      if (!nextAxesById.has(axisId)) {
-        nextAxesById.set(axisId, createAxis(axisId, unit, generatedIndex));
-        generatedIndex += 1;
-      }
-    }
-    resolvedAxisIdByTag.set(tag.tag, axisId);
+    const requestedAxisId = tag.axisMode === "manual" && tag.axisId ? tag.axisId : TREND_DEFAULT_AXIS_ID;
+    resolvedAxisIdByTag.set(tag.tag, axisById.has(requestedAxisId) ? requestedAxisId : TREND_DEFAULT_AXIS_ID);
   }
 
   const usedAxisIds = new Set(resolvedAxisIdByTag.values());
-  const axes = [...nextAxesById.values()].filter((axis) => usedAxisIds.has(axis.id));
+  const axes = normalizedAxes.filter((axis) => usedAxisIds.has(axis.id));
+  return { axes, resolvedAxisIdByTag };
+}
+
+export function createTrendAxisConfig(settings: TrendSettings, id: string, index = 0): TrendAxisConfig {
+  const placement = settings.axisPlacement === "split"
+    ? (index % 2 === 0 ? "left" : "right")
+    : settings.axisPlacement === "right"
+      ? "right"
+      : "left";
+  return {
+    id,
+    name: id === TREND_DEFAULT_AXIS_ID ? "Default" : id,
+    position: placement,
+    offset: Math.floor(index / 2) * settings.axisOffsetStep,
+    min: settings.defaultAxisMin ?? "auto",
+    max: settings.defaultAxisMax ?? "auto",
+    axisLabelFontSize: 12,
+    axisLabelMargin: 6,
+    axisNameFontSize: 12,
+    axisNameGap: 30,
+    axisNamePaddingX: 6,
+    axisNamePaddingY: 3,
+  };
+}
+
+export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: TrendSettings): TrendAxisConfig[] {
+  const nextAxesById = new Map<string, TrendAxisConfig>();
+  for (const axis of existingAxes) {
+    if (!axis || typeof axis.id !== "string" || axis.id.trim().length === 0) {
+      continue;
+    }
+    if (axis.position !== "left" && axis.position !== "right") {
+      continue;
+    }
+    nextAxesById.set(axis.id, { ...axis });
+  }
+  if (!nextAxesById.has(TREND_DEFAULT_AXIS_ID)) {
+    nextAxesById.set(TREND_DEFAULT_AXIS_ID, createTrendAxisConfig(settings, TREND_DEFAULT_AXIS_ID, 0));
+  }
+
+  const axes = [...nextAxesById.values()];
   const positionIndex: Record<"left" | "right", number> = { left: 0, right: 0 };
   for (const axis of axes) {
     const idx = positionIndex[axis.position];
-    axis.offset = idx * settings.axisOffsetStep;
+    axis.offset = clamp(Number(axis.offset ?? idx * settings.axisOffsetStep), 0, 2400);
+    axis.name = (axis.name ?? axis.id).trim() || axis.id;
+    axis.min = axis.min ?? "auto";
+    axis.max = axis.max ?? "auto";
+    axis.axisLabelFontSize = clamp(Number(axis.axisLabelFontSize ?? 12), 9, 24);
+    axis.axisLabelMargin = clamp(Number(axis.axisLabelMargin ?? 6), 0, 24);
+    axis.axisNameFontSize = clamp(Number(axis.axisNameFontSize ?? 12), 9, 24);
+    axis.axisNameGap = clamp(Number(axis.axisNameGap ?? 30), 12, 80);
+    axis.axisNamePaddingX = clamp(Number(axis.axisNamePaddingX ?? 6), 0, 24);
+    axis.axisNamePaddingY = clamp(Number(axis.axisNamePaddingY ?? 3), 0, 16);
     positionIndex[axis.position] += 1;
   }
-
-  return { axes, resolvedAxisIdByTag };
+  axes.sort((a, b) => (a.id === TREND_DEFAULT_AXIS_ID ? -1 : b.id === TREND_DEFAULT_AXIS_ID ? 1 : a.id.localeCompare(b.id)));
+  return axes;
 }
 
 export function formatRangeLabel(from: number, to: number): string {

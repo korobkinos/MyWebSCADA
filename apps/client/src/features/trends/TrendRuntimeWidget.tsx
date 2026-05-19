@@ -13,7 +13,7 @@ import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendQueryResponse, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, parseQuickRange } from "./trendUtils";
+import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTrendAxes, parseQuickRange } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 
@@ -232,12 +232,16 @@ const DEFAULT_TAG_PICKER_FILTERS: TrendTagPickerFilters = {
 };
 function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeViewStateData {
   const objectRange = resolveRangeFromObject(object);
+  const resolvedSettings = resolveSettingsFromObject(object);
+  const normalizedAxes = normalizeTrendAxes(object.axes ?? [], resolvedSettings);
   const restored = readRuntimeViewState({
     objectId: object.id,
     defaultTagPickerFilters: DEFAULT_TAG_PICKER_FILTERS,
     defaultSeriesColumnWidths: DEFAULT_SERIES_COLUMN_WIDTHS,
   });
   if (restored) {
+    const restoredSettings = restored.settings ?? resolvedSettings;
+    const normalizedRestoredAxes = normalizeTrendAxes(restored.manualAxes ?? object.axes ?? [], restoredSettings);
     if (restored.liveMode) {
       const span = Math.max(60_000, restored.visibleRange.to - restored.visibleRange.from);
       const right = Date.now();
@@ -247,12 +251,18 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
       };
       return {
         ...restored,
+        settings: restoredSettings,
+        manualAxes: normalizedRestoredAxes,
         visibleRange: nextRange,
         customFrom: toLocalDateTimeInputValue(nextRange.from),
         customTo: toLocalDateTimeInputValue(nextRange.to),
       };
     }
-    return restored;
+    return {
+      ...restored,
+      settings: restoredSettings,
+      manualAxes: normalizedRestoredAxes,
+    };
   }
   return {
     rangePreset: objectRange.preset,
@@ -260,9 +270,9 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
     liveMode: Boolean(object.liveMode),
     customFrom: toLocalDateTimeInputValue(objectRange.range.from),
     customTo: toLocalDateTimeInputValue(objectRange.range.to),
-    settings: resolveSettingsFromObject(object),
+    settings: resolvedSettings,
     selectedTags: object.selectedTags ?? [],
-    manualAxes: object.axes ?? [],
+    manualAxes: normalizedAxes,
     tagPickerFilters: DEFAULT_TAG_PICKER_FILTERS,
     seriesColumnWidths: DEFAULT_SERIES_COLUMN_WIDTHS,
   };
@@ -272,7 +282,9 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const initialViewState = useMemo(() => resolveInitialRuntimeViewState(object), [object.id]);
   const [allTags, setAllTags] = useState<TrendTagInfo[]>([]);
   const [selectedTags, setSelectedTags] = useState<TrendTagSelection[]>(initialViewState.selectedTags ?? object.selectedTags ?? []);
-  const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>(initialViewState.manualAxes ?? object.axes ?? []);
+  const [manualAxes, setManualAxes] = useState<TrendAxisConfig[]>(
+    initialViewState.manualAxes ?? normalizeTrendAxes(object.axes ?? [], initialViewState.settings ?? resolveSettingsFromObject(object)),
+  );
   const [tagPickerFilters, setTagPickerFilters] = useState<TrendTagPickerFilters>(initialViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
   const [settings, setSettings] = useState<TrendSettings>(() => initialViewState.settings ?? resolveSettingsFromObject(object));
   const [response, setResponse] = useState<TrendQueryResponse | null>(null);
@@ -312,11 +324,14 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const chartApiRef = useRef<TrendChartApi | null>(null);
   const liveBufferRef = useRef<Array<{ tag: string; value: number | boolean | string | null; quality?: string; timestamp: number }>>([]);
   const livePendingBufferCapRef = useRef(resolveLivePendingBufferCap(selectedTags.length, settings.liveBufferLimit));
+  const sourcePointCountRef = useRef(0);
   const liveLatestByTagRef = useRef<Map<string, { value: number | boolean | string | null; quality?: string; sourceTs: number; lastIncomingAt: number }>>(new Map());
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
   const historyLoadTimerRef = useRef<number | null>(null);
   const viewStateSaveTimerRef = useRef<number | null>(null);
   const lastStableVisibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
+  const hoverSnapshotKeyRef = useRef<string>("");
+  const hoverTimestampRef = useRef<number | null>(null);
   const columnResizeStateRef = useRef<{ id: TrendSeriesColumnId | null; startX: number; startWidth: number }>({
     id: null,
     startX: 0,
@@ -344,6 +359,10 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   }, [selectedTagNames.length, settings.liveBufferLimit]);
 
   useEffect(() => {
+    sourcePointCountRef.current = pointCount;
+  }, [pointCount]);
+
+  useEffect(() => {
     const nextViewState = resolveInitialRuntimeViewState(object);
     logTrendDiagnostics("widget:init", {
       objectId: object.id,
@@ -355,7 +374,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setError(null);
     setLastLoadAt(undefined);
     setSelectedTags(nextViewState.selectedTags ?? object.selectedTags ?? []);
-    setManualAxes(nextViewState.manualAxes ?? object.axes ?? []);
+    setManualAxes(nextViewState.manualAxes ?? normalizeTrendAxes(object.axes ?? [], nextViewState.settings ?? resolveSettingsFromObject(object)));
     setTagPickerFilters(nextViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
     setSettings(nextViewState.settings ?? resolveSettingsFromObject(object));
     setLiveMode(nextViewState.liveMode);
@@ -372,6 +391,8 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     liveLatestByTagRef.current.clear();
     setHoverSeriesValues(null);
     setHoverTimestamp(null);
+    hoverSnapshotKeyRef.current = "";
+    hoverTimestampRef.current = null;
     setHistoryWarning(null);
     setScreenRevision((prev) => prev + 1);
   }, [object.id]);
@@ -719,10 +740,16 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       if (batch.length === 0) {
         return;
       }
+      const activeTagCount = selected.size;
+      const sourcePointCount = sourcePointCountRef.current;
+      const echartsPointCount = chartApiRef.current?.getPointCount() ?? 0;
       logTrendDiagnostics("live:batch", {
         batchSize: batch.length,
         pendingBeforeFlush,
         pendingCap: livePendingBufferCapRef.current,
+        activeTagCount,
+        sourcePointCount,
+        echartsPointCount,
         minTs: Math.min(...batch.map((item) => item.timestamp)),
         maxTs: Math.max(...batch.map((item) => item.timestamp)),
       });
@@ -740,18 +767,28 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         setLiveLastPointTs(batchMaxTs);
       }
       const receivedAt = Date.now();
+      const latestByTagInBatch = new Map<string, { formatted: string }>();
+      for (const item of batch) {
+        latestByTagInBatch.set(item.tag, {
+          formatted: formatTrendValue(item.value),
+        });
+        liveLatestByTagRef.current.set(item.tag, {
+          value: item.value,
+          quality: item.quality,
+          sourceTs: item.timestamp,
+          lastIncomingAt: receivedAt,
+        });
+      }
       setSeriesLatestValues((prev) => {
+        let changed = false;
         const next = { ...prev };
-        for (const item of batch) {
-          next[item.tag] = formatTrendValue(item.value);
-          liveLatestByTagRef.current.set(item.tag, {
-            value: item.value,
-            quality: item.quality,
-            sourceTs: item.timestamp,
-            lastIncomingAt: receivedAt,
-          });
+        for (const [tagName, latest] of latestByTagInBatch) {
+          if (next[tagName] !== latest.formatted) {
+            next[tagName] = latest.formatted;
+            changed = true;
+          }
         }
-        return next;
+        return changed ? next : prev;
       });
       chartApiRef.current?.appendLivePoints(batch);
     }, LIVE_FLUSH_MS);
@@ -1163,7 +1200,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             key={object.id}
             data={response}
             tags={selectedTags}
-            axes={axes}
+            axes={manualAxes}
             axisIdByTag={resolvedAxisIdByTag}
             settings={settings}
             showLegend={false}
@@ -1176,6 +1213,8 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             onVisibleRangeChange={handleChartRangeChange}
             onHoverSnapshotChange={(snapshot) => {
               if (!snapshot) {
+                hoverSnapshotKeyRef.current = "";
+                hoverTimestampRef.current = null;
                 setHoverSeriesValues(null);
                 setHoverTimestamp(null);
                 return;
@@ -1184,6 +1223,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
               for (const [tagName, value] of Object.entries(snapshot.values)) {
                 next[tagName] = formatTrendValue(value);
               }
+              const key = `${snapshot.timestamp}|${Object.entries(next).sort(([a], [b]) => a.localeCompare(b)).map(([tag, value]) => `${tag}:${value}`).join("|")}`;
+              if (hoverSnapshotKeyRef.current === key && hoverTimestampRef.current === snapshot.timestamp) {
+                return;
+              }
+              hoverSnapshotKeyRef.current = key;
+              hoverTimestampRef.current = snapshot.timestamp;
               setHoverSeriesValues(next);
               setHoverTimestamp(snapshot.timestamp);
             }}
@@ -1374,7 +1419,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         onFiltersChange={setTagPickerFilters}
         onApply={(nextTags, nextAxes) => {
           setSelectedTags(nextTags.map((tag) => ({ ...tag, visible: true })));
-          setManualAxes(nextAxes);
+          setManualAxes(normalizeTrendAxes(nextAxes, settings));
           setTagDialogOpen(false);
         }}
       />

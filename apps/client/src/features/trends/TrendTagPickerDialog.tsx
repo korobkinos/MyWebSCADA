@@ -2,7 +2,7 @@ import { type CSSProperties, type MouseEvent as ReactMouseEvent, useEffect, useM
 import { ColorPicker, Input, Space } from "antd";
 import { WorkbenchButton } from "../../components/workbench";
 import type { TrendAxisConfig, TrendTagInfo, TrendTagPickerFilters, TrendTagSelection } from "./trendTypes";
-import { pickSeriesColor } from "./trendUtils";
+import { TREND_DEFAULT_AXIS_ID, pickSeriesColor } from "./trendUtils";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 
 type TrendTagPickerDialogProps = {
@@ -284,6 +284,9 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
   };
 
   const removeAxis = (axisId: string) => {
+    if (axisId === TREND_DEFAULT_AXIS_ID) {
+      return;
+    }
     setDraftAxes((prev) => prev.filter((axis) => axis.id !== axisId));
     setDraftTags((prev) => prev.map((tag) => (
       tag.axisMode === "manual" && tag.axisId === axisId

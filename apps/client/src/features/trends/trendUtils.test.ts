@@ -26,14 +26,12 @@ describe("resolveTrendTheme", () => {
 });
 
 describe("buildAxes", () => {
-  it("keeps axis grouping behavior", () => {
+  it("maps auto tags to default axis and keeps manual assignment", () => {
     const settings = defaultTrendSettings();
-    settings.groupByUnit = true;
-    settings.separateAxisPerTag = false;
 
     const tags: TrendTagSelection[] = [
       { tag: "t1", unit: "bar" },
-      { tag: "t2", unit: "bar" },
+      { tag: "t2", unit: "bar", axisMode: "manual", axisId: "axis:manual:1" },
       { tag: "t3", unit: "C" },
     ];
     const tagInfoMap = new Map<string, TrendTagInfo>([
@@ -42,10 +40,14 @@ describe("buildAxes", () => {
       ["t3", { id: "3", name: "t3", unit: "C" }],
     ]);
 
-    const result = buildAxes(tags, tagInfoMap, settings, []);
+    const result = buildAxes(tags, tagInfoMap, settings, [
+      { id: "axis:default", name: "Default", position: "left" },
+      { id: "axis:manual:1", name: "Pressure", position: "right" },
+    ]);
 
     expect(result.axes).toHaveLength(2);
-    expect(result.resolvedAxisIdByTag.get("t1")).toBe(result.resolvedAxisIdByTag.get("t2"));
-    expect(result.resolvedAxisIdByTag.get("t3")).not.toBe(result.resolvedAxisIdByTag.get("t1"));
+    expect(result.resolvedAxisIdByTag.get("t1")).toBe("axis:default");
+    expect(result.resolvedAxisIdByTag.get("t2")).toBe("axis:manual:1");
+    expect(result.resolvedAxisIdByTag.get("t3")).toBe("axis:default");
   });
 });

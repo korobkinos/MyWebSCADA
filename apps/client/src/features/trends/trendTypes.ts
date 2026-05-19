@@ -18,6 +18,12 @@ export type TrendAxisConfig = {
   min?: number | "auto";
   max?: number | "auto";
   color?: string;
+  axisLabelFontSize?: number;
+  axisLabelMargin?: number;
+  axisNameFontSize?: number;
+  axisNameGap?: number;
+  axisNamePaddingX?: number;
+  axisNamePaddingY?: number;
 };
 
 export type TrendTagSelection = {

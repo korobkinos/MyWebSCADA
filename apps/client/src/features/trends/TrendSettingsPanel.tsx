@@ -1,8 +1,9 @@
-import { type ChangeEvent, useEffect, useState } from "react";
+import { type ChangeEvent, type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ColorPicker, Input, Space } from "antd";
 import { WorkbenchButton } from "../../components/workbench";
 import type { TrendAxisConfig, TrendSettings, TrendTagSelection } from "./trendTypes";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
+import { TREND_DEFAULT_AXIS_ID, createTrendAxisConfig, normalizeTrendAxes } from "./trendUtils";
 
 type TrendSettingsPanelProps = {
   open: boolean;
@@ -17,6 +18,39 @@ type TrendSettingsPanelProps = {
 };
 
 type TrendSettingsTab = "appearance" | "performance" | "axes" | "series" | "toolbar";
+
+const AXES_COLUMNS = [
+  { id: "id", label: "Axis", width: 130, min: 100 },
+  { id: "name", label: "Name", width: 150, min: 110 },
+  { id: "position", label: "Side", width: 78, min: 68 },
+  { id: "offset", label: "Offset", width: 66, min: 60 },
+  { id: "min", label: "Min", width: 136, min: 122 },
+  { id: "max", label: "Max", width: 136, min: 122 },
+  { id: "labelSize", label: "Lbl Size", width: 76, min: 70 },
+  { id: "labelGap", label: "Lbl Gap", width: 74, min: 68 },
+  { id: "nameSize", label: "Name Size", width: 80, min: 72 },
+  { id: "nameGap", label: "Name Gap", width: 78, min: 70 },
+  { id: "padX", label: "Pad X", width: 66, min: 60 },
+  { id: "padY", label: "Pad Y", width: 66, min: 60 },
+  { id: "color", label: "Color", width: 110, min: 92 },
+  { id: "used", label: "Used", width: 58, min: 52 },
+  { id: "actions", label: "", width: 84, min: 74 },
+] as const;
+
+const SERIES_COLUMNS = [
+  { id: "visible", label: "On", width: 52, min: 44 },
+  { id: "tag", label: "Tag", width: 210, min: 140 },
+  { id: "displayName", label: "Display Name", width: 190, min: 130 },
+  { id: "color", label: "Color", width: 120, min: 100 },
+  { id: "mode", label: "Mode", width: 96, min: 82 },
+  { id: "lineWidth", label: "Width", width: 70, min: 64 },
+  { id: "axis", label: "Axis", width: 170, min: 120 },
+] as const;
+
+type AxisColumnId = (typeof AXES_COLUMNS)[number]["id"];
+type SeriesColumnId = (typeof SERIES_COLUMNS)[number]["id"];
+type AxisColumnWidths = Record<AxisColumnId, number>;
+type SeriesColumnWidths = Record<SeriesColumnId, number>;
 
 function parseNumber(value: string): number | undefined {
   const num = Number(value);
@@ -35,6 +69,29 @@ function normalizeHexColor(value: string | undefined, fallback: string): string 
   return fallback;
 }
 
+function nextManualAxisId(existingAxes: TrendAxisConfig[]): string {
+  const used = new Set(existingAxes.map((axis) => axis.id));
+  let index = 1;
+  while (used.has(`axis:manual:${index}`)) {
+    index += 1;
+  }
+  return `axis:manual:${index}`;
+}
+
+function defaultAxisColumnWidths(): AxisColumnWidths {
+  return AXES_COLUMNS.reduce<AxisColumnWidths>((acc, column) => {
+    acc[column.id] = column.width;
+    return acc;
+  }, {} as AxisColumnWidths);
+}
+
+function defaultSeriesColumnWidths(): SeriesColumnWidths {
+  return SERIES_COLUMNS.reduce<SeriesColumnWidths>((acc, column) => {
+    acc[column.id] = column.width;
+    return acc;
+  }, {} as SeriesColumnWidths);
+}
+
 export function TrendSettingsPanel({
   open,
   settings,
@@ -47,30 +104,75 @@ export function TrendSettingsPanel({
   onSelectedTagsChange,
 }: TrendSettingsPanelProps) {
   const [draftSettings, setDraftSettings] = useState<TrendSettings>(settings);
-  const [draftAxes, setDraftAxes] = useState<TrendAxisConfig[]>(axes);
+  const [draftAxes, setDraftAxes] = useState<TrendAxisConfig[]>(normalizeTrendAxes(axes, settings));
   const [draftSelectedTags, setDraftSelectedTags] = useState<TrendTagSelection[]>(selectedTags);
   const [activeTab, setActiveTab] = useState<TrendSettingsTab>("appearance");
+  const [axisColumnWidths, setAxisColumnWidths] = useState<AxisColumnWidths>(() => defaultAxisColumnWidths());
+  const [seriesColumnWidths, setSeriesColumnWidths] = useState<SeriesColumnWidths>(() => defaultSeriesColumnWidths());
+  const axisResizeStateRef = useRef<{ id: AxisColumnId | null; startX: number; startWidth: number }>({ id: null, startX: 0, startWidth: 0 });
+  const seriesResizeStateRef = useRef<{ id: SeriesColumnId | null; startX: number; startWidth: number }>({ id: null, startX: 0, startWidth: 0 });
 
   useEffect(() => {
     if (!open) {
       return;
     }
     setDraftSettings(settings);
-    setDraftAxes(axes);
+    setDraftAxes(normalizeTrendAxes(axes, settings));
     setDraftSelectedTags(selectedTags);
     setActiveTab(initialTab ?? "appearance");
   }, [axes, initialTab, open, selectedTags, settings]);
 
-  if (!open) {
-    return null;
-  }
+  useEffect(() => {
+    const handleMove = (event: MouseEvent) => {
+      const axisState = axisResizeStateRef.current;
+      if (axisState.id) {
+        const config = AXES_COLUMNS.find((column) => column.id === axisState.id);
+        if (!config) {
+          return;
+        }
+        const delta = event.clientX - axisState.startX;
+        const nextWidth = Math.max(config.min, Math.round(axisState.startWidth + delta));
+        setAxisColumnWidths((prev) => ({ ...prev, [axisState.id as AxisColumnId]: nextWidth }));
+      }
+      const seriesState = seriesResizeStateRef.current;
+      if (seriesState.id) {
+        const config = SERIES_COLUMNS.find((column) => column.id === seriesState.id);
+        if (!config) {
+          return;
+        }
+        const delta = event.clientX - seriesState.startX;
+        const nextWidth = Math.max(config.min, Math.round(seriesState.startWidth + delta));
+        setSeriesColumnWidths((prev) => ({ ...prev, [seriesState.id as SeriesColumnId]: nextWidth }));
+      }
+    };
+    const handleUp = () => {
+      if (axisResizeStateRef.current.id) {
+        axisResizeStateRef.current = { id: null, startX: 0, startWidth: 0 };
+      }
+      if (seriesResizeStateRef.current.id) {
+        seriesResizeStateRef.current = { id: null, startX: 0, startWidth: 0 };
+      }
+      if (typeof document !== "undefined") {
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      }
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("blur", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("blur", handleUp);
+    };
+  }, []);
 
   const patchSettings = (patch: Partial<TrendSettings>) => {
     setDraftSettings((prev) => ({ ...prev, ...patch }));
   };
 
   const updateAxis = (axisId: string, patch: Partial<TrendAxisConfig>) => {
-    setDraftAxes((prev) => prev.map((axis) => (axis.id === axisId ? { ...axis, ...patch } : axis)));
+    setDraftAxes((prev) => normalizeTrendAxes(prev.map((axis) => (axis.id === axisId ? { ...axis, ...patch } : axis)), draftSettings));
   };
 
   const updateSeries = (tag: string, patch: Partial<TrendTagSelection>) => {
@@ -85,21 +187,76 @@ export function TrendSettingsPanel({
     apply(parsed);
   };
 
+  const addAxis = () => {
+    setDraftAxes((prev) => {
+      const nextId = nextManualAxisId(prev);
+      return normalizeTrendAxes([...prev, createTrendAxisConfig(draftSettings, nextId, prev.length)], draftSettings);
+    });
+  };
+
+  const removeAxis = (axisId: string) => {
+    if (axisId === TREND_DEFAULT_AXIS_ID) {
+      return;
+    }
+    setDraftAxes((prev) => normalizeTrendAxes(prev.filter((axis) => axis.id !== axisId), draftSettings));
+    setDraftSelectedTags((prev) => prev.map((tag) => (
+      tag.axisMode === "manual" && tag.axisId === axisId
+        ? { ...tag, axisMode: "auto", axisId: undefined }
+        : tag
+    )));
+  };
+
   const handleSave = () => {
     onSettingsChange(draftSettings);
-    onAxesChange(draftAxes);
+    onAxesChange(normalizeTrendAxes(draftAxes, draftSettings));
     onSelectedTagsChange(draftSelectedTags);
     onClose();
   };
+
+  const axisUsageCount = useMemo(() => {
+    const usage = new Map<string, number>();
+    for (const tag of draftSelectedTags) {
+      const assigned = tag.axisMode === "manual" && tag.axisId ? tag.axisId : TREND_DEFAULT_AXIS_ID;
+      usage.set(assigned, (usage.get(assigned) ?? 0) + 1);
+    }
+    return usage;
+  }, [draftSelectedTags]);
+
+  const axisTemplate = AXES_COLUMNS.map((column) => `${Math.round(axisColumnWidths[column.id])}px`).join(" ");
+  const seriesTemplate = SERIES_COLUMNS.map((column) => `${Math.round(seriesColumnWidths[column.id])}px`).join(" ");
+
+  const startAxisColumnResize = (event: ReactMouseEvent<HTMLDivElement>, columnId: AxisColumnId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    axisResizeStateRef.current = { id: columnId, startX: event.clientX, startWidth: axisColumnWidths[columnId] };
+    if (typeof document !== "undefined") {
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    }
+  };
+
+  const startSeriesColumnResize = (event: ReactMouseEvent<HTMLDivElement>, columnId: SeriesColumnId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    seriesResizeStateRef.current = { id: columnId, startX: event.clientX, startWidth: seriesColumnWidths[columnId] };
+    if (typeof document !== "undefined") {
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    }
+  };
+
+  if (!open) {
+    return null;
+  }
 
   return (
     <TrendWorkbenchDialog
       id="trend-settings-dialog"
       title="Trend Settings"
       open={open}
-      defaultRect={{ x: 160, y: 80, width: 860, height: 520 }}
-      minWidth={760}
-      minHeight={450}
+      defaultRect={{ x: 120, y: 70, width: 1320, height: 640 }}
+      minWidth={1020}
+      minHeight={500}
       bodyClassName="trends-settings-dialog-body"
       footer={(
         <>
@@ -214,12 +371,7 @@ export function TrendSettingsPanel({
         {activeTab === "axes" ? (
           <section className="trends-settings-section">
             <h3>Axes</h3>
-            <p className="trends-settings-helper">Auto scale keeps axis dynamic. Disable Min/Max auto to set fixed bounds.</p>
-            <div className="trends-settings-grid">
-              <label><input type="checkbox" checked={draftSettings.groupByUnit} onChange={(event) => patchSettings({ groupByUnit: event.target.checked })} /> Group by unit</label>
-              <label><input type="checkbox" checked={draftSettings.separateAxisPerTag} onChange={(event) => patchSettings({ separateAxisPerTag: event.target.checked })} /> Separate axis per tag</label>
-              <label><input type="checkbox" checked={draftSettings.autoScale} onChange={(event) => patchSettings({ autoScale: event.target.checked })} /> Auto scale</label>
-            </div>
+            <p className="trends-settings-helper">Tag goes to Default axis on add. Create extra axes and assign them in Series tab.</p>
             <div className="trends-settings-fields trends-settings-fields--two-col">
               <label className="workbench-field">
                 <span className="workbench-field__label">Axis placement</span>
@@ -234,58 +386,90 @@ export function TrendSettingsPanel({
                 <input className="workbench-input" type="number" min={8} max={220} value={draftSettings.axisOffsetStep} onChange={(event) => onNumericInput(event, (value) => patchSettings({ axisOffsetStep: value }))} />
               </label>
             </div>
-            <p className="trends-settings-helper">Scale limits per axis are below: Min/Max auto or fixed numeric values.</p>
-            <div className="trends-axis-table">
-              {draftAxes.map((axis) => (
-                <div key={axis.id} className="trends-axis-row">
-                  <span className="trends-axis-row__id" title={axis.id}>{axis.id}</span>
-                  <input className="workbench-input" value={axis.name ?? ""} onChange={(event) => updateAxis(axis.id, { name: event.target.value })} placeholder="Axis name" />
-                  <select className="workbench-select" value={axis.position} onChange={(event) => updateAxis(axis.id, { position: event.target.value as TrendAxisConfig["position"] })}>
-                    <option value="left">left</option>
-                    <option value="right">right</option>
-                  </select>
-                  <div className="trends-axis-bound">
-                    <label className="screen-editor-settings-check">
-                      <input type="checkbox" checked={axis.min === "auto" || axis.min === undefined} onChange={(event) => updateAxis(axis.id, { min: event.target.checked ? "auto" : 0 })} />
-                      <span>Min auto</span>
-                    </label>
-                    <input
-                      className="workbench-input"
-                      type="number"
-                      disabled={axis.min === "auto" || axis.min === undefined}
-                      value={axis.min === "auto" || axis.min === undefined ? "" : axis.min}
-                      onChange={(event) => {
-                        const parsed = parseNumber(event.target.value);
-                        if (parsed === undefined) {
-                          return;
-                        }
-                        updateAxis(axis.id, { min: parsed });
-                      }}
-                      placeholder="Min"
-                    />
-                  </div>
-                  <div className="trends-axis-bound">
-                    <label className="screen-editor-settings-check">
-                      <input type="checkbox" checked={axis.max === "auto" || axis.max === undefined} onChange={(event) => updateAxis(axis.id, { max: event.target.checked ? "auto" : 100 })} />
-                      <span>Max auto</span>
-                    </label>
-                    <input
-                      className="workbench-input"
-                      type="number"
-                      disabled={axis.max === "auto" || axis.max === undefined}
-                      value={axis.max === "auto" || axis.max === undefined ? "" : axis.max}
-                      onChange={(event) => {
-                        const parsed = parseNumber(event.target.value);
-                        if (parsed === undefined) {
-                          return;
-                        }
-                        updateAxis(axis.id, { max: parsed });
-                      }}
-                      placeholder="Max"
-                    />
-                  </div>
+            <div className="trends-settings-toolbar-row">
+              <WorkbenchButton variant="primary" onClick={addAxis}>Add Axis</WorkbenchButton>
+            </div>
+            <div className="trends-settings-table-wrap">
+              <div className="trends-settings-table">
+                <div className="screen-editor-tags-row screen-editor-tags-row--header trends-settings-table__row trends-settings-table__row--head" style={{ gridTemplateColumns: axisTemplate }}>
+                  {AXES_COLUMNS.map((column, index) => (
+                    <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell trends-settings-table__cell trends-settings-table__cell--header">
+                      <span>{column.label}</span>
+                      {index < AXES_COLUMNS.length - 1 ? (
+                        <div className="screen-editor-tags-column-resize-handle trends-settings-table__resize-handle" onMouseDown={(event) => startAxisColumnResize(event, column.id)} />
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
-              ))}
+                {draftAxes.map((axis) => (
+                  <div key={axis.id} className="screen-editor-tags-row trends-settings-table__row" style={{ gridTemplateColumns: axisTemplate }}>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell" title={axis.id}>{axis.id}</div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" value={axis.name ?? ""} onChange={(event) => updateAxis(axis.id, { name: event.target.value })} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <select className="workbench-select" value={axis.position} onChange={(event) => updateAxis(axis.id, { position: event.target.value as TrendAxisConfig["position"] })}>
+                        <option value="left">left</option>
+                        <option value="right">right</option>
+                      </select>
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" type="number" value={axis.offset ?? 0} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { offset: Math.max(0, Math.round(value)) }))} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell trends-settings-table__bound-cell">
+                      <label className="screen-editor-settings-check">
+                        <input type="checkbox" checked={axis.min === "auto" || axis.min === undefined} onChange={(event) => updateAxis(axis.id, { min: event.target.checked ? "auto" : 0 })} />
+                        <span>auto</span>
+                      </label>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        disabled={axis.min === "auto" || axis.min === undefined}
+                        value={axis.min === "auto" || axis.min === undefined ? "" : axis.min}
+                        onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { min: value }))}
+                      />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell trends-settings-table__bound-cell">
+                      <label className="screen-editor-settings-check">
+                        <input type="checkbox" checked={axis.max === "auto" || axis.max === undefined} onChange={(event) => updateAxis(axis.id, { max: event.target.checked ? "auto" : 100 })} />
+                        <span>auto</span>
+                      </label>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        disabled={axis.max === "auto" || axis.max === undefined}
+                        value={axis.max === "auto" || axis.max === undefined ? "" : axis.max}
+                        onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { max: value }))}
+                      />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" type="number" value={axis.axisLabelFontSize ?? 12} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisLabelFontSize: value }))} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" type="number" value={axis.axisLabelMargin ?? 6} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisLabelMargin: value }))} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" type="number" value={axis.axisNameFontSize ?? 12} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNameFontSize: value }))} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" type="number" value={axis.axisNameGap ?? 30} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNameGap: value }))} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" type="number" value={axis.axisNamePaddingX ?? 6} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNamePaddingX: value }))} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" type="number" value={axis.axisNamePaddingY ?? 3} onChange={(event) => onNumericInput(event, (value) => updateAxis(axis.id, { axisNamePaddingY: value }))} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" value={axis.color ?? ""} onChange={(event) => updateAxis(axis.id, { color: event.target.value })} placeholder="#4FC3F7" />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">{axisUsageCount.get(axis.id) ?? 0}</div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <WorkbenchButton variant="danger" onClick={() => removeAxis(axis.id)} disabled={axis.id === TREND_DEFAULT_AXIS_ID}>Delete</WorkbenchButton>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
         ) : null}
@@ -293,32 +477,69 @@ export function TrendSettingsPanel({
         {activeTab === "series" ? (
           <section className="trends-settings-section">
             <h3>Series</h3>
-            <p className="trends-settings-helper">Series settings are applied to line style and visibility.</p>
-            <div className="trends-series-settings-list">
-              {draftSelectedTags.map((tag) => (
-                <div key={tag.tag} className="trends-series-settings-row">
-                  <span className="trends-series-settings-row__name" title={tag.displayName || tag.tag}>{tag.displayName || tag.tag}</span>
-                  <Space.Compact style={{ width: "100%" }}>
-                    <ColorPicker
-                      size="small"
-                      value={normalizeHexColor(tag.color, "#4FC3F7")}
-                      onChangeComplete={(color) => updateSeries(tag.tag, { color: color.toHexString() })}
-                    />
-                    <Input
-                      value={tag.color || ""}
-                      onChange={(event) => updateSeries(tag.tag, { color: event.target.value })}
-                      placeholder="#4FC3F7"
-                    />
-                  </Space.Compact>
-                  <select className="workbench-select" value={tag.mode ?? "line"} onChange={(event) => updateSeries(tag.tag, { mode: event.target.value as TrendTagSelection["mode"] })}>
-                    <option value="line">line</option>
-                    <option value="step">step</option>
-                    <option value="points">points</option>
-                  </select>
-                  <input className="workbench-input" type="number" min={1} max={5} value={tag.lineWidth ?? draftSettings.defaultLineWidth} onChange={(event) => onNumericInput(event, (value) => updateSeries(tag.tag, { lineWidth: value }))} />
-                  <label><input type="checkbox" checked={tag.visible !== false} onChange={(event) => updateSeries(tag.tag, { visible: event.target.checked })} /> visible</label>
+            <p className="trends-settings-helper">Assign axis per tag and adjust series style.</p>
+            <div className="trends-settings-table-wrap">
+              <div className="trends-settings-table">
+                <div className="screen-editor-tags-row screen-editor-tags-row--header trends-settings-table__row trends-settings-table__row--head" style={{ gridTemplateColumns: seriesTemplate }}>
+                  {SERIES_COLUMNS.map((column, index) => (
+                    <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell trends-settings-table__cell trends-settings-table__cell--header">
+                      <span>{column.label}</span>
+                      {index < SERIES_COLUMNS.length - 1 ? (
+                        <div className="screen-editor-tags-column-resize-handle trends-settings-table__resize-handle" onMouseDown={(event) => startSeriesColumnResize(event, column.id)} />
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
-              ))}
+                {draftSelectedTags.map((tag) => (
+                  <div key={tag.tag} className="screen-editor-tags-row trends-settings-table__row" style={{ gridTemplateColumns: seriesTemplate }}>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input type="checkbox" checked={tag.visible !== false} onChange={(event) => updateSeries(tag.tag, { visible: event.target.checked })} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell" title={tag.tag}>{tag.tag}</div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" value={tag.displayName ?? ""} onChange={(event) => updateSeries(tag.tag, { displayName: event.target.value })} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <Space.Compact style={{ width: "100%" }}>
+                        <ColorPicker
+                          size="small"
+                          value={normalizeHexColor(tag.color, "#4FC3F7")}
+                          onChangeComplete={(color) => updateSeries(tag.tag, { color: color.toHexString() })}
+                        />
+                        <Input value={tag.color ?? ""} onChange={(event) => updateSeries(tag.tag, { color: event.target.value })} placeholder="#4FC3F7" />
+                      </Space.Compact>
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <select className="workbench-select" value={tag.mode ?? "line"} onChange={(event) => updateSeries(tag.tag, { mode: event.target.value as TrendTagSelection["mode"] })}>
+                        <option value="line">line</option>
+                        <option value="step">step</option>
+                        <option value="points">points</option>
+                      </select>
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <input className="workbench-input" type="number" min={1} max={5} value={tag.lineWidth ?? draftSettings.defaultLineWidth} onChange={(event) => onNumericInput(event, (value) => updateSeries(tag.tag, { lineWidth: value }))} />
+                    </div>
+                    <div className="screen-editor-tags-cell trends-settings-table__cell">
+                      <select
+                        className="workbench-select"
+                        value={tag.axisMode === "manual" && tag.axisId ? tag.axisId : TREND_DEFAULT_AXIS_ID}
+                        onChange={(event) => {
+                          const nextAxisId = event.target.value;
+                          if (nextAxisId === TREND_DEFAULT_AXIS_ID) {
+                            updateSeries(tag.tag, { axisMode: "auto", axisId: undefined });
+                            return;
+                          }
+                          updateSeries(tag.tag, { axisMode: "manual", axisId: nextAxisId });
+                        }}
+                      >
+                        {draftAxes.map((axis) => (
+                          <option key={axis.id} value={axis.id}>{axis.name || axis.id}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
         ) : null}
