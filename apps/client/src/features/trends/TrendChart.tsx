@@ -5,14 +5,16 @@ import { GridComponent, LegendComponent, TooltipComponent, DataZoomComponent } f
 import { CanvasRenderer } from "echarts/renderers";
 import type { ECharts, EChartsCoreOption } from "echarts/core";
 import type { TrendAxisConfig, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { logTrendDiagnostics } from "./trendDiagnostics";
+import { isTrendPerfDebugEnabled, logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, CanvasRenderer]);
 const LIVE_GAP_MIN_BREAK_MS = 10_000;
 const LIVE_RIGHT_DRIFT_LIMIT_MS = 5_000;
 const LIVE_TRIM_GRACE_MS = 15_000;
-const LIVE_ABSOLUTE_POINT_CAP = 250_000;
+const LIVE_DOMAIN_GRACE_MS = 1500;
+const LIVE_MIN_SERIES_POINT_CAP = 200;
+const LIVE_MAX_SERIES_POINT_CAP = 20_000;
 
 type TrendChartProps = {
   data: TrendQueryResponse | null;
@@ -56,6 +58,14 @@ function resolveGapBreakMs(points: TrendPoint[]): number {
   return Math.max(3000, Math.min(180000, Math.round(median * 4)));
 }
 
+function resolveLiveSeriesPointCap(liveBufferLimit: number): number {
+  if (!Number.isFinite(liveBufferLimit)) {
+    return LIVE_MIN_SERIES_POINT_CAP;
+  }
+  const normalized = Math.round(liveBufferLimit);
+  return Math.max(LIVE_MIN_SERIES_POINT_CAP, Math.min(LIVE_MAX_SERIES_POINT_CAP, normalized));
+}
+
 export function TrendChart({
   data,
   tags,
@@ -87,6 +97,7 @@ export function TrendChart({
   const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
   const onHoverSnapshotChangeRef = useRef(onHoverSnapshotChange);
   const zoomDebounceMsRef = useRef(settings.zoomDebounceMs);
+  const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.liveBufferLimit));
   const tagsRef = useRef(tags);
   const lastAxisPointerTsRef = useRef<number | null>(null);
   const renderChartRef = useRef<() => void>(() => {});
@@ -173,6 +184,10 @@ export function TrendChart({
   }, [settings.zoomDebounceMs]);
 
   useEffect(() => {
+    liveSeriesPointCapRef.current = resolveLiveSeriesPointCap(settings.liveBufferLimit);
+  }, [settings.liveBufferLimit]);
+
+  useEffect(() => {
     tagsRef.current = tags;
   }, [tags]);
 
@@ -181,6 +196,8 @@ export function TrendChart({
     if (!chart) {
       return;
     }
+    const debugPerf = isTrendPerfDebugEnabled();
+    const renderStartedAt = debugPerf ? performance.now() : 0;
     const uiTheme = resolveTrendTheme(settings.theme);
     const chartBackground = settings.theme === "custom" && /^#[0-9a-fA-F]{3,6}$/.test(settings.background)
       ? settings.background
@@ -390,6 +407,7 @@ export function TrendChart({
         data: dataPoints,
       };
     });
+    const echartsPointCount = series.reduce((count, item) => count + item.data.length, 0);
 
     const option: EChartsCoreOption = {
       // Keep full domain stable so wheel zoom can zoom-out after zoom-in.
@@ -506,6 +524,16 @@ export function TrendChart({
     window.setTimeout(() => {
       optionGuardRef.current = false;
     }, 0);
+    if (debugPerf) {
+      logTrendDiagnostics("chart:render", {
+        durationMs: Math.round((performance.now() - renderStartedAt) * 1000) / 1000,
+        seriesCount: series.length,
+        sourcePointCount: totalPointCount,
+        echartsPointCount,
+        domain: fullRangeRef.current,
+        visibleRange,
+      });
+    }
   };
   renderChartRef.current = renderChart;
 
@@ -726,6 +754,7 @@ export function TrendChart({
 
         const trimRightTs = Number.isFinite(maxUpdateTs) ? maxUpdateTs : Date.now();
         const trimFromTs = trimRightTs - liveWindowMsRef.current - LIVE_TRIM_GRACE_MS;
+        const seriesPointCap = liveSeriesPointCapRef.current;
         for (const tagName of updatedTags) {
           const points = seriesPointsRef.current.get(tagName);
           if (!points || points.length <= 1) {
@@ -738,17 +767,10 @@ export function TrendChart({
           if (cutIndex > 0) {
             points.splice(0, cutIndex);
           }
-          if (points.length > LIVE_ABSOLUTE_POINT_CAP) {
-            points.splice(0, points.length - LIVE_ABSOLUTE_POINT_CAP);
+          if (points.length > seriesPointCap) {
+            points.splice(0, points.length - seriesPointCap);
           }
           seriesPointsRef.current.set(tagName, points);
-        }
-
-        if (Number.isFinite(minUpdateTs) && Number.isFinite(maxUpdateTs)) {
-          fullRangeRef.current = {
-            from: Math.min(fullRangeRef.current.from, minUpdateTs),
-            to: Math.max(fullRangeRef.current.to, maxUpdateTs),
-          };
         }
 
         if (liveModeRef.current) {
@@ -757,13 +779,18 @@ export function TrendChart({
           const clampedNewestTs = Math.min(newestTs, now + LIVE_RIGHT_DRIFT_LIMIT_MS);
           const previousRight = liveLastEmittedRightRef.current ?? clampedNewestTs;
           const right = Math.max(previousRight, clampedNewestTs);
+          const left = right - liveWindowMsRef.current;
           liveLastEmittedRightRef.current = right;
           fullRangeRef.current = {
-            from: fullRangeRef.current.from,
-            to: Math.max(fullRangeRef.current.to, right),
+            from: left - LIVE_DOMAIN_GRACE_MS,
+            to: right + LIVE_DOMAIN_GRACE_MS,
           };
-          const left = right - liveWindowMsRef.current;
           onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
+        } else if (Number.isFinite(minUpdateTs) && Number.isFinite(maxUpdateTs)) {
+          fullRangeRef.current = {
+            from: Math.min(fullRangeRef.current.from, minUpdateTs),
+            to: Math.max(fullRangeRef.current.to, maxUpdateTs),
+          };
         }
         renderChartRef.current();
       },
@@ -792,8 +819,12 @@ export function TrendChart({
     const nextMap = new Map<string, TrendPoint[]>();
     let minTs = Number.POSITIVE_INFINITY;
     let maxTs = Number.NEGATIVE_INFINITY;
+    const liveSeriesPointCap = liveSeriesPointCapRef.current;
     for (const series of data?.series ?? []) {
-      const normalizedPoints = normalizeSeriesPoints(series.points);
+      const normalizedPointsSource = normalizeSeriesPoints(series.points);
+      const normalizedPoints = liveModeRef.current && normalizedPointsSource.length > liveSeriesPointCap
+        ? normalizedPointsSource.slice(normalizedPointsSource.length - liveSeriesPointCap)
+        : normalizedPointsSource;
       nextMap.set(series.tag, normalizedPoints);
       for (const point of normalizedPoints) {
         if (point.t < minTs) {

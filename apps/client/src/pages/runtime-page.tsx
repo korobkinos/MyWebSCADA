@@ -15,12 +15,13 @@ import {
   type PopupInstance,
   type RenderContext,
   type RuntimeAction,
+  type TagValue,
 } from "@web-scada/shared";
 import { Button, Card, Form, InputNumber, Modal, Space, Typography, message } from "antd";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime/numeric-input-dialog";
 import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
-import { collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
+import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
 import { updateRuntimeTagSubscriptions } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
 import {
@@ -47,6 +48,7 @@ const COMMAND_WARNING_COOLDOWN_MS = 1200;
 const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
 const INDEXED_ADDRESS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugIndexedAddress";
 const RUNTIME_LAYOUT_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimeLayout";
+const RUNTIME_PERF_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimePerf";
 const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
 const COMMAND_WARNING_RETENTION_MS = 30_000;
 const FAST_INTERNAL_MACRO_TIMEOUT_MS = 1000;
@@ -80,6 +82,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const commandWarningTimestampsRef = useRef(new Map<string, number>());
   const runtimeRootRef = useRef<HTMLDivElement | null>(null);
   const indexedAddressDebugCounterRef = useRef<unknown>(Symbol("init"));
+  const runtimeSubscriptionRecalcCountRef = useRef(0);
+  const runtimePerfDebugEnabledRef = useRef(false);
+  const tagsRef = useRef(tags);
   const debugActionTiming =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -156,6 +161,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const modalOpen = popupState.items.some((item) => item.modal);
 
   useEffect(() => {
+    tagsRef.current = tags;
+  }, [tags]);
+
+  useEffect(() => {
     if (!import.meta.env.DEV || fullscreen !== true || !screen || typeof window === "undefined") {
       return;
     }
@@ -191,24 +200,65 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     [popupState.items, project],
   );
 
+  const popupSubscriptionContexts = useMemo(
+    () => popupScreens.map(({ item, screen: popupScreen }) => ({
+      screen: popupScreen,
+      tagPrefix: item.tagPrefix,
+      args: item.args,
+    })),
+    [popupScreens],
+  );
+
+  const runtimeSubscriptionPlan = useMemo(() => {
+    if (!project || !screen) {
+      return null;
+    }
+    return collectRuntimeTagSubscriptionPlan({
+      project,
+      libraries: activeLibraries,
+      screen,
+      popups: popupSubscriptionContexts,
+    });
+  }, [activeLibraries, popupSubscriptionContexts, project, screen]);
+
+  const runtimeDependencyTagSignature = useMemo(() => {
+    const dependencyTags = runtimeSubscriptionPlan?.dependencyTags ?? [];
+    if (dependencyTags.length === 0) {
+      return "";
+    }
+    return dependencyTags
+      .map((tagName) => `${tagName}=${serializeRuntimeTagForSignature(tags[tagName])}`)
+      .join("|");
+  }, [runtimeSubscriptionPlan?.dependencyTags, tags]);
+
   useEffect(() => {
     if (!project || !screen) {
       updateRuntimeTagSubscriptions([]);
       return;
     }
+    runtimePerfDebugEnabledRef.current = readRuntimePerfDebugFlag();
+    const startedAt = runtimePerfDebugEnabledRef.current ? performance.now() : 0;
+    const dependencyTagCount = runtimeSubscriptionPlan?.dependencyTags.length ?? 0;
+    const shouldResolveFromRuntimeTags = dependencyTagCount > 0;
     const subscriptionTags = collectRuntimeTagSubscriptions({
       project,
       libraries: activeLibraries,
       screen,
-      tags,
-      popups: popupScreens.map(({ item, screen: popupScreen }) => ({
-        screen: popupScreen,
-        tagPrefix: item.tagPrefix,
-        args: item.args,
-      })),
+      tags: shouldResolveFromRuntimeTags ? tagsRef.current : undefined,
+      popups: popupSubscriptionContexts,
     });
     updateRuntimeTagSubscriptions(subscriptionTags);
-  }, [activeLibraries, popupScreens, project, screen, tags]);
+    if (runtimePerfDebugEnabledRef.current) {
+      runtimeSubscriptionRecalcCountRef.current += 1;
+      // eslint-disable-next-line no-console
+      console.debug("[runtime-perf] subscription-recalc", {
+        count: runtimeSubscriptionRecalcCountRef.current,
+        durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
+        subscriptionTagCount: subscriptionTags.length,
+        dependencyTagCount,
+      });
+    }
+  }, [activeLibraries, popupSubscriptionContexts, project, runtimeDependencyTagSignature, runtimeSubscriptionPlan, screen]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1783,6 +1833,27 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       {runtimeAuthWindows}
     </div>
   );
+}
+
+function readRuntimePerfDebugFlag(): boolean {
+  return typeof window !== "undefined"
+    && window.localStorage.getItem(RUNTIME_PERF_DEBUG_LOCAL_STORAGE_KEY) === "1";
+}
+
+function serializeRuntimeTagForSignature(value: TagValue | undefined): string {
+  if (!value) {
+    return "null";
+  }
+  const rawValue = value.value;
+  const valuePart =
+    rawValue === null || rawValue === undefined
+      ? "null"
+      : typeof rawValue === "number"
+        ? String(rawValue)
+        : typeof rawValue === "boolean"
+          ? (rawValue ? "1" : "0")
+          : rawValue;
+  return `${valuePart}|${value.quality ?? ""}|${value.source ?? ""}`;
 }
 
 function unwrapRuntimeTagValue(value: unknown): unknown {

@@ -1,4 +1,6 @@
 const MAX_LOG_ENTRIES = 500;
+const TREND_PERF_DEBUG_LOCAL_STORAGE_KEY = "scada.debugTrendPerf";
+const DEBUG_FLAG_REFRESH_MS = 2000;
 
 type TrendDiagnosticsEntry = {
   ts: string;
@@ -7,6 +9,20 @@ type TrendDiagnosticsEntry = {
 };
 
 const trendDiagnosticsBuffer: TrendDiagnosticsEntry[] = [];
+let cachedDebugEnabled = false;
+let lastDebugFlagCheckAt = 0;
+
+export function isTrendPerfDebugEnabled(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const now = Date.now();
+  if (now - lastDebugFlagCheckAt >= DEBUG_FLAG_REFRESH_MS) {
+    cachedDebugEnabled = window.localStorage.getItem(TREND_PERF_DEBUG_LOCAL_STORAGE_KEY) === "1";
+    lastDebugFlagCheckAt = now;
+  }
+  return cachedDebugEnabled;
+}
 
 function safeClone<T>(value: T): T {
   try {
@@ -17,6 +33,9 @@ function safeClone<T>(value: T): T {
 }
 
 export function logTrendDiagnostics(event: string, payload?: unknown): void {
+  if (!isTrendPerfDebugEnabled()) {
+    return;
+  }
   const entry: TrendDiagnosticsEntry = {
     ts: new Date().toISOString(),
     event,

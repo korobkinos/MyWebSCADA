@@ -34,6 +34,11 @@ type RuntimeTagSubscriptionInput = {
   popups: PopupSubscriptionContext[];
 };
 
+export type RuntimeTagSubscriptionPlan = {
+  subscriptionTags: string[];
+  dependencyTags: string[];
+};
+
 const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
   "group",
   "text",
@@ -48,7 +53,12 @@ const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
 ]);
 
 export function collectRuntimeTagSubscriptions(input: RuntimeTagSubscriptionInput): string[] {
+  return collectRuntimeTagSubscriptionPlan(input).subscriptionTags;
+}
+
+export function collectRuntimeTagSubscriptionPlan(input: RuntimeTagSubscriptionInput): RuntimeTagSubscriptionPlan {
   const tags = new Set<string>();
+  const dependencyTags = new Set<string>();
   const frameGuard = new Set<string>();
   const runtimeResolveContext: RuntimeResolveContext = {
     tagValues: input.tags,
@@ -61,6 +71,7 @@ export function collectRuntimeTagSubscriptions(input: RuntimeTagSubscriptionInpu
     { screenId: input.screen.id },
     runtimeResolveContext,
     tags,
+    dependencyTags,
     frameGuard,
   );
 
@@ -77,11 +88,15 @@ export function collectRuntimeTagSubscriptions(input: RuntimeTagSubscriptionInpu
       },
       runtimeResolveContext,
       tags,
+      dependencyTags,
       frameGuard,
     );
   }
 
-  return [...tags];
+  return {
+    subscriptionTags: [...tags],
+    dependencyTags: [...dependencyTags].sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 function collectScreenTags(
@@ -91,10 +106,11 @@ function collectScreenTags(
   context: RenderContext,
   runtimeResolveContext: RuntimeResolveContext,
   out: Set<string>,
+  dependencyOut: Set<string>,
   frameGuard: Set<string>,
 ): void {
   for (const object of screen.objects) {
-    collectObjectTags(project, libraries, object, context, runtimeResolveContext, out, frameGuard);
+    collectObjectTags(project, libraries, object, context, runtimeResolveContext, out, dependencyOut, frameGuard);
   }
 }
 
@@ -105,6 +121,7 @@ function collectObjectTags(
   context: RenderContext,
   runtimeResolveContext: RuntimeResolveContext,
   out: Set<string>,
+  dependencyOut: Set<string>,
   frameGuard: Set<string>,
 ): void {
   const resolvedObject = resolveObjectParameters(object, context.parameters ?? {});
@@ -117,6 +134,7 @@ function collectObjectTags(
     rawTagName: resolvedObject.visibleTag,
     context,
     runtimeTagValues,
+    dependencyOut,
   });
   addResolvedFieldTag(out, {
     project,
@@ -125,12 +143,14 @@ function collectObjectTags(
     rawTagName: resolvedObject.disabledTag,
     context,
     runtimeTagValues,
+    dependencyOut,
   });
   addRotationAnimationFieldTags(out, {
     project,
     object: resolvedObject,
     context,
     runtimeTagValues,
+    dependencyOut,
   });
 
   if ("action" in resolvedObject && resolvedObject.action) {
@@ -140,7 +160,7 @@ function collectObjectTags(
   switch (resolvedObject.type) {
     case "group":
       for (const child of resolvedObject.objects) {
-        collectObjectTags(project, libraries, child, context, runtimeResolveContext, out, frameGuard);
+        collectObjectTags(project, libraries, child, context, runtimeResolveContext, out, dependencyOut, frameGuard);
       }
       return;
     case "line":
@@ -151,12 +171,14 @@ function collectObjectTags(
         rawTagName: resolvedObject.stateTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addFlowAnimationFieldTags(out, {
         project,
         object: resolvedObject,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     case "value-display":
@@ -172,6 +194,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.tag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     }
@@ -183,6 +206,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.stateTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     case "valueSelect":
@@ -209,6 +233,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.openTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -217,6 +242,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.closedTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -225,6 +251,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.errorTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -233,6 +260,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.commandOpenTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -241,6 +269,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.commandCloseTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     case "pump":
@@ -251,6 +280,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.runTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -259,6 +289,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.faultTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -267,6 +298,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.commandStartTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -275,6 +307,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.commandStopTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     case "checkbox": {
@@ -285,6 +318,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.tag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -293,6 +327,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.writeTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     }
@@ -304,6 +339,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.tag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -312,6 +348,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.writeTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     }
@@ -323,6 +360,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.tag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     case "select": {
@@ -333,6 +371,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.tag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -341,6 +380,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.writeTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     }
@@ -352,6 +392,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.tag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -360,6 +401,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.writeTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     }
@@ -371,6 +413,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.tag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       addResolvedFieldTag(out, {
         project,
@@ -379,6 +422,7 @@ function collectObjectTags(
         rawTagName: resolvedObject.writeTag,
         context,
         runtimeTagValues,
+        dependencyOut,
       });
       return;
     }
@@ -398,7 +442,7 @@ function collectObjectTags(
         return;
       }
       frameGuard.add(guardKey);
-      collectScreenTags(project, libraries, childScreen, childContext, runtimeResolveContext, out, frameGuard);
+      collectScreenTags(project, libraries, childScreen, childContext, runtimeResolveContext, out, dependencyOut, frameGuard);
       return;
     }
     case "libraryElementInstance": {
@@ -454,7 +498,7 @@ function collectObjectTags(
       }
 
       for (const child of element.objects) {
-        collectObjectTags(project, libraries, child, childContext, runtimeResolveContext, out, frameGuard);
+        collectObjectTags(project, libraries, child, childContext, runtimeResolveContext, out, dependencyOut, frameGuard);
       }
       return;
     }
@@ -530,6 +574,7 @@ function addResolvedFieldTag(
     rawTagName: string | undefined;
     context: RenderContext;
     runtimeTagValues?: TagMap;
+    dependencyOut?: Set<string>;
   },
 ): void {
   const indexed = resolveObjectTagField({
@@ -548,6 +593,7 @@ function addResolvedFieldTag(
   for (const dependency of indexed.dependencyTags) {
     if (dependency.trim()) {
       out.add(dependency.trim());
+      input.dependencyOut?.add(dependency.trim());
     }
   }
 }
@@ -559,6 +605,7 @@ function addRotationAnimationFieldTags(
     object: HmiObject;
     context: RenderContext;
     runtimeTagValues?: TagMap;
+    dependencyOut?: Set<string>;
   },
 ): void {
   const rotationAnimation = input.object.rotationAnimation;
@@ -577,6 +624,7 @@ function addRotationAnimationFieldTags(
     rawTagName: rotationAnimation?.triggerTag,
     context: input.context,
     runtimeTagValues: input.runtimeTagValues,
+    dependencyOut: input.dependencyOut,
   });
   addResolvedFieldTag(out, {
     project: input.project,
@@ -585,6 +633,7 @@ function addRotationAnimationFieldTags(
     rawTagName: rotationAnimation?.speedTag,
     context: input.context,
     runtimeTagValues: input.runtimeTagValues,
+    dependencyOut: input.dependencyOut,
   });
 }
 
@@ -595,6 +644,7 @@ function addFlowAnimationFieldTags(
     object: HmiObject;
     context: RenderContext;
     runtimeTagValues?: TagMap;
+    dependencyOut?: Set<string>;
   },
 ): void {
   if (input.object.type !== "line") {
@@ -613,6 +663,7 @@ function addFlowAnimationFieldTags(
     rawTagName: flowAnimation?.triggerTag,
     context: input.context,
     runtimeTagValues: input.runtimeTagValues,
+    dependencyOut: input.dependencyOut,
   });
   addResolvedFieldTag(out, {
     project: input.project,
@@ -621,6 +672,7 @@ function addFlowAnimationFieldTags(
     rawTagName: flowAnimation?.speedTag,
     context: input.context,
     runtimeTagValues: input.runtimeTagValues,
+    dependencyOut: input.dependencyOut,
   });
 }
 

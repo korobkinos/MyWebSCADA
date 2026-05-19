@@ -20,9 +20,16 @@ import { resolveTrendTheme } from "./trendTheme";
 const LIVE_FLUSH_MS = 300;
 const LIVE_HEARTBEAT_MS = 1000;
 const LIVE_HEARTBEAT_STALE_SOURCE_MS = 1200;
+const LIVE_PENDING_BUFFER_MULTIPLIER = 2;
+const LIVE_PENDING_BUFFER_MIN = 2000;
+const LIVE_PENDING_BUFFER_MAX = 120_000;
+const RUNTIME_VIEW_STATE_SAVE_DEBOUNCE_MS = 800;
 const TOO_MANY_TAGS_LIMIT = 40;
 const TREND_ZOOM_MIN_SPAN_MS = 15_000;
 const TREND_ZOOM_MAX_SPAN_MS = 24 * 60 * 60 * 1000;
+const TREND_CACHE_POINTS_PER_ENTRY = 8000;
+const TREND_CACHE_POINTS_MIN = 120_000;
+const TREND_CACHE_POINTS_MAX = 600_000;
 
 type TrendSeriesColumnState = {
   id: TrendSeriesColumnId;
@@ -96,6 +103,18 @@ function formatTrendValue(value: number | boolean | string | null | undefined): 
     return value ? "true" : "false";
   }
   return String(value);
+}
+
+function resolveLivePendingBufferCap(tagCount: number, liveBufferLimit: number): number {
+  const safeTagCount = Math.max(1, tagCount);
+  const safeSeriesLimit = clamp(Math.round(liveBufferLimit), 200, 20_000);
+  const desired = safeTagCount * safeSeriesLimit * LIVE_PENDING_BUFFER_MULTIPLIER;
+  return clamp(desired, LIVE_PENDING_BUFFER_MIN, LIVE_PENDING_BUFFER_MAX);
+}
+
+function resolveTrendCachePointLimit(cacheSize: number): number {
+  const safeCacheSize = clamp(Math.round(cacheSize), 8, 256);
+  return clamp(safeCacheSize * TREND_CACHE_POINTS_PER_ENTRY, TREND_CACHE_POINTS_MIN, TREND_CACHE_POINTS_MAX);
 }
 
 function isAuthenticationRequiredErrorMessage(message: string): boolean {
@@ -284,12 +303,15 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
-  const cacheRef = useRef(new TrendQueryCache(settings.cacheSize));
+  const cacheRef = useRef(new TrendQueryCache(settings.cacheSize, resolveTrendCachePointLimit(settings.cacheSize)));
   const chartApiRef = useRef<TrendChartApi | null>(null);
   const liveBufferRef = useRef<Array<{ tag: string; value: number | boolean | string | null; quality?: string; timestamp: number }>>([]);
+  const livePendingBufferCapRef = useRef(resolveLivePendingBufferCap(selectedTags.length, settings.liveBufferLimit));
   const liveLatestByTagRef = useRef<Map<string, { value: number | boolean | string | null; quality?: string; sourceTs: number; lastIncomingAt: number }>>(new Map());
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
   const historyLoadTimerRef = useRef<number | null>(null);
+  const viewStateSaveTimerRef = useRef<number | null>(null);
+  const lastStableVisibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
   const columnResizeStateRef = useRef<{ id: TrendSeriesColumnId | null; startX: number; startWidth: number }>({
     id: null,
     startX: 0,
@@ -313,6 +335,10 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   const selectedTagNamesKey = useMemo(() => selectedTagNames.join("|"), [selectedTagNames]);
 
   useEffect(() => {
+    livePendingBufferCapRef.current = resolveLivePendingBufferCap(selectedTagNames.length, settings.liveBufferLimit);
+  }, [selectedTagNames.length, settings.liveBufferLimit]);
+
+  useEffect(() => {
     const nextViewState = resolveInitialRuntimeViewState(object);
     logTrendDiagnostics("widget:init", {
       objectId: object.id,
@@ -330,6 +356,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setLiveMode(nextViewState.liveMode);
     setRangePreset(nextViewState.rangePreset);
     setVisibleRange(nextViewState.visibleRange);
+    lastStableVisibleRangeRef.current = nextViewState.visibleRange;
     setCustomFrom(nextViewState.customFrom);
     setCustomTo(nextViewState.customTo);
     setTimeRangeDraftFrom(nextViewState.customFrom);
@@ -343,12 +370,12 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     setScreenRevision((prev) => prev + 1);
   }, [object.id]);
 
-  useEffect(() => {
+  const persistRuntimeViewState = useCallback((rangeForStorage: TrendVisibleRange) => {
     writeRuntimeViewState({
       objectId: object.id,
       state: {
         rangePreset,
-        visibleRange,
+        visibleRange: rangeForStorage,
         liveMode,
         customFrom,
         customTo,
@@ -359,7 +386,40 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         seriesColumnWidths,
       },
     });
-  }, [customFrom, customTo, liveMode, manualAxes, object.id, rangePreset, selectedTags, seriesColumnWidths, settings, tagPickerFilters, visibleRange]);
+  }, [customFrom, customTo, liveMode, manualAxes, object.id, rangePreset, selectedTags, seriesColumnWidths, settings, tagPickerFilters]);
+
+  useEffect(() => {
+    if (!liveMode) {
+      lastStableVisibleRangeRef.current = visibleRange;
+    }
+  }, [liveMode, visibleRange.from, visibleRange.to]);
+
+  useEffect(() => {
+    persistRuntimeViewState(liveMode ? lastStableVisibleRangeRef.current : visibleRange);
+  }, [liveMode, persistRuntimeViewState]);
+
+  useEffect(() => {
+    if (liveMode) {
+      if (viewStateSaveTimerRef.current) {
+        window.clearTimeout(viewStateSaveTimerRef.current);
+        viewStateSaveTimerRef.current = null;
+      }
+      return;
+    }
+    if (viewStateSaveTimerRef.current) {
+      window.clearTimeout(viewStateSaveTimerRef.current);
+    }
+    viewStateSaveTimerRef.current = window.setTimeout(() => {
+      persistRuntimeViewState(visibleRange);
+      viewStateSaveTimerRef.current = null;
+    }, RUNTIME_VIEW_STATE_SAVE_DEBOUNCE_MS);
+    return () => {
+      if (viewStateSaveTimerRef.current) {
+        window.clearTimeout(viewStateSaveTimerRef.current);
+        viewStateSaveTimerRef.current = null;
+      }
+    };
+  }, [liveMode, persistRuntimeViewState, visibleRange.from, visibleRange.to]);
 
   const executeQuery = useCallback(async (range: TrendVisibleRange, options?: { force?: boolean }) => {
     if (selectedTagNames.length === 0) {
@@ -402,6 +462,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         logTrendDiagnostics("query:cache-hit", {
           aggregation: cached.aggregation,
           seriesCount: cached.series.length,
+          cache: cacheRef.current.getStats(),
         });
         setResponse(cached);
         setStatusAggregation(cached.aggregation);
@@ -439,6 +500,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
         firstSeries: next.series[0]?.tag,
         firstTs: next.series[0]?.points[0]?.t ?? null,
         lastTs: next.series[0]?.points[next.series[0]?.points.length - 1]?.t ?? null,
+        cache: cacheRef.current.getStats(),
       });
       let latestTs = Number.NEGATIVE_INFINITY;
       if (liveMode) {
@@ -543,7 +605,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
   }, [liveMode, selectedTagNamesKey, settings.aggregation, settings.cacheEnabled, settings.maxPointsPerSeries]);
 
   useEffect(() => {
-    cacheRef.current = new TrendQueryCache(settings.cacheSize);
+    cacheRef.current = new TrendQueryCache(settings.cacheSize, resolveTrendCachePointLimit(settings.cacheSize));
   }, [settings.cacheSize]);
 
   useEffect(() => {
@@ -571,6 +633,10 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     liveSocketRef.current?.close();
     if (historyLoadTimerRef.current) {
       window.clearTimeout(historyLoadTimerRef.current);
+    }
+    if (viewStateSaveTimerRef.current) {
+      window.clearTimeout(viewStateSaveTimerRef.current);
+      viewStateSaveTimerRef.current = null;
     }
   }, []);
 
@@ -609,6 +675,7 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     liveBufferRef.current = [];
     const socket = createRuntimeSocket({
       onTagValues: (values: TagValue[]) => {
+        let dropped = 0;
         for (const value of values) {
           if (!selected.has(value.name)) {
             continue;
@@ -620,6 +687,18 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
             timestamp: value.timestamp,
           });
         }
+        const pendingBufferCap = livePendingBufferCapRef.current;
+        if (liveBufferRef.current.length > pendingBufferCap) {
+          dropped = liveBufferRef.current.length - pendingBufferCap;
+          liveBufferRef.current.splice(0, dropped);
+        }
+        if (dropped > 0) {
+          logTrendDiagnostics("live:pending-buffer-drop", {
+            dropped,
+            cap: pendingBufferCap,
+            pendingAfterDrop: liveBufferRef.current.length,
+          });
+        }
       },
       onSocketStateChange: (state) => {
         setLiveSocketState(state);
@@ -629,12 +708,15 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
     liveSocketRef.current = socket;
 
     const flushTimer = window.setInterval(() => {
-      const batch = liveBufferRef.current.splice(0, liveBufferRef.current.length);
+      const pendingBeforeFlush = liveBufferRef.current.length;
+      const batch = liveBufferRef.current.splice(0, pendingBeforeFlush);
       if (batch.length === 0) {
         return;
       }
       logTrendDiagnostics("live:batch", {
         batchSize: batch.length,
+        pendingBeforeFlush,
+        pendingCap: livePendingBufferCapRef.current,
         minTs: Math.min(...batch.map((item) => item.timestamp)),
         maxTs: Math.max(...batch.map((item) => item.timestamp)),
       });
@@ -984,6 +1066,8 @@ export function TrendRuntimeWidget({ object }: TrendRuntimeWidgetProps) {
       liveBatchCount,
       livePointCount,
       liveSocketState,
+      livePendingBufferCap: livePendingBufferCapRef.current,
+      cache: cacheRef.current.getStats(),
     });
     downloadTextFile(`trend-diagnostics-${object.id}-${Date.now()}.json`, payload);
   };
