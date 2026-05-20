@@ -450,7 +450,6 @@ export class ArchiveRepository {
     const maxPoints = Math.max(100, params.maxPoints);
     const hardLimit = Math.max(200, params.hardLimitPerSeries);
     const rangeMs = Math.max(1, requestedTo.getTime() - requestedFrom.getTime());
-    const bucketMs = Math.max(1, Math.ceil(rangeMs / maxPoints));
 
     const metaRows = await this.loadTrendTagMeta(params.tags);
     const series: TrendSeriesRow[] = [];
@@ -466,6 +465,10 @@ export class ArchiveRepository {
         maxPoints,
       });
       resolvedAggregation = this.pickWiderAggregation(resolvedAggregation, effectiveAggregation);
+      const targetBuckets = effectiveAggregation === "minmax"
+        ? Math.max(1, Math.floor(maxPoints / 2))
+        : maxPoints;
+      const bucketMs = Math.max(1, Math.ceil(rangeMs / targetBuckets));
 
       let points: TrendPointRow[] = [];
       if (effectiveAggregation === "raw") {
@@ -1305,7 +1308,7 @@ export class ArchiveRepository {
     bucketMs: number,
     hardLimit: number,
   ): Promise<TrendPointRow[]> {
-    const bucketLimit = Math.max(1, Math.floor(hardLimit / 2));
+    void hardLimit;
     const result = await this.pool.query<{
       time: Date;
       value: number;
@@ -1325,19 +1328,6 @@ export class ArchiveRepository {
           AND s.time <= $3
           AND s.value_double IS NOT NULL
       ),
-      buckets AS (
-        SELECT
-          bucket_id
-        FROM points
-        GROUP BY bucket_id
-        ORDER BY bucket_id ASC
-        LIMIT $5
-      ),
-      points_limited AS (
-        SELECT p.*
-        FROM points p
-        JOIN buckets b ON b.bucket_id = p.bucket_id
-      ),
       quality_by_bucket AS (
         SELECT
           p.bucket_id,
@@ -1346,7 +1336,7 @@ export class ArchiveRepository {
             WHEN BOOL_OR(p.quality = 'uncertain') THEN 'uncertain'
             ELSE 'good'
           END AS quality
-        FROM points_limited p
+        FROM points p
         GROUP BY p.bucket_id
       ),
       ranked AS (
@@ -1356,7 +1346,7 @@ export class ArchiveRepository {
           p.value,
           ROW_NUMBER() OVER (PARTITION BY p.bucket_id ORDER BY p.value ASC, p.time ASC) AS rn_min,
           ROW_NUMBER() OVER (PARTITION BY p.bucket_id ORDER BY p.value DESC, p.time ASC) AS rn_max
-        FROM points_limited p
+        FROM points p
       ),
       picked AS (
         SELECT bucket_id, time, value
@@ -1368,7 +1358,7 @@ export class ArchiveRepository {
       JOIN quality_by_bucket q ON q.bucket_id = p.bucket_id
       ORDER BY p.time ASC, p.value ASC
       `,
-      [tagId, from, to, bucketMs, bucketLimit],
+      [tagId, from, to, bucketMs],
     );
 
     const points: TrendPointRow[] = result.rows.map((row) => ({

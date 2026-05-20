@@ -24,6 +24,7 @@ const LIVE_HEARTBEAT_STALE_SOURCE_MS = 1200;
 const LIVE_POLL_INTERVAL_FAST_MS = 1000;
 const LIVE_POLL_INTERVAL_MEDIUM_MS = 2000;
 const LIVE_POLL_INTERVAL_SLOW_MS = 5000;
+const LIVE_RANGE_SMOOTH_INTERVAL_MS = 250;
 const LIVE_PENDING_BUFFER_MULTIPLIER = 2;
 const LIVE_PENDING_BUFFER_MIN = 2000;
 const LIVE_PENDING_BUFFER_MAX = 120_000;
@@ -36,6 +37,7 @@ const TREND_CACHE_POINTS_MIN = 120_000;
 const TREND_CACHE_POINTS_MAX = 600_000;
 const TREND_SERIES_TABLE_HEADER_PX = 30;
 const TREND_SERIES_TABLE_ROW_PX = 30;
+const TREND_CARRY_FORWARD_COLLAPSE_MAX_GAP_MS = 2000;
 
 type TrendSeriesColumnState = {
   id: TrendSeriesColumnId;
@@ -335,6 +337,20 @@ function normalizeTrendResponseForRange(
         normalizedPoints.push({ t: safeTo, v: last.v, q: last.q });
       }
     }
+    if (normalizedPoints.length >= 2) {
+      const last = normalizedPoints[normalizedPoints.length - 1];
+      const previous = normalizedPoints[normalizedPoints.length - 2];
+      if (
+        last
+        && previous
+        && last.t === safeTo
+        && previous.v === last.v
+        && (previous.q ?? "good") === (last.q ?? "good")
+        && (last.t - previous.t) <= TREND_CARRY_FORWARD_COLLAPSE_MAX_GAP_MS
+      ) {
+        normalizedPoints.pop();
+      }
+    }
     return {
       tag: selection.tag,
       displayName: source?.displayName || selection.displayName || selection.tag,
@@ -564,6 +580,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [timeRangeDraftTo, setTimeRangeDraftTo] = useState(initialViewState.customTo);
   const mode: TrendMode = liveMode ? "live" : "offline";
   const liveDataSource: TrendLiveDataSource = DEFAULT_LIVE_DATA_SOURCE;
+  const chartLiveMode = liveMode && liveDataSource === "realtimeAppend";
   const chartResponse = mode === "live" ? liveResponse : offlineResponse;
 
   const requestIdRef = useRef(0);
@@ -1333,6 +1350,28 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   }, [executeQuery, liveDataSource, liveMode, livePollingIntervalMs, liveWindowMs, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
 
   useEffect(() => {
+    if (liveDataSource !== "archivePolling" || !liveMode || selectedTagNames.length === 0) {
+      return;
+    }
+    const timerId = window.setInterval(() => {
+      const now = Date.now();
+      const span = Math.max(60_000, liveWindowMs);
+      setVisibleRange((prev) => {
+        if (Math.abs(prev.to - now) < 120) {
+          return prev;
+        }
+        return {
+          from: now - span,
+          to: now,
+        };
+      });
+    }, LIVE_RANGE_SMOOTH_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [liveDataSource, liveMode, liveWindowMs, selectedTagNames.length, selectedTagNamesKey]);
+
+  useEffect(() => {
     if (canOpenRuntimeSettings) {
       return;
     }
@@ -1987,7 +2026,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             showDataZoomSlider={false}
             interactiveZoomEnabled={false}
             visibleRange={visibleRange}
-            liveMode={liveMode}
+            liveMode={chartLiveMode}
+            disableAnimation={liveMode && liveDataSource === "archivePolling"}
             liveWindowMs={liveWindowMs}
             onVisibleRangeChange={handleChartRangeChange}
             onHoverSnapshotChange={(snapshot) => {

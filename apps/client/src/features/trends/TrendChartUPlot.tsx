@@ -32,6 +32,7 @@ type TrendChartProps = {
   interactiveZoomEnabled?: boolean;
   visibleRange: TrendVisibleRange;
   liveMode: boolean;
+  disableAnimation?: boolean;
   liveWindowMs: number;
   onVisibleRangeChange: (range: TrendVisibleRange, source: "interaction" | "live") => void;
   onHoverSnapshotChange?: (snapshot: { timestamp: number; values: Record<string, number | boolean | string | null> } | null) => void;
@@ -256,6 +257,7 @@ export function TrendChartUPlot({
   interactiveZoomEnabled = true,
   visibleRange,
   liveMode,
+  disableAnimation = false,
   liveWindowMs,
   onVisibleRangeChange,
   onHoverSnapshotChange,
@@ -265,6 +267,7 @@ export function TrendChartUPlot({
   void axes;
   void axisIdByTag;
   void onAxisManualRangeCommit;
+  void disableAnimation;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const plotRef = useRef<uPlot | null>(null);

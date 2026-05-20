@@ -42,6 +42,7 @@ type TrendChartProps = {
   interactiveZoomEnabled?: boolean;
   visibleRange: TrendVisibleRange;
   liveMode: boolean;
+  disableAnimation?: boolean;
   liveWindowMs: number;
   onVisibleRangeChange: (range: TrendVisibleRange, source: "interaction" | "live") => void;
   onHoverSnapshotChange?: (snapshot: { timestamp: number; values: Record<string, number | boolean | string | null> } | null) => void;
@@ -93,6 +94,7 @@ export function TrendChart({
   interactiveZoomEnabled = true,
   visibleRange,
   liveMode,
+  disableAnimation = false,
   liveWindowMs,
   onVisibleRangeChange,
   onHoverSnapshotChange,
@@ -903,7 +905,7 @@ export function TrendChart({
 
     const totalPointCount = activeTags.reduce((acc, tag) => acc + (seriesPointsRef.current.get(tag.tag)?.length ?? 0), 0);
     const isLargeDataset = totalPointCount >= 5000;
-    const animationEnabled = !liveMode && (!settings.disableAnimationsLargeData || !isLargeDataset);
+    const animationEnabled = !disableAnimation && !liveMode && (!settings.disableAnimationsLargeData || !isLargeDataset);
     const progressiveValue = settings.progressive ? 450 : 0;
     const progressiveThreshold = settings.progressive ? 2500 : Number.MAX_SAFE_INTEGER;
 
