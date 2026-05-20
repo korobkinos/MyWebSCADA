@@ -138,6 +138,7 @@ export type TrendStatus = {
 
 export type TrendChartApi = {
   appendLivePoints: (updates: Array<{ tag: string; value: number | boolean | string | null; quality?: string; timestamp: number }>) => void;
+  notifyLiveHeartbeat?: (timestampMs?: number) => void;
   getWidth: () => number;
   getPointCount: () => number;
 };

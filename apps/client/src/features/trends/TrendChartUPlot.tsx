@@ -4,7 +4,7 @@ import "uplot/dist/uPlot.min.css";
 import type { TrendAxisConfig, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { isTrendPerfDebugEnabled, logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
-import { buildTrendDataMatrixWithGaps, normalizeTrendPoints, resolveTrendGapBreakMs } from "./trendUtils";
+import { applyTrendVisualHolds, buildTrendDataMatrixWithGaps, normalizeTrendPoints, resolveTrendGapBreakMs, type TrendVisualHoldSpec } from "./trendUtils";
 
 const LIVE_RIGHT_DRIFT_LIMIT_MS = 5_000;
 const LIVE_TRIM_GRACE_MS = 15_000;
@@ -12,6 +12,10 @@ const LIVE_DOMAIN_GRACE_MS = 1500;
 const LIVE_MIN_SERIES_POINT_CAP = 200;
 const LIVE_MAX_SERIES_POINT_CAP = 20_000;
 const UPLOT_MIN_GAP_BREAK_MS = 20_000;
+const LIVE_FOLLOW_INTERVAL_MS = 120;
+const LIVE_FOLLOW_EMIT_EVERY_TICKS = 8;
+const LIVE_SOURCE_HEARTBEAT_STALE_MS = 1200;
+const LIVE_HOLD_REFRESH_INTERVAL_MS = 1000;
 
 type TrendChartProps = {
   data: TrendQueryResponse | null;
@@ -37,8 +41,10 @@ type SanitizedMatrixDiagnostics = {
   xDuplicateCount: number;
   invalidTimestampCount: number;
   seriesLengthMismatchCount: number;
+  invalidValueCount: number;
   nonNullCount: number;
-  nullCount: number;
+  explicitNullCount: number;
+  alignmentNullCount: number;
 };
 
 type SanitizedMatrixResult = {
@@ -135,24 +141,33 @@ function sanitizeAlignedMatrix(aligned: uPlot.AlignedData): SanitizedMatrixResul
   const fixed: uPlot.AlignedData = [xValues];
 
   let seriesLengthMismatchCount = 0;
+  let invalidValueCount = 0;
   let nonNullCount = 0;
-  let nullCount = 0;
+  let explicitNullCount = 0;
+  let alignmentNullCount = 0;
 
   for (let seriesIndex = 1; seriesIndex < aligned.length; seriesIndex += 1) {
     const source = aligned[seriesIndex] as Array<number | null | undefined> | undefined;
     if (!source || source.length !== xSource.length) {
       seriesLengthMismatchCount += 1;
     }
-    const target = new Array<number | null>(xValues.length).fill(null);
+    const target = new Array<number | null | undefined>(xValues.length).fill(undefined);
     for (let index = 0; index < deduped.length; index += 1) {
       const sourceIndex = deduped[index]!.sourceIndex;
       const value = source?.[sourceIndex];
       if (typeof value === "number" && Number.isFinite(value)) {
         target[index] = value;
         nonNullCount += 1;
-      } else {
+      } else if (value === null) {
         target[index] = null;
-        nullCount += 1;
+        explicitNullCount += 1;
+      } else {
+        // undefined means "no sample exactly at this aligned timestamp" and should not create a hard gap.
+        target[index] = undefined;
+        alignmentNullCount += 1;
+        if (typeof value === "number" && !Number.isFinite(value)) {
+          invalidValueCount += 1;
+        }
       }
     }
     fixed.push(target);
@@ -165,8 +180,10 @@ function sanitizeAlignedMatrix(aligned: uPlot.AlignedData): SanitizedMatrixResul
       xDuplicateCount,
       invalidTimestampCount,
       seriesLengthMismatchCount,
+      invalidValueCount,
       nonNullCount,
-      nullCount,
+      explicitNullCount,
+      alignmentNullCount,
     },
   };
 }
@@ -209,11 +226,16 @@ export function TrendChartUPlot({
   const skipNextVisibleRangeRenderInLiveRef = useRef(false);
   const suppressSetScaleHookRef = useRef(false);
   const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.liveBufferLimit));
+  const liveFollowTimerRef = useRef<number | null>(null);
+  const liveFollowTickCountRef = useRef(0);
+  const liveSourceHeartbeatAtRef = useRef<number>(0);
+  const liveHoldLastRebuildAtRef = useRef(0);
 
   const plotSeriesTagsRef = useRef<TrendTagSelection[]>([]);
   const latestDataPointCountRef = useRef(0);
   const appendLivePointsCallCountRef = useRef(0);
   const setDataCallCountRef = useRef(0);
+  const setScaleCallCountRef = useRef(0);
   const setDataDurationTotalRef = useRef(0);
   const lastLiveBatchSizeRef = useRef(0);
 
@@ -236,7 +258,7 @@ export function TrendChartUPlot({
     interactiveZoomEnabled,
   }), [interactiveZoomEnabled, settings.autoScale, settings.axisLabels, settings.background, settings.defaultLineWidth, settings.gridLines, settings.theme, tags]);
 
-  const applyVisibleRangeToPlot = (nextRange: TrendVisibleRange): void => {
+  const applyVisibleRangeToPlot = (nextRange: TrendVisibleRange, reason: string): void => {
     const plot = plotRef.current;
     if (!plot) {
       return;
@@ -247,9 +269,56 @@ export function TrendChartUPlot({
     suppressSetScaleHookRef.current = true;
     try {
       plot.setScale("x", { min: nextRange.from, max: nextRange.to });
+      setScaleCallCountRef.current += 1;
     } finally {
       suppressSetScaleHookRef.current = false;
     }
+    if (isTrendPerfDebugEnabled()) {
+      logTrendDiagnostics("uplot:set-scale", {
+        renderer: "uplot",
+        reason,
+        min: nextRange.from,
+        max: nextRange.to,
+        setScaleCalls: setScaleCallCountRef.current,
+      });
+    }
+  };
+
+  const buildLiveVisualHolds = (gapBreakMsByTag: Map<string, number>, rightEdgeTs: number): TrendVisualHoldSpec[] => {
+    const now = Date.now();
+    const heartbeatAgeMs = now - liveSourceHeartbeatAtRef.current;
+    const sourceAlive = heartbeatAgeMs <= LIVE_SOURCE_HEARTBEAT_STALE_MS;
+    const holds: TrendVisualHoldSpec[] = [];
+    for (const tag of plotSeriesTagsRef.current) {
+      const points = seriesPointsRef.current.get(tag.tag) ?? [];
+      let latestNumericTs = Number.NaN;
+      let latestNumericValue = Number.NaN;
+      for (let index = points.length - 1; index >= 0; index -= 1) {
+        const point = points[index];
+        if (!point) {
+          continue;
+        }
+        if (typeof point.v === "number" && Number.isFinite(point.v)) {
+          latestNumericTs = point.t;
+          latestNumericValue = point.v;
+          break;
+        }
+      }
+      if (!Number.isFinite(latestNumericTs) || !Number.isFinite(latestNumericValue)) {
+        continue;
+      }
+      const gapBreakMs = gapBreakMsByTag.get(tag.tag) ?? UPLOT_MIN_GAP_BREAK_MS;
+      const staleThresholdMs = Math.max(gapBreakMs, LIVE_SOURCE_HEARTBEAT_STALE_MS);
+      const staleByDataAge = rightEdgeTs - latestNumericTs > staleThresholdMs;
+      const stale = !sourceAlive || staleByDataAge;
+      holds.push({
+        tag: tag.tag,
+        value: latestNumericValue,
+        holdTs: rightEdgeTs,
+        stale,
+      });
+    }
+    return holds;
   };
 
   const rebuildPlotData = (reason: string, resetScales = false): void => {
@@ -274,19 +343,37 @@ export function TrendChartUPlot({
       gapBreakMsByTag,
     });
 
-    const rawAligned: uPlot.AlignedData = [matrix.xValues];
+    const liveRightEdge =
+      liveLastEmittedRightRef.current
+      ?? (Number.isFinite(visibleRangeRef.current.to) ? visibleRangeRef.current.to : Date.now());
+    const holds = liveModeRef.current ? buildLiveVisualHolds(gapBreakMsByTag, liveRightEdge) : [];
+    const withHolds = liveModeRef.current ? applyTrendVisualHolds(matrix, holds) : null;
+
+    const xValues = withHolds?.xValues ?? matrix.xValues;
+    const valuesByTag = withHolds?.valuesByTag ?? matrix.valuesByTag;
+    const rawAligned: uPlot.AlignedData = [xValues];
     for (const tag of plotSeriesTagsRef.current) {
-      rawAligned.push(matrix.valuesByTag.get(tag.tag) ?? new Array<number | null>(matrix.xValues.length).fill(null));
+      rawAligned.push(valuesByTag.get(tag.tag) ?? new Array<number | null | undefined>(xValues.length).fill(undefined));
     }
 
     const sanitized = sanitizeAlignedMatrix(rawAligned);
     const aligned = sanitized.aligned;
     latestDataPointCountRef.current = matrix.pointCount;
 
+    const yRangeBefore = {
+      min: Number(plot.scales.y?.min),
+      max: Number(plot.scales.y?.max),
+    };
     const setDataStartedAt = isTrendPerfDebugEnabled() ? performance.now() : 0;
     plot.setData(aligned, resetScales);
     setDataCallCountRef.current += 1;
-    applyVisibleRangeToPlot(visibleRangeRef.current);
+    const yRangeAfter = {
+      min: Number(plot.scales.y?.min),
+      max: Number(plot.scales.y?.max),
+    };
+    if (!liveModeRef.current) {
+      applyVisibleRangeToPlot(visibleRangeRef.current, "data-sync");
+    }
 
     if (!isTrendPerfDebugEnabled()) {
       return;
@@ -299,7 +386,8 @@ export function TrendChartUPlot({
       sanitized.diagnostics.xUnsortedCount
       + sanitized.diagnostics.xDuplicateCount
       + sanitized.diagnostics.invalidTimestampCount
-      + sanitized.diagnostics.seriesLengthMismatchCount;
+      + sanitized.diagnostics.seriesLengthMismatchCount
+      + sanitized.diagnostics.invalidValueCount;
 
     if (invalidCount > 0) {
       logTrendDiagnostics("uplot:data-matrix-invalid", {
@@ -308,16 +396,21 @@ export function TrendChartUPlot({
         xDuplicateCount: sanitized.diagnostics.xDuplicateCount,
         invalidTimestampCount: sanitized.diagnostics.invalidTimestampCount,
         seriesLengthMismatchCount: sanitized.diagnostics.seriesLengthMismatchCount,
+        invalidValueCount: sanitized.diagnostics.invalidValueCount,
       });
     }
 
     logTrendDiagnostics("uplot:set-data", {
       renderer: "uplot",
+      xUnit: "ms",
       reason,
       xCount: aligned[0]?.length ?? 0,
       seriesCount: plotSeriesTagsRef.current.length,
       totalNonNullCount: sanitized.diagnostics.nonNullCount,
-      nullCount: sanitized.diagnostics.nullCount,
+      explicitNullCount: sanitized.diagnostics.explicitNullCount,
+      alignmentNullCount: sanitized.diagnostics.alignmentNullCount,
+      visualHoldCount: withHolds?.diagnostics.heldTagCount ?? 0,
+      visualHoldStaleTagCount: withHolds?.diagnostics.staleTagCount ?? 0,
       duplicateTimestampsRemoved: matrix.diagnostics.duplicateTimestampCountRemoved + sanitized.diagnostics.xDuplicateCount,
       invalidTimestampsRemoved: matrix.diagnostics.invalidTimestampCount + sanitized.diagnostics.invalidTimestampCount,
       setDataDurationMs: Math.round(setDataDurationMs * 1000) / 1000,
@@ -328,8 +421,44 @@ export function TrendChartUPlot({
       duplicateTimestampCountBeforeDedupe: matrix.diagnostics.duplicateTimestampCountBeforeDedupe,
       unsortedInputCount: matrix.diagnostics.unsortedPairCount,
       setDataCalls: setDataCallCountRef.current,
+      setScaleCalls: setScaleCallCountRef.current,
       appendLivePointsCalls: appendLivePointsCallCountRef.current,
       setDataDurationTotalMs: Math.round(setDataDurationTotalRef.current * 1000) / 1000,
+      yRangeBefore,
+      yRangeAfter,
+      seriesDiagnostics: matrix.diagnostics.series.map((item) => ({
+        tag: item.tag,
+        firstTs: item.firstTs,
+        lastTs: item.lastTs,
+        gapBreakMs: item.gapBreakMs,
+        realGapCount: item.realGapCount,
+        explicitNullCount: item.nullCount,
+        alignmentNullCount: item.alignmentNullCount,
+      })),
+    });
+
+    if (withHolds) {
+      logTrendDiagnostics("uplot:visual-hold", {
+        renderer: "uplot",
+        heldTagCount: withHolds.diagnostics.heldTagCount,
+        staleTagCount: withHolds.diagnostics.staleTagCount,
+        holdTs: withHolds.diagnostics.holdTs,
+        xExtended: withHolds.diagnostics.xExtended,
+      });
+      if (withHolds.diagnostics.staleTagCount > 0) {
+        logTrendDiagnostics("uplot:stale-tag-gap", {
+          renderer: "uplot",
+          staleTagCount: withHolds.diagnostics.staleTagCount,
+          reason,
+        });
+      }
+    }
+
+    logTrendDiagnostics("uplot:y-scale-range", {
+      renderer: "uplot",
+      reason,
+      yRangeBefore,
+      yRangeAfter,
     });
   };
 
@@ -360,6 +489,11 @@ export function TrendChartUPlot({
 
   useEffect(() => {
     liveModeRef.current = liveMode;
+    if (liveMode) {
+      liveSourceHeartbeatAtRef.current = Date.now();
+      liveHoldLastRebuildAtRef.current = 0;
+      liveFollowTickCountRef.current = 0;
+    }
   }, [liveMode]);
 
   useEffect(() => {
@@ -433,6 +567,7 @@ export function TrendChartUPlot({
       width: Math.max(320, root.clientWidth || 320),
       height: Math.max(180, root.clientHeight || 180),
       pxAlign: 1,
+      // We feed x-values in epoch milliseconds and explicitly keep uPlot in ms mode.
       ms: 1,
       scales: {
         x: { time: true },
@@ -595,14 +730,65 @@ export function TrendChartUPlot({
       skipNextVisibleRangeRenderInLiveRef.current = false;
       return;
     }
-    applyVisibleRangeToPlot(visibleRange);
+    applyVisibleRangeToPlot(visibleRange, "prop-sync");
   }, [visibleRange.from, visibleRange.to]);
+
+  useEffect(() => {
+    if (!liveMode) {
+      if (liveFollowTimerRef.current !== null) {
+        window.clearInterval(liveFollowTimerRef.current);
+        liveFollowTimerRef.current = null;
+      }
+      return;
+    }
+    const tick = () => {
+      const now = Date.now();
+      const previousRight = liveLastEmittedRightRef.current ?? now;
+      const candidate = Math.max(previousRight, now);
+      const right = Math.min(candidate, now + LIVE_RIGHT_DRIFT_LIMIT_MS);
+      const left = right - liveWindowMsRef.current;
+      liveLastEmittedRightRef.current = right;
+      fullRangeRef.current = {
+        from: left - LIVE_DOMAIN_GRACE_MS,
+        to: right + LIVE_DOMAIN_GRACE_MS,
+      };
+      applyVisibleRangeToPlot({ from: left, to: right }, "live-follow");
+      liveFollowTickCountRef.current += 1;
+      if (liveFollowTickCountRef.current % LIVE_FOLLOW_EMIT_EVERY_TICKS === 0) {
+        skipNextVisibleRangeRenderInLiveRef.current = true;
+        onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
+        logTrendDiagnostics("uplot:live-follow", {
+          renderer: "uplot",
+          tick: liveFollowTickCountRef.current,
+          left,
+          right,
+          setScaleCalls: setScaleCallCountRef.current,
+        });
+      }
+      if (
+        now - liveHoldLastRebuildAtRef.current >= LIVE_HOLD_REFRESH_INTERVAL_MS
+        && now - liveSourceHeartbeatAtRef.current <= LIVE_SOURCE_HEARTBEAT_STALE_MS
+      ) {
+        liveHoldLastRebuildAtRef.current = now;
+        scheduleRebuildPlotData("live-hold-refresh", false);
+      }
+    };
+    tick();
+    liveFollowTimerRef.current = window.setInterval(tick, LIVE_FOLLOW_INTERVAL_MS);
+    return () => {
+      if (liveFollowTimerRef.current !== null) {
+        window.clearInterval(liveFollowTimerRef.current);
+        liveFollowTimerRef.current = null;
+      }
+    };
+  }, [liveMode]);
 
   useEffect(() => {
     onChartApiReady?.({
       appendLivePoints: (updates) => {
         appendLivePointsCallCountRef.current += 1;
         lastLiveBatchSizeRef.current = updates.length;
+        liveSourceHeartbeatAtRef.current = Date.now();
 
         const activeTags = new Set(tagsRef.current.filter((tag) => tag.visible !== false).map((tag) => tag.tag));
         const updatedTags = new Set<string>();
@@ -662,17 +848,9 @@ export function TrendChartUPlot({
           const now = Date.now();
           const newestTs = Number.isFinite(maxUpdateTs) ? maxUpdateTs : now;
           const clampedNewestTs = Math.min(newestTs, now + LIVE_RIGHT_DRIFT_LIMIT_MS);
-          const previousRight = liveLastEmittedRightRef.current ?? clampedNewestTs;
+          const previousRight = liveLastEmittedRightRef.current ?? now;
           const right = Math.max(previousRight, clampedNewestTs);
-          const left = right - liveWindowMsRef.current;
-
           liveLastEmittedRightRef.current = right;
-          fullRangeRef.current = {
-            from: left - LIVE_DOMAIN_GRACE_MS,
-            to: right + LIVE_DOMAIN_GRACE_MS,
-          };
-          skipNextVisibleRangeRenderInLiveRef.current = true;
-          onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
         } else if (Number.isFinite(minUpdateTs) && Number.isFinite(maxUpdateTs)) {
           fullRangeRef.current = {
             from: Math.min(fullRangeRef.current.from, minUpdateTs),
@@ -691,6 +869,10 @@ export function TrendChartUPlot({
         }
 
         scheduleRebuildPlotData("append-live-points", false);
+      },
+      notifyLiveHeartbeat: (timestampMs) => {
+        const nextTs = Number.isFinite(timestampMs) ? Number(timestampMs) : Date.now();
+        liveSourceHeartbeatAtRef.current = nextTs;
       },
       getWidth: () => rootRef.current?.clientWidth ?? 0,
       getPointCount: () => latestDataPointCountRef.current,

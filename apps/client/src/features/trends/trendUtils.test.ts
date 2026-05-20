@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
+import { applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -160,7 +160,7 @@ describe("insertTrendGapBreaks", () => {
 });
 
 describe("buildTrendDataMatrixWithGaps", () => {
-  it("builds sorted unique x-values and aligned y arrays without carry-forward", () => {
+  it("builds sorted unique x-values and keeps alignment holes as undefined", () => {
     const matrix = buildTrendDataMatrixWithGaps([
       {
         tag: "tag.a",
@@ -179,9 +179,121 @@ describe("buildTrendDataMatrixWithGaps", () => {
     ], { showBadQualityGaps: true });
 
     expect(matrix.xValues).toEqual([1_000, 2_000, 3_000]);
-    expect(matrix.valuesByTag.get("tag.a")).toEqual([11, null, 30]);
-    expect(matrix.valuesByTag.get("tag.b")).toEqual([null, 20, null]);
+    expect(matrix.valuesByTag.get("tag.a")).toEqual([11, undefined, 30]);
+    expect(matrix.valuesByTag.get("tag.b")).toEqual([undefined, 20, undefined]);
     expect(matrix.diagnostics.duplicateTimestampCountBeforeDedupe).toBe(1);
     expect(matrix.diagnostics.unsortedPairCount).toBe(1);
+    expect(matrix.diagnostics.xUnit).toBe("ms");
+  });
+
+  it("treats interleaved timestamps as alignment holes, not real gaps", () => {
+    const matrix = buildTrendDataMatrixWithGaps([
+      {
+        tag: "tag.a",
+        points: [
+          { t: 0, v: 10, q: "good" },
+          { t: 2, v: 20, q: "good" },
+          { t: 4, v: 30, q: "good" },
+        ],
+      },
+      {
+        tag: "tag.b",
+        points: [
+          { t: 1, v: 100, q: "good" },
+          { t: 3, v: 200, q: "good" },
+        ],
+      },
+    ], { showBadQualityGaps: true });
+
+    expect(matrix.xValues).toEqual([0, 1, 2, 3, 4]);
+    expect(matrix.valuesByTag.get("tag.a")).toEqual([10, undefined, 20, undefined, 30]);
+    expect(matrix.valuesByTag.get("tag.b")).toEqual([undefined, 100, undefined, 200, undefined]);
+    expect(matrix.diagnostics.series.find((item) => item.tag === "tag.a")?.alignmentNullCount).toBe(2);
+    expect(matrix.diagnostics.series.find((item) => item.tag === "tag.a")?.realGapCount).toBe(0);
+    expect(matrix.diagnostics.series.find((item) => item.tag === "tag.b")?.realGapCount).toBe(0);
+  });
+
+  it("keeps a real downtime gap as explicit null marker", () => {
+    const matrix = buildTrendDataMatrixWithGaps([
+      {
+        tag: "tag.a",
+        points: [
+          { t: 0, v: 10, q: "good" },
+          { t: 2, v: 20, q: "good" },
+          { t: 600, v: 30, q: "good" },
+        ],
+      },
+    ], {
+      showBadQualityGaps: true,
+      gapBreakMsByTag: new Map([["tag.a", 100]]),
+    });
+
+    expect(matrix.xValues).toEqual([0, 2, 301, 600]);
+    expect(matrix.valuesByTag.get("tag.a")).toEqual([10, 20, null, 30]);
+    expect(matrix.realGapsByTag.get("tag.a")).toEqual([
+      { previousTs: 2, currentTs: 600, deltaMs: 598, gapBreakMs: 100 },
+    ]);
+    expect(matrix.diagnostics.series.find((item) => item.tag === "tag.a")?.realGapCount).toBe(1);
+  });
+
+  it("keeps matrix unit consistency in milliseconds", () => {
+    const matrix = buildTrendDataMatrixWithGaps([
+      {
+        tag: "tag.a",
+        points: [
+          { t: 1_000, v: 1, q: "good" },
+          { t: 2_000, v: 2, q: "good" },
+        ],
+      },
+    ], {
+      showBadQualityGaps: true,
+      gapBreakMsByTag: new Map([["tag.a", 5_000]]),
+    });
+
+    expect(matrix.diagnostics.xUnit).toBe("ms");
+    expect(matrix.diagnostics.series[0]?.gapBreakMs).toBe(5_000);
+  });
+});
+
+describe("applyTrendVisualHolds", () => {
+  it("extends a constant series to live right edge when tag is alive", () => {
+    const matrix = buildTrendDataMatrixWithGaps([
+      {
+        tag: "tag.const",
+        points: [
+          { t: 1_000, v: 7, q: "good" },
+          { t: 2_000, v: 7, q: "good" },
+        ],
+      },
+    ], { showBadQualityGaps: true });
+
+    const result = applyTrendVisualHolds(matrix, [
+      { tag: "tag.const", value: 7, holdTs: 3_000, stale: false },
+    ]);
+
+    expect(result.xValues).toEqual([1_000, 2_000, 3_000]);
+    expect(result.valuesByTag.get("tag.const")).toEqual([7, 7, 7]);
+    expect(result.diagnostics.heldTagCount).toBe(1);
+  });
+
+  it("does not extend stale tags", () => {
+    const matrix = buildTrendDataMatrixWithGaps([
+      {
+        tag: "tag.stale",
+        points: [
+          { t: 1_000, v: 10, q: "good" },
+          { t: 2_000, v: 10, q: "good" },
+        ],
+      },
+    ], { showBadQualityGaps: true });
+
+    const result = applyTrendVisualHolds(matrix, [
+      { tag: "tag.stale", value: 10, holdTs: 3_000, stale: true },
+    ]);
+
+    expect(result.xValues).toEqual([1_000, 2_000]);
+    expect(result.valuesByTag.get("tag.stale")).toEqual([10, 10]);
+    expect(result.diagnostics.heldTagCount).toBe(0);
+    expect(result.diagnostics.staleTagCount).toBe(1);
   });
 });

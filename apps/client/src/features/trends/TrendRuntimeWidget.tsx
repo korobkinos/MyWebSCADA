@@ -473,6 +473,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const sourcePointCountRef = useRef(0);
   const liveLatestByTagRef = useRef<Map<string, { value: number | boolean | string | null; quality?: string; sourceTs: number; lastIncomingAt: number }>>(new Map());
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
+  const liveSocketStateRef = useRef<LiveSocketState>(liveSocketState);
   const historyLoadTimerRef = useRef<number | null>(null);
   const viewStateSaveTimerRef = useRef<number | null>(null);
   const visibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
@@ -498,6 +499,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     () => response?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0,
     [response],
   );
+
+  useEffect(() => {
+    liveSocketStateRef.current = liveSocketState;
+  }, [liveSocketState]);
   const selectedTagNames = useMemo(() => selectedTags.map((tag) => tag.tag), [selectedTags]);
   const selectedTagNamesKey = useMemo(() => selectedTagNames.join("|"), [selectedTagNames]);
   const runtimeSettingsButtonVisible = object.showRuntimeSettingsButton !== false;
@@ -1191,6 +1196,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       if (!liveBootstrapReadyRef.current) {
         return;
       }
+      chartApiRef.current?.notifyLiveHeartbeat?.(receivedAt);
       chartApiRef.current?.appendLivePoints(batch);
     }, LIVE_FLUSH_MS);
 
@@ -1199,6 +1205,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         return;
       }
       const now = Date.now();
+      if (liveSocketStateRef.current === "open") {
+        chartApiRef.current?.notifyLiveHeartbeat?.(now);
+      }
       const staleTags: string[] = [];
       for (const tagName of selectedTagNames) {
         const latest = liveLatestByTagRef.current.get(tagName);

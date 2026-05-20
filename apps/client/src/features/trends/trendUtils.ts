@@ -328,10 +328,12 @@ type BuildTrendDataMatrixOptions = {
 
 export type TrendDataMatrix = {
   xValues: number[];
-  valuesByTag: Map<string, Array<number | null>>;
+  valuesByTag: Map<string, Array<number | null | undefined>>;
+  realGapsByTag: Map<string, TrendGapBreakInfo[]>;
   pointCount: number;
   gapBreakCount: number;
   diagnostics: {
+    xUnit: "ms";
     sourcePointCount: number;
     duplicateTimestampCountBeforeDedupe: number;
     duplicateTimestampCountRemoved: number;
@@ -345,7 +347,32 @@ export type TrendDataMatrix = {
       tag: string;
       nonNullCount: number;
       nullCount: number;
+      alignmentNullCount: number;
+      realGapCount: number;
+      gapBreakMs: number;
+      firstTs: number | null;
+      lastTs: number | null;
     }>;
+  };
+};
+
+export type TrendVisualHoldSpec = {
+  tag: string;
+  value: number;
+  holdTs: number;
+  stale?: boolean;
+};
+
+export type TrendVisualHoldResult = {
+  xValues: number[];
+  valuesByTag: Map<string, Array<number | null | undefined>>;
+  diagnostics: {
+    holdTs: number | null;
+    heldTagCount: number;
+    staleTagCount: number;
+    xExtended: boolean;
+    pointCountBefore: number;
+    pointCountAfter: number;
   };
 };
 
@@ -381,7 +408,17 @@ export function buildTrendDataMatrixWithGaps(
 ): TrendDataMatrix {
   const timestampSet = new Set<number>();
   const valueMapsByTag = new Map<string, Map<number, number | null>>();
-  const seriesDiagnostics: Array<{ tag: string; nonNullCount: number; nullCount: number }> = [];
+  const realGapsByTag = new Map<string, TrendGapBreakInfo[]>();
+  const seriesDiagnostics: Array<{
+    tag: string;
+    nonNullCount: number;
+    nullCount: number;
+    alignmentNullCount: number;
+    realGapCount: number;
+    gapBreakMs: number;
+    firstTs: number | null;
+    lastTs: number | null;
+  }> = [];
   let pointCount = 0;
   let gapBreakCount = 0;
   let sourcePointCount = 0;
@@ -418,6 +455,7 @@ export function buildTrendDataMatrixWithGaps(
     duplicateTimestampCountRemoved += Math.max(0, finitePointCount - normalized.length);
     const gapBreakMs = options.gapBreakMsByTag?.get(series.tag) ?? resolveTrendGapBreakMs(normalized);
     const pointsWithGaps: TrendPoint[] = [];
+    const seriesGaps: TrendGapBreakInfo[] = [];
     const occupied = new Set<number>(normalized.map((point) => point.t));
     for (let index = 0; index < normalized.length; index += 1) {
       const current = normalized[index];
@@ -431,6 +469,12 @@ export function buildTrendDataMatrixWithGaps(
           occupied.add(gapTs);
           pointsWithGaps.push({ t: gapTs, v: null, q: "uncertain" });
           gapBreakCount += 1;
+          seriesGaps.push({
+            previousTs: previous.t,
+            currentTs: current.t,
+            deltaMs: current.t - previous.t,
+            gapBreakMs,
+          });
         }
       }
       pointsWithGaps.push(current);
@@ -457,26 +501,58 @@ export function buildTrendDataMatrixWithGaps(
     }
     pointCount += pointsWithGaps.length;
     valueMapsByTag.set(series.tag, valuesByTs);
-    seriesDiagnostics.push({ tag: series.tag, nonNullCount, nullCount });
+    realGapsByTag.set(series.tag, seriesGaps);
+    seriesDiagnostics.push({
+      tag: series.tag,
+      nonNullCount,
+      nullCount,
+      alignmentNullCount: 0,
+      realGapCount: seriesGaps.length,
+      gapBreakMs,
+      firstTs: normalized[0]?.t ?? null,
+      lastTs: normalized[normalized.length - 1]?.t ?? null,
+    });
   }
 
   const xValues = [...timestampSet].sort((a, b) => a - b);
-  const valuesByTag = new Map<string, Array<number | null>>();
+  const valuesByTag = new Map<string, Array<number | null | undefined>>();
   let lengthMismatchCount = 0;
-  for (const series of seriesList) {
+  for (let seriesIndex = 0; seriesIndex < seriesList.length; seriesIndex += 1) {
+    const series = seriesList[seriesIndex];
+    if (!series) {
+      continue;
+    }
     const valuesByTs = valueMapsByTag.get(series.tag) ?? new Map<number, number | null>();
-    const yValues = xValues.map((timestamp) => valuesByTs.get(timestamp) ?? null);
+    // uPlot accepts undefined in aligned y-arrays: we keep undefined for cross-series alignment holes
+    // and reserve null for explicit real gaps.
+    const yValues = xValues.map((timestamp) => (valuesByTs.has(timestamp) ? valuesByTs.get(timestamp) : undefined));
     if (yValues.length !== xValues.length) {
       lengthMismatchCount += 1;
+    }
+    let alignmentNullCount = 0;
+    let explicitNullCount = 0;
+    for (const value of yValues) {
+      if (value === undefined) {
+        alignmentNullCount += 1;
+      } else if (value === null) {
+        explicitNullCount += 1;
+      }
+    }
+    const seriesDiagnostic = seriesDiagnostics[seriesIndex];
+    if (seriesDiagnostic) {
+      seriesDiagnostic.alignmentNullCount = alignmentNullCount;
+      seriesDiagnostic.nullCount = explicitNullCount;
     }
     valuesByTag.set(series.tag, yValues);
   }
   return {
     xValues,
     valuesByTag,
+    realGapsByTag,
     pointCount,
     gapBreakCount,
     diagnostics: {
+      xUnit: "ms",
       sourcePointCount,
       duplicateTimestampCountBeforeDedupe,
       duplicateTimestampCountRemoved,
@@ -487,6 +563,138 @@ export function buildTrendDataMatrixWithGaps(
       lastTs: xValues[xValues.length - 1] ?? null,
       lengthMismatchCount,
       series: seriesDiagnostics,
+    },
+  };
+}
+
+function findTimestampIndex(xValues: number[], timestamp: number): number {
+  let left = 0;
+  let right = xValues.length - 1;
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    const value = xValues[mid];
+    if (value === timestamp) {
+      return mid;
+    }
+    if ((value ?? Number.NEGATIVE_INFINITY) < timestamp) {
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  return -1;
+}
+
+export function applyTrendVisualHolds(
+  matrix: TrendDataMatrix,
+  holds: TrendVisualHoldSpec[],
+): TrendVisualHoldResult {
+  const holdCandidates = holds.filter((item) => Number.isFinite(item.holdTs) && Number.isFinite(item.value));
+  const staleTagCount = holds.filter((item) => item.stale === true).length;
+  const activeHoldCandidates = holdCandidates.filter((item) => item.stale !== true);
+  if (holdCandidates.length === 0) {
+    return {
+      xValues: matrix.xValues,
+      valuesByTag: matrix.valuesByTag,
+      diagnostics: {
+        holdTs: null,
+        heldTagCount: 0,
+        staleTagCount,
+        xExtended: false,
+        pointCountBefore: matrix.pointCount,
+        pointCountAfter: matrix.pointCount,
+      },
+    };
+  }
+
+  if (activeHoldCandidates.length === 0) {
+    return {
+      xValues: matrix.xValues,
+      valuesByTag: matrix.valuesByTag,
+      diagnostics: {
+        holdTs: null,
+        heldTagCount: 0,
+        staleTagCount,
+        xExtended: false,
+        pointCountBefore: matrix.pointCount,
+        pointCountAfter: matrix.pointCount,
+      },
+    };
+  }
+
+  const holdTs = Math.max(...activeHoldCandidates.map((item) => item.holdTs));
+  if (!Number.isFinite(holdTs)) {
+    return {
+      xValues: matrix.xValues,
+      valuesByTag: matrix.valuesByTag,
+      diagnostics: {
+        holdTs: null,
+        heldTagCount: 0,
+        staleTagCount,
+        xExtended: false,
+        pointCountBefore: matrix.pointCount,
+        pointCountAfter: matrix.pointCount,
+      },
+    };
+  }
+
+  const xValues = [...matrix.xValues];
+  let xExtended = false;
+  const lastX: number = xValues.length > 0 ? (xValues[xValues.length - 1] ?? Number.NaN) : Number.NaN;
+  if (!Number.isFinite(lastX) || holdTs > lastX) {
+    xValues.push(holdTs);
+    xExtended = true;
+  }
+
+  const holdIndex = findTimestampIndex(xValues, holdTs);
+  if (holdIndex < 0) {
+    return {
+      xValues: matrix.xValues,
+      valuesByTag: matrix.valuesByTag,
+      diagnostics: {
+        holdTs: null,
+        heldTagCount: 0,
+        staleTagCount: holds.filter((item) => item.stale === true).length,
+        xExtended: false,
+        pointCountBefore: matrix.pointCount,
+        pointCountAfter: matrix.pointCount,
+      },
+    };
+  }
+
+  const valuesByTag = new Map<string, Array<number | null | undefined>>();
+  for (const [tagName, values] of matrix.valuesByTag) {
+    const nextValues = [...values];
+    if (xExtended) {
+      nextValues.push(undefined);
+    }
+    valuesByTag.set(tagName, nextValues);
+  }
+
+  let heldTagCount = 0;
+  for (const hold of activeHoldCandidates) {
+    const current = valuesByTag.get(hold.tag) ?? new Array<number | null | undefined>(xValues.length).fill(undefined);
+    if (current.length < xValues.length) {
+      current.push(...new Array<number | null | undefined>(xValues.length - current.length).fill(undefined));
+    }
+    const existing = current[holdIndex];
+    if (existing === undefined) {
+      current[holdIndex] = hold.value;
+      heldTagCount += 1;
+    }
+    valuesByTag.set(hold.tag, current);
+  }
+
+  return {
+    xValues,
+    valuesByTag,
+    diagnostics: {
+      holdTs,
+      heldTagCount,
+      staleTagCount,
+      xExtended,
+      pointCountBefore: matrix.pointCount,
+      pointCountAfter: matrix.pointCount + heldTagCount,
     },
   };
 }
