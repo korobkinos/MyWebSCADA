@@ -87,6 +87,7 @@ export function normalizeTrendTableSettings(value: TrendTableSettings | undefine
 
 export function defaultTrendSettings(): TrendSettings {
   return {
+    renderer: "echarts",
     theme: "workbench-dark",
     background: TREND_WORKBENCH_THEME.background,
     gridLines: true,
@@ -143,6 +144,7 @@ export function loadTrendSettings(): TrendSettings {
     return {
       ...fallback,
       ...parsed,
+      renderer: parsed.renderer === "uplot" ? "uplot" : "echarts",
       maxPointsPerSeries: clamp(Number(parsed.maxPointsPerSeries ?? fallback.maxPointsPerSeries), 1000, 8000),
       cacheSize: clamp(Number(parsed.cacheSize ?? fallback.cacheSize), 8, 256),
       liveBufferLimit: clamp(Number(parsed.liveBufferLimit ?? fallback.liveBufferLimit), 200, 20000),
@@ -223,11 +225,36 @@ type TrendGapBreakInfo = {
   gapBreakMs: number;
 };
 
-export function normalizeTrendPoints(points: TrendPoint[]): TrendPoint[] {
-  if (points.length <= 1) {
-    return [...points];
+export function resolveTrendGapBreakMs(points: TrendPoint[]): number {
+  if (points.length < 3) {
+    return 5000;
   }
-  const sorted = [...points].sort((a, b) => a.t - b.t);
+  const diffs: number[] = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const current = points[index];
+    const previous = points[index - 1];
+    if (!current || !previous) {
+      continue;
+    }
+    const diff = current.t - previous.t;
+    if (Number.isFinite(diff) && diff > 0) {
+      diffs.push(diff);
+    }
+  }
+  if (diffs.length === 0) {
+    return 5000;
+  }
+  diffs.sort((a, b) => a - b);
+  const median = diffs[Math.floor(diffs.length / 2)] ?? 1000;
+  return Math.max(3000, Math.min(180000, Math.round(median * 4)));
+}
+
+export function normalizeTrendPoints(points: TrendPoint[]): TrendPoint[] {
+  const finitePoints = points.filter((point) => Number.isFinite(point?.t));
+  if (finitePoints.length <= 1) {
+    return [...finitePoints];
+  }
+  const sorted = [...finitePoints].sort((a, b) => a.t - b.t);
   const normalized: TrendPoint[] = [];
   for (const point of sorted) {
     const last = normalized[normalized.length - 1];
@@ -266,11 +293,16 @@ export function insertTrendGapBreaks(
     ) {
       const leftGapTs = previous.t + 1;
       const rightGapTs = current.t - 1;
-      if (leftGapTs < current.t) {
+      if (leftGapTs < current.t && leftGapTs <= rightGapTs) {
         result.push({ t: leftGapTs, v: null, q: "uncertain" });
-      }
-      if (rightGapTs > leftGapTs) {
-        result.push({ t: rightGapTs, v: null, q: "uncertain" });
+        if (rightGapTs > leftGapTs) {
+          result.push({ t: rightGapTs, v: null, q: "uncertain" });
+        }
+      } else {
+        const middleGapTs = Math.floor((previous.t + current.t) / 2);
+        if (middleGapTs > previous.t && middleGapTs < current.t) {
+          result.push({ t: middleGapTs, v: null, q: "uncertain" });
+        }
       }
       gaps.push({
         previousTs: previous.t,
@@ -282,6 +314,181 @@ export function insertTrendGapBreaks(
     result.push(current);
   }
   return { points: result, gaps };
+}
+
+type BuildTrendDataMatrixInput = {
+  tag: string;
+  points: TrendPoint[];
+};
+
+type BuildTrendDataMatrixOptions = {
+  showBadQualityGaps: boolean;
+  gapBreakMsByTag?: Map<string, number>;
+};
+
+export type TrendDataMatrix = {
+  xValues: number[];
+  valuesByTag: Map<string, Array<number | null>>;
+  pointCount: number;
+  gapBreakCount: number;
+  diagnostics: {
+    sourcePointCount: number;
+    duplicateTimestampCountBeforeDedupe: number;
+    duplicateTimestampCountRemoved: number;
+    unsortedPairCount: number;
+    invalidTimestampCount: number;
+    xCount: number;
+    firstTs: number | null;
+    lastTs: number | null;
+    lengthMismatchCount: number;
+    series: Array<{
+      tag: string;
+      nonNullCount: number;
+      nullCount: number;
+    }>;
+  };
+};
+
+function pickGapMarkerTimestamp(
+  leftTs: number,
+  rightTs: number,
+  occupied: Set<number>,
+): number | null {
+  if (!Number.isFinite(leftTs) || !Number.isFinite(rightTs)) {
+    return null;
+  }
+  if (rightTs - leftTs <= 1) {
+    return null;
+  }
+  const mid = Math.floor((leftTs + rightTs) / 2);
+  if (mid > leftTs && mid < rightTs && !occupied.has(mid)) {
+    return mid;
+  }
+  const nearLeft = leftTs + 1;
+  if (nearLeft < rightTs && !occupied.has(nearLeft)) {
+    return nearLeft;
+  }
+  const nearRight = rightTs - 1;
+  if (nearRight > leftTs && !occupied.has(nearRight)) {
+    return nearRight;
+  }
+  return null;
+}
+
+export function buildTrendDataMatrixWithGaps(
+  seriesList: BuildTrendDataMatrixInput[],
+  options: BuildTrendDataMatrixOptions,
+): TrendDataMatrix {
+  const timestampSet = new Set<number>();
+  const valueMapsByTag = new Map<string, Map<number, number | null>>();
+  const seriesDiagnostics: Array<{ tag: string; nonNullCount: number; nullCount: number }> = [];
+  let pointCount = 0;
+  let gapBreakCount = 0;
+  let sourcePointCount = 0;
+  let duplicateTimestampCountBeforeDedupe = 0;
+  let duplicateTimestampCountRemoved = 0;
+  let unsortedPairCount = 0;
+  let invalidTimestampCount = 0;
+
+  for (const series of seriesList) {
+    sourcePointCount += series.points.length;
+    const seenTimestamps = new Set<number>();
+    let finitePointCount = 0;
+    for (let index = 0; index < series.points.length; index += 1) {
+      const point = series.points[index];
+      if (!point || !Number.isFinite(point.t)) {
+        invalidTimestampCount += 1;
+        continue;
+      }
+      finitePointCount += 1;
+      if (seenTimestamps.has(point.t)) {
+        duplicateTimestampCountBeforeDedupe += 1;
+      } else {
+        seenTimestamps.add(point.t);
+      }
+      if (index > 0) {
+        const prev = series.points[index - 1];
+        if (prev && Number.isFinite(prev.t) && point.t < prev.t) {
+          unsortedPairCount += 1;
+        }
+      }
+    }
+
+    const normalized = normalizeTrendPoints(series.points);
+    duplicateTimestampCountRemoved += Math.max(0, finitePointCount - normalized.length);
+    const gapBreakMs = options.gapBreakMsByTag?.get(series.tag) ?? resolveTrendGapBreakMs(normalized);
+    const pointsWithGaps: TrendPoint[] = [];
+    const occupied = new Set<number>(normalized.map((point) => point.t));
+    for (let index = 0; index < normalized.length; index += 1) {
+      const current = normalized[index];
+      const previous = normalized[index - 1];
+      if (!current) {
+        continue;
+      }
+      if (index > 0 && previous && previous.v !== null && current.v !== null && current.t - previous.t > gapBreakMs) {
+        const gapTs = pickGapMarkerTimestamp(previous.t, current.t, occupied);
+        if (gapTs !== null) {
+          occupied.add(gapTs);
+          pointsWithGaps.push({ t: gapTs, v: null, q: "uncertain" });
+          gapBreakCount += 1;
+        }
+      }
+      pointsWithGaps.push(current);
+    }
+
+    const valuesByTs = new Map<number, number | null>();
+    let nonNullCount = 0;
+    let nullCount = 0;
+    for (const point of pointsWithGaps) {
+      if (!Number.isFinite(point.t)) {
+        continue;
+      }
+      const quality = (point.q ?? "good").toLowerCase();
+      const isGapByQuality = options.showBadQualityGaps && (quality === "bad" || quality === "uncertain");
+      const numericValue = typeof point.v === "number" && Number.isFinite(point.v) ? point.v : null;
+      const value = isGapByQuality ? null : numericValue;
+      valuesByTs.set(point.t, value);
+      timestampSet.add(point.t);
+      if (value === null) {
+        nullCount += 1;
+      } else {
+        nonNullCount += 1;
+      }
+    }
+    pointCount += pointsWithGaps.length;
+    valueMapsByTag.set(series.tag, valuesByTs);
+    seriesDiagnostics.push({ tag: series.tag, nonNullCount, nullCount });
+  }
+
+  const xValues = [...timestampSet].sort((a, b) => a - b);
+  const valuesByTag = new Map<string, Array<number | null>>();
+  let lengthMismatchCount = 0;
+  for (const series of seriesList) {
+    const valuesByTs = valueMapsByTag.get(series.tag) ?? new Map<number, number | null>();
+    const yValues = xValues.map((timestamp) => valuesByTs.get(timestamp) ?? null);
+    if (yValues.length !== xValues.length) {
+      lengthMismatchCount += 1;
+    }
+    valuesByTag.set(series.tag, yValues);
+  }
+  return {
+    xValues,
+    valuesByTag,
+    pointCount,
+    gapBreakCount,
+    diagnostics: {
+      sourcePointCount,
+      duplicateTimestampCountBeforeDedupe,
+      duplicateTimestampCountRemoved,
+      unsortedPairCount,
+      invalidTimestampCount,
+      xCount: xValues.length,
+      firstTs: xValues[0] ?? null,
+      lastTs: xValues[xValues.length - 1] ?? null,
+      lengthMismatchCount,
+      series: seriesDiagnostics,
+    },
+  };
 }
 
 export function buildAxes(

@@ -540,6 +540,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         allowRuntimeSettings: true,
         runtimeSettingsRequiredRole: 0,
         settings: {
+          renderer: "echarts",
           theme: "workbench-dark",
           background: "#1e1e1e",
           gridLines: true,

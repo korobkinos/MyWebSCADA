@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { buildAxes, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
+import { buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -156,5 +156,32 @@ describe("insertTrendGapBreaks", () => {
       [11_500, 11],
     ]);
     expect(result.gaps).toHaveLength(0);
+  });
+});
+
+describe("buildTrendDataMatrixWithGaps", () => {
+  it("builds sorted unique x-values and aligned y arrays without carry-forward", () => {
+    const matrix = buildTrendDataMatrixWithGaps([
+      {
+        tag: "tag.a",
+        points: [
+          { t: 3_000, v: 30, q: "good" },
+          { t: 1_000, v: 10, q: "good" },
+          { t: 1_000, v: 11, q: "good" },
+        ],
+      },
+      {
+        tag: "tag.b",
+        points: [
+          { t: 2_000, v: 20, q: "good" },
+        ],
+      },
+    ], { showBadQualityGaps: true });
+
+    expect(matrix.xValues).toEqual([1_000, 2_000, 3_000]);
+    expect(matrix.valuesByTag.get("tag.a")).toEqual([11, null, 30]);
+    expect(matrix.valuesByTag.get("tag.b")).toEqual([null, 20, null]);
+    expect(matrix.diagnostics.duplicateTimestampCountBeforeDedupe).toBe(1);
+    expect(matrix.diagnostics.unsortedPairCount).toBe(1);
   });
 });

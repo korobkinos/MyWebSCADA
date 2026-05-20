@@ -7,6 +7,7 @@ import type { TrendTagInfo } from "../../services/api";
 import { WorkbenchButton, WorkbenchIconButton } from "../../components/workbench";
 import { fetchTrendTags, queryTrendData } from "./trendApi";
 import { TrendChart } from "./TrendChart";
+import { TrendChartUPlot } from "./TrendChartUPlot";
 import { TrendSettingsPanel } from "./TrendSettingsPanel";
 import { TrendTagPickerDialog } from "./TrendTagPickerDialog";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
@@ -312,6 +313,7 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
   return {
     ...defaults,
     ...source,
+    renderer: source.renderer === "uplot" ? "uplot" : "echarts",
     maxPointsPerSeries: clamp(Number(source.maxPointsPerSeries ?? defaults.maxPointsPerSeries), 1000, 8000),
     cacheSize: clamp(Number(source.cacheSize ?? defaults.cacheSize), 8, 256),
     liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
@@ -453,6 +455,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [hoverSeriesValues, setHoverSeriesValues] = useState<Record<string, string> | null>(null);
   const [hoverTimestamp, setHoverTimestamp] = useState<number | null>(null);
   const [seriesColumnWidths, setSeriesColumnWidths] = useState<TrendSeriesColumnWidths>(initialViewState.seriesColumnWidths ?? DEFAULT_SERIES_COLUMN_WIDTHS);
+  const TrendChartRenderer = settings.renderer === "uplot" ? TrendChartUPlot : TrendChart;
   const [timeRangeDialogOpen, setTimeRangeDialogOpen] = useState(false);
   const [timeRangeDraftFrom, setTimeRangeDraftFrom] = useState(initialViewState.customFrom);
   const [timeRangeDraftTo, setTimeRangeDraftTo] = useState(initialViewState.customTo);
@@ -507,6 +510,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   useEffect(() => {
     livePendingBufferCapRef.current = resolveLivePendingBufferCap(selectedTagNames.length, settings.liveBufferLimit);
   }, [selectedTagNames.length, settings.liveBufferLimit]);
+
+  useEffect(() => {
+    if (settings.renderer !== "uplot") {
+      return;
+    }
+    hoverSnapshotKeyRef.current = "";
+    hoverTimestampRef.current = null;
+    setHoverSeriesValues(null);
+    setHoverTimestamp(null);
+  }, [settings.renderer]);
 
   useEffect(() => {
     sourcePointCountRef.current = pointCount;
@@ -1620,7 +1633,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         ) : error ? (
           <div className="trends-empty trends-empty--error">{error}</div>
         ) : (
-          <TrendChart
+          <TrendChartRenderer
             key={object.id}
             data={response}
             tags={selectedTags}
@@ -1636,6 +1649,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             liveWindowMs={liveWindowMs}
             onVisibleRangeChange={handleChartRangeChange}
             onHoverSnapshotChange={(snapshot) => {
+              if (settings.renderer === "uplot") {
+                return;
+              }
               if (!snapshot) {
                 if (liveMode) {
                   return;
@@ -1896,6 +1912,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         onSettingsChange={(next) => {
           setSettings({
             ...next,
+            renderer: next.renderer === "uplot" ? "uplot" : "echarts",
             maxPointsPerSeries: clamp(next.maxPointsPerSeries, 1000, 8000),
             zoomDebounceMs: clamp(next.zoomDebounceMs, 100, 1200),
             cacheSize: clamp(next.cacheSize, 8, 256),

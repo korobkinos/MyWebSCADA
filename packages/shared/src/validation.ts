@@ -815,6 +815,7 @@ const trendChartAxisSchema = z.object({
 });
 
 const trendChartSettingsSchema = z.object({
+  renderer: z.enum(["echarts", "uplot"]).optional(),
   theme: z.enum(["workbench-dark", "echarts-dark", "custom"]).optional(),
   background: z.string().optional(),
   gridLines: z.boolean().optional(),

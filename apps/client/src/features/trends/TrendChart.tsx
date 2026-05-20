@@ -7,7 +7,7 @@ import type { ECharts, EChartsCoreOption } from "echarts/core";
 import type { TrendAxisConfig, TrendAxisTitleMode, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { isTrendPerfDebugEnabled, logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
-import { insertTrendGapBreaks, normalizeTrendPoints } from "./trendUtils";
+import { insertTrendGapBreaks, normalizeTrendPoints, resolveTrendGapBreakMs } from "./trendUtils";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, GraphicComponent, CanvasRenderer]);
 const LIVE_GAP_MIN_BREAK_MS = 10_000;
@@ -71,30 +71,6 @@ type TrendAxisStats = {
   max: number;
   hasNumeric: boolean;
 };
-
-function resolveGapBreakMs(points: TrendPoint[]): number {
-  if (points.length < 3) {
-    return 5000;
-  }
-  const diffs: number[] = [];
-  for (let index = 1; index < points.length; index += 1) {
-    const current = points[index];
-    const previous = points[index - 1];
-    if (!current || !previous) {
-      continue;
-    }
-    const diff = current.t - previous.t;
-    if (Number.isFinite(diff) && diff > 0) {
-      diffs.push(diff);
-    }
-  }
-  if (diffs.length === 0) {
-    return 5000;
-  }
-  diffs.sort((a, b) => a - b);
-  const median = diffs[Math.floor(diffs.length / 2)] ?? 1000;
-  return Math.max(3000, Math.min(180000, Math.round(median * 4)));
-}
 
 function resolveLiveSeriesPointCap(liveBufferLimit: number): number {
   if (!Number.isFinite(liveBufferLimit)) {
@@ -918,7 +894,7 @@ export function TrendChart({
       const lineWidth = tag.lineWidth ?? settings.defaultLineWidth;
       const lineType = tag.lineType ?? "solid";
       const renderMode = tag.mode ?? (tagsByName.get(tag.tag)?.mode ?? "line");
-      const gapBreakMs = resolveGapBreakMs(sourcePoints);
+      const gapBreakMs = resolveTrendGapBreakMs(sourcePoints);
       const withGaps = insertTrendGapBreaks(sourcePoints, gapBreakMs);
       const dataPoints: Array<[number, number | null]> = [];
       for (let pointIndex = 0; pointIndex < withGaps.points.length; pointIndex += 1) {
@@ -1711,7 +1687,7 @@ export function TrendChart({
                 : "good",
           };
           const lastPoint = current[current.length - 1];
-          const gapBreakMs = Math.max(LIVE_GAP_MIN_BREAK_MS, resolveGapBreakMs(current));
+          const gapBreakMs = Math.max(LIVE_GAP_MIN_BREAK_MS, resolveTrendGapBreakMs(current));
           if (lastPoint && lastPoint.v !== null && nextPoint.v !== null && nextPoint.t - lastPoint.t > gapBreakMs) {
             const gapLeftTs = lastPoint.t + 1;
             const gapRightTs = nextPoint.t - 1;

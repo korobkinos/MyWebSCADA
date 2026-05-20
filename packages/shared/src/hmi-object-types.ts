@@ -729,6 +729,7 @@ export type TrendChartSeriesConfig = {
 };
 
 export type TrendChartSettings = {
+  renderer?: "echarts" | "uplot";
   theme?: "workbench-dark" | "echarts-dark" | "custom";
   background?: string;
   gridLines?: boolean;

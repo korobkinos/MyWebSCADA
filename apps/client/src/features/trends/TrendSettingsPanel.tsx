@@ -549,6 +549,13 @@ export function TrendSettingsPanel({
                 <div className="workbench-section__content">
                   <div className="trends-settings-fields trends-settings-fields--three-col">
                     <label className="workbench-field">
+                      <span className="workbench-field__label">Renderer</span>
+                      <select className="workbench-select" value={draftSettings.renderer} onChange={(event) => patchSettings({ renderer: event.target.value as TrendSettings["renderer"] })}>
+                        <option value="echarts">ECharts</option>
+                        <option value="uplot">uPlot experimental</option>
+                      </select>
+                    </label>
+                    <label className="workbench-field">
                       <span className="workbench-field__label">Max points/series</span>
                       <input className="workbench-input" type="number" min={1000} max={8000} value={draftSettings.maxPointsPerSeries} onChange={(event) => onNumericInput(event, (value) => patchSettings({ maxPointsPerSeries: value }))} />
                     </label>

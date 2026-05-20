@@ -9,6 +9,7 @@ export type TrendSeriesColumnWidths = Record<TrendSeriesColumnId, number>;
 export type TrendLineType = "solid" | "dashed" | "dotted";
 export type TrendRenderMode = "line" | "step" | "points";
 export type TrendAxisTitleMode = "hidden" | "compactLabel" | "verticalLabel";
+export type TrendRenderer = "echarts" | "uplot";
 
 export type TrendAxisConfig = {
   id: string;
@@ -71,6 +72,7 @@ export type TrendTableSettings = {
 };
 
 export type TrendSettings = {
+  renderer: TrendRenderer;
   theme: "workbench-dark" | "echarts-dark" | "custom";
   background: string;
   gridLines: boolean;

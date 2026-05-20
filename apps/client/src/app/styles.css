@@ -6351,6 +6351,16 @@ body {
   min-height: 0;
 }
 
+.trends-chart--uplot,
+.trends-chart--uplot .uplot {
+  width: 100%;
+  height: 100%;
+}
+
+.trends-chart--uplot .u-over {
+  cursor: default !important;
+}
+
 .trends-status-bar {
   display: flex;
   align-items: center;

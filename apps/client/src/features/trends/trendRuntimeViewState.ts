@@ -66,6 +66,7 @@ function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
   return {
     ...defaults,
     ...source,
+    renderer: source.renderer === "uplot" ? "uplot" : "echarts",
     maxPointsPerSeries: clamp(Number(source.maxPointsPerSeries ?? defaults.maxPointsPerSeries), 1000, 8000),
     cacheSize: clamp(Number(source.cacheSize ?? defaults.cacheSize), 8, 256),
     liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
