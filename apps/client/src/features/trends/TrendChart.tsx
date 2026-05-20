@@ -7,6 +7,7 @@ import type { ECharts, EChartsCoreOption } from "echarts/core";
 import type { TrendAxisConfig, TrendAxisTitleMode, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { isTrendPerfDebugEnabled, logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
+import { insertTrendGapBreaks, normalizeTrendPoints } from "./trendUtils";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, GraphicComponent, CanvasRenderer]);
 const LIVE_GAP_MIN_BREAK_MS = 10_000;
@@ -180,22 +181,6 @@ export function TrendChart({
   const skipNextVisibleRangeRenderInLiveRef = useRef(false);
   const axisCommitTimersRef = useRef<Map<string, number>>(new Map());
   const probeDragActiveRef = useRef(false);
-  const normalizeSeriesPoints = (points: TrendPoint[]): TrendPoint[] => {
-    if (points.length <= 1) {
-      return [...points];
-    }
-    const sorted = [...points].sort((a, b) => a.t - b.t);
-    const normalized: TrendPoint[] = [];
-    for (const point of sorted) {
-      const last = normalized[normalized.length - 1];
-      if (last && last.t === point.t) {
-        normalized[normalized.length - 1] = point;
-      } else {
-        normalized.push(point);
-      }
-    }
-    return normalized;
-  };
   const recomputeAxisStats = (points: TrendPoint[]): TrendAxisStats => {
     let min = Number.POSITIVE_INFINITY;
     let max = Number.NEGATIVE_INFINITY;
@@ -929,30 +914,33 @@ export function TrendChart({
     const progressiveThreshold = settings.progressive ? 2500 : Number.MAX_SAFE_INTEGER;
 
     const series: any[] = activeTags.map((tag) => {
-      const points = seriesPointsRef.current.get(tag.tag) ?? [];
+      const sourcePoints = seriesPointsRef.current.get(tag.tag) ?? [];
       const lineWidth = tag.lineWidth ?? settings.defaultLineWidth;
       const lineType = tag.lineType ?? "solid";
       const renderMode = tag.mode ?? (tagsByName.get(tag.tag)?.mode ?? "line");
-      const gapBreakMs = resolveGapBreakMs(points);
+      const gapBreakMs = resolveGapBreakMs(sourcePoints);
+      const withGaps = insertTrendGapBreaks(sourcePoints, gapBreakMs);
       const dataPoints: Array<[number, number | null]> = [];
-      for (let pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
-        const point = points[pointIndex];
+      for (let pointIndex = 0; pointIndex < withGaps.points.length; pointIndex += 1) {
+        const point = withGaps.points[pointIndex];
         if (!point) {
           continue;
-        }
-        const previous = pointIndex > 0 ? points[pointIndex - 1] : null;
-        if (!liveMode && previous && point.t - previous.t > gapBreakMs) {
-          const leftGapTs = previous.t + 1;
-          const rightGapTs = point.t - 1;
-          dataPoints.push([leftGapTs, null]);
-          if (rightGapTs > leftGapTs) {
-            dataPoints.push([rightGapTs, null]);
-          }
         }
         const quality = (point.q ?? "good").toLowerCase();
         const invalidQuality = quality === "bad" || quality === "uncertain";
         const value = settings.showBadQualityGaps && invalidQuality ? null : point.v;
         dataPoints.push([point.t, value]);
+      }
+      for (const gap of withGaps.gaps) {
+        logTrendDiagnostics("chart:gap-break", {
+          tag: tag.tag,
+          previousTs: gap.previousTs,
+          currentTs: gap.currentTs,
+          deltaMs: gap.deltaMs,
+          gapBreakMs: gap.gapBreakMs,
+          liveMode,
+          source: "render",
+        });
       }
       const axisId = axisIdByTag.get(tag.tag) ?? safeAxes[0]?.id;
       const yAxisIndex = axisId ? (axisIndexById.get(axisId) ?? 0) : 0;
@@ -964,12 +952,12 @@ export function TrendChart({
           : settings.aggregation === "lttb"
             ? "lttb"
             : undefined;
-      const firstPoint = points[0];
-      const lastPoint = points[points.length - 1];
+      const firstPoint = sourcePoints[0];
+      const lastPoint = sourcePoints[sourcePoints.length - 1];
       logTrendDiagnostics("chart:series-render", {
         tag: tag.tag,
         liveMode,
-        points: points.length,
+        points: sourcePoints.length,
         renderPoints: dataPoints.length,
         firstTs: firstPoint?.t ?? null,
         lastTs: lastPoint?.t ?? null,
@@ -1723,7 +1711,8 @@ export function TrendChart({
                 : "good",
           };
           const lastPoint = current[current.length - 1];
-          if (lastPoint && nextPoint.t - lastPoint.t > Math.max(LIVE_GAP_MIN_BREAK_MS, resolveGapBreakMs(current))) {
+          const gapBreakMs = Math.max(LIVE_GAP_MIN_BREAK_MS, resolveGapBreakMs(current));
+          if (lastPoint && lastPoint.v !== null && nextPoint.v !== null && nextPoint.t - lastPoint.t > gapBreakMs) {
             const gapLeftTs = lastPoint.t + 1;
             const gapRightTs = nextPoint.t - 1;
             current.push({ t: gapLeftTs, v: null, q: "uncertain" });
@@ -1735,6 +1724,16 @@ export function TrendChart({
               previousTs: lastPoint.t,
               nextTs: nextPoint.t,
               deltaMs: nextPoint.t - lastPoint.t,
+              gapBreakMs,
+              liveMode: liveModeRef.current,
+              source: "live-append",
+            });
+            logTrendDiagnostics("live:stale-source-gap", {
+              tag: update.tag,
+              previousTs: lastPoint.t,
+              currentTs: nextPoint.t,
+              deltaMs: nextPoint.t - lastPoint.t,
+              gapBreakMs,
             });
           }
           if (!lastPoint || nextPoint.t > lastPoint.t) {
@@ -1880,7 +1879,7 @@ export function TrendChart({
     const previousMap = seriesPointsRef.current;
     const historyToMs = Number.isFinite(new Date(data?.to ?? "").getTime()) ? new Date(data?.to ?? "").getTime() : Number.NaN;
     for (const series of data?.series ?? []) {
-      const normalizedPointsSource = normalizeSeriesPoints(series.points);
+      const normalizedPointsSource = normalizeTrendPoints(series.points);
       historyMap.set(series.tag, normalizedPointsSource);
     }
 
@@ -1896,7 +1895,7 @@ export function TrendChart({
           return point.t > historyToMs;
         });
         const livePoints = carryOverLivePoints;
-        const merged = normalizeSeriesPoints([...historyPoints, ...livePoints]);
+        const merged = normalizeTrendPoints([...historyPoints, ...livePoints]);
         nextMap.set(tagName, merged);
       }
     } else {

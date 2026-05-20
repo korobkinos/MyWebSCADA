@@ -472,6 +472,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
   const historyLoadTimerRef = useRef<number | null>(null);
   const viewStateSaveTimerRef = useRef<number | null>(null);
+  const visibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
   const lastStableVisibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
   const hoverSnapshotKeyRef = useRef<string>("");
   const hoverTimestampRef = useRef<number | null>(null);
@@ -574,6 +575,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   }, [customFrom, customTo, liveMode, manualAxes, object.id, objectDefaultsSignature, rangePreset, selectedTags, seriesColumnWidths, settings, tagPickerFilters]);
 
   useEffect(() => {
+    visibleRangeRef.current = visibleRange;
+  }, [visibleRange.from, visibleRange.to]);
+
+  useEffect(() => {
     if (!liveMode) {
       lastStableVisibleRangeRef.current = visibleRange;
     }
@@ -634,7 +639,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const executeQuery = useCallback(async (
     range: TrendVisibleRange,
-    options?: { force?: boolean; mode?: "history" | "liveBootstrap" },
+    options?: { force?: boolean; mode?: "history" | "liveBootstrap"; context?: "auto" | "live" | "history" },
   ) => {
     if (selectedTagNames.length === 0) {
       setResponse(null);
@@ -651,7 +656,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
     const mode = options?.mode ?? "history";
     const isLiveBootstrapQuery = mode === "liveBootstrap";
-    const isLiveQuery = liveMode || isLiveBootstrapQuery;
+    const queryContext = options?.context ?? "auto";
+    const isLiveQuery = isLiveBootstrapQuery || queryContext === "live" || (queryContext === "auto" && liveMode);
     const effectiveMaxPointsSetting = isLiveQuery ? 8000 : settings.maxPointsPerSeries;
     const maxPoints = clamp(Math.round(effectiveMaxPointsSetting), 1000, 8000);
     const requestAggregation = isLiveBootstrapQuery ? "raw" : settings.aggregation;
@@ -809,7 +815,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         if (historyBounds.lastTs !== null && liveBounds.firstTs !== null) {
           const gapMs = liveBounds.firstTs - historyBounds.lastTs;
           if (gapMs > 1_000) {
-            logTrendDiagnostics("live:gap-detected", {
+            logTrendDiagnostics("live:bootstrap:gap", {
               gapMs,
               historyLastTs: historyBounds.lastTs,
               liveFirstTs: liveBounds.firstTs,
@@ -854,6 +860,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
       setResponse(next);
       setStatusAggregation(next.aggregation);
+      if (isLiveQuery) {
+        logTrendDiagnostics("live:status", {
+          mode,
+          statusAggregation: next.aggregation,
+          requestedAggregation: requestAggregation,
+        });
+      }
       setLastLoadAt(Date.now());
       const nextLatest: Record<string, string> = {};
       for (const series of next.series) {
@@ -864,7 +877,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             value: lastPoint.v,
             quality: lastPoint.q,
             sourceTs: lastPoint.t,
-            // History bootstrap should be heartbeated immediately until live updates arrive.
+            // Mark as stale until the first real live value arrives from the runtime stream.
             lastIncomingAt: 0,
           });
         }
@@ -894,6 +907,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         pointCount: 0,
         message: text,
       });
+      if (isLiveBootstrapQuery) {
+        logTrendDiagnostics("live:bootstrap:error", {
+          rangeFrom: range.from,
+          rangeTo: range.to,
+          message: text,
+        });
+      }
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false);
@@ -910,15 +930,33 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   ]);
 
   const executeLiveBootstrapQuery = useCallback(async (nextRange: TrendVisibleRange) => {
-    liveBootstrapRangeRef.current = nextRange;
+    const span = Math.max(60_000, nextRange.to - nextRange.from);
+    const right = Date.now();
+    const anchoredRange: TrendVisibleRange = {
+      from: right - span,
+      to: right,
+    };
+    liveBootstrapRangeRef.current = anchoredRange;
+    setRangePreset("custom");
+    setVisibleRange(anchoredRange);
+    setCustomFrom(toLocalDateTimeInputValue(anchoredRange.from));
+    setCustomTo(toLocalDateTimeInputValue(anchoredRange.to));
+    setStatusAggregation("raw");
+    logTrendDiagnostics("live:status", {
+      mode: "liveBootstrap",
+      statusAggregation: "raw",
+      requestedAggregation: "raw",
+    });
     logTrendDiagnostics("live:bootstrap:range", {
-      requestedFrom: nextRange.from,
-      requestedTo: nextRange.to,
+      requestedFrom: anchoredRange.from,
+      requestedTo: anchoredRange.to,
       nowAtStart: Date.now(),
-      spanMs: nextRange.to - nextRange.from,
+      spanMs: anchoredRange.to - anchoredRange.from,
+      previousVisibleFrom: visibleRangeRef.current.from,
+      previousVisibleTo: visibleRangeRef.current.to,
       selectedTags: selectedTagNames.length,
     });
-    await executeQuery(nextRange, { force: true, mode: "liveBootstrap" });
+    await executeQuery(anchoredRange, { force: true, mode: "liveBootstrap", context: "live" });
   }, [executeQuery, selectedTagNames.length]);
 
   useEffect(() => {
@@ -978,14 +1016,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     liveFirstWsPointLoggedRef.current = false;
     setLiveBootstrapReady(false);
     const bootstrapRange = computeLiveBootstrapRange(lastStableVisibleRangeRef.current);
-    setRangePreset("custom");
-    setVisibleRange(bootstrapRange);
-    setCustomFrom(toLocalDateTimeInputValue(bootstrapRange.from));
-    setCustomTo(toLocalDateTimeInputValue(bootstrapRange.to));
     logTrendDiagnostics("live:bootstrap:start", {
       requestedFrom: bootstrapRange.from,
       requestedTo: bootstrapRange.to,
       nowAtStart: Date.now(),
+      currentVisibleFrom: visibleRangeRef.current.from,
+      currentVisibleTo: visibleRangeRef.current.to,
+      stableVisibleFrom: lastStableVisibleRangeRef.current.from,
+      stableVisibleTo: lastStableVisibleRangeRef.current.to,
       selectedTags: selectedTagNames.length,
     });
     let disposed = false;
@@ -1148,7 +1186,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         return;
       }
       const now = Date.now();
-      const heartbeatBatch: Array<{ tag: string; value: number | boolean | string | null; quality?: string; timestamp: number }> = [];
+      const staleTags: string[] = [];
       for (const tagName of selectedTagNames) {
         const latest = liveLatestByTagRef.current.get(tagName);
         if (!latest) {
@@ -1157,21 +1195,30 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         if (now - latest.lastIncomingAt < LIVE_HEARTBEAT_STALE_SOURCE_MS) {
           continue;
         }
-        heartbeatBatch.push({
-          tag: tagName,
-          value: latest.value,
-          quality: latest.quality,
-          timestamp: now,
-        });
+        staleTags.push(tagName);
       }
-      if (heartbeatBatch.length === 0) {
+      if (staleTags.length === 0) {
         return;
       }
-      logTrendDiagnostics("live:heartbeat", {
-        batchSize: heartbeatBatch.length,
+      logTrendDiagnostics("live:heartbeat-suppressed", {
+        staleTagCount: staleTags.length,
+        tags: staleTags,
         at: now,
       });
-      chartApiRef.current?.appendLivePoints(heartbeatBatch);
+      for (const tagName of staleTags) {
+        const latest = liveLatestByTagRef.current.get(tagName);
+        if (!latest) {
+          continue;
+        }
+        logTrendDiagnostics("live:stale-source-gap", {
+          tag: tagName,
+          previousTs: latest.sourceTs,
+          currentTs: now,
+          deltaMs: now - latest.sourceTs,
+          staleTimeoutMs: LIVE_HEARTBEAT_STALE_SOURCE_MS,
+          source: "heartbeat",
+        });
+      }
     }, LIVE_HEARTBEAT_MS);
 
     return () => {
@@ -1285,7 +1332,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       setLiveMode(false);
       setLiveAutoStopReason("Stopped by zoom/pan interaction");
       if (selectedTags.length > 0) {
-        void executeQuery(range, { force: true });
+        void executeQuery(range, { force: true, context: "history" });
       }
       return;
     }
@@ -1305,6 +1352,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   };
 
   const refresh = () => {
+    if (liveMode) {
+      void executeLiveBootstrapQuery(visibleRange);
+      return;
+    }
     void executeQuery(visibleRange, { force: true });
   };
 

@@ -1,4 +1,4 @@
-import type { TrendAxisConfig, TrendSettings, TrendTableSettings, TrendTagSelection, TrendTagInfo, TrendVisibleRange } from "./trendTypes";
+import type { TrendAxisConfig, TrendPoint, TrendSettings, TrendTableSettings, TrendTagSelection, TrendTagInfo, TrendVisibleRange } from "./trendTypes";
 import { TREND_COLORS, TREND_WORKBENCH_THEME } from "./trendTheme";
 
 export const TREND_SETTINGS_STORAGE_KEY = "mywebscada.trends.settings";
@@ -214,6 +214,74 @@ export function parseQuickRange(preset: "5m" | "15m" | "1h" | "8h" | "24h", now 
     from: now - ms,
     to: now,
   };
+}
+
+type TrendGapBreakInfo = {
+  previousTs: number;
+  currentTs: number;
+  deltaMs: number;
+  gapBreakMs: number;
+};
+
+export function normalizeTrendPoints(points: TrendPoint[]): TrendPoint[] {
+  if (points.length <= 1) {
+    return [...points];
+  }
+  const sorted = [...points].sort((a, b) => a.t - b.t);
+  const normalized: TrendPoint[] = [];
+  for (const point of sorted) {
+    const last = normalized[normalized.length - 1];
+    if (last && last.t === point.t) {
+      normalized[normalized.length - 1] = point;
+    } else {
+      normalized.push(point);
+    }
+  }
+  return normalized;
+}
+
+export function insertTrendGapBreaks(
+  points: TrendPoint[],
+  gapBreakMs: number,
+): { points: TrendPoint[]; gaps: TrendGapBreakInfo[] } {
+  const normalized = normalizeTrendPoints(points);
+  const gaps: TrendGapBreakInfo[] = [];
+  if (normalized.length < 2) {
+    return { points: normalized, gaps };
+  }
+  const safeGapBreakMs = Number.isFinite(gapBreakMs) && gapBreakMs > 0 ? Math.round(gapBreakMs) : 5000;
+  const result: TrendPoint[] = [normalized[0]!];
+  for (let index = 1; index < normalized.length; index += 1) {
+    const previous = normalized[index - 1];
+    const current = normalized[index];
+    if (!previous || !current) {
+      continue;
+    }
+    const deltaMs = current.t - previous.t;
+    if (
+      Number.isFinite(deltaMs)
+      && deltaMs > safeGapBreakMs
+      && previous.v !== null
+      && current.v !== null
+    ) {
+      const leftGapTs = previous.t + 1;
+      const rightGapTs = current.t - 1;
+      if (leftGapTs < current.t) {
+        result.push({ t: leftGapTs, v: null, q: "uncertain" });
+      }
+      if (rightGapTs > leftGapTs) {
+        result.push({ t: rightGapTs, v: null, q: "uncertain" });
+      }
+      gaps.push({
+        previousTs: previous.t,
+        currentTs: current.t,
+        deltaMs,
+        gapBreakMs: safeGapBreakMs,
+      });
+    }
+    result.push(current);
+  }
+  return { points: result, gaps };
 }
 
 export function buildAxes(

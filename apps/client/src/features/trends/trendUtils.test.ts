@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { buildAxes, createTrendAxisConfig, defaultTrendSettings, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
+import { buildAxes, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -116,5 +116,45 @@ describe("normalizeTrendTableSettings", () => {
     });
 
     expect(normalized).toBeUndefined();
+  });
+});
+
+describe("insertTrendGapBreaks", () => {
+  it("inserts null break points for large gaps", () => {
+    const result = insertTrendGapBreaks([
+      { t: 1_000, v: 10, q: "good" },
+      { t: 11_500, v: 11, q: "good" },
+    ], 5_000);
+
+    expect(result.points.map((item) => [item.t, item.v])).toEqual([
+      [1_000, 10],
+      [1_001, null],
+      [11_499, null],
+      [11_500, 11],
+    ]);
+    expect(result.gaps).toHaveLength(1);
+    expect(result.gaps[0]).toMatchObject({
+      previousTs: 1_000,
+      currentTs: 11_500,
+      deltaMs: 10_500,
+      gapBreakMs: 5_000,
+    });
+  });
+
+  it("does not insert duplicate breaks around existing null markers", () => {
+    const result = insertTrendGapBreaks([
+      { t: 1_000, v: 10, q: "good" },
+      { t: 1_001, v: null, q: "uncertain" },
+      { t: 11_499, v: null, q: "uncertain" },
+      { t: 11_500, v: 11, q: "good" },
+    ], 5_000);
+
+    expect(result.points.map((item) => [item.t, item.v])).toEqual([
+      [1_000, 10],
+      [1_001, null],
+      [11_499, null],
+      [11_500, 11],
+    ]);
+    expect(result.gaps).toHaveLength(0);
   });
 });
