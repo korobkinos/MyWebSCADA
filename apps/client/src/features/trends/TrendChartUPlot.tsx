@@ -898,8 +898,6 @@ export function TrendChartUPlot({
 
   useEffect(() => {
     const historyMap = new Map<string, TrendPoint[]>();
-    const previousMap = seriesPointsRef.current;
-    const historyToMs = Number.isFinite(new Date(data?.to ?? "").getTime()) ? new Date(data?.to ?? "").getTime() : Number.NaN;
 
     for (const series of data?.series ?? []) {
       historyMap.set(series.tag, normalizeTrendPoints(series.points));
@@ -908,16 +906,8 @@ export function TrendChartUPlot({
     const nextMap = new Map<string, TrendPoint[]>();
     const activeTagNames = new Set(tagsRef.current.filter((tag) => tag.visible !== false).map((tag) => tag.tag));
 
-    if (liveModeRef.current) {
-      for (const tagName of activeTagNames) {
-        const historyPoints = historyMap.get(tagName) ?? [];
-        const carryOverLivePoints = (previousMap.get(tagName) ?? []).filter((point) => Number.isFinite(historyToMs) && point.t > historyToMs);
-        nextMap.set(tagName, normalizeTrendPoints([...historyPoints, ...carryOverLivePoints]));
-      }
-    } else {
-      for (const tagName of activeTagNames) {
-        nextMap.set(tagName, historyMap.get(tagName) ?? []);
-      }
+    for (const tagName of activeTagNames) {
+      nextMap.set(tagName, historyMap.get(tagName) ?? []);
     }
 
     let minTs = Number.POSITIVE_INFINITY;

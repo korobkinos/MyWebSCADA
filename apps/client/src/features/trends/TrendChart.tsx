@@ -1852,8 +1852,6 @@ export function TrendChart({
 
   useEffect(() => {
     const historyMap = new Map<string, TrendPoint[]>();
-    const previousMap = seriesPointsRef.current;
-    const historyToMs = Number.isFinite(new Date(data?.to ?? "").getTime()) ? new Date(data?.to ?? "").getTime() : Number.NaN;
     for (const series of data?.series ?? []) {
       const normalizedPointsSource = normalizeTrendPoints(series.points);
       historyMap.set(series.tag, normalizedPointsSource);
@@ -1861,23 +1859,8 @@ export function TrendChart({
 
     const nextMap = new Map<string, TrendPoint[]>();
     const activeTagNames = activeTagNameSetRef.current;
-    if (liveModeRef.current) {
-      for (const tagName of activeTagNames) {
-        const historyPoints = historyMap.get(tagName) ?? [];
-        const carryOverLivePoints = (previousMap.get(tagName) ?? []).filter((point) => {
-          if (!Number.isFinite(historyToMs)) {
-            return false;
-          }
-          return point.t > historyToMs;
-        });
-        const livePoints = carryOverLivePoints;
-        const merged = normalizeTrendPoints([...historyPoints, ...livePoints]);
-        nextMap.set(tagName, merged);
-      }
-    } else {
-      for (const [tagName, points] of historyMap) {
-        nextMap.set(tagName, points);
-      }
+    for (const tagName of activeTagNames) {
+      nextMap.set(tagName, historyMap.get(tagName) ?? []);
     }
 
     const nextStats = new Map<string, TrendAxisStats>();

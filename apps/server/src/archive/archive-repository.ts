@@ -477,12 +477,14 @@ export class ArchiveRepository {
       } else {
         points = await this.queryBucketedAvgTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
       }
+      const carryForwardPoint = await this.queryTrendPointAtOrBefore(meta.id, requestedFrom, dataType);
+      const pointsWithCarryForward = this.applyTrendCarryForward(points, carryForwardPoint, requestedFrom, requestedTo);
 
       series.push({
         tag: meta.name,
         displayName: meta.displayName || meta.name,
         unit: meta.unit ?? undefined,
-        points: this.enforceTrendPointLimit(points, hardLimit),
+        points: this.enforceTrendPointLimit(pointsWithCarryForward, hardLimit),
       });
     }
 
@@ -1152,6 +1154,100 @@ export class ArchiveRepository {
       compact.push(last);
     }
     return compact.slice(0, hardLimit);
+  }
+
+  private normalizeTrendPointRows(points: TrendPointRow[]): TrendPointRow[] {
+    const sorted = [...points]
+      .filter((point) => Number.isFinite(point.t))
+      .sort((a, b) => a.t - b.t);
+    const deduped: TrendPointRow[] = [];
+    for (const point of sorted) {
+      const last = deduped[deduped.length - 1];
+      if (last && last.t === point.t) {
+        deduped[deduped.length - 1] = point;
+      } else {
+        deduped.push(point);
+      }
+    }
+    return deduped;
+  }
+
+  private applyTrendCarryForward(
+    points: TrendPointRow[],
+    carryForwardPoint: TrendPointRow | null,
+    from: Date,
+    to: Date,
+  ): TrendPointRow[] {
+    const fromTs = from.getTime();
+    const toTs = to.getTime();
+    if (!Number.isFinite(fromTs) || !Number.isFinite(toTs) || toTs <= fromTs) {
+      return this.normalizeTrendPointRows(points);
+    }
+    const normalized = this.normalizeTrendPointRows(points)
+      .filter((point) => point.t >= fromTs && point.t <= toTs);
+    if (normalized.length === 0) {
+      if (!carryForwardPoint) {
+        return normalized;
+      }
+      if (toTs <= fromTs) {
+        return [{ t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q }];
+      }
+      return [
+        { t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q },
+        { t: toTs, v: carryForwardPoint.v, q: carryForwardPoint.q },
+      ];
+    }
+    if (carryForwardPoint && normalized[0]!.t > fromTs) {
+      normalized.unshift({ t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q });
+    }
+    const last = normalized[normalized.length - 1]!;
+    if (last.t < toTs) {
+      normalized.push({ t: toTs, v: last.v, q: last.q });
+    }
+    return this.normalizeTrendPointRows(normalized);
+  }
+
+  private async queryTrendPointAtOrBefore(tagId: number, at: Date, dataType: TrendDataType): Promise<TrendPointRow | null> {
+    const numericTextExpr = "CASE WHEN s.value_text ~ '^\\s*[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][-+]?\\d+)?\\s*$' THEN s.value_text::double precision ELSE NULL END";
+    const valueExpr = dataType === "boolean"
+      ? "CASE WHEN s.value_bool IS NULL THEN NULL WHEN s.value_bool THEN 1::double precision ELSE 0::double precision END"
+      : dataType === "string"
+        ? `COALESCE(${numericTextExpr}, s.value_double)`
+        : `COALESCE(s.value_double, ${numericTextExpr})`;
+    const valueFilter = dataType === "boolean"
+      ? "s.value_bool IS NOT NULL"
+      : dataType === "string"
+        ? `(${numericTextExpr} IS NOT NULL OR s.value_double IS NOT NULL)`
+        : `(s.value_double IS NOT NULL OR ${numericTextExpr} IS NOT NULL)`;
+    const result = await this.pool.query<{
+      time: Date;
+      value: number | null;
+      quality: string;
+    }>(
+      `
+      SELECT
+          s.time,
+          ${valueExpr} AS value,
+          LOWER(q.code) AS quality
+      FROM archive_samples s
+      JOIN archive_qualities q ON q.id = s.quality_id
+      WHERE s.tag_id = $1
+        AND s.time <= $2
+        AND ${valueFilter}
+      ORDER BY s.time DESC
+      LIMIT 1
+      `,
+      [tagId, at],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    return {
+      t: row.time.getTime(),
+      v: row.value,
+      q: this.mapTrendQuality(row.quality),
+    };
   }
 
   private async queryRawTrendPoints(
