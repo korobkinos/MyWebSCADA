@@ -70,6 +70,12 @@ function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
     liveDataSource: source.liveDataSource === "realtimeAppend" ? "realtimeAppend" : defaults.liveDataSource,
     liveResyncEnabled: source.liveResyncEnabled ?? defaults.liveResyncEnabled,
     liveResyncIntervalSec: clamp(Number(source.liveResyncIntervalSec ?? defaults.liveResyncIntervalSec), 10, 30),
+    realtimeAppendSnapshotAggregation:
+      source.realtimeAppendSnapshotAggregation === "raw" || source.realtimeAppendSnapshotAggregation === "minmax"
+        ? source.realtimeAppendSnapshotAggregation
+        : defaults.realtimeAppendSnapshotAggregation,
+    realtimeAppendSnapshotMaxPoints: clamp(Number(source.realtimeAppendSnapshotMaxPoints ?? defaults.realtimeAppendSnapshotMaxPoints), 1000, 8000),
+    realtimeAppendFlushMs: clamp(Number(source.realtimeAppendFlushMs ?? defaults.realtimeAppendFlushMs), 50, 1000),
     maxPointsPerSeries: clamp(Number(source.maxPointsPerSeries ?? defaults.maxPointsPerSeries), 1000, 8000),
     cacheSize: clamp(Number(source.cacheSize ?? defaults.cacheSize), 8, 256),
     liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),

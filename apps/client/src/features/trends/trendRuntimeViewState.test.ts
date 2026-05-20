@@ -52,5 +52,36 @@ describe("trend runtime state persistence", () => {
     expect(result?.tagPickerFilters.selectionFilter).toBe("all");
     expect(result?.seriesColumnWidths.tag).toBe(defaultWidths.tag);
     expect(result?.manualAxes[0]?.axisTitleMode).toBe("hidden");
+    expect(result?.settings.realtimeAppendSnapshotAggregation).toBe("auto");
+    expect(result?.settings.realtimeAppendSnapshotMaxPoints).toBe(8000);
+    expect(result?.settings.realtimeAppendFlushMs).toBe(300);
+  });
+
+  it("clamps realtime append tuning fields", () => {
+    const raw = JSON.stringify({
+      rangePreset: "1h",
+      visibleRange: { from: 1000, to: 2000 },
+      liveMode: false,
+      customFrom: "2026-01-01T12:00",
+      customTo: "2026-01-01T13:00",
+      selectedTags: [],
+      settings: {
+        liveDataSource: "realtimeAppend",
+        realtimeAppendSnapshotAggregation: "bad-value",
+        realtimeAppendSnapshotMaxPoints: 999999,
+        realtimeAppendFlushMs: 1,
+      },
+    });
+
+    const result = resolveRuntimeViewState({
+      raw,
+      defaultTagPickerFilters: defaultFilters,
+      defaultSeriesColumnWidths: defaultWidths,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.settings.realtimeAppendSnapshotAggregation).toBe("auto");
+    expect(result?.settings.realtimeAppendSnapshotMaxPoints).toBe(8000);
+    expect(result?.settings.realtimeAppendFlushMs).toBe(50);
   });
 });

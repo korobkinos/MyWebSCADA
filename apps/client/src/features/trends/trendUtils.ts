@@ -110,6 +110,9 @@ export function defaultTrendSettings(): TrendSettings {
     liveDataSource: "archivePolling",
     liveResyncEnabled: true,
     liveResyncIntervalSec: 15,
+    realtimeAppendSnapshotAggregation: "auto",
+    realtimeAppendSnapshotMaxPoints: 8000,
+    realtimeAppendFlushMs: 300,
     autoScale: true,
     defaultAxisMin: "auto",
     defaultAxisMax: "auto",
@@ -154,6 +157,12 @@ export function loadTrendSettings(): TrendSettings {
       liveDataSource: parsed.liveDataSource === "realtimeAppend" ? "realtimeAppend" : "archivePolling",
       liveResyncEnabled: parsed.liveResyncEnabled ?? fallback.liveResyncEnabled,
       liveResyncIntervalSec: clamp(Number(parsed.liveResyncIntervalSec ?? fallback.liveResyncIntervalSec), 10, 30),
+      realtimeAppendSnapshotAggregation:
+        parsed.realtimeAppendSnapshotAggregation === "raw" || parsed.realtimeAppendSnapshotAggregation === "minmax"
+          ? parsed.realtimeAppendSnapshotAggregation
+          : "auto",
+      realtimeAppendSnapshotMaxPoints: clamp(Number(parsed.realtimeAppendSnapshotMaxPoints ?? fallback.realtimeAppendSnapshotMaxPoints), 1000, 8000),
+      realtimeAppendFlushMs: clamp(Number(parsed.realtimeAppendFlushMs ?? fallback.realtimeAppendFlushMs), 50, 1000),
       zoomDebounceMs: clamp(Number(parsed.zoomDebounceMs ?? fallback.zoomDebounceMs), 100, 1200),
       defaultLineWidth: clamp(Number(parsed.defaultLineWidth ?? fallback.defaultLineWidth), 1, 5),
       axisOffsetStep: clamp(Number(parsed.axisOffsetStep ?? fallback.axisOffsetStep), 8, 220),
@@ -627,13 +636,27 @@ function findTimestampIndex(xValues: number[], timestamp: number): number {
   return -1;
 }
 
+function findTimestampInsertIndex(xValues: number[], timestamp: number): number {
+  let left = 0;
+  let right = xValues.length;
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2);
+    const value = xValues[mid];
+    if ((value ?? Number.NEGATIVE_INFINITY) < timestamp) {
+      left = mid + 1;
+    } else {
+      right = mid;
+    }
+  }
+  return left;
+}
+
 export function applyTrendVisualHolds(
   matrix: TrendDataMatrix,
   holds: TrendVisualHoldSpec[],
 ): TrendVisualHoldResult {
   const holdCandidates = holds.filter((item) => Number.isFinite(item.holdTs) && Number.isFinite(item.value));
   const staleTagCount = holds.filter((item) => item.stale === true).length;
-  const activeHoldCandidates = holdCandidates.filter((item) => item.stale !== true);
   if (holdCandidates.length === 0) {
     return {
       xValues: matrix.xValues,
@@ -649,22 +672,7 @@ export function applyTrendVisualHolds(
     };
   }
 
-  if (activeHoldCandidates.length === 0) {
-    return {
-      xValues: matrix.xValues,
-      valuesByTag: matrix.valuesByTag,
-      diagnostics: {
-        holdTs: null,
-        heldTagCount: 0,
-        staleTagCount,
-        xExtended: false,
-        pointCountBefore: matrix.pointCount,
-        pointCountAfter: matrix.pointCount,
-      },
-    };
-  }
-
-  const holdTs = Math.max(...activeHoldCandidates.map((item) => item.holdTs));
+  const holdTs = Math.max(...holdCandidates.map((item) => item.holdTs));
   if (!Number.isFinite(holdTs)) {
     return {
       xValues: matrix.xValues,
@@ -681,40 +689,24 @@ export function applyTrendVisualHolds(
   }
 
   const xValues = [...matrix.xValues];
-  let xExtended = false;
-  const lastX: number = xValues.length > 0 ? (xValues[xValues.length - 1] ?? Number.NaN) : Number.NaN;
-  if (!Number.isFinite(lastX) || holdTs > lastX) {
-    xValues.push(holdTs);
-    xExtended = true;
-  }
-
-  const holdIndex = findTimestampIndex(xValues, holdTs);
-  if (holdIndex < 0) {
-    return {
-      xValues: matrix.xValues,
-      valuesByTag: matrix.valuesByTag,
-      diagnostics: {
-        holdTs: null,
-        heldTagCount: 0,
-        staleTagCount: holds.filter((item) => item.stale === true).length,
-        xExtended: false,
-        pointCountBefore: matrix.pointCount,
-        pointCountAfter: matrix.pointCount,
-      },
-    };
+  const existingHoldIndex = findTimestampIndex(xValues, holdTs);
+  const holdIndex = existingHoldIndex >= 0 ? existingHoldIndex : findTimestampInsertIndex(xValues, holdTs);
+  const xExtended = existingHoldIndex < 0;
+  if (xExtended) {
+    xValues.splice(holdIndex, 0, holdTs);
   }
 
   const valuesByTag = new Map<string, Array<number | null | undefined>>();
   for (const [tagName, values] of matrix.valuesByTag) {
     const nextValues = [...values];
     if (xExtended) {
-      nextValues.push(undefined);
+      nextValues.splice(holdIndex, 0, undefined);
     }
     valuesByTag.set(tagName, nextValues);
   }
 
   let heldTagCount = 0;
-  for (const hold of activeHoldCandidates) {
+  for (const hold of holdCandidates) {
     const current = valuesByTag.get(hold.tag) ?? new Array<number | null | undefined>(xValues.length).fill(undefined);
     if (current.length < xValues.length) {
       current.push(...new Array<number | null | undefined>(xValues.length - current.length).fill(undefined));

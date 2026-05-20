@@ -11,6 +11,7 @@ export type TrendRenderMode = "line" | "step" | "points";
 export type TrendAxisTitleMode = "hidden" | "compactLabel" | "verticalLabel";
 export type TrendRenderer = "echarts" | "uplot";
 export type TrendLiveDataSource = "archivePolling" | "realtimeAppend";
+export type TrendRealtimeSnapshotAggregation = "auto" | "raw" | "minmax";
 
 export type TrendAxisConfig = {
   id: string;
@@ -96,6 +97,9 @@ export type TrendSettings = {
   liveDataSource: TrendLiveDataSource;
   liveResyncEnabled: boolean;
   liveResyncIntervalSec: number;
+  realtimeAppendSnapshotAggregation: TrendRealtimeSnapshotAggregation;
+  realtimeAppendSnapshotMaxPoints: number;
+  realtimeAppendFlushMs: number;
   autoScale: boolean;
   defaultAxisMin?: number | "auto";
   defaultAxisMax?: number | "auto";

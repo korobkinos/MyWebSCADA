@@ -749,6 +749,9 @@ export type TrendChartSettings = {
   cacheEnabled?: boolean;
   cacheSize?: number;
   liveBufferLimit?: number;
+  realtimeAppendSnapshotAggregation?: "auto" | "raw" | "minmax";
+  realtimeAppendSnapshotMaxPoints?: number;
+  realtimeAppendFlushMs?: number;
   autoScale?: boolean;
   defaultAxisMin?: number | "auto";
   defaultAxisMax?: number | "auto";

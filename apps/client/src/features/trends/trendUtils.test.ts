@@ -5,7 +5,11 @@ import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
   it("uses raw aggregation by default", () => {
-    expect(defaultTrendSettings().aggregation).toBe("raw");
+    const settings = defaultTrendSettings();
+    expect(settings.aggregation).toBe("raw");
+    expect(settings.realtimeAppendSnapshotAggregation).toBe("auto");
+    expect(settings.realtimeAppendSnapshotMaxPoints).toBe(8000);
+    expect(settings.realtimeAppendFlushMs).toBe(300);
   });
 });
 
@@ -337,7 +341,7 @@ describe("applyTrendVisualHolds", () => {
     expect(result.diagnostics.heldTagCount).toBe(3);
   });
 
-  it("does not extend stale tags", () => {
+  it("keeps stale diagnostics but still extends to the live edge", () => {
     const matrix = buildTrendDataMatrixWithGaps([
       {
         tag: "tag.stale",
@@ -352,9 +356,37 @@ describe("applyTrendVisualHolds", () => {
       { tag: "tag.stale", value: 10, holdTs: 3_000, stale: true },
     ]);
 
-    expect(result.xValues).toEqual([1_000, 2_000]);
-    expect(result.valuesByTag.get("tag.stale")).toEqual([10, 10]);
-    expect(result.diagnostics.heldTagCount).toBe(0);
+    expect(result.xValues).toEqual([1_000, 2_000, 3_000]);
+    expect(result.valuesByTag.get("tag.stale")).toEqual([10, 10, 10]);
+    expect(result.diagnostics.heldTagCount).toBe(1);
     expect(result.diagnostics.staleTagCount).toBe(1);
+  });
+
+  it("inserts hold timestamp inside range when missing and applies hold", () => {
+    const matrix = buildTrendDataMatrixWithGaps([
+      {
+        tag: "tag.const",
+        points: [
+          { t: 1_000, v: 10, q: "good" },
+          { t: 3_000, v: 10, q: "good" },
+        ],
+      },
+      {
+        tag: "tag.ramp",
+        points: [
+          { t: 2_000, v: 1, q: "good" },
+          { t: 4_000, v: 2, q: "good" },
+        ],
+      },
+    ], { showBadQualityGaps: true });
+
+    const result = applyTrendVisualHolds(matrix, [
+      { tag: "tag.const", value: 10, holdTs: 2_500, stale: false },
+    ]);
+
+    expect(result.xValues).toEqual([1_000, 2_000, 2_500, 3_000, 4_000]);
+    expect(result.valuesByTag.get("tag.const")).toEqual([10, 10, 10, 10, undefined]);
+    expect(result.valuesByTag.get("tag.ramp")).toEqual([undefined, 1, undefined, undefined, 2]);
+    expect(result.diagnostics.xExtended).toBe(true);
   });
 });

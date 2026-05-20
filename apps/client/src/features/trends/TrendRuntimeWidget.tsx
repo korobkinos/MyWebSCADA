@@ -18,7 +18,8 @@ import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTren
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 
-const LIVE_FLUSH_MS = 300;
+const LIVE_REALTIME_FLUSH_MIN_MS = 50;
+const LIVE_REALTIME_FLUSH_MAX_MS = 1000;
 const LIVE_HEARTBEAT_MS = 1000;
 const LIVE_HEARTBEAT_STALE_SOURCE_MS = 1200;
 const LIVE_POLL_INTERVAL_FAST_MS = 1000;
@@ -423,6 +424,12 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
     liveDataSource: source.liveDataSource === "realtimeAppend" ? "realtimeAppend" : defaults.liveDataSource ?? DEFAULT_LIVE_DATA_SOURCE,
     liveResyncEnabled: source.liveResyncEnabled ?? defaults.liveResyncEnabled,
     liveResyncIntervalSec: clamp(Number(source.liveResyncIntervalSec ?? defaults.liveResyncIntervalSec), LIVE_REALTIME_RESYNC_MIN_SEC, LIVE_REALTIME_RESYNC_MAX_SEC),
+    realtimeAppendSnapshotAggregation:
+      source.realtimeAppendSnapshotAggregation === "raw" || source.realtimeAppendSnapshotAggregation === "minmax"
+        ? source.realtimeAppendSnapshotAggregation
+        : defaults.realtimeAppendSnapshotAggregation,
+    realtimeAppendSnapshotMaxPoints: clamp(Number(source.realtimeAppendSnapshotMaxPoints ?? defaults.realtimeAppendSnapshotMaxPoints), 1000, 8000),
+    realtimeAppendFlushMs: clamp(Number(source.realtimeAppendFlushMs ?? defaults.realtimeAppendFlushMs), LIVE_REALTIME_FLUSH_MIN_MS, LIVE_REALTIME_FLUSH_MAX_MS),
     maxPointsPerSeries: clamp(Number(source.maxPointsPerSeries ?? defaults.maxPointsPerSeries), 1000, 8000),
     cacheSize: clamp(Number(source.cacheSize ?? defaults.cacheSize), 8, 256),
     liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
@@ -642,6 +649,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const liveWindowMs = Math.max(60_000, visibleRange.to - visibleRange.from);
   const livePollingIntervalMs = useMemo(() => resolveLivePollingIntervalMs(liveWindowMs), [liveWindowMs]);
   const liveResyncIntervalMs = useMemo(() => resolveLiveResyncIntervalMs(settings.liveResyncIntervalSec), [settings.liveResyncIntervalSec]);
+  const realtimeAppendFlushMs = useMemo(
+    () => clamp(Math.round(settings.realtimeAppendFlushMs), LIVE_REALTIME_FLUSH_MIN_MS, LIVE_REALTIME_FLUSH_MAX_MS),
+    [settings.realtimeAppendFlushMs],
+  );
 
   const pointCount = useMemo(
     () => chartResponse?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0,
@@ -864,13 +875,18 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     const isLiveQuery = isLiveBootstrapQuery || queryContext === "live" || (queryContext === "auto" && liveModeRef.current);
     const targetMode = options?.targetMode ?? (isLiveQuery ? "live" : "offline");
     const isArchivePollingLiveQuery = targetMode === "live" && liveDataSource === "archivePolling";
+    const isRealtimeAppendLiveSnapshot = targetMode === "live" && liveDataSource === "realtimeAppend" && isLiveBootstrapQuery;
     const effectiveMaxPointsSetting = isArchivePollingLiveQuery
       ? LIVE_ARCHIVE_POLL_MAX_POINTS
-      : isLiveQuery
+      : isRealtimeAppendLiveSnapshot
+        ? settings.realtimeAppendSnapshotMaxPoints
+        : isLiveQuery
         ? 8000
         : settings.maxPointsPerSeries;
     const maxPoints = clamp(Math.round(effectiveMaxPointsSetting), 1000, 8000);
-    const requestAggregation = isLiveBootstrapQuery ? "raw" : settings.aggregation;
+    const requestAggregation = isLiveBootstrapQuery
+      ? settings.realtimeAppendSnapshotAggregation
+      : settings.aggregation;
     const tagNames = selectedTagNames;
     const liveSessionId = options?.liveSessionId ?? liveSessionIdRef.current;
     const key = buildTrendCacheKey({
@@ -888,8 +904,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       rangeFrom: range.from,
       rangeTo: range.to,
       maxPoints,
+      effectiveMaxPoints: maxPoints,
       pointCount: null,
       cacheEnabled: settings.cacheEnabled,
+      snapshotAggregationPolicy: settings.realtimeAppendSnapshotAggregation,
+      snapshotMaxPointsPolicy: settings.realtimeAppendSnapshotMaxPoints,
+      flushMsPolicy: realtimeAppendFlushMs,
     });
     if (isLiveQuery && requestAggregation === "raw") {
       logTrendDiagnostics("query:live-raw-requested", {
@@ -970,6 +990,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         liveMode,
         requestedAggregation: requestAggregation,
         aggregation: next.aggregation,
+        maxPoints,
+        effectiveMaxPoints: maxPoints,
+        snapshotAggregationPolicy: settings.realtimeAppendSnapshotAggregation,
+        snapshotMaxPointsPolicy: settings.realtimeAppendSnapshotMaxPoints,
+        flushMsPolicy: realtimeAppendFlushMs,
         seriesCount: next.series.length,
         pointCount: next.series.reduce((acc, series) => acc + series.points.length, 0),
         firstSeries: next.series[0]?.tag,
@@ -1179,6 +1204,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     settings.aggregation,
     settings.cacheEnabled,
     settings.maxPointsPerSeries,
+    settings.realtimeAppendSnapshotAggregation,
+    settings.realtimeAppendSnapshotMaxPoints,
+    realtimeAppendFlushMs,
   ]);
 
   const executeLiveBootstrapQuery = useCallback(async (nextRange: TrendVisibleRange): Promise<boolean> => {
@@ -1201,11 +1229,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setVisibleRange(anchoredRange);
     setCustomFrom(toLocalDateTimeInputValue(anchoredRange.from));
     setCustomTo(toLocalDateTimeInputValue(anchoredRange.to));
-    setStatusAggregation("raw");
     logTrendDiagnostics("live:status", {
       mode: "liveBootstrap",
-      statusAggregation: "raw",
-      requestedAggregation: "raw",
+      statusAggregation: settings.realtimeAppendSnapshotAggregation,
+      requestedAggregation: settings.realtimeAppendSnapshotAggregation,
     });
     logTrendDiagnostics("live:bootstrap:range", {
       requestedFrom: anchoredRange.from,
@@ -1215,6 +1242,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       previousVisibleFrom: visibleRangeRef.current.from,
       previousVisibleTo: visibleRangeRef.current.to,
       selectedTags: selectedTagNames.length,
+      snapshotAggregationPolicy: settings.realtimeAppendSnapshotAggregation,
+      snapshotMaxPointsPolicy: settings.realtimeAppendSnapshotMaxPoints,
+      flushMsPolicy: realtimeAppendFlushMs,
     });
     const loaded = await executeQuery(anchoredRange, {
       force: true,
@@ -1252,7 +1282,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       pointCount: loaded.series.reduce((acc, series) => acc + series.points.length, 0),
     });
     return true;
-  }, [executeQuery, selectedTagNames.length, selectedTags]);
+  }, [
+    executeQuery,
+    realtimeAppendFlushMs,
+    selectedTagNames.length,
+    selectedTags,
+    settings.realtimeAppendSnapshotAggregation,
+    settings.realtimeAppendSnapshotMaxPoints,
+  ]);
 
   useEffect(() => {
     cacheRef.current = new TrendQueryCache(settings.cacheSize, resolveTrendCachePointLimit(settings.cacheSize));
@@ -1338,6 +1375,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       stableVisibleFrom: lastStableVisibleRangeRef.current.from,
       stableVisibleTo: lastStableVisibleRangeRef.current.to,
       selectedTags: selectedTagNames.length,
+      snapshotAggregationPolicy: settings.realtimeAppendSnapshotAggregation,
+      snapshotMaxPointsPolicy: settings.realtimeAppendSnapshotMaxPoints,
+      flushMsPolicy: realtimeAppendFlushMs,
     });
     let disposed = false;
     void (async () => {
@@ -1349,7 +1389,18 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     return () => {
       disposed = true;
     };
-  }, [computeLiveBootstrapRange, executeLiveBootstrapQuery, liveDataSource, liveMode, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
+  }, [
+    computeLiveBootstrapRange,
+    executeLiveBootstrapQuery,
+    liveDataSource,
+    liveMode,
+    realtimeAppendFlushMs,
+    screenRevision,
+    selectedTagNames.length,
+    selectedTagNamesKey,
+    settings.realtimeAppendSnapshotAggregation,
+    settings.realtimeAppendSnapshotMaxPoints,
+  ]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -1616,6 +1667,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         echartsPointCount,
         minTs: Math.min(...batch.map((item) => item.timestamp)),
         maxTs: Math.max(...batch.map((item) => item.timestamp)),
+        flushMsPolicy: realtimeAppendFlushMs,
       });
       setLiveBatchCount((prev) => prev + 1);
       setLivePointCount((prev) => prev + batch.length);
@@ -1664,7 +1716,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         batchSize: batch.length,
         pointCountAfterAppend: chartApiRef.current?.getPointCount() ?? 0,
       });
-    }, LIVE_FLUSH_MS);
+    }, realtimeAppendFlushMs);
 
     const heartbeatTimer = window.setInterval(() => {
       if (!liveBootstrapReadyRef.current) {
@@ -1733,7 +1785,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         liveSocketRef.current = null;
       }
     };
-  }, [liveDataSource, liveMode, selectedTagNamesKey]);
+  }, [liveDataSource, liveMode, realtimeAppendFlushMs, selectedTagNamesKey]);
 
   useEffect(() => {
     if (
@@ -1778,6 +1830,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         intervalMs: liveResyncIntervalMs,
         rangeFrom: range.from,
         rangeTo: range.to,
+        snapshotAggregationPolicy: settings.realtimeAppendSnapshotAggregation,
+        snapshotMaxPointsPolicy: settings.realtimeAppendSnapshotMaxPoints,
+        flushMsPolicy: realtimeAppendFlushMs,
       });
       try {
         const loaded = await executeQuery(range, {
@@ -1837,7 +1892,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         window.clearTimeout(timerId);
       }
     };
-  }, [executeQuery, liveDataSource, liveMode, liveResyncIntervalMs, liveWindowMs, screenRevision, selectedTagNames.length, selectedTagNamesKey, settings.liveResyncEnabled]);
+  }, [
+    executeQuery,
+    liveDataSource,
+    liveMode,
+    liveResyncIntervalMs,
+    liveWindowMs,
+    realtimeAppendFlushMs,
+    screenRevision,
+    selectedTagNames.length,
+    selectedTagNamesKey,
+    settings.liveResyncEnabled,
+    settings.realtimeAppendSnapshotAggregation,
+    settings.realtimeAppendSnapshotMaxPoints,
+  ]);
 
   useEffect(() => {
     if (!liveMode) {
@@ -2553,6 +2621,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             liveBufferLimit: clamp(next.liveBufferLimit, 200, 20000),
             liveResyncEnabled: Boolean(next.liveResyncEnabled),
             liveResyncIntervalSec: clamp(next.liveResyncIntervalSec, LIVE_REALTIME_RESYNC_MIN_SEC, LIVE_REALTIME_RESYNC_MAX_SEC),
+            realtimeAppendSnapshotAggregation:
+              next.realtimeAppendSnapshotAggregation === "raw" || next.realtimeAppendSnapshotAggregation === "minmax"
+                ? next.realtimeAppendSnapshotAggregation
+                : "auto",
+            realtimeAppendSnapshotMaxPoints: clamp(next.realtimeAppendSnapshotMaxPoints, 1000, 8000),
+            realtimeAppendFlushMs: clamp(next.realtimeAppendFlushMs, LIVE_REALTIME_FLUSH_MIN_MS, LIVE_REALTIME_FLUSH_MAX_MS),
             axisOffsetStep: clamp(next.axisOffsetStep, 8, 220),
             axisScaleGap: clamp(next.axisScaleGap, 0, 64),
           });
