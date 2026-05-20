@@ -24,7 +24,7 @@ const LIVE_HEARTBEAT_STALE_SOURCE_MS = 1200;
 const LIVE_POLL_INTERVAL_FAST_MS = 1000;
 const LIVE_POLL_INTERVAL_MEDIUM_MS = 2000;
 const LIVE_POLL_INTERVAL_SLOW_MS = 5000;
-const LIVE_RANGE_SMOOTH_INTERVAL_MS = 250;
+const LIVE_ARCHIVE_POLL_MAX_POINTS = 3000;
 const LIVE_PENDING_BUFFER_MULTIPLIER = 2;
 const LIVE_PENDING_BUFFER_MIN = 2000;
 const LIVE_PENDING_BUFFER_MAX = 120_000;
@@ -828,7 +828,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     const queryContext = options?.context ?? "auto";
     const isLiveQuery = isLiveBootstrapQuery || queryContext === "live" || (queryContext === "auto" && liveModeRef.current);
     const targetMode = options?.targetMode ?? (isLiveQuery ? "live" : "offline");
-    const effectiveMaxPointsSetting = isLiveQuery ? 8000 : settings.maxPointsPerSeries;
+    const isArchivePollingLiveQuery = targetMode === "live" && liveDataSource === "archivePolling";
+    const effectiveMaxPointsSetting = isArchivePollingLiveQuery
+      ? LIVE_ARCHIVE_POLL_MAX_POINTS
+      : isLiveQuery
+        ? 8000
+        : settings.maxPointsPerSeries;
     const maxPoints = clamp(Math.round(effectiveMaxPointsSetting), 1000, 8000);
     const requestAggregation = isLiveBootstrapQuery ? "raw" : settings.aggregation;
     const tagNames = selectedTagNames;
@@ -1129,6 +1134,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     liveMode,
     selectedTagNamesKey,
     selectedTags,
+    liveDataSource,
     settings.aggregation,
     settings.cacheEnabled,
     settings.maxPointsPerSeries,
@@ -1305,6 +1311,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setLiveBootstrapReady(true);
     setLiveHistoryState("loading");
     setLiveHistoryPointCount(0);
+    setRangePreset("custom");
 
     const tick = async () => {
       if (disposed || inFlight) {
@@ -1317,10 +1324,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         from: now - span,
         to: now,
       };
-      setRangePreset("custom");
-      setVisibleRange(nextRange);
       try {
-        await executeQuery(nextRange, {
+        const loaded = await executeQuery(nextRange, {
           force: true,
           context: "live",
           targetMode: "live",
@@ -1328,7 +1333,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           skipLoadingState: true,
           skipLiveLoadingState: true,
         });
-        if (!disposed && sessionId === liveSessionIdRef.current) {
+        if (!disposed && sessionId === liveSessionIdRef.current && loaded) {
+          setVisibleRange(nextRange);
           chartApiRef.current?.notifyLiveHeartbeat?.(nextRange.to);
         }
       } finally {
@@ -1348,28 +1354,6 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       window.clearInterval(timerId);
     };
   }, [executeQuery, liveDataSource, liveMode, livePollingIntervalMs, liveWindowMs, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
-
-  useEffect(() => {
-    if (liveDataSource !== "archivePolling" || !liveMode || selectedTagNames.length === 0) {
-      return;
-    }
-    const timerId = window.setInterval(() => {
-      const now = Date.now();
-      const span = Math.max(60_000, liveWindowMs);
-      setVisibleRange((prev) => {
-        if (Math.abs(prev.to - now) < 120) {
-          return prev;
-        }
-        return {
-          from: now - span,
-          to: now,
-        };
-      });
-    }, LIVE_RANGE_SMOOTH_INTERVAL_MS);
-    return () => {
-      window.clearInterval(timerId);
-    };
-  }, [liveDataSource, liveMode, liveWindowMs, selectedTagNames.length, selectedTagNamesKey]);
 
   useEffect(() => {
     if (canOpenRuntimeSettings) {
