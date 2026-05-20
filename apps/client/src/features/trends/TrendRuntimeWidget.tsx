@@ -474,6 +474,12 @@ function resolveLivePollingIntervalMs(windowMs: number): number {
   return LIVE_POLL_INTERVAL_SLOW_MS;
 }
 
+function computeNextMetronomeDelay(now: number, intervalMs: number): number {
+  const safeIntervalMs = Math.max(1, Math.round(intervalMs));
+  const nextAt = Math.ceil((now + 1) / safeIntervalMs) * safeIntervalMs;
+  return Math.max(0, nextAt - now);
+}
+
 const DEFAULT_TAG_PICKER_FILTERS: TrendTagPickerFilters = {
   search: "",
   groupFilter: "all",
@@ -1308,13 +1314,46 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     const sessionId = ++liveSessionIdRef.current;
     let disposed = false;
     let inFlight = false;
+    let timerId: number | null = null;
     setLiveBootstrapReady(true);
     setLiveHistoryState("loading");
     setLiveHistoryPointCount(0);
     setRangePreset("custom");
 
-    const tick = async () => {
-      if (disposed || inFlight) {
+    const scheduleNext = () => {
+      if (disposed) {
+        return;
+      }
+      const now = Date.now();
+      const delay = computeNextMetronomeDelay(now, livePollingIntervalMs);
+      const plannedAt = now + delay;
+      logTrendDiagnostics("livePolling:schedule-next", {
+        sessionId,
+        intervalMs: livePollingIntervalMs,
+        now,
+        delayMs: delay,
+        plannedAt,
+      });
+      timerId = window.setTimeout(() => {
+        timerId = null;
+        void tick(plannedAt);
+      }, delay);
+    };
+
+    const tick = async (plannedAt: number) => {
+      if (disposed) {
+        return;
+      }
+      if (inFlight) {
+        const now = Date.now();
+        logTrendDiagnostics("livePolling:tick-skip-inflight", {
+          sessionId,
+          intervalMs: livePollingIntervalMs,
+          plannedAt,
+          startedAt: now,
+          driftMs: now - plannedAt,
+        });
+        scheduleNext();
         return;
       }
       inFlight = true;
@@ -1324,6 +1363,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         from: now - span,
         to: now,
       };
+      logTrendDiagnostics("livePolling:tick-start", {
+        sessionId,
+        intervalMs: livePollingIntervalMs,
+        plannedAt,
+        startedAt: now,
+        driftMs: now - plannedAt,
+        rangeFrom: nextRange.from,
+        rangeTo: nextRange.to,
+      });
+      const requestStartedAt = now;
       try {
         const loaded = await executeQuery(nextRange, {
           force: true,
@@ -1333,25 +1382,62 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           skipLoadingState: true,
           skipLiveLoadingState: true,
         });
+        const finishedAt = Date.now();
+        const pointCount = loaded?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0;
         if (!disposed && sessionId === liveSessionIdRef.current && loaded) {
           setVisibleRange(nextRange);
           chartApiRef.current?.notifyLiveHeartbeat?.(nextRange.to);
+          logTrendDiagnostics("livePolling:tick-success", {
+            sessionId,
+            intervalMs: livePollingIntervalMs,
+            plannedAt,
+            startedAt: requestStartedAt,
+            finishedAt,
+            durationMs: finishedAt - requestStartedAt,
+            pointCount,
+            rangeFrom: nextRange.from,
+            rangeTo: nextRange.to,
+          });
+        } else {
+          logTrendDiagnostics("livePolling:tick-error", {
+            sessionId,
+            intervalMs: livePollingIntervalMs,
+            plannedAt,
+            startedAt: requestStartedAt,
+            finishedAt,
+            durationMs: finishedAt - requestStartedAt,
+            pointCount,
+            reason: "stale-or-empty-response",
+          });
         }
+      } catch (tickError) {
+        const finishedAt = Date.now();
+        const message = tickError instanceof Error ? tickError.message : "Unknown live polling error";
+        logTrendDiagnostics("livePolling:tick-error", {
+          sessionId,
+          intervalMs: livePollingIntervalMs,
+          plannedAt,
+          startedAt: requestStartedAt,
+          finishedAt,
+          durationMs: finishedAt - requestStartedAt,
+          reason: "exception",
+          message,
+        });
       } finally {
         inFlight = false;
+        scheduleNext();
       }
     };
 
-    void tick();
-    const timerId = window.setInterval(() => {
-      void tick();
-    }, livePollingIntervalMs);
+    void tick(Date.now());
 
     return () => {
       disposed = true;
       ++liveSessionIdRef.current;
       requestControllerRef.current?.abort();
-      window.clearInterval(timerId);
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
     };
   }, [executeQuery, liveDataSource, liveMode, livePollingIntervalMs, liveWindowMs, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
 
