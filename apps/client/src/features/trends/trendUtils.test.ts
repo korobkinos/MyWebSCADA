@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
+import { appendLiveCarryForwardPoint, applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -156,6 +156,41 @@ describe("insertTrendGapBreaks", () => {
       [11_500, 11],
     ]);
     expect(result.gaps).toHaveLength(0);
+  });
+});
+
+describe("appendLiveCarryForwardPoint", () => {
+  it("adds one virtual point at liveNow using the last known numeric value", () => {
+    const result = appendLiveCarryForwardPoint([
+      { t: 1_000, v: 4, q: "good" },
+      { t: 2_000, v: 6, q: "good" },
+    ], 3_000);
+
+    expect(result.map((item) => [item.t, item.v])).toEqual([
+      [1_000, 4],
+      [2_000, 6],
+      [3_000, 6],
+    ]);
+  });
+
+  it("does not add a point when series has no known numeric value", () => {
+    const source = [
+      { t: 1_000, v: null, q: "uncertain" as const },
+      { t: 2_000, v: null, q: "bad" as const },
+    ];
+    const result = appendLiveCarryForwardPoint(source, 3_000);
+
+    expect(result).toBe(source);
+  });
+
+  it("does not add duplicates when liveNow is not newer than the last timestamp", () => {
+    const source = [
+      { t: 1_000, v: 10, q: "good" as const },
+      { t: 2_000, v: 11, q: "good" as const },
+    ];
+
+    expect(appendLiveCarryForwardPoint(source, 2_000)).toBe(source);
+    expect(appendLiveCarryForwardPoint(source, 1_900)).toBe(source);
   });
 });
 

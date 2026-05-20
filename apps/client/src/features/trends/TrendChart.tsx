@@ -7,13 +7,14 @@ import type { ECharts, EChartsCoreOption } from "echarts/core";
 import type { TrendAxisConfig, TrendAxisTitleMode, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { isTrendPerfDebugEnabled, logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
-import { insertTrendGapBreaks, normalizeTrendPoints, resolveTrendGapBreakMs } from "./trendUtils";
+import { appendLiveCarryForwardPoint, insertTrendGapBreaks, normalizeTrendPoints, resolveTrendGapBreakMs } from "./trendUtils";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, GraphicComponent, CanvasRenderer]);
 const LIVE_GAP_MIN_BREAK_MS = 10_000;
 const LIVE_RIGHT_DRIFT_LIMIT_MS = 5_000;
 const LIVE_TRIM_GRACE_MS = 15_000;
 const LIVE_DOMAIN_GRACE_MS = 1500;
+const LIVE_CARRY_FORWARD_TICK_MS = 500;
 const LIVE_MIN_SERIES_POINT_CAP = 200;
 const LIVE_MAX_SERIES_POINT_CAP = 20_000;
 const Y_AXIS_HIT_ZONE_MIN_PX = 42;
@@ -110,6 +111,7 @@ export function TrendChart({
   const zoomTimerRef = useRef<number | null>(null);
   const optionGuardRef = useRef(false);
   const liveLastEmittedRightRef = useRef<number | null>(null);
+  const liveNowRef = useRef<number>(Date.now());
   const liveModeRef = useRef(liveMode);
   const liveWindowMsRef = useRef(liveWindowMs);
   const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
@@ -506,11 +508,27 @@ export function TrendChart({
 
   useEffect(() => {
     liveModeRef.current = liveMode;
+    if (liveMode) {
+      liveNowRef.current = Date.now();
+    }
   }, [liveMode]);
 
   useEffect(() => {
     liveWindowMsRef.current = liveWindowMs;
   }, [liveWindowMs]);
+
+  useEffect(() => {
+    if (!liveMode) {
+      return;
+    }
+    const timerId = window.setInterval(() => {
+      liveNowRef.current = Date.now();
+      scheduleRender("live-carry-forward-tick");
+    }, LIVE_CARRY_FORWARD_TICK_MS);
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [liveMode]);
 
   useEffect(() => {
     onVisibleRangeChangeRef.current = onVisibleRangeChange;
@@ -896,9 +914,15 @@ export function TrendChart({
       const renderMode = tag.mode ?? (tagsByName.get(tag.tag)?.mode ?? "line");
       const gapBreakMs = resolveTrendGapBreakMs(sourcePoints);
       const withGaps = insertTrendGapBreaks(sourcePoints, gapBreakMs);
+      const liveNowTs = liveModeRef.current
+        ? (liveLastEmittedRightRef.current ?? liveNowRef.current)
+        : Number.NaN;
+      const displayPoints = liveModeRef.current
+        ? appendLiveCarryForwardPoint(withGaps.points, liveNowTs)
+        : withGaps.points;
       const dataPoints: Array<[number, number | null]> = [];
-      for (let pointIndex = 0; pointIndex < withGaps.points.length; pointIndex += 1) {
-        const point = withGaps.points[pointIndex];
+      for (let pointIndex = 0; pointIndex < displayPoints.length; pointIndex += 1) {
+        const point = displayPoints[pointIndex];
         if (!point) {
           continue;
         }
@@ -1658,6 +1682,7 @@ export function TrendChart({
     onChartApiReady?.({
       appendLivePoints: (updates) => {
         appendLivePointsCallCountRef.current += 1;
+        liveNowRef.current = Date.now();
         const active = activeTagNameSetRef.current;
         const updatedTags = new Set<string>();
         let minUpdateTs = Number.POSITIVE_INFINITY;
@@ -1796,6 +1821,10 @@ export function TrendChart({
           });
         }
         scheduleRender("append-live-points");
+      },
+      notifyLiveHeartbeat: (timestampMs) => {
+        const nextTs = Number.isFinite(timestampMs) ? Number(timestampMs) : Date.now();
+        liveNowRef.current = nextTs;
       },
       getWidth: () => rootRef.current?.clientWidth ?? 0,
       getPointCount: () => [...seriesPointsRef.current.values()].reduce((acc, points) => acc + points.length, 0),

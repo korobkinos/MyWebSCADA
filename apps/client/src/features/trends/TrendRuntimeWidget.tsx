@@ -21,6 +21,9 @@ import { resolveTrendTheme } from "./trendTheme";
 const LIVE_FLUSH_MS = 300;
 const LIVE_HEARTBEAT_MS = 1000;
 const LIVE_HEARTBEAT_STALE_SOURCE_MS = 1200;
+const LIVE_POLL_INTERVAL_FAST_MS = 1000;
+const LIVE_POLL_INTERVAL_MEDIUM_MS = 2000;
+const LIVE_POLL_INTERVAL_SLOW_MS = 5000;
 const LIVE_PENDING_BUFFER_MULTIPLIER = 2;
 const LIVE_PENDING_BUFFER_MIN = 2000;
 const LIVE_PENDING_BUFFER_MAX = 120_000;
@@ -439,8 +442,21 @@ type TrendContextMenuState = {
 type LiveSocketState = "idle" | "connecting" | "open" | "closed" | "error";
 type LiveHistoryState = "idle" | "loading" | "loaded" | "empty" | "error";
 type TrendMode = "live" | "offline";
+type TrendLiveDataSource = "archivePolling" | "realtimeAppend";
 type PendingToolbarRange = { range: TrendVisibleRange; preset: TrendRangePreset };
 type LiveIncomingPoint = { tag: string; value: number | boolean | string | null; quality?: string; timestamp: number; sessionId: number };
+const DEFAULT_LIVE_DATA_SOURCE: TrendLiveDataSource = "archivePolling";
+
+function resolveLivePollingIntervalMs(windowMs: number): number {
+  const safeWindowMs = Math.max(60_000, Math.round(windowMs));
+  if (safeWindowMs <= 15 * 60 * 1000) {
+    return LIVE_POLL_INTERVAL_FAST_MS;
+  }
+  if (safeWindowMs <= 60 * 60 * 1000) {
+    return LIVE_POLL_INTERVAL_MEDIUM_MS;
+  }
+  return LIVE_POLL_INTERVAL_SLOW_MS;
+}
 
 const DEFAULT_TAG_PICKER_FILTERS: TrendTagPickerFilters = {
   search: "",
@@ -547,6 +563,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [timeRangeDraftFrom, setTimeRangeDraftFrom] = useState(initialViewState.customFrom);
   const [timeRangeDraftTo, setTimeRangeDraftTo] = useState(initialViewState.customTo);
   const mode: TrendMode = liveMode ? "live" : "offline";
+  const liveDataSource: TrendLiveDataSource = DEFAULT_LIVE_DATA_SOURCE;
   const chartResponse = mode === "live" ? liveResponse : offlineResponse;
 
   const requestIdRef = useRef(0);
@@ -588,6 +605,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   );
 
   const liveWindowMs = Math.max(60_000, visibleRange.to - visibleRange.from);
+  const livePollingIntervalMs = useMemo(() => resolveLivePollingIntervalMs(liveWindowMs), [liveWindowMs]);
 
   const pointCount = useMemo(
     () => chartResponse?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0,
@@ -764,7 +782,15 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const executeQuery = useCallback(async (
     range: TrendVisibleRange,
-    options?: { force?: boolean; mode?: "history" | "liveBootstrap"; context?: "auto" | "live" | "history"; targetMode?: TrendMode; liveSessionId?: number },
+    options?: {
+      force?: boolean;
+      mode?: "history" | "liveBootstrap";
+      context?: "auto" | "live" | "history";
+      targetMode?: TrendMode;
+      liveSessionId?: number;
+      skipLoadingState?: boolean;
+      skipLiveLoadingState?: boolean;
+    },
   ): Promise<TrendQueryResponse | null> => {
     if (selectedTagNames.length === 0) {
       setOfflineResponse(null);
@@ -858,10 +884,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     const controller = new AbortController();
     requestControllerRef.current = controller;
 
-    setLoading(true);
+    if (!options?.skipLoadingState) {
+      setLoading(true);
+    }
     setError(null);
     setHistoryWarning(null);
-    if (isLiveQuery) {
+    if (isLiveQuery && !options?.skipLiveLoadingState) {
       setLiveHistoryState("loading");
       setLiveHistoryPointCount(0);
     }
@@ -1075,7 +1103,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
       return null;
     } finally {
-      if (requestId === requestIdRef.current) {
+      if (requestId === requestIdRef.current && !options?.skipLoadingState) {
         setLoading(false);
       }
     }
@@ -1206,6 +1234,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       setLiveResponse(null);
       return;
     }
+
+    if (liveDataSource !== "realtimeAppend") {
+      setLiveBootstrapReady(true);
+      return;
+    }
+
     liveSessionIdRef.current += 1;
     liveBootstrapBufferRef.current = [];
     liveBufferRef.current = [];
@@ -1232,7 +1266,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     return () => {
       disposed = true;
     };
-  }, [computeLiveBootstrapRange, executeLiveBootstrapQuery, liveMode, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
+  }, [computeLiveBootstrapRange, executeLiveBootstrapQuery, liveDataSource, liveMode, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -1244,6 +1278,61 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   }, [contextMenu]);
 
   useEffect(() => {
+    if (liveDataSource !== "archivePolling" || !liveMode || selectedTagNames.length === 0) {
+      return;
+    }
+
+    const sessionId = ++liveSessionIdRef.current;
+    let disposed = false;
+    let inFlight = false;
+    setLiveBootstrapReady(true);
+    setLiveHistoryState("loading");
+    setLiveHistoryPointCount(0);
+
+    const tick = async () => {
+      if (disposed || inFlight) {
+        return;
+      }
+      inFlight = true;
+      const now = Date.now();
+      const span = Math.max(60_000, liveWindowMs);
+      const nextRange: TrendVisibleRange = {
+        from: now - span,
+        to: now,
+      };
+      setRangePreset("custom");
+      setVisibleRange(nextRange);
+      try {
+        await executeQuery(nextRange, {
+          force: true,
+          context: "live",
+          targetMode: "live",
+          liveSessionId: sessionId,
+          skipLoadingState: true,
+          skipLiveLoadingState: true,
+        });
+        if (!disposed && sessionId === liveSessionIdRef.current) {
+          chartApiRef.current?.notifyLiveHeartbeat?.(nextRange.to);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void tick();
+    const timerId = window.setInterval(() => {
+      void tick();
+    }, livePollingIntervalMs);
+
+    return () => {
+      disposed = true;
+      ++liveSessionIdRef.current;
+      requestControllerRef.current?.abort();
+      window.clearInterval(timerId);
+    };
+  }, [executeQuery, liveDataSource, liveMode, livePollingIntervalMs, liveWindowMs, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
+
+  useEffect(() => {
     if (canOpenRuntimeSettings) {
       return;
     }
@@ -1253,7 +1342,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   }, [canOpenRuntimeSettings, settingsOpen]);
 
   useEffect(() => {
-    if (!liveMode || selectedTagNames.length === 0) {
+    if (liveDataSource !== "realtimeAppend" || !liveMode || selectedTagNames.length === 0) {
       liveSocketRef.current?.close();
       liveSocketRef.current = null;
       setLiveSocketState("idle");
@@ -1459,7 +1548,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         liveSocketRef.current = null;
       }
     };
-  }, [liveMode, selectedTagNamesKey]);
+  }, [liveDataSource, liveMode, selectedTagNamesKey]);
 
   useEffect(() => {
     if (!liveMode) {
@@ -1480,7 +1569,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     if (liveMode && options?.keepLive) {
       setPendingToolbarRange(null);
       setLiveAutoStopReason(null);
-      void executeLiveBootstrapQuery(normalized);
+      setRangePreset(options?.preset ?? "custom");
+      setVisibleRange(normalized);
+      setCustomFrom(toLocalDateTimeInputValue(normalized.from));
+      setCustomTo(toLocalDateTimeInputValue(normalized.to));
+      if (liveDataSource === "realtimeAppend") {
+        void executeLiveBootstrapQuery(normalized);
+      }
       return;
     }
     if (!options?.keepLive && liveMode) {
@@ -1591,7 +1686,28 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const refresh = () => {
     if (liveMode) {
-      void executeLiveBootstrapQuery(visibleRange);
+      const span = Math.max(60_000, visibleRange.to - visibleRange.from);
+      const now = Date.now();
+      const nextRange: TrendVisibleRange = {
+        from: now - span,
+        to: now,
+      };
+      setRangePreset("custom");
+      setVisibleRange(nextRange);
+      setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
+      setCustomTo(toLocalDateTimeInputValue(nextRange.to));
+      if (liveDataSource === "realtimeAppend") {
+        void executeLiveBootstrapQuery(nextRange);
+      } else {
+        void executeQuery(nextRange, {
+          force: true,
+          context: "live",
+          targetMode: "live",
+          liveSessionId: liveSessionIdRef.current,
+          skipLoadingState: true,
+          skipLiveLoadingState: true,
+        });
+      }
       return;
     }
     setOfflineResponse(buildEmptyTrendResponse(visibleRange, selectedTags));

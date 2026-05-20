@@ -14,6 +14,7 @@ const UPLOT_MIN_GAP_BREAK_MS = 20_000;
 const LIVE_FOLLOW_INTERVAL_MS = 120;
 const LIVE_FOLLOW_EMIT_INTERVAL_MS = 750;
 const LIVE_FOLLOW_SCALE_QUANTUM_MS = 500;
+const LIVE_CARRY_FORWARD_REBUILD_INTERVAL_MS = 500;
 const LIVE_APPEND_REBUILD_MIN_INTERVAL_MS = 500;
 const LIVE_SOURCE_HEARTBEAT_STALE_MS = 3500;
 const LIVE_STICKY_Y_PADDING_RATIO = 0.25;
@@ -291,6 +292,7 @@ export function TrendChartUPlot({
   const liveSourceHeartbeatAtRef = useRef<number>(0);
   const liveLastAppendAtRef = useRef(0);
   const liveLastAppendRebuildAtRef = useRef(0);
+  const liveLastCarryForwardRebuildAtRef = useRef(0);
   const liveIgnoredPropSyncCountRef = useRef(0);
   const liveStickyYRangeRef = useRef<NumericRange | null>(null);
 
@@ -692,6 +694,7 @@ export function TrendChartUPlot({
       liveSourceHeartbeatAtRef.current = Date.now();
       liveLastAppendAtRef.current = Date.now();
       liveLastAppendRebuildAtRef.current = 0;
+      liveLastCarryForwardRebuildAtRef.current = 0;
       liveLastRangeEmitAtRef.current = 0;
       liveFollowTickCountRef.current = 0;
       liveLastScaledRightRef.current = null;
@@ -1000,6 +1003,10 @@ export function TrendChartUPlot({
       const xRangeAdvanced = liveLastScaledRightRef.current !== right;
       liveLastScaledRightRef.current = right;
       liveFollowTickCountRef.current += 1;
+      if (now - liveLastCarryForwardRebuildAtRef.current >= LIVE_CARRY_FORWARD_REBUILD_INTERVAL_MS) {
+        liveLastCarryForwardRebuildAtRef.current = now;
+        scheduleRebuildPlotData("live-carry-forward-tick", false);
+      }
       if (now - liveLastRangeEmitAtRef.current >= LIVE_FOLLOW_EMIT_INTERVAL_MS) {
         liveLastRangeEmitAtRef.current = now;
         onVisibleRangeChangeRef.current({ from: left, to: right }, "live");

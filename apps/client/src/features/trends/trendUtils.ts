@@ -267,6 +267,42 @@ export function normalizeTrendPoints(points: TrendPoint[]): TrendPoint[] {
   return normalized;
 }
 
+export function appendLiveCarryForwardPoint(points: TrendPoint[], liveNowTs: number): TrendPoint[] {
+  if (!Number.isFinite(liveNowTs) || points.length === 0) {
+    return points;
+  }
+
+  const virtualTs = Math.round(liveNowTs);
+  if (!Number.isFinite(virtualTs)) {
+    return points;
+  }
+
+  let lastKnownValue: number | null = null;
+  let lastKnownQuality: TrendPoint["q"] = "good";
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    const point = points[index];
+    if (!point) {
+      continue;
+    }
+    if (typeof point.v === "number" && Number.isFinite(point.v)) {
+      lastKnownValue = point.v;
+      lastKnownQuality = point.q ?? "good";
+      break;
+    }
+  }
+
+  if (lastKnownValue === null) {
+    return points;
+  }
+
+  const lastPointTs = points[points.length - 1]?.t ?? Number.NEGATIVE_INFINITY;
+  if (!Number.isFinite(lastPointTs) || virtualTs <= lastPointTs) {
+    return points;
+  }
+
+  return [...points, { t: virtualTs, v: lastKnownValue, q: lastKnownQuality }];
+}
+
 export function insertTrendGapBreaks(
   points: TrendPoint[],
   gapBreakMs: number,
