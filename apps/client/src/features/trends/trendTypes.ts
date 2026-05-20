@@ -10,6 +10,7 @@ export type TrendLineType = "solid" | "dashed" | "dotted";
 export type TrendRenderMode = "line" | "step" | "points";
 export type TrendAxisTitleMode = "hidden" | "compactLabel" | "verticalLabel";
 export type TrendRenderer = "echarts" | "uplot";
+export type TrendLiveDataSource = "archivePolling" | "realtimeAppend";
 
 export type TrendAxisConfig = {
   id: string;
@@ -92,6 +93,9 @@ export type TrendSettings = {
   cacheEnabled: boolean;
   cacheSize: number;
   liveBufferLimit: number;
+  liveDataSource: TrendLiveDataSource;
+  liveResyncEnabled: boolean;
+  liveResyncIntervalSec: number;
   autoScale: boolean;
   defaultAxisMin?: number | "auto";
   defaultAxisMax?: number | "auto";

@@ -1098,13 +1098,16 @@ export function TrendChartUPlot({
         const trimRightTs = Number.isFinite(maxUpdateTs) ? maxUpdateTs : Date.now();
         const trimFromTs = trimRightTs - liveWindowMsRef.current - LIVE_TRIM_GRACE_MS;
         const seriesPointCap = liveSeriesPointCapRef.current;
+        let trimmedPointCount = 0;
 
         for (const tagName of updatedTags) {
           const normalized = normalizeTrendPoints(seriesPointsRef.current.get(tagName) ?? []);
+          const beforeTrimLength = normalized.length;
           const trimmed = normalized.filter((point) => point.t >= trimFromTs);
           if (trimmed.length > seriesPointCap) {
             trimmed.splice(0, trimmed.length - seriesPointCap);
           }
+          trimmedPointCount += Math.max(0, beforeTrimLength - trimmed.length);
           seriesPointsRef.current.set(tagName, trimmed);
         }
 
@@ -1122,6 +1125,7 @@ export function TrendChartUPlot({
             updatedTagCount: updatedTags.size,
             minUpdateTs: Number.isFinite(minUpdateTs) ? minUpdateTs : null,
             maxUpdateTs: Number.isFinite(maxUpdateTs) ? maxUpdateTs : null,
+            trimmedPointCount,
             appendRebuildMinIntervalMs: LIVE_APPEND_REBUILD_MIN_INTERVAL_MS,
           });
         }
