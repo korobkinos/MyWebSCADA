@@ -677,10 +677,28 @@ export function applyTrendVisualHolds(
     if (current.length < xValues.length) {
       current.push(...new Array<number | null | undefined>(xValues.length - current.length).fill(undefined));
     }
-    const existing = current[holdIndex];
-    if (existing === undefined) {
-      current[holdIndex] = hold.value;
-      heldTagCount += 1;
+    let firstHoldIndex = holdIndex;
+    for (let index = holdIndex; index >= 0; index -= 1) {
+      const ts = xValues[index];
+      if (typeof ts !== "number" || !Number.isFinite(ts) || ts > hold.holdTs) {
+        continue;
+      }
+      const value = current[index];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        firstHoldIndex = index + 1;
+        break;
+      }
+      if (value === null) {
+        firstHoldIndex = index + 1;
+        break;
+      }
+      firstHoldIndex = index;
+    }
+    for (let index = firstHoldIndex; index <= holdIndex; index += 1) {
+      if (current[index] === undefined) {
+        current[index] = hold.value;
+        heldTagCount += 1;
+      }
     }
     valuesByTag.set(hold.tag, current);
   }

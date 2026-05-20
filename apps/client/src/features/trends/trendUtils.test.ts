@@ -276,6 +276,32 @@ describe("applyTrendVisualHolds", () => {
     expect(result.diagnostics.heldTagCount).toBe(1);
   });
 
+  it("fills trailing alignment holes while extending a held series", () => {
+    const matrix = buildTrendDataMatrixWithGaps([
+      {
+        tag: "tag.const",
+        points: [
+          { t: 1_000, v: 7, q: "good" },
+        ],
+      },
+      {
+        tag: "tag.ramp",
+        points: [
+          { t: 1_500, v: 1, q: "good" },
+          { t: 2_000, v: 2, q: "good" },
+        ],
+      },
+    ], { showBadQualityGaps: true });
+
+    const result = applyTrendVisualHolds(matrix, [
+      { tag: "tag.const", value: 7, holdTs: 2_500, stale: false },
+    ]);
+
+    expect(result.xValues).toEqual([1_000, 1_500, 2_000, 2_500]);
+    expect(result.valuesByTag.get("tag.const")).toEqual([7, 7, 7, 7]);
+    expect(result.diagnostics.heldTagCount).toBe(3);
+  });
+
   it("does not extend stale tags", () => {
     const matrix = buildTrendDataMatrixWithGaps([
       {

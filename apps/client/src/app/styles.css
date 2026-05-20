@@ -6357,6 +6357,10 @@ body {
   height: 100%;
 }
 
+.trends-chart--uplot .u-legend {
+  display: none !important;
+}
+
 .trends-chart--uplot .u-over {
   cursor: default !important;
 }
