@@ -99,13 +99,19 @@ export function defaultTrendSettings(): TrendSettings {
     showSymbols: false,
     showUnitsInTooltip: true,
     showBadQualityGaps: true,
+    maxVisiblePointsPerSeries: 4000,
+    maxLivePointsPerTag: 5000,
+    maxCachedRanges: 48,
+    // Legacy aliases.
     maxPointsPerSeries: 4000,
     aggregation: "raw",
     zoomDebounceMs: 350,
     progressive: true,
     disableAnimationsLargeData: true,
     cacheEnabled: true,
+    // Legacy alias.
     cacheSize: 48,
+    // Legacy alias.
     liveBufferLimit: 5000,
     liveDataSource: "archivePolling",
     liveResyncEnabled: true,
@@ -147,13 +153,32 @@ export function loadTrendSettings(): TrendSettings {
   }
   try {
     const parsed = JSON.parse(raw) as Partial<TrendSettings>;
+    const maxVisiblePointsPerSeries = clamp(
+      Number(parsed.maxVisiblePointsPerSeries ?? parsed.maxPointsPerSeries ?? fallback.maxVisiblePointsPerSeries),
+      1000,
+      8000,
+    );
+    const maxCachedRanges = clamp(
+      Number(parsed.maxCachedRanges ?? parsed.cacheSize ?? fallback.maxCachedRanges),
+      8,
+      256,
+    );
+    const maxLivePointsPerTag = clamp(
+      Number(parsed.maxLivePointsPerTag ?? parsed.liveBufferLimit ?? fallback.maxLivePointsPerTag),
+      200,
+      20000,
+    );
     return {
       ...fallback,
       ...parsed,
       renderer: parsed.renderer === "uplot" ? "uplot" : "echarts",
-      maxPointsPerSeries: clamp(Number(parsed.maxPointsPerSeries ?? fallback.maxPointsPerSeries), 1000, 8000),
-      cacheSize: clamp(Number(parsed.cacheSize ?? fallback.cacheSize), 8, 256),
-      liveBufferLimit: clamp(Number(parsed.liveBufferLimit ?? fallback.liveBufferLimit), 200, 20000),
+      maxVisiblePointsPerSeries,
+      maxLivePointsPerTag,
+      maxCachedRanges,
+      // Legacy aliases.
+      maxPointsPerSeries: maxVisiblePointsPerSeries,
+      cacheSize: maxCachedRanges,
+      liveBufferLimit: maxLivePointsPerTag,
       liveDataSource: parsed.liveDataSource === "realtimeAppend" ? "realtimeAppend" : "archivePolling",
       liveResyncEnabled: parsed.liveResyncEnabled ?? fallback.liveResyncEnabled,
       liveResyncIntervalSec: clamp(Number(parsed.liveResyncIntervalSec ?? fallback.liveResyncIntervalSec), 10, 30),

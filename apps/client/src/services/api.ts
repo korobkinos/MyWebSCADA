@@ -21,6 +21,16 @@ import type {
   AppUser,
   UpdateUserRequest,
 } from "@web-scada/shared";
+import type { ConnectivityEndpoint } from "./connection-state";
+import {
+  canRequestEndpoint,
+  getEndpointBackoffDelay,
+  isConnectivityFailure,
+  mapRequestToConnectivityEndpoint,
+  markEndpointFailure,
+  markEndpointSuccess,
+} from "./connection-state";
+import { incrementRuntimeDiagnosticMetric } from "./runtime-diagnostics";
 
 export type OpcUaBrowseItem = {
   nodeId: string;
@@ -216,7 +226,30 @@ const RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY = "scada.runtime.debugCommands";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, "");
 type RequestOptions = {
   handleAuthInvalid?: boolean;
+  replaceInFlight?: boolean;
+  connectivityEndpoint?: ConnectivityEndpoint | null;
+  skipConnectivityGate?: boolean;
 };
+
+type RequestError = Error & {
+  status?: number;
+  details?: unknown;
+  reason?: string;
+  retryAfterMs?: number;
+};
+
+const endpointInFlightControllers = new Map<ConnectivityEndpoint, AbortController>();
+
+function attachAbortSignal(target: AbortController, source: AbortSignal | undefined): void {
+  if (!source) {
+    return;
+  }
+  if (source.aborted) {
+    target.abort();
+    return;
+  }
+  source.addEventListener("abort", () => target.abort(), { once: true });
+}
 
 function getEngineerToken(): string | null {
   return window.localStorage.getItem(ENGINEER_TOKEN_KEY);
@@ -262,49 +295,97 @@ async function request<T>(url: string, init?: RequestInit, options?: RequestOpti
   const token = getEngineerToken();
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const hasBody = init?.body !== undefined && init?.body !== null;
-  const { headers: initHeaders, ...restInit } = init ?? {};
+  const { headers: initHeaders, signal: callerSignal, ...restInit } = init ?? {};
+  const method = String(restInit.method ?? "GET").toUpperCase();
+  const endpoint = options?.connectivityEndpoint === undefined
+    ? mapRequestToConnectivityEndpoint(url, method)
+    : options.connectivityEndpoint;
+  if (endpoint && options?.skipConnectivityGate !== true) {
+    const gate = canRequestEndpoint(endpoint);
+    if (!gate.allowed) {
+      const retryAfterMs = getEndpointBackoffDelay(endpoint);
+      const error = new Error(`Backend unavailable. Retry in ${Math.ceil(retryAfterMs / 1000)}s`) as RequestError;
+      error.reason = "backoff";
+      error.retryAfterMs = retryAfterMs;
+      throw error;
+    }
+  }
+
+  const requestController = new AbortController();
+  attachAbortSignal(requestController, callerSignal);
+  const replaceInFlight = endpoint !== null && endpoint !== undefined && options?.replaceInFlight !== false;
+  if (endpoint && replaceInFlight) {
+    const previous = endpointInFlightControllers.get(endpoint);
+    if (previous) {
+      previous.abort();
+    }
+    endpointInFlightControllers.set(endpoint, requestController);
+  }
+
   const defaultHeaders: Record<string, string> = token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : {};
   // Avoid sending JSON content-type on empty-body requests (notably DELETE),
   // otherwise Fastify may reject with FST_ERR_CTP_EMPTY_JSON_BODY.
   if (hasBody && !isFormData) {
     defaultHeaders["Content-Type"] = "application/json";
   }
-  const response = await fetch(resolveRequestUrl(url), {
-    ...restInit,
-    headers: { ...defaultHeaders, ...(initHeaders ?? {}) },
-  });
+  incrementRuntimeDiagnosticMetric("inFlightRequests", 1);
+  try {
+    const response = await fetch(resolveRequestUrl(url), {
+      ...restInit,
+      signal: requestController.signal,
+      headers: { ...defaultHeaders, ...(initHeaders ?? {}) },
+    });
 
-  if (!response.ok) {
-    if (response.status === 401) {
-      setEngineerToken(null);
-      if (options?.handleAuthInvalid !== false && typeof window !== "undefined") {
-        window.dispatchEvent(new Event("scada-auth-invalid"));
+    if (!response.ok) {
+      if (response.status === 401) {
+        setEngineerToken(null);
+        if (options?.handleAuthInvalid !== false && typeof window !== "undefined") {
+          window.dispatchEvent(new Event("scada-auth-invalid"));
+        }
       }
-    }
-    let message = `${response.status} ${response.statusText}`;
-    let details: unknown = undefined;
-    try {
-      const text = await response.text();
-      // Try to parse JSON error response for a cleaner message
+      let message = `${response.status} ${response.statusText}`;
+      let details: unknown = undefined;
       try {
-        const parsed = JSON.parse(text) as { message?: string };
-        details = parsed;
-        if (parsed.message) {
-          message = parsed.message;
+        const text = await response.text();
+        // Try to parse JSON error response for a cleaner message
+        try {
+          const parsed = JSON.parse(text) as { message?: string };
+          details = parsed;
+          if (parsed.message) {
+            message = parsed.message;
+          }
+        } catch {
+          message = text || message;
         }
       } catch {
-        message = text || message;
+        // ignore read error
       }
-    } catch {
-      // ignore read error
+      if (endpoint && isConnectivityFailure(undefined, response.status)) {
+        markEndpointFailure(endpoint, message);
+      }
+      const error = new Error(message) as RequestError;
+      error.status = response.status;
+      error.details = details;
+      throw error;
     }
-    const error = new Error(message) as Error & { status?: number; details?: unknown };
-    error.status = response.status;
-    error.details = details;
-    throw error;
-  }
+    if (endpoint) {
+      markEndpointSuccess(endpoint);
+    }
 
-  return (await response.json()) as T;
+    return (await response.json()) as T;
+  } catch (error) {
+    const aborted = error instanceof DOMException && error.name === "AbortError";
+    if (!aborted && endpoint && isConnectivityFailure(error)) {
+      const text = error instanceof Error ? error.message : String(error);
+      markEndpointFailure(endpoint, text);
+    }
+    throw error;
+  } finally {
+    incrementRuntimeDiagnosticMetric("inFlightRequests", -1);
+    if (endpoint && endpointInFlightControllers.get(endpoint) === requestController) {
+      endpointInFlightControllers.delete(endpoint);
+    }
+  }
 }
 
 export const api = {
@@ -362,25 +443,40 @@ export const api = {
   updatePasswordPolicy: (payload: PasswordPolicy) =>
     request<PasswordPolicy>("/api/security/password-policy", { method: "PUT", body: JSON.stringify(payload) }),
 
-  getProject: () => request<ScadaProject>("/api/project"),
+  getProject: (options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean }) =>
+    request<ScadaProject>("/api/project", {
+      signal: options?.signal,
+    }, {
+      replaceInFlight: options?.replaceInFlight,
+      skipConnectivityGate: options?.skipConnectivityGate,
+    }),
   saveProject: (project: ScadaProject) =>
     request<ScadaProject>("/api/project", {
       method: "POST",
       body: JSON.stringify(project),
     }),
   getTags: () => request<TagSnapshot[]>("/api/tags"),
-  getTrendTags: () => request<TrendTagInfo[]>("/api/trends/tags"),
+  getTrendTags: (options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean }) =>
+    request<TrendTagInfo[]>("/api/trends/tags", {
+      signal: options?.signal,
+    }, {
+      replaceInFlight: options?.replaceInFlight,
+      skipConnectivityGate: options?.skipConnectivityGate,
+    }),
   getTrendsRange: (tags: string[]) =>
     request<TrendRangeResponse>(
       tags.length > 0
         ? `/api/trends/range?${new URLSearchParams({ tags: tags.join(",") }).toString()}`
         : "/api/trends/range",
     ),
-  queryTrends: (payload: TrendQueryRequest, options?: { signal?: AbortSignal }) =>
+  queryTrends: (payload: TrendQueryRequest, options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean }) =>
     request<TrendQueryResponse>("/api/trends/query", {
       method: "POST",
       signal: options?.signal,
       body: JSON.stringify(payload),
+    }, {
+      replaceInFlight: options?.replaceInFlight,
+      skipConnectivityGate: options?.skipConnectivityGate,
     }),
   getArchiveStatus: () => request<ArchiveStatus>("/api/archive/status"),
   listArchivePolicies: () => request<ArchivePolicy[]>("/api/archive/policies"),
@@ -601,7 +697,13 @@ export const api = {
     }),
   startRuntime: () => request<RuntimeState>("/api/runtime/start", { method: "POST" }),
   stopRuntime: () => request<RuntimeState>("/api/runtime/stop", { method: "POST" }),
-  getRuntimeStatus: () => request<RuntimeState>("/api/runtime/status"),
+  getRuntimeStatus: (options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean }) =>
+    request<RuntimeState>("/api/runtime/status", {
+      signal: options?.signal,
+    }, {
+      replaceInFlight: options?.replaceInFlight,
+      skipConnectivityGate: options?.skipConnectivityGate,
+    }),
 
   listAssets: () => request<Asset[]>("/api/assets"),
   uploadAsset: (file: File, name?: string) => {

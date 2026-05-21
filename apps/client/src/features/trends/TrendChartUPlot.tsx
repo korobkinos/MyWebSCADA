@@ -299,7 +299,7 @@ export function TrendChartUPlot({
   const liveLastEmittedRightRef = useRef<number | null>(null);
   const liveLastScaledRightRef = useRef<number | null>(null);
   const suppressSetScaleHookRef = useRef(false);
-  const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.liveBufferLimit));
+  const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.maxLivePointsPerTag));
   const liveFollowTimerRef = useRef<number | null>(null);
   const liveFollowTickCountRef = useRef(0);
   const liveLastRangeEmitAtRef = useRef(0);
@@ -788,8 +788,8 @@ export function TrendChartUPlot({
   }, [onVisibleRangeChange]);
 
   useEffect(() => {
-    liveSeriesPointCapRef.current = resolveLiveSeriesPointCap(settings.liveBufferLimit);
-  }, [settings.liveBufferLimit]);
+    liveSeriesPointCapRef.current = resolveLiveSeriesPointCap(settings.maxLivePointsPerTag);
+  }, [settings.maxLivePointsPerTag]);
 
   useEffect(() => {
     const root = rootRef.current;

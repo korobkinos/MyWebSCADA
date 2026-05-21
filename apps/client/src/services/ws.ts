@@ -1,4 +1,6 @@
 import { COMMAND_TIMEOUT_MS, type ManualCommandMeta, type RuntimeWsClientMessage, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
+import { canRequestEndpoint, getEndpointBackoffDelay, isConnectivityFailure, markEndpointFailure, markEndpointSuccess } from "./connection-state";
+import { incrementRuntimeDiagnosticMetric } from "./runtime-diagnostics";
 
 type WsCallbacks = {
   onTagValues: (values: TagValue[]) => void;
@@ -58,10 +60,18 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
   const url = resolveSocketUrl();
   const healthcheckUrl = resolveHealthcheckUrl(url);
   const participateInGlobalSubscriptions = options?.participateInGlobalSubscriptions !== false;
+  incrementRuntimeDiagnosticMetric("activeWebSockets", 1);
+  let diagnosticsClosed = false;
+  const releaseDiagnostics = () => {
+    if (diagnosticsClosed) {
+      return;
+    }
+    diagnosticsClosed = true;
+    incrementRuntimeDiagnosticMetric("activeWebSockets", -1);
+  };
   let socket: WebSocket | null = null;
   let closedByUser = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-  let reconnectAttempt = 0;
   let connectAttemptId = 0;
   let connectInFlight = false;
   let isOpen = false;
@@ -73,8 +83,8 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     if (closedByUser || reconnectTimer) {
       return;
     }
-    reconnectAttempt += 1;
-    const baseDelay = Math.min(10_000, 500 * Math.pow(2, Math.min(reconnectAttempt, 6)));
+    const gateDelay = getEndpointBackoffDelay("runtimeStatus");
+    const baseDelay = Math.max(1000, gateDelay);
     const jitter = Math.floor(Math.random() * 250);
     const delay = Math.max(minimumDelayMs, baseDelay + jitter);
     reconnectTimer = setTimeout(() => {
@@ -87,6 +97,10 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     if (!healthcheckUrl || typeof fetch !== "function") {
       return true;
     }
+    const gate = canRequestEndpoint("runtimeStatus");
+    if (!gate.allowed) {
+      return false;
+    }
     try {
       const abortController = typeof AbortController !== "undefined" ? new AbortController() : null;
       const timeoutId = window.setTimeout(() => abortController?.abort(), 1500);
@@ -96,8 +110,17 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
         signal: abortController?.signal,
       });
       window.clearTimeout(timeoutId);
-      return response.ok;
-    } catch {
+      if (response.status >= 500) {
+        markEndpointFailure("runtimeStatus", `${response.status} ${response.statusText}`);
+        return false;
+      }
+      markEndpointSuccess("runtimeStatus");
+      return true;
+    } catch (error) {
+      if (isConnectivityFailure(error)) {
+        const text = error instanceof Error ? error.message : "Runtime healthcheck failed";
+        markEndpointFailure("runtimeStatus", text);
+      }
       return false;
     }
   };
@@ -194,7 +217,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
       connectInFlight = false;
       isOpen = true;
       callbacks.onSocketStateChange?.("open");
-      reconnectAttempt = 0;
+      markEndpointSuccess("runtimeStatus");
       if (pendingTags) {
         sendSubscription(pendingTags);
       }
@@ -207,11 +230,13 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
       socket = null;
       callbacks.onSocketStateChange?.("closed");
       if (closedByUser) {
+        releaseDiagnostics();
         if (activeSocketController === controller) {
           activeSocketController = null;
         }
         return;
       }
+      markEndpointFailure("runtimeStatus", "Runtime socket closed");
       scheduleReconnect();
     };
 
@@ -246,6 +271,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
       }
       connectAttemptId += 1;
       connectInFlight = false;
+      releaseDiagnostics();
       if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
         socket.close();
       }

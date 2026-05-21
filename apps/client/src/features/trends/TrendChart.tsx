@@ -123,7 +123,7 @@ export function TrendChart({
   const probeTimestampRef = useRef<number | null>(probeTimestamp);
   const onProbeTimestampChangeRef = useRef(onProbeTimestampChange);
   const zoomDebounceMsRef = useRef(settings.zoomDebounceMs);
-  const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.liveBufferLimit));
+  const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.maxLivePointsPerTag));
   const tagsRef = useRef(tags);
   const lastAxisPointerTsRef = useRef<number | null>(null);
   const renderChartRef = useRef<() => void>(() => {});
@@ -582,8 +582,8 @@ export function TrendChart({
   }, [settings.zoomDebounceMs]);
 
   useEffect(() => {
-    liveSeriesPointCapRef.current = resolveLiveSeriesPointCap(settings.liveBufferLimit);
-  }, [settings.liveBufferLimit]);
+    liveSeriesPointCapRef.current = resolveLiveSeriesPointCap(settings.maxLivePointsPerTag);
+  }, [settings.maxLivePointsPerTag]);
 
   useEffect(() => {
     tagsRef.current = tags;

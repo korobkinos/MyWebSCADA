@@ -2,6 +2,8 @@ import { type CSSProperties, type MouseEvent as ReactMouseEvent, useCallback, us
 import { ColorPicker, Spin } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { hasRoleAccess, type TagValue, type TrendChartObject } from "@web-scada/shared";
+import { canRequestEndpoint, getConnectionSnapshot, getEndpointBackoffDelay, subscribeConnectionState, type ConnectionState } from "../../services/connection-state";
+import { getRuntimeDiagnosticsSnapshot, registerPollingLoop, setRuntimeDiagnosticMetric, subscribeRuntimeDiagnostics, type RuntimeDiagnosticsSnapshot } from "../../services/runtime-diagnostics";
 import { createRuntimeSocket } from "../../services/ws";
 import type { TrendTagInfo } from "../../services/api";
 import { WorkbenchButton, WorkbenchIconButton } from "../../components/workbench";
@@ -156,15 +158,15 @@ function formatTrendValue(value: number | boolean | string | null | undefined): 
   return String(value);
 }
 
-function resolveLivePendingBufferCap(tagCount: number, liveBufferLimit: number): number {
+function resolveLivePendingBufferCap(tagCount: number, maxLivePointsPerTag: number): number {
   const safeTagCount = Math.max(1, tagCount);
-  const safeSeriesLimit = clamp(Math.round(liveBufferLimit), 200, 20_000);
+  const safeSeriesLimit = clamp(Math.round(maxLivePointsPerTag), 200, 20_000);
   const desired = safeTagCount * safeSeriesLimit * LIVE_PENDING_BUFFER_MULTIPLIER;
   return clamp(desired, LIVE_PENDING_BUFFER_MIN, LIVE_PENDING_BUFFER_MAX);
 }
 
-function resolveTrendCachePointLimit(cacheSize: number): number {
-  const safeCacheSize = clamp(Math.round(cacheSize), 8, 256);
+function resolveTrendCachePointLimit(maxCachedRanges: number): number {
+  const safeCacheSize = clamp(Math.round(maxCachedRanges), 8, 256);
   return clamp(safeCacheSize * TREND_CACHE_POINTS_PER_ENTRY, TREND_CACHE_POINTS_MIN, TREND_CACHE_POINTS_MAX);
 }
 
@@ -417,6 +419,21 @@ function resolveRangeFromObject(object: TrendChartObject): { preset: TrendRangeP
 function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
   const defaults = defaultTrendSettings();
   const source = (object.settings ?? {}) as Partial<TrendSettings>;
+  const maxVisiblePointsPerSeries = clamp(
+    Number(source.maxVisiblePointsPerSeries ?? source.maxPointsPerSeries ?? defaults.maxVisiblePointsPerSeries),
+    1000,
+    8000,
+  );
+  const maxCachedRanges = clamp(
+    Number(source.maxCachedRanges ?? source.cacheSize ?? defaults.maxCachedRanges),
+    8,
+    256,
+  );
+  const maxLivePointsPerTag = clamp(
+    Number(source.maxLivePointsPerTag ?? source.liveBufferLimit ?? defaults.maxLivePointsPerTag),
+    200,
+    20000,
+  );
   return {
     ...defaults,
     ...source,
@@ -430,9 +447,13 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
         : defaults.realtimeAppendSnapshotAggregation,
     realtimeAppendSnapshotMaxPoints: clamp(Number(source.realtimeAppendSnapshotMaxPoints ?? defaults.realtimeAppendSnapshotMaxPoints), 1000, 8000),
     realtimeAppendFlushMs: clamp(Number(source.realtimeAppendFlushMs ?? defaults.realtimeAppendFlushMs), LIVE_REALTIME_FLUSH_MIN_MS, LIVE_REALTIME_FLUSH_MAX_MS),
-    maxPointsPerSeries: clamp(Number(source.maxPointsPerSeries ?? defaults.maxPointsPerSeries), 1000, 8000),
-    cacheSize: clamp(Number(source.cacheSize ?? defaults.cacheSize), 8, 256),
-    liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
+    maxVisiblePointsPerSeries,
+    maxLivePointsPerTag,
+    maxCachedRanges,
+    // Legacy aliases.
+    maxPointsPerSeries: maxVisiblePointsPerSeries,
+    cacheSize: maxCachedRanges,
+    liveBufferLimit: maxLivePointsPerTag,
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
@@ -472,6 +493,7 @@ type LiveHistoryState = "idle" | "loading" | "loaded" | "empty" | "error";
 type TrendMode = "live" | "offline";
 type PendingToolbarRange = { range: TrendVisibleRange; preset: TrendRangePreset };
 type LiveIncomingPoint = { tag: string; value: number | boolean | string | null; quality?: string; timestamp: number; sessionId: number };
+type BackoffError = Error & { reason?: string; retryAfterMs?: number };
 const DEFAULT_LIVE_DATA_SOURCE: TrendLiveDataSource = "archivePolling";
 
 function resolveLivePollingIntervalMs(windowMs: number): number {
@@ -494,6 +516,75 @@ function computeNextMetronomeDelay(now: number, intervalMs: number): number {
   const safeIntervalMs = Math.max(1, Math.round(intervalMs));
   const nextAt = Math.ceil((now + 1) / safeIntervalMs) * safeIntervalMs;
   return Math.max(0, nextAt - now);
+}
+
+function resolveRetryDelayFromError(error: unknown, fallbackEndpoint: "trendTags" | "trendsQuery"): number | null {
+  if ((error as BackoffError | null)?.reason === "backoff") {
+    const retryAfterMs = Number((error as BackoffError).retryAfterMs);
+    if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+      return retryAfterMs;
+    }
+  }
+  const endpointDelay = getEndpointBackoffDelay(fallbackEndpoint);
+  return endpointDelay > 0 ? endpointDelay : null;
+}
+
+function decimatePoints(points: TrendPoint[], maxPoints: number): TrendPoint[] {
+  if (points.length <= maxPoints) {
+    return points;
+  }
+  const safeMax = Math.max(1000, Math.min(8000, Math.round(maxPoints)));
+  const bucketSize = Math.max(1, Math.ceil(points.length / safeMax));
+  const result: TrendPoint[] = [];
+  const dedupe = new Set<number>();
+  for (let start = 0; start < points.length; start += bucketSize) {
+    const end = Math.min(points.length, start + bucketSize);
+    const first = points[start];
+    const last = points[end - 1];
+    if (first && !dedupe.has(first.t)) {
+      dedupe.add(first.t);
+      result.push(first);
+    }
+    let minPoint: TrendPoint | null = null;
+    let maxPoint: TrendPoint | null = null;
+    for (let index = start; index < end; index += 1) {
+      const point = points[index];
+      if (!point || typeof point.v !== "number" || !Number.isFinite(point.v)) {
+        continue;
+      }
+      if (!minPoint || point.v < minPoint.v!) {
+        minPoint = point;
+      }
+      if (!maxPoint || point.v > maxPoint.v!) {
+        maxPoint = point;
+      }
+    }
+    const candidates = [minPoint, maxPoint, last]
+      .filter((point): point is TrendPoint => Boolean(point))
+      .sort((a, b) => a.t - b.t);
+    for (const point of candidates) {
+      if (!dedupe.has(point.t)) {
+        dedupe.add(point.t);
+        result.push(point);
+      }
+    }
+  }
+  if (result.length > safeMax) {
+    const stride = Math.ceil(result.length / safeMax);
+    const compacted: TrendPoint[] = [];
+    for (let index = 0; index < result.length; index += stride) {
+      const point = result[index];
+      if (point) {
+        compacted.push(point);
+      }
+    }
+    const tail = result[result.length - 1];
+    if (tail && compacted[compacted.length - 1]?.t !== tail.t) {
+      compacted.push(tail);
+    }
+    return compacted;
+  }
+  return result;
 }
 
 const DEFAULT_TAG_PICKER_FILTERS: TrendTagPickerFilters = {
@@ -600,6 +691,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [timeRangeDialogOpen, setTimeRangeDialogOpen] = useState(false);
   const [timeRangeDraftFrom, setTimeRangeDraftFrom] = useState(initialViewState.customFrom);
   const [timeRangeDraftTo, setTimeRangeDraftTo] = useState(initialViewState.customTo);
+  const [connectionState, setConnectionState] = useState<ConnectionState>(() => getConnectionSnapshot().state);
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<RuntimeDiagnosticsSnapshot>(() => getRuntimeDiagnosticsSnapshot());
   const mode: TrendMode = liveMode ? "live" : "offline";
   const liveDataSource: TrendLiveDataSource = settings.liveDataSource === "realtimeAppend" ? "realtimeAppend" : DEFAULT_LIVE_DATA_SOURCE;
   const chartLiveMode = liveMode && liveDataSource === "realtimeAppend";
@@ -607,14 +700,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
-  const cacheRef = useRef(new TrendQueryCache(settings.cacheSize, resolveTrendCachePointLimit(settings.cacheSize)));
+  const cacheRef = useRef(new TrendQueryCache(settings.maxCachedRanges, resolveTrendCachePointLimit(settings.maxCachedRanges)));
   const chartApiRef = useRef<TrendChartApi | null>(null);
   const liveBufferRef = useRef<LiveIncomingPoint[]>([]);
   const liveBootstrapBufferRef = useRef<LiveIncomingPoint[]>([]);
   const liveBootstrapRangeRef = useRef<TrendVisibleRange | null>(null);
   const liveBootstrapReadyRef = useRef(liveBootstrapReady);
   const liveFirstWsPointLoggedRef = useRef(false);
-  const livePendingBufferCapRef = useRef(resolveLivePendingBufferCap(selectedTags.length, settings.liveBufferLimit));
+  const livePendingBufferCapRef = useRef(resolveLivePendingBufferCap(selectedTags.length, settings.maxLivePointsPerTag));
   const sourcePointCountRef = useRef(0);
   const liveLatestByTagRef = useRef<Map<string, { value: number | boolean | string | null; quality?: string; sourceTs: number; lastIncomingAt: number }>>(new Map());
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
@@ -658,6 +751,24 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     () => chartResponse?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0,
     [chartResponse],
   );
+  const renderResponse = useMemo(() => {
+    if (!chartResponse) {
+      return chartResponse;
+    }
+    const maxVisiblePoints = clamp(
+      Math.round(settings.maxVisiblePointsPerSeries ?? settings.maxPointsPerSeries),
+      1000,
+      8000,
+    );
+    const series = chartResponse.series.map((item) => ({
+      ...item,
+      points: decimatePoints(item.points, maxVisiblePoints),
+    }));
+    return {
+      ...chartResponse,
+      series,
+    };
+  }, [chartResponse, settings.maxPointsPerSeries, settings.maxVisiblePointsPerSeries, visibleRange.from, visibleRange.to]);
 
   useEffect(() => {
     liveSocketStateRef.current = liveSocketState;
@@ -675,8 +786,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const canShowScaleEntry = settings.showToolbarScaleButton && runtimeSettingsButtonVisible;
 
   useEffect(() => {
-    livePendingBufferCapRef.current = resolveLivePendingBufferCap(selectedTagNames.length, settings.liveBufferLimit);
-  }, [selectedTagNames.length, settings.liveBufferLimit]);
+    livePendingBufferCapRef.current = resolveLivePendingBufferCap(selectedTagNames.length, settings.maxLivePointsPerTag);
+  }, [selectedTagNames.length, settings.maxLivePointsPerTag]);
 
   useEffect(() => {
     if (settings.renderer !== "uplot") {
@@ -695,6 +806,45 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   useEffect(() => {
     liveBootstrapReadyRef.current = liveBootstrapReady;
   }, [liveBootstrapReady]);
+
+  useEffect(() => subscribeConnectionState((snapshot) => {
+    setConnectionState(snapshot.state);
+  }), []);
+
+  useEffect(() => subscribeRuntimeDiagnostics((snapshot) => {
+    setRuntimeDiagnostics(snapshot);
+  }), []);
+
+  useEffect(() => {
+    setRuntimeDiagnosticMetric("trendPointsInMemory", pointCount + liveBufferRef.current.length + liveBootstrapBufferRef.current.length);
+    setRuntimeDiagnosticMetric("cachedTrendRanges", cacheRef.current.getStats().entryCount);
+  }, [pointCount, screenRevision, settings.maxCachedRanges]);
+
+  useEffect(() => {
+    const selectedSet = new Set(selectedTagNames);
+    for (const tagName of [...liveLatestByTagRef.current.keys()]) {
+      if (!selectedSet.has(tagName)) {
+        liveLatestByTagRef.current.delete(tagName);
+      }
+    }
+    for (const tagName of [...liveLastTimestampByTagRef.current.keys()]) {
+      if (!selectedSet.has(tagName)) {
+        liveLastTimestampByTagRef.current.delete(tagName);
+      }
+    }
+    setSeriesLatestValues((prev) => {
+      let changed = false;
+      const next: Record<string, string> = {};
+      for (const [tagName, value] of Object.entries(prev)) {
+        if (selectedSet.has(tagName)) {
+          next[tagName] = value;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [selectedTagNames]);
 
   useEffect(() => {
     const nextViewState = resolveInitialRuntimeViewState(object);
@@ -882,7 +1032,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         ? settings.realtimeAppendSnapshotMaxPoints
         : isLiveQuery
         ? 8000
-        : settings.maxPointsPerSeries;
+        : settings.maxVisiblePointsPerSeries;
     const maxPoints = clamp(Math.round(effectiveMaxPointsSetting), 1000, 8000);
     const requestAggregation = isLiveBootstrapQuery
       ? settings.realtimeAppendSnapshotAggregation
@@ -978,7 +1128,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         to: new Date(range.to).toISOString(),
         maxPoints,
         aggregation: requestAggregation,
-      }, controller.signal);
+      }, {
+        signal: controller.signal,
+      });
       if (requestId !== requestIdRef.current) {
         return null;
       }
@@ -1022,7 +1174,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             to: new Date(range.to).toISOString(),
             maxPoints: 4000,
             aggregation: "raw",
-          }, controller.signal);
+          }, {
+            signal: controller.signal,
+          });
           if (requestId !== requestIdRef.current) {
             return null;
           }
@@ -1203,7 +1357,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     liveDataSource,
     settings.aggregation,
     settings.cacheEnabled,
-    settings.maxPointsPerSeries,
+    settings.maxVisiblePointsPerSeries,
     settings.realtimeAppendSnapshotAggregation,
     settings.realtimeAppendSnapshotMaxPoints,
     realtimeAppendFlushMs,
@@ -1292,28 +1446,74 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   ]);
 
   useEffect(() => {
-    cacheRef.current = new TrendQueryCache(settings.cacheSize, resolveTrendCachePointLimit(settings.cacheSize));
-  }, [settings.cacheSize]);
+    cacheRef.current = new TrendQueryCache(settings.maxCachedRanges, resolveTrendCachePointLimit(settings.maxCachedRanges));
+  }, [settings.maxCachedRanges]);
 
   useEffect(() => {
-    void (async () => {
+    if (allTags.length > 0) {
+      return;
+    }
+    const unregister = registerPollingLoop(`trend-tags:${object.id}`);
+    let disposed = false;
+    let timerId: number | null = null;
+    let controller: AbortController | null = null;
+    const scheduleRetry = (delayMs: number) => {
+      if (disposed) {
+        return;
+      }
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+      timerId = window.setTimeout(() => {
+        timerId = null;
+        void load();
+      }, Math.max(250, delayMs));
+    };
+    const load = async () => {
+      if (disposed) {
+        return;
+      }
+      const gate = canRequestEndpoint("trendTags");
+      if (!gate.allowed) {
+        scheduleRetry(gate.delayMs);
+        return;
+      }
+      controller?.abort();
+      controller = new AbortController();
       try {
-        const tags = await fetchTrendTags();
+        const tags = await fetchTrendTags(controller.signal);
+        if (disposed) {
+          return;
+        }
         setAllTags(tags);
         if (selectedTags.length > 0) {
           const existing = new Set(tags.map((item) => item.name));
           setSelectedTags((prev) => prev.filter((item) => existing.has(item.tag)));
         }
       } catch (loadError) {
+        if (disposed || controller?.signal.aborted) {
+          return;
+        }
         const text = loadError instanceof Error ? loadError.message : "Failed to load trend tags";
         if (isAuthenticationRequiredErrorMessage(text)) {
           setHistoryWarning("History loading requires authentication");
-        } else {
-          setError(text);
+          return;
         }
+        setError(text);
+        const retryDelayMs = resolveRetryDelayFromError(loadError, "trendTags") ?? 2000;
+        scheduleRetry(retryDelayMs);
       }
-    })();
-  }, []);
+    };
+    void load();
+    return () => {
+      disposed = true;
+      unregister();
+      controller?.abort();
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+    };
+  }, [allTags.length, object.id, selectedTags.length]);
 
   useEffect(() => () => {
     requestControllerRef.current?.abort();
@@ -2230,7 +2430,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       selectedTags: selectedTags.map((item) => item.tag),
       settings: {
         aggregation: settings.aggregation,
-        maxPointsPerSeries: settings.maxPointsPerSeries,
+        maxVisiblePointsPerSeries: settings.maxVisiblePointsPerSeries,
+        maxLivePointsPerTag: settings.maxLivePointsPerTag,
+        maxCachedRanges: settings.maxCachedRanges,
         progressive: settings.progressive,
         zoomDebounceMs: settings.zoomDebounceMs,
       },
@@ -2334,7 +2536,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         ) : (
           <TrendChartRenderer
             key={object.id}
-            data={chartResponse}
+            data={renderResponse}
             tags={selectedTags}
             axes={manualAxes}
             axisIdByTag={resolvedAxisIdByTag}
@@ -2611,14 +2813,33 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         initialTab={settingsInitialTab}
         onClose={() => setSettingsOpen(false)}
         onSettingsChange={(next) => {
+          const maxVisiblePointsPerSeries = clamp(
+            Number(next.maxVisiblePointsPerSeries ?? next.maxPointsPerSeries),
+            1000,
+            8000,
+          );
+          const maxCachedRanges = clamp(
+            Number(next.maxCachedRanges ?? next.cacheSize),
+            8,
+            256,
+          );
+          const maxLivePointsPerTag = clamp(
+            Number(next.maxLivePointsPerTag ?? next.liveBufferLimit),
+            200,
+            20000,
+          );
           setSettings({
             ...next,
             renderer: next.renderer === "uplot" ? "uplot" : "echarts",
             liveDataSource: next.liveDataSource === "realtimeAppend" ? "realtimeAppend" : DEFAULT_LIVE_DATA_SOURCE,
-            maxPointsPerSeries: clamp(next.maxPointsPerSeries, 1000, 8000),
+            maxVisiblePointsPerSeries,
+            maxLivePointsPerTag,
+            maxCachedRanges,
+            // Legacy aliases.
+            maxPointsPerSeries: maxVisiblePointsPerSeries,
+            cacheSize: maxCachedRanges,
+            liveBufferLimit: maxLivePointsPerTag,
             zoomDebounceMs: clamp(next.zoomDebounceMs, 100, 1200),
-            cacheSize: clamp(next.cacheSize, 8, 256),
-            liveBufferLimit: clamp(next.liveBufferLimit, 200, 20000),
             liveResyncEnabled: Boolean(next.liveResyncEnabled),
             liveResyncIntervalSec: clamp(next.liveResyncIntervalSec, LIVE_REALTIME_RESYNC_MIN_SEC, LIVE_REALTIME_RESYNC_MAX_SEC),
             realtimeAppendSnapshotAggregation:

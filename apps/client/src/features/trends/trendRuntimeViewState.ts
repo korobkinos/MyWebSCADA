@@ -63,6 +63,21 @@ function toLocalDateTimeInputValue(timestamp: number): string {
 
 function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
   const defaults = defaultTrendSettings();
+  const maxVisiblePointsPerSeries = clamp(
+    Number(source.maxVisiblePointsPerSeries ?? source.maxPointsPerSeries ?? defaults.maxVisiblePointsPerSeries),
+    1000,
+    8000,
+  );
+  const maxCachedRanges = clamp(
+    Number(source.maxCachedRanges ?? source.cacheSize ?? defaults.maxCachedRanges),
+    8,
+    256,
+  );
+  const maxLivePointsPerTag = clamp(
+    Number(source.maxLivePointsPerTag ?? source.liveBufferLimit ?? defaults.maxLivePointsPerTag),
+    200,
+    20000,
+  );
   return {
     ...defaults,
     ...source,
@@ -76,9 +91,13 @@ function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
         : defaults.realtimeAppendSnapshotAggregation,
     realtimeAppendSnapshotMaxPoints: clamp(Number(source.realtimeAppendSnapshotMaxPoints ?? defaults.realtimeAppendSnapshotMaxPoints), 1000, 8000),
     realtimeAppendFlushMs: clamp(Number(source.realtimeAppendFlushMs ?? defaults.realtimeAppendFlushMs), 50, 1000),
-    maxPointsPerSeries: clamp(Number(source.maxPointsPerSeries ?? defaults.maxPointsPerSeries), 1000, 8000),
-    cacheSize: clamp(Number(source.cacheSize ?? defaults.cacheSize), 8, 256),
-    liveBufferLimit: clamp(Number(source.liveBufferLimit ?? defaults.liveBufferLimit), 200, 20000),
+    maxVisiblePointsPerSeries,
+    maxLivePointsPerTag,
+    maxCachedRanges,
+    // Legacy aliases.
+    maxPointsPerSeries: maxVisiblePointsPerSeries,
+    cacheSize: maxCachedRanges,
+    liveBufferLimit: maxLivePointsPerTag,
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),

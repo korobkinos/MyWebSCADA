@@ -556,8 +556,18 @@ export function TrendSettingsPanel({
                       </select>
                     </label>
                     <label className="workbench-field">
-                      <span className="workbench-field__label">Max points/series</span>
-                      <input className="workbench-input" type="number" min={1000} max={8000} value={draftSettings.maxPointsPerSeries} onChange={(event) => onNumericInput(event, (value) => patchSettings({ maxPointsPerSeries: value }))} />
+                      <span className="workbench-field__label">Max visible points/series</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={1000}
+                        max={8000}
+                        value={draftSettings.maxVisiblePointsPerSeries}
+                        onChange={(event) => onNumericInput(event, (value) => patchSettings({
+                          maxVisiblePointsPerSeries: value,
+                          maxPointsPerSeries: value,
+                        }))}
+                      />
                     </label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">Aggregation</span>
@@ -589,8 +599,18 @@ export function TrendSettingsPanel({
                       </select>
                     </label>
                     <label className="workbench-field">
-                      <span className="workbench-field__label">Live buffer limit</span>
-                      <input className="workbench-input" type="number" min={200} max={20000} value={draftSettings.liveBufferLimit} onChange={(event) => onNumericInput(event, (value) => patchSettings({ liveBufferLimit: value }))} />
+                      <span className="workbench-field__label">Max live points/tag</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={200}
+                        max={20000}
+                        value={draftSettings.maxLivePointsPerTag}
+                        onChange={(event) => onNumericInput(event, (value) => patchSettings({
+                          maxLivePointsPerTag: value,
+                          liveBufferLimit: value,
+                        }))}
+                      />
                     </label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">Resync interval (sec)</span>
@@ -655,8 +675,18 @@ export function TrendSettingsPanel({
                   <div className="trends-settings-fields trends-settings-fields--two-col-compact">
                     <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.cacheEnabled} onChange={(event) => patchSettings({ cacheEnabled: event.target.checked })} /><span>Cache enabled</span></label>
                     <label className="workbench-field">
-                      <span className="workbench-field__label">Cache size</span>
-                      <input className="workbench-input" type="number" min={8} max={256} value={draftSettings.cacheSize} onChange={(event) => onNumericInput(event, (value) => patchSettings({ cacheSize: value }))} />
+                      <span className="workbench-field__label">Max cached ranges</span>
+                      <input
+                        className="workbench-input"
+                        type="number"
+                        min={8}
+                        max={256}
+                        value={draftSettings.maxCachedRanges}
+                        onChange={(event) => onNumericInput(event, (value) => patchSettings({
+                          maxCachedRanges: value,
+                          cacheSize: value,
+                        }))}
+                      />
                     </label>
                   </div>
                 </div>

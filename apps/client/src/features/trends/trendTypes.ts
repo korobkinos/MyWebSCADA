@@ -86,13 +86,19 @@ export type TrendSettings = {
   showSymbols: boolean;
   showUnitsInTooltip: boolean;
   showBadQualityGaps: boolean;
+  maxVisiblePointsPerSeries: number;
+  maxLivePointsPerTag: number;
+  maxCachedRanges: number;
+  // Legacy fields kept for backward compatibility with older project/settings payloads.
   maxPointsPerSeries: number;
   aggregation: TrendAggregationMode;
   zoomDebounceMs: number;
   progressive: boolean;
   disableAnimationsLargeData: boolean;
   cacheEnabled: boolean;
+  // Legacy field kept for backward compatibility with older project/settings payloads.
   cacheSize: number;
+  // Legacy field kept for backward compatibility with older project/settings payloads.
   liveBufferLimit: number;
   liveDataSource: TrendLiveDataSource;
   liveResyncEnabled: boolean;
