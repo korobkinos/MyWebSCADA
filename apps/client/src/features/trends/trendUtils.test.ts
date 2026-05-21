@@ -7,6 +7,12 @@ describe("trend defaults", () => {
   it("uses raw aggregation by default", () => {
     const settings = defaultTrendSettings();
     expect(settings.aggregation).toBe("raw");
+    expect(settings.maxVisiblePointsPerSeries).toBe(4000);
+    expect(settings.maxLivePointsPerTag).toBe(5000);
+    expect(settings.maxCachedRanges).toBe(48);
+    expect(settings.maxPointsPerSeries).toBe(settings.maxVisiblePointsPerSeries);
+    expect(settings.liveBufferLimit).toBe(settings.maxLivePointsPerTag);
+    expect(settings.cacheSize).toBe(settings.maxCachedRanges);
     expect(settings.realtimeAppendSnapshotAggregation).toBe("auto");
     expect(settings.realtimeAppendSnapshotMaxPoints).toBe(8000);
     expect(settings.realtimeAppendFlushMs).toBe(300);

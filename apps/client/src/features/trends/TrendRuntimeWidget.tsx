@@ -3,7 +3,7 @@ import { ColorPicker, Spin } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { hasRoleAccess, type TagValue, type TrendChartObject } from "@web-scada/shared";
 import { canRequestEndpoint, getConnectionSnapshot, getEndpointBackoffDelay, subscribeConnectionState, type ConnectionState } from "../../services/connection-state";
-import { getRuntimeDiagnosticsSnapshot, registerPollingLoop, setRuntimeDiagnosticMetric, subscribeRuntimeDiagnostics, type RuntimeDiagnosticsSnapshot } from "../../services/runtime-diagnostics";
+import { registerPollingLoop, setRuntimeDiagnosticMetric } from "../../services/runtime-diagnostics";
 import { createRuntimeSocket } from "../../services/ws";
 import type { TrendTagInfo } from "../../services/api";
 import { WorkbenchButton, WorkbenchIconButton } from "../../components/workbench";
@@ -373,6 +373,27 @@ function normalizeTrendResponseForRange(
   };
 }
 
+function boundResponseSeriesPoints(
+  response: TrendQueryResponse,
+  maxPointsPerSeries: number,
+): TrendQueryResponse {
+  const safeLimit = clamp(Math.round(maxPointsPerSeries), 200, 20_000);
+  const boundedSeries = response.series.map((series) => {
+    if (series.points.length <= safeLimit) {
+      return series;
+    }
+    const trimmed = series.points.slice(series.points.length - safeLimit);
+    return {
+      ...series,
+      points: trimmed,
+    };
+  });
+  return {
+    ...response,
+    series: boundedSeries,
+  };
+}
+
 function downloadTextFile(filename: string, content: string): void {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return;
@@ -494,6 +515,10 @@ type TrendMode = "live" | "offline";
 type PendingToolbarRange = { range: TrendVisibleRange; preset: TrendRangePreset };
 type LiveIncomingPoint = { tag: string; value: number | boolean | string | null; quality?: string; timestamp: number; sessionId: number };
 type BackoffError = Error & { reason?: string; retryAfterMs?: number };
+type ExecuteQueryResult =
+  | { ok: true; response: TrendQueryResponse }
+  | { ok: false; reason: "backoff"; retryAfterMs: number }
+  | { ok: false; reason: "error" };
 const DEFAULT_LIVE_DATA_SOURCE: TrendLiveDataSource = "archivePolling";
 
 function resolveLivePollingIntervalMs(windowMs: number): number {
@@ -692,7 +717,6 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [timeRangeDraftFrom, setTimeRangeDraftFrom] = useState(initialViewState.customFrom);
   const [timeRangeDraftTo, setTimeRangeDraftTo] = useState(initialViewState.customTo);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => getConnectionSnapshot().state);
-  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<RuntimeDiagnosticsSnapshot>(() => getRuntimeDiagnosticsSnapshot());
   const mode: TrendMode = liveMode ? "live" : "offline";
   const liveDataSource: TrendLiveDataSource = settings.liveDataSource === "realtimeAppend" ? "realtimeAppend" : DEFAULT_LIVE_DATA_SOURCE;
   const chartLiveMode = liveMode && liveDataSource === "realtimeAppend";
@@ -726,6 +750,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const lastStableVisibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
   const hoverSnapshotKeyRef = useRef<string>("");
   const hoverTimestampRef = useRef<number | null>(null);
+  const lastConnectionStateRef = useRef<ConnectionState>(connectionState);
   const columnResizeStateRef = useRef<{ id: TrendSeriesColumnId | null; startX: number; startWidth: number }>({
     id: null,
     startX: 0,
@@ -811,9 +836,17 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setConnectionState(snapshot.state);
   }), []);
 
-  useEffect(() => subscribeRuntimeDiagnostics((snapshot) => {
-    setRuntimeDiagnostics(snapshot);
-  }), []);
+  useEffect(() => {
+    const previous = lastConnectionStateRef.current;
+    lastConnectionStateRef.current = connectionState;
+    if (previous === connectionState || connectionState !== "online") {
+      return;
+    }
+    if (selectedTagNames.length === 0) {
+      return;
+    }
+    setScreenRevision((value) => value + 1);
+  }, [connectionState, selectedTagNames.length]);
 
   useEffect(() => {
     setRuntimeDiagnosticMetric("trendPointsInMemory", pointCount + liveBufferRef.current.length + liveBootstrapBufferRef.current.length);
@@ -1004,19 +1037,19 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       skipLoadingState?: boolean;
       skipLiveLoadingState?: boolean;
     },
-  ): Promise<TrendQueryResponse | null> => {
+  ): Promise<ExecuteQueryResult> => {
     if (selectedTagNames.length === 0) {
       setOfflineResponse(null);
       setLiveResponse(null);
-      return null;
+      return { ok: false, reason: "error" };
     }
     if (selectedTagNames.length > TOO_MANY_TAGS_LIMIT) {
       setError(`Too many tags selected (${selectedTagNames.length}). Limit is ${TOO_MANY_TAGS_LIMIT}.`);
-      return null;
+      return { ok: false, reason: "error" };
     }
     if (range.to <= range.from) {
       setError("Invalid range");
-      return null;
+      return { ok: false, reason: "error" };
     }
 
     const mode = options?.mode ?? "history";
@@ -1079,16 +1112,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           cache: cacheRef.current.getStats(),
         });
         const normalizedCached = normalizeTrendResponseForRange(cached, range, selectedTags);
+        const boundedCached = boundResponseSeriesPoints(
+          normalizedCached,
+          targetMode === "live" ? settings.maxLivePointsPerTag : settings.maxVisiblePointsPerSeries,
+        );
         if (targetMode === "live") {
           if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
-            return null;
+            return { ok: false, reason: "error" };
           }
-          setLiveResponse(normalizedCached);
-          const cachedPointCount = normalizedCached.series.reduce((acc, series) => acc + series.points.length, 0);
+          setLiveResponse(boundedCached);
+          const cachedPointCount = boundedCached.series.reduce((acc, series) => acc + series.points.length, 0);
           setLiveHistoryPointCount(cachedPointCount);
           setLiveHistoryState(cachedPointCount > 0 ? "loaded" : "empty");
           let cachedLatestTs = Number.NEGATIVE_INFINITY;
-          for (const series of normalizedCached.series) {
+          for (const series of boundedCached.series) {
             const tail = series.points[series.points.length - 1];
             if (tail && Number.isFinite(tail.t)) {
               cachedLatestTs = Math.max(cachedLatestTs, tail.t);
@@ -1097,11 +1134,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           }
           liveHistoryLoadedToRef.current = Number.isFinite(cachedLatestTs) ? Math.max(range.to, cachedLatestTs) : range.to;
         } else {
-          setOfflineResponse(normalizedCached);
+          setOfflineResponse(boundedCached);
         }
-        setStatusAggregation(normalizedCached.aggregation);
+        setStatusAggregation(boundedCached.aggregation);
         setLastLoadAt(Date.now());
-        return normalizedCached;
+        return { ok: true, response: boundedCached };
       }
     }
 
@@ -1130,12 +1167,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         aggregation: requestAggregation,
       }, {
         signal: controller.signal,
+        inFlightKey: `trendsQuery:${object.id}`,
       });
       if (requestId !== requestIdRef.current) {
-        return null;
+        return { ok: false, reason: "error" };
       }
       if (targetMode === "live" && liveSessionId !== liveSessionIdRef.current) {
-        return null;
+        return { ok: false, reason: "error" };
       }
       logTrendDiagnostics("query:success", {
         mode,
@@ -1176,12 +1214,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             aggregation: "raw",
           }, {
             signal: controller.signal,
+            inFlightKey: `trendsQuery:${object.id}`,
           });
           if (requestId !== requestIdRef.current) {
-            return null;
+            return { ok: false, reason: "error" };
           }
           if (targetMode === "live" && liveSessionId !== liveSessionIdRef.current) {
-            return null;
+            return { ok: false, reason: "error" };
           }
           next = {
             ...next,
@@ -1243,9 +1282,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         ? { from: range.from, to: Math.max(range.to, liveBootstrapMergeUpperTs) }
         : range;
       next = normalizeTrendResponseForRange(next, normalizedRange, selectedTags);
-      const totalPointCount = next.series.reduce((acc, series) => acc + series.points.length, 0);
+      const boundedNext = boundResponseSeriesPoints(
+        next,
+        targetMode === "live" ? settings.maxLivePointsPerTag : settings.maxVisiblePointsPerSeries,
+      );
+      const totalPointCount = boundedNext.series.reduce((acc, series) => acc + series.points.length, 0);
       if (isLiveBootstrapQuery) {
-        const bounds = getSeriesBounds(next.series);
+        const bounds = getSeriesBounds(boundedNext.series);
         logTrendDiagnostics("live:bootstrap:success", {
           rangeFrom: range.from,
           rangeTo: range.to,
@@ -1276,27 +1319,28 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         }
       }
       if (settings.cacheEnabled && !isLiveBootstrapQuery) {
-        cacheRef.current.set(key, next);
+        cacheRef.current.set(key, boundedNext);
+        setRuntimeDiagnosticMetric("cachedTrendRanges", cacheRef.current.getStats().entryCount);
       }
       if (targetMode === "live") {
         if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
-          return null;
+          return { ok: false, reason: "error" };
         }
-        setLiveResponse(next);
+        setLiveResponse(boundedNext);
       } else {
-        setOfflineResponse(next);
+        setOfflineResponse(boundedNext);
       }
-      setStatusAggregation(next.aggregation);
+      setStatusAggregation(boundedNext.aggregation);
       if (isLiveQuery) {
         logTrendDiagnostics("live:status", {
           mode,
-          statusAggregation: next.aggregation,
+          statusAggregation: boundedNext.aggregation,
           requestedAggregation: requestAggregation,
         });
       }
       setLastLoadAt(Date.now());
       const nextLatest: Record<string, string> = {};
-      for (const series of next.series) {
+      for (const series of boundedNext.series) {
         const lastPoint = series.points[series.points.length - 1];
         nextLatest[series.tag] = formatTrendValue(lastPoint?.v);
         if (lastPoint) {
@@ -1311,10 +1355,18 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         }
       }
       setSeriesLatestValues(nextLatest);
-      return next;
+      return { ok: true, response: boundedNext };
     } catch (queryError) {
       if (controller.signal.aborted) {
-        return null;
+        return { ok: false, reason: "error" };
+      }
+      const retryAfterMs = resolveRetryDelayFromError(queryError, "trendsQuery");
+      if ((queryError as BackoffError | null)?.reason === "backoff" || retryAfterMs !== null) {
+        return {
+          ok: false,
+          reason: "backoff",
+          retryAfterMs: Math.max(250, retryAfterMs ?? 1000),
+        };
       }
       const text = queryError instanceof Error ? queryError.message : "Trends query failed";
       if (isAuthenticationRequiredErrorMessage(text) && liveModeRef.current) {
@@ -1343,7 +1395,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           message: text,
         });
       }
-      return null;
+      return { ok: false, reason: "error" };
     } finally {
       if (requestId === requestIdRef.current && !options?.skipLoadingState) {
         setLoading(false);
@@ -1352,11 +1404,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   }, [
     drainLiveBootstrapPointsForMerge,
     liveMode,
+    object.id,
     selectedTagNamesKey,
     selectedTags,
     liveDataSource,
     settings.aggregation,
     settings.cacheEnabled,
+    settings.maxLivePointsPerTag,
     settings.maxVisiblePointsPerSeries,
     settings.realtimeAppendSnapshotAggregation,
     settings.realtimeAppendSnapshotMaxPoints,
@@ -1400,22 +1454,25 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       snapshotMaxPointsPolicy: settings.realtimeAppendSnapshotMaxPoints,
       flushMsPolicy: realtimeAppendFlushMs,
     });
-    const loaded = await executeQuery(anchoredRange, {
+    const loadedResult = await executeQuery(anchoredRange, {
       force: true,
       mode: "liveBootstrap",
       context: "live",
       targetMode: "live",
       liveSessionId: sessionId,
     });
-    if (!loaded || sessionId !== liveSessionIdRef.current || !liveModeRef.current) {
+    if (!loadedResult.ok || sessionId !== liveSessionIdRef.current || !liveModeRef.current) {
       logTrendDiagnostics("liveRealtime:snapshot-load-error", {
         sessionId,
         durationMs: Date.now() - startedAt,
         rangeFrom: anchoredRange.from,
         rangeTo: anchoredRange.to,
+        reason: loadedResult.ok ? "stale-session" : loadedResult.reason,
+        retryAfterMs: loadedResult.ok || loadedResult.reason !== "backoff" ? null : loadedResult.retryAfterMs,
       });
       return false;
     }
+    const loaded = loadedResult.response;
     let latestTs = Number.NEGATIVE_INFINITY;
     for (const series of loaded.series) {
       const tail = series.points[series.points.length - 1];
@@ -1447,6 +1504,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   useEffect(() => {
     cacheRef.current = new TrendQueryCache(settings.maxCachedRanges, resolveTrendCachePointLimit(settings.maxCachedRanges));
+    setRuntimeDiagnosticMetric("cachedTrendRanges", cacheRef.current.getStats().entryCount);
   }, [settings.maxCachedRanges]);
 
   useEffect(() => {
@@ -1617,6 +1675,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     }
 
     const sessionId = ++liveSessionIdRef.current;
+    const unregisterPollingLoop = registerPollingLoop(`trend-live-archive:${object.id}`);
     let disposed = false;
     let inFlight = false;
     let timerId: number | null = null;
@@ -1625,12 +1684,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setLiveHistoryPointCount(0);
     setRangePreset("custom");
 
-    const scheduleNext = () => {
+    const scheduleNext = (overrideDelayMs?: number) => {
       if (disposed) {
         return;
       }
       const now = Date.now();
-      const delay = computeNextMetronomeDelay(now, livePollingIntervalMs);
+      const delay = overrideDelayMs !== undefined
+        ? Math.max(250, Math.round(overrideDelayMs))
+        : computeNextMetronomeDelay(now, livePollingIntervalMs);
       const plannedAt = now + delay;
       logTrendDiagnostics("livePolling:schedule-next", {
         sessionId,
@@ -1661,6 +1722,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         scheduleNext();
         return;
       }
+      const gate = canRequestEndpoint("trendsQuery");
+      if (!gate.allowed) {
+        scheduleNext(gate.delayMs);
+        return;
+      }
       inFlight = true;
       const now = Date.now();
       const span = Math.max(60_000, liveWindowMs);
@@ -1678,8 +1744,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         rangeTo: nextRange.to,
       });
       const requestStartedAt = now;
+      let nextDelayOverride: number | undefined;
       try {
-        const loaded = await executeQuery(nextRange, {
+        const loadedResult = await executeQuery(nextRange, {
           force: true,
           context: "live",
           targetMode: "live",
@@ -1688,6 +1755,15 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           skipLiveLoadingState: true,
         });
         const finishedAt = Date.now();
+        if (!loadedResult.ok && loadedResult.reason === "backoff") {
+          logTrendDiagnostics("livePolling:tick-backoff", {
+            sessionId,
+            retryAfterMs: loadedResult.retryAfterMs,
+          });
+          nextDelayOverride = loadedResult.retryAfterMs;
+          return;
+        }
+        const loaded = loadedResult.ok ? loadedResult.response : null;
         const pointCount = loaded?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0;
         if (!disposed && sessionId === liveSessionIdRef.current && loaded) {
           setVisibleRange(nextRange);
@@ -1730,7 +1806,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         });
       } finally {
         inFlight = false;
-        scheduleNext();
+        scheduleNext(nextDelayOverride);
       }
     };
 
@@ -1738,13 +1814,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
     return () => {
       disposed = true;
+      unregisterPollingLoop();
       ++liveSessionIdRef.current;
       requestControllerRef.current?.abort();
       if (timerId !== null) {
         window.clearTimeout(timerId);
       }
     };
-  }, [executeQuery, liveDataSource, liveMode, livePollingIntervalMs, liveWindowMs, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
+  }, [executeQuery, liveDataSource, liveMode, livePollingIntervalMs, liveWindowMs, object.id, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
 
   useEffect(() => {
     if (canOpenRuntimeSettings) {
@@ -2001,16 +2078,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     let disposed = false;
     let inFlight = false;
     let timerId: number | null = null;
+    const unregisterPollingLoop = registerPollingLoop(`trend-live-resync:${object.id}`);
     const sessionId = liveSessionIdRef.current;
 
-    const scheduleNext = () => {
+    const scheduleNext = (overrideDelayMs?: number) => {
       if (disposed) {
         return;
       }
+      const delay = overrideDelayMs !== undefined
+        ? Math.max(250, Math.round(overrideDelayMs))
+        : liveResyncIntervalMs;
       timerId = window.setTimeout(() => {
         timerId = null;
         void tick();
-      }, liveResyncIntervalMs);
+      }, delay);
     };
 
     const tick = async () => {
@@ -2018,7 +2099,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         scheduleNext();
         return;
       }
+      const gate = canRequestEndpoint("trendsQuery");
+      if (!gate.allowed) {
+        scheduleNext(gate.delayMs);
+        return;
+      }
       inFlight = true;
+      let nextDelayOverride: number | undefined;
       const startedAt = Date.now();
       const span = Math.max(60_000, liveWindowMs);
       const range: TrendVisibleRange = {
@@ -2035,7 +2122,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         flushMsPolicy: realtimeAppendFlushMs,
       });
       try {
-        const loaded = await executeQuery(range, {
+        const loadedResult = await executeQuery(range, {
           force: true,
           mode: "liveBootstrap",
           context: "live",
@@ -2044,6 +2131,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           skipLoadingState: true,
           skipLiveLoadingState: true,
         });
+        if (!loadedResult.ok && loadedResult.reason === "backoff") {
+          nextDelayOverride = loadedResult.retryAfterMs;
+          return;
+        }
+        const loaded = loadedResult.ok ? loadedResult.response : null;
         const finishedAt = Date.now();
         if (!disposed && sessionId === liveSessionIdRef.current && loaded) {
           let latestTs = Number.NEGATIVE_INFINITY;
@@ -2080,7 +2172,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         });
       } finally {
         inFlight = false;
-        scheduleNext();
+        scheduleNext(nextDelayOverride);
       }
     };
 
@@ -2088,6 +2180,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
     return () => {
       disposed = true;
+      unregisterPollingLoop();
       if (timerId !== null) {
         window.clearTimeout(timerId);
       }
@@ -2098,6 +2191,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     liveMode,
     liveResyncIntervalMs,
     liveWindowMs,
+    object.id,
     realtimeAppendFlushMs,
     screenRevision,
     selectedTagNames.length,
@@ -2733,6 +2827,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
       {object.showStatusBar !== false ? (
         <div className="trends-status-bar">
+          <span>Backend: {connectionState}</span>
           <span>Range: {formatRangeLabel(visibleRange.from, visibleRange.to)}</span>
           <span>Series: {selectedTags.length}</span>
           <span>Loaded: {loadedSeriesCount}/{selectedTags.length}</span>

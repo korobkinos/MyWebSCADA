@@ -10,7 +10,7 @@ export async function fetchTrendRange(tags: string[]): Promise<TrendRangeRespons
 
 export async function queryTrendData(
   request: TrendQueryRequest,
-  options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean },
+  options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean; inFlightKey?: string | null },
 ): Promise<TrendQueryResponse> {
   return api.queryTrends(request, options);
 }

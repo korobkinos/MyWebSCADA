@@ -4412,6 +4412,93 @@ function LibraryInstanceNode({
     return <MissingNode commonGroupProps={commonGroupProps} message="Library recursion blocked" />;
   }
 
+  return (
+    <LibraryInstanceNodeResolved
+      object={object}
+      selected={selected}
+      project={project}
+      mode={mode}
+      tags={tags}
+      libraries={libraries}
+      renderContext={renderContext}
+      frameStack={frameStack}
+      instanceStack={instanceStack}
+      interactive={interactive}
+      inheritedDisabled={inheritedDisabled}
+      onSelectObject={onSelectObject}
+      onMoveObject={onMoveObject}
+      onCommitObjectMove={onCommitObjectMove}
+      onResizeObject={onResizeObject}
+      onAction={onAction}
+      commonGroupProps={commonGroupProps}
+      runtimeDisabled={runtimeDisabled}
+      shadowDisabled={shadowDisabled}
+      onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+      onRemoveWidgetOverlay={onRemoveWidgetOverlay}
+      nodeIdPrefix={nodeIdPrefix}
+      renderFlowMode={renderFlowMode}
+      library={library}
+      element={element}
+      stackKey={stackKey}
+    />
+  );
+}
+
+function LibraryInstanceNodeResolved({
+  object,
+  selected,
+  project,
+  mode,
+  tags,
+  libraries,
+  renderContext,
+  frameStack,
+  instanceStack,
+  interactive,
+  inheritedDisabled,
+  onSelectObject,
+  onMoveObject,
+  onCommitObjectMove,
+  onResizeObject,
+  onAction,
+  commonGroupProps,
+  runtimeDisabled,
+  shadowDisabled,
+  onUpsertWidgetOverlay,
+  onRemoveWidgetOverlay,
+  nodeIdPrefix,
+  renderFlowMode,
+  library,
+  element,
+  stackKey,
+}: {
+  object: LibraryElementInstanceObject;
+  selected: boolean;
+  project: ScadaProject;
+  mode: "editor" | "runtime";
+  tags: TagMap;
+  libraries: ElementLibrary[];
+  renderContext: RenderContext;
+  frameStack: string[];
+  instanceStack: string[];
+  interactive: boolean;
+  inheritedDisabled: boolean;
+  onSelectObject?: (payload: ObjectSelectPayload) => void;
+  onMoveObject?: (objectId: string, x: number, y: number) => void;
+  onCommitObjectMove?: () => void;
+  onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
+  onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
+  onRemoveWidgetOverlay?: (objectId: string) => void;
+  commonGroupProps: Record<string, unknown>;
+  runtimeDisabled: boolean;
+  shadowDisabled: boolean;
+  nodeIdPrefix?: string;
+  renderFlowMode: "all" | "none" | "only";
+  library: ElementLibrary;
+  element: LibraryElement;
+  stackKey: string;
+}) {
   const instanceParams = toResolvedParameterMap(element, object.parameterValues);
   const mergedParameters = useMemo(
     () => ({

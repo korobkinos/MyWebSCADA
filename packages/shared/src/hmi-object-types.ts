@@ -741,6 +741,9 @@ export type TrendChartSettings = {
   showSymbols?: boolean;
   showUnitsInTooltip?: boolean;
   showBadQualityGaps?: boolean;
+  maxVisiblePointsPerSeries?: number;
+  maxLivePointsPerTag?: number;
+  maxCachedRanges?: number;
   maxPointsPerSeries?: number;
   aggregation?: TrendChartAggregationMode;
   zoomDebounceMs?: number;

@@ -227,6 +227,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.
 type RequestOptions = {
   handleAuthInvalid?: boolean;
   replaceInFlight?: boolean;
+  inFlightKey?: string | null;
   connectivityEndpoint?: ConnectivityEndpoint | null;
   skipConnectivityGate?: boolean;
 };
@@ -238,9 +239,9 @@ type RequestError = Error & {
   retryAfterMs?: number;
 };
 
-const endpointInFlightControllers = new Map<ConnectivityEndpoint, AbortController>();
+const endpointInFlightControllers = new Map<string, AbortController>();
 
-function attachAbortSignal(target: AbortController, source: AbortSignal | undefined): void {
+function attachAbortSignal(target: AbortController, source: AbortSignal | null | undefined): void {
   if (!source) {
     return;
   }
@@ -313,13 +314,14 @@ async function request<T>(url: string, init?: RequestInit, options?: RequestOpti
 
   const requestController = new AbortController();
   attachAbortSignal(requestController, callerSignal);
-  const replaceInFlight = endpoint !== null && endpoint !== undefined && options?.replaceInFlight !== false;
-  if (endpoint && replaceInFlight) {
-    const previous = endpointInFlightControllers.get(endpoint);
+  const inFlightKey = options?.inFlightKey === undefined ? endpoint : options.inFlightKey;
+  const replaceInFlight = inFlightKey !== null && inFlightKey !== undefined && options?.replaceInFlight !== false;
+  if (inFlightKey && replaceInFlight) {
+    const previous = endpointInFlightControllers.get(inFlightKey);
     if (previous) {
       previous.abort();
     }
-    endpointInFlightControllers.set(endpoint, requestController);
+    endpointInFlightControllers.set(inFlightKey, requestController);
   }
 
   const defaultHeaders: Record<string, string> = token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : {};
@@ -382,8 +384,8 @@ async function request<T>(url: string, init?: RequestInit, options?: RequestOpti
     throw error;
   } finally {
     incrementRuntimeDiagnosticMetric("inFlightRequests", -1);
-    if (endpoint && endpointInFlightControllers.get(endpoint) === requestController) {
-      endpointInFlightControllers.delete(endpoint);
+    if (inFlightKey && endpointInFlightControllers.get(inFlightKey) === requestController) {
+      endpointInFlightControllers.delete(inFlightKey);
     }
   }
 }
@@ -469,7 +471,7 @@ export const api = {
         ? `/api/trends/range?${new URLSearchParams({ tags: tags.join(",") }).toString()}`
         : "/api/trends/range",
     ),
-  queryTrends: (payload: TrendQueryRequest, options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean }) =>
+  queryTrends: (payload: TrendQueryRequest, options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean; inFlightKey?: string | null }) =>
     request<TrendQueryResponse>("/api/trends/query", {
       method: "POST",
       signal: options?.signal,
@@ -477,6 +479,7 @@ export const api = {
     }, {
       replaceInFlight: options?.replaceInFlight,
       skipConnectivityGate: options?.skipConnectivityGate,
+      inFlightKey: options?.inFlightKey,
     }),
   getArchiveStatus: () => request<ArchiveStatus>("/api/archive/status"),
   listArchivePolicies: () => request<ArchivePolicy[]>("/api/archive/policies"),

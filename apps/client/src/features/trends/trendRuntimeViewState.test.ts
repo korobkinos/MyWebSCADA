@@ -52,9 +52,39 @@ describe("trend runtime state persistence", () => {
     expect(result?.tagPickerFilters.selectionFilter).toBe("all");
     expect(result?.seriesColumnWidths.tag).toBe(defaultWidths.tag);
     expect(result?.manualAxes[0]?.axisTitleMode).toBe("hidden");
+    expect(result?.settings.maxVisiblePointsPerSeries).toBe(result?.settings.maxPointsPerSeries);
+    expect(result?.settings.maxLivePointsPerTag).toBe(result?.settings.liveBufferLimit);
+    expect(result?.settings.maxCachedRanges).toBe(result?.settings.cacheSize);
     expect(result?.settings.realtimeAppendSnapshotAggregation).toBe("auto");
     expect(result?.settings.realtimeAppendSnapshotMaxPoints).toBe(8000);
     expect(result?.settings.realtimeAppendFlushMs).toBe(300);
+  });
+
+  it("maps legacy limits into new bounded settings fields", () => {
+    const raw = JSON.stringify({
+      rangePreset: "1h",
+      visibleRange: { from: 1000, to: 2000 },
+      liveMode: false,
+      customFrom: "2026-01-01T12:00",
+      customTo: "2026-01-01T13:00",
+      selectedTags: [],
+      settings: {
+        maxPointsPerSeries: 6000,
+        liveBufferLimit: 12000,
+        cacheSize: 80,
+      },
+    });
+
+    const result = resolveRuntimeViewState({
+      raw,
+      defaultTagPickerFilters: defaultFilters,
+      defaultSeriesColumnWidths: defaultWidths,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.settings.maxVisiblePointsPerSeries).toBe(6000);
+    expect(result?.settings.maxLivePointsPerTag).toBe(12000);
+    expect(result?.settings.maxCachedRanges).toBe(80);
   });
 
   it("clamps realtime append tuning fields", () => {
