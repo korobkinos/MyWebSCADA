@@ -37,6 +37,19 @@ function normalizeTags(tags: string[]): string[] {
 function resolveSocketUrl(): string {
   if (WS_BASE_URL) {
     const normalizedBase = WS_BASE_URL.replace(/\/+$/, "");
+    if (import.meta.env.DEV && typeof window !== "undefined") {
+      try {
+        const parsed = new URL(normalizedBase);
+        const isLoopbackBackend = (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost") && parsed.port === "3001";
+        const isViteDevOrigin = (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost") && window.location.port === "3000";
+        if (isLoopbackBackend && isViteDevOrigin) {
+          const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+          return `${protocol}://${window.location.host}/ws`;
+        }
+      } catch {
+        // fall back to configured base URL below
+      }
+    }
     if (normalizedBase.endsWith("/ws")) {
       return normalizedBase;
     }

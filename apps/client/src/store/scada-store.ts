@@ -22,7 +22,7 @@ import type {
   TagValue,
 } from "@web-scada/shared";
 import { executeEditorCommand, updateObjectDeep as updateObjectDeepInList } from "@web-scada/shared";
-import { api } from "../services/api";
+import { api, isAbortError } from "../services/api";
 
 type TagMap = Record<string, TagValue>;
 
@@ -47,7 +47,7 @@ type ScadaState = {
   loadMacros: () => Promise<void>;
   loadAssets: () => Promise<void>;
   loadLibraries: () => Promise<void>;
-  loadRuntimeStatus: () => Promise<void>;
+  loadRuntimeStatus: (options?: { signal?: AbortSignal }) => Promise<void>;
   startRuntime: () => Promise<void>;
   stopRuntime: () => Promise<void>;
   writeTag: (
@@ -325,9 +325,16 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     set({ libraries });
   },
 
-  async loadRuntimeStatus() {
-    const runtime = await api.getRuntimeStatus();
-    set({ runtime });
+  async loadRuntimeStatus(options) {
+    try {
+      const runtime = await api.getRuntimeStatus({ signal: options?.signal });
+      set({ runtime });
+    } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
+      throw error;
+    }
   },
 
   async startRuntime() {

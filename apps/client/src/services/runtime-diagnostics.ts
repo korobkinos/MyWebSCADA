@@ -2,6 +2,7 @@ export type ClientConnectionState = "online" | "degraded" | "offline";
 
 export type RuntimeDiagnosticsSnapshot = {
   activePollingLoops: number;
+  activePollingLoopIds: string[];
   activeWebSockets: number;
   inFlightRequests: number;
   trendPointsInMemory: number;
@@ -11,12 +12,29 @@ export type RuntimeDiagnosticsSnapshot = {
 };
 
 type RuntimeDiagnosticsListener = (snapshot: RuntimeDiagnosticsSnapshot) => void;
+type PollingLoopMeta = {
+  count: number;
+  registeredAt: number;
+  duplicateCount: number;
+};
+export type TrendWidgetDiagnostics = {
+  objectId: string;
+  activeLoopCount: number;
+  lastQueryTime: number | null;
+  queryCountPerMinute: number;
+  inFlightQueryCount: number;
+  pointsInState: number;
+  pointsInChart: number;
+  cacheEntryCount: number;
+};
 
-const POLLING_LOOP_IDS = new Set<string>();
+const POLLING_LOOP_IDS = new Map<string, PollingLoopMeta>();
+const TREND_WIDGETS = new Map<string, TrendWidgetDiagnostics>();
 const LISTENERS = new Set<RuntimeDiagnosticsListener>();
 
 const SNAPSHOT: RuntimeDiagnosticsSnapshot = {
   activePollingLoops: 0,
+  activePollingLoopIds: [],
   activeWebSockets: 0,
   inFlightRequests: 0,
   trendPointsInMemory: 0,
@@ -32,8 +50,21 @@ function emitDiagnostics(): void {
   }
 }
 
+function getPollingLoopCount(): number {
+  let count = 0;
+  for (const item of POLLING_LOOP_IDS.values()) {
+    count += item.count;
+  }
+  return count;
+}
+
+function syncPollingSnapshot(): void {
+  SNAPSHOT.activePollingLoops = getPollingLoopCount();
+  SNAPSHOT.activePollingLoopIds = [...POLLING_LOOP_IDS.entries()].flatMap(([id, meta]) => Array.from({ length: meta.count }, () => id));
+}
+
 export function getRuntimeDiagnosticsSnapshot(): RuntimeDiagnosticsSnapshot {
-  return { ...SNAPSHOT };
+  return { ...SNAPSHOT, activePollingLoopIds: [...SNAPSHOT.activePollingLoopIds] };
 }
 
 export function subscribeRuntimeDiagnostics(listener: RuntimeDiagnosticsListener): () => void {
@@ -45,19 +76,74 @@ export function subscribeRuntimeDiagnostics(listener: RuntimeDiagnosticsListener
 }
 
 export function registerPollingLoop(loopId: string): () => void {
-  if (!loopId || POLLING_LOOP_IDS.has(loopId)) {
+  if (!loopId) {
     return () => undefined;
   }
-  POLLING_LOOP_IDS.add(loopId);
-  SNAPSHOT.activePollingLoops = POLLING_LOOP_IDS.size;
+  const existing = POLLING_LOOP_IDS.get(loopId);
+  if (existing) {
+    existing.count += 1;
+    existing.duplicateCount += 1;
+    // eslint-disable-next-line no-console
+    console.warn("[RuntimeDiagnostics] duplicate polling loop registered", {
+      loopId,
+      count: existing.count,
+      duplicateCount: existing.duplicateCount,
+      activePollingLoops: getPollingLoopCount(),
+      activePollingLoopIds: [...POLLING_LOOP_IDS.keys()],
+    });
+  } else {
+    POLLING_LOOP_IDS.set(loopId, {
+      count: 1,
+      registeredAt: Date.now(),
+      duplicateCount: 0,
+    });
+  }
+  syncPollingSnapshot();
+  // eslint-disable-next-line no-console
+  console.info("[RuntimeDiagnostics] activePollingLoops", {
+    activePollingLoops: SNAPSHOT.activePollingLoops,
+    activePollingLoopIds: SNAPSHOT.activePollingLoopIds,
+  });
   emitDiagnostics();
+  let disposed = false;
   return () => {
-    if (!POLLING_LOOP_IDS.delete(loopId)) {
+    if (disposed) {
       return;
     }
-    SNAPSHOT.activePollingLoops = POLLING_LOOP_IDS.size;
+    disposed = true;
+    const current = POLLING_LOOP_IDS.get(loopId);
+    if (!current) {
+      return;
+    }
+    current.count -= 1;
+    if (current.count <= 0) {
+      POLLING_LOOP_IDS.delete(loopId);
+    }
+    syncPollingSnapshot();
+    // eslint-disable-next-line no-console
+    console.info("[RuntimeDiagnostics] activePollingLoops", {
+      activePollingLoops: SNAPSHOT.activePollingLoops,
+      activePollingLoopIds: SNAPSHOT.activePollingLoopIds,
+    });
     emitDiagnostics();
   };
+}
+
+export function setTrendWidgetDiagnostics(objectId: string, diagnostics: TrendWidgetDiagnostics): void {
+  TREND_WIDGETS.set(objectId, { ...diagnostics });
+  const expectedPerMinute = 60_000 / 2000 + 2;
+  if (diagnostics.queryCountPerMinute > expectedPerMinute) {
+    // eslint-disable-next-line no-console
+    console.warn("[RuntimeDiagnostics] excessive trend query rate", diagnostics);
+  }
+}
+
+export function clearTrendWidgetDiagnostics(objectId: string): void {
+  TREND_WIDGETS.delete(objectId);
+}
+
+export function getTrendWidgetDiagnostics(): TrendWidgetDiagnostics[] {
+  return [...TREND_WIDGETS.values()].map((item) => ({ ...item }));
 }
 
 export function setRuntimeDiagnosticMetric(
@@ -82,6 +168,7 @@ export function setRuntimeDiagnosticMetric(
   switch (metric) {
     case "activePollingLoops":
       SNAPSHOT.activePollingLoops = numericValue;
+      SNAPSHOT.activePollingLoopIds = [];
       break;
     case "activeWebSockets":
       SNAPSHOT.activeWebSockets = numericValue;

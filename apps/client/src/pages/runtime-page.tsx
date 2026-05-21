@@ -23,6 +23,7 @@ import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime
 import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
 import { updateRuntimeTagSubscriptions } from "../services/ws";
+import { isAbortError } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 import {
   WorkbenchButton,
@@ -146,7 +147,15 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   );
 
   useEffect(() => {
-    void loadRuntimeStatus();
+    const controller = new AbortController();
+    void loadRuntimeStatus({ signal: controller.signal }).catch((error) => {
+      if (isAbortError(error)) {
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.error("[RuntimePage] loadRuntimeStatus failed", error);
+    });
+    return () => controller.abort();
   }, [loadRuntimeStatus]);
 
   useEffect(() => {

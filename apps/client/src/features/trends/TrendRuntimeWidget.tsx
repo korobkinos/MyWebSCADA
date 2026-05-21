@@ -3,7 +3,7 @@ import { ColorPicker, Spin } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { hasRoleAccess, type TagValue, type TrendChartObject } from "@web-scada/shared";
 import { canRequestEndpoint, getConnectionSnapshot, getEndpointBackoffDelay, subscribeConnectionState, type ConnectionState } from "../../services/connection-state";
-import { registerPollingLoop, setRuntimeDiagnosticMetric } from "../../services/runtime-diagnostics";
+import { clearTrendWidgetDiagnostics, getRuntimeDiagnosticsSnapshot, registerPollingLoop, setRuntimeDiagnosticMetric, setTrendWidgetDiagnostics } from "../../services/runtime-diagnostics";
 import { createRuntimeSocket } from "../../services/ws";
 import type { TrendTagInfo } from "../../services/api";
 import { WorkbenchButton, WorkbenchIconButton } from "../../components/workbench";
@@ -19,6 +19,7 @@ import type { TrendAxisConfig, TrendChartApi, TrendLiveDataSource, TrendPoint, T
 import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendTableSettings, parseQuickRange } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
+import { TrendQueryRateLimiter } from "./trendQueryRateLimiter";
 
 const LIVE_REALTIME_FLUSH_MIN_MS = 50;
 const LIVE_REALTIME_FLUSH_MAX_MS = 1000;
@@ -39,6 +40,9 @@ const TREND_ZOOM_MIN_SPAN_MS = 15_000;
 const TREND_ZOOM_MAX_SPAN_MS = 24 * 60 * 60 * 1000;
 const TREND_CACHE_POINTS_PER_ENTRY = 8000;
 const TREND_CACHE_POINTS_MIN = 120_000;
+const MIN_TRENDS_QUERY_INTERVAL_MS = 2000;
+const TRENDS_DISABLE_ARCHIVE_POLLING_KEY = "scada.trends.disableArchivePolling";
+const ONLINE_RECOVERY_REFRESH_DEBOUNCE_MS = 3000;
 const TREND_CACHE_POINTS_MAX = 600_000;
 const TREND_SERIES_TABLE_HEADER_PX = 30;
 const TREND_SERIES_TABLE_ROW_PX = 30;
@@ -543,6 +547,10 @@ function computeNextMetronomeDelay(now: number, intervalMs: number): number {
   return Math.max(0, nextAt - now);
 }
 
+function isArchivePollingDisabled(): boolean {
+  return typeof window !== "undefined" && window.localStorage.getItem(TRENDS_DISABLE_ARCHIVE_POLLING_KEY) === "1";
+}
+
 function resolveRetryDelayFromError(error: unknown, fallbackEndpoint: "trendTags" | "trendsQuery"): number | null {
   if ((error as BackoffError | null)?.reason === "backoff") {
     const retryAfterMs = Number((error as BackoffError).retryAfterMs);
@@ -724,6 +732,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const trendQueryRateLimiterRef = useRef(new TrendQueryRateLimiter<ExecuteQueryResult>(MIN_TRENDS_QUERY_INTERVAL_MS));
+  const trendQueryInFlightCountRef = useRef(0);
+  const trendQueryLastStartedAtRef = useRef<number | null>(null);
+  const trendQueryStartedAtRef = useRef<number[]>([]);
+  const onlineRecoveryTimerRef = useRef<number | null>(null);
   const cacheRef = useRef(new TrendQueryCache(settings.maxCachedRanges, resolveTrendCachePointLimit(settings.maxCachedRanges)));
   const chartApiRef = useRef<TrendChartApi | null>(null);
   const liveBufferRef = useRef<LiveIncomingPoint[]>([]);
@@ -845,13 +858,36 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     if (selectedTagNames.length === 0) {
       return;
     }
-    setScreenRevision((value) => value + 1);
+    if (onlineRecoveryTimerRef.current !== null) {
+      window.clearTimeout(onlineRecoveryTimerRef.current);
+    }
+    onlineRecoveryTimerRef.current = window.setTimeout(() => {
+      onlineRecoveryTimerRef.current = null;
+      setScreenRevision((value) => value + 1);
+    }, ONLINE_RECOVERY_REFRESH_DEBOUNCE_MS);
   }, [connectionState, selectedTagNames.length]);
 
   useEffect(() => {
     setRuntimeDiagnosticMetric("trendPointsInMemory", pointCount + liveBufferRef.current.length + liveBootstrapBufferRef.current.length);
     setRuntimeDiagnosticMetric("cachedTrendRanges", cacheRef.current.getStats().entryCount);
   }, [pointCount, screenRevision, settings.maxCachedRanges]);
+
+  useEffect(() => {
+    const now = Date.now();
+    trendQueryStartedAtRef.current = trendQueryStartedAtRef.current.filter((item) => now - item < 60_000);
+    const activeLoopCount = getRuntimeDiagnosticsSnapshot().activePollingLoopIds
+      .filter((loopId) => loopId.endsWith(`:${object.id}`)).length;
+    setTrendWidgetDiagnostics(object.id, {
+      objectId: object.id,
+      activeLoopCount,
+      lastQueryTime: trendQueryLastStartedAtRef.current,
+      queryCountPerMinute: trendQueryStartedAtRef.current.length,
+      inFlightQueryCount: trendQueryInFlightCountRef.current,
+      pointsInState: pointCount + liveBufferRef.current.length + liveBootstrapBufferRef.current.length,
+      pointsInChart: chartApiRef.current?.getPointCount() ?? 0,
+      cacheEntryCount: cacheRef.current.getStats().entryCount,
+    });
+  }, [liveDataSource, liveMode, object.id, pointCount, screenRevision, selectedTagNamesKey, settings.maxCachedRanges]);
 
   useEffect(() => {
     const selectedSet = new Set(selectedTagNames);
@@ -1036,6 +1072,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       liveSessionId?: number;
       skipLoadingState?: boolean;
       skipLiveLoadingState?: boolean;
+      skipRateLimit?: boolean;
     },
   ): Promise<ExecuteQueryResult> => {
     if (selectedTagNames.length === 0) {
@@ -1142,6 +1179,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
     }
 
+    if (!options?.skipRateLimit) {
+      return trendQueryRateLimiterRef.current.schedule(() => executeQuery(range, {
+        ...options,
+        skipRateLimit: true,
+      }));
+    }
+
     requestIdRef.current += 1;
     const requestId = requestIdRef.current;
     requestControllerRef.current?.abort();
@@ -1159,6 +1203,21 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     }
 
     try {
+      const queryStartedAt = Date.now();
+      trendQueryLastStartedAtRef.current = queryStartedAt;
+      trendQueryStartedAtRef.current = [...trendQueryStartedAtRef.current.filter((item) => queryStartedAt - item < 60_000), queryStartedAt];
+      trendQueryInFlightCountRef.current += 1;
+      setTrendWidgetDiagnostics(object.id, {
+        objectId: object.id,
+        activeLoopCount: getRuntimeDiagnosticsSnapshot().activePollingLoopIds
+          .filter((loopId) => loopId.endsWith(`:${object.id}`)).length,
+        lastQueryTime: queryStartedAt,
+        queryCountPerMinute: trendQueryStartedAtRef.current.length,
+        inFlightQueryCount: trendQueryInFlightCountRef.current,
+        pointsInState: sourcePointCountRef.current + liveBufferRef.current.length + liveBootstrapBufferRef.current.length,
+        pointsInChart: chartApiRef.current?.getPointCount() ?? 0,
+        cacheEntryCount: cacheRef.current.getStats().entryCount,
+      });
       let next = await queryTrendData({
         tags: tagNames,
         from: new Date(range.from).toISOString(),
@@ -1206,30 +1265,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             tailFrom,
             tailTo: range.to,
           });
-          const tail = await queryTrendData({
-            tags: tagNames,
-            from: new Date(tailFrom).toISOString(),
-            to: new Date(range.to).toISOString(),
-            maxPoints: 4000,
-            aggregation: "raw",
-          }, {
-            signal: controller.signal,
-            inFlightKey: `trendsQuery:${object.id}`,
-          });
-          if (requestId !== requestIdRef.current) {
-            return { ok: false, reason: "error" };
-          }
-          if (targetMode === "live" && liveSessionId !== liveSessionIdRef.current) {
-            return { ok: false, reason: "error" };
-          }
-          next = {
-            ...next,
-            aggregation: "raw",
-            series: mergeTrendSeriesPoints(next.series, tail.series),
-          };
-          logTrendDiagnostics("query:tail-raw-merged", {
-            tailAggregation: tail.aggregation,
-            mergedPoints: next.series.reduce((acc, series) => acc + series.points.length, 0),
+          logTrendDiagnostics("query:tail-raw-skipped-rate-limit", {
+            reason: "single-query-per-widget-interval",
+            minIntervalMs: MIN_TRENDS_QUERY_INTERVAL_MS,
+            tailFrom,
+            tailTo: range.to,
           });
           latestTs = next.series.reduce((maxTs, series) => {
             const tailTs = series.points[series.points.length - 1]?.t ?? Number.NEGATIVE_INFINITY;
@@ -1397,6 +1437,18 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
       return { ok: false, reason: "error" };
     } finally {
+      trendQueryInFlightCountRef.current = Math.max(0, trendQueryInFlightCountRef.current - 1);
+      setTrendWidgetDiagnostics(object.id, {
+        objectId: object.id,
+        activeLoopCount: getRuntimeDiagnosticsSnapshot().activePollingLoopIds
+          .filter((loopId) => loopId.endsWith(`:${object.id}`)).length,
+        lastQueryTime: trendQueryLastStartedAtRef.current,
+        queryCountPerMinute: trendQueryStartedAtRef.current.length,
+        inFlightQueryCount: trendQueryInFlightCountRef.current,
+        pointsInState: sourcePointCountRef.current + liveBufferRef.current.length + liveBootstrapBufferRef.current.length,
+        pointsInChart: chartApiRef.current?.getPointCount() ?? 0,
+        cacheEntryCount: cacheRef.current.getStats().entryCount,
+      });
       if (requestId === requestIdRef.current && !options?.skipLoadingState) {
         setLoading(false);
       }
@@ -1575,14 +1627,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   useEffect(() => () => {
     requestControllerRef.current?.abort();
+    trendQueryRateLimiterRef.current.cancel({ ok: false, reason: "error" });
     liveSocketRef.current?.close();
     if (historyLoadTimerRef.current) {
       window.clearTimeout(historyLoadTimerRef.current);
+    }
+    if (onlineRecoveryTimerRef.current !== null) {
+      window.clearTimeout(onlineRecoveryTimerRef.current);
+      onlineRecoveryTimerRef.current = null;
     }
     if (viewStateSaveTimerRef.current) {
       window.clearTimeout(viewStateSaveTimerRef.current);
       viewStateSaveTimerRef.current = null;
     }
+    clearTrendWidgetDiagnostics(object.id);
   }, []);
 
   useEffect(() => {
@@ -1653,7 +1711,6 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     liveDataSource,
     liveMode,
     realtimeAppendFlushMs,
-    screenRevision,
     selectedTagNames.length,
     selectedTagNamesKey,
     settings.realtimeAppendSnapshotAggregation,
@@ -1671,6 +1728,15 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   useEffect(() => {
     if (liveDataSource !== "archivePolling" || !liveMode || selectedTagNames.length === 0) {
+      return;
+    }
+    if (isArchivePollingDisabled()) {
+      logTrendDiagnostics("livePolling:disabled", {
+        objectId: object.id,
+        localStorageKey: TRENDS_DISABLE_ARCHIVE_POLLING_KEY,
+      });
+      setLiveBootstrapReady(true);
+      setLiveHistoryState("idle");
       return;
     }
 
@@ -1821,7 +1887,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         window.clearTimeout(timerId);
       }
     };
-  }, [executeQuery, liveDataSource, liveMode, livePollingIntervalMs, liveWindowMs, object.id, screenRevision, selectedTagNames.length, selectedTagNamesKey]);
+  }, [executeQuery, liveDataSource, liveMode, livePollingIntervalMs, liveWindowMs, object.id, selectedTagNames.length, selectedTagNamesKey]);
 
   useEffect(() => {
     if (canOpenRuntimeSettings) {
@@ -2193,7 +2259,6 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     liveWindowMs,
     object.id,
     realtimeAppendFlushMs,
-    screenRevision,
     selectedTagNames.length,
     selectedTagNamesKey,
     settings.liveResyncEnabled,

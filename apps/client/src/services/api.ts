@@ -241,6 +241,10 @@ type RequestError = Error & {
 
 const endpointInFlightControllers = new Map<string, AbortController>();
 
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 function attachAbortSignal(target: AbortController, source: AbortSignal | null | undefined): void {
   if (!source) {
     return;
@@ -270,6 +274,18 @@ function resolveRequestUrl(url: string): string {
   }
   if (!url.startsWith("/api")) {
     return url;
+  }
+  if (import.meta.env.DEV && typeof window !== "undefined") {
+    try {
+      const apiUrl = new URL(API_BASE_URL);
+      const isLoopbackBackend = (apiUrl.hostname === "127.0.0.1" || apiUrl.hostname === "localhost") && apiUrl.port === "3001";
+      const isViteDevOrigin = (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost") && window.location.port === "3000";
+      if (isLoopbackBackend && isViteDevOrigin) {
+        return url;
+      }
+    } catch {
+      // fall back to configured base URL below
+    }
   }
   return `${API_BASE_URL}${url}`;
 }
@@ -376,7 +392,7 @@ async function request<T>(url: string, init?: RequestInit, options?: RequestOpti
 
     return (await response.json()) as T;
   } catch (error) {
-    const aborted = error instanceof DOMException && error.name === "AbortError";
+    const aborted = isAbortError(error);
     if (!aborted && endpoint && isConnectivityFailure(error)) {
       const text = error instanceof Error ? error.message : String(error);
       markEndpointFailure(endpoint, text);
