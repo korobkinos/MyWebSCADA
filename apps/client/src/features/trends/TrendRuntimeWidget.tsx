@@ -14,7 +14,7 @@ import { TrendTagPickerDialog } from "./TrendTagPickerDialog";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
-import type { TrendAxisConfig, TrendChartApi, TrendLiveDataSource, TrendPoint, TrendQueryResponse, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
+import type { TrendAxisConfig, TrendChartApi, TrendLiveDataSource, TrendPoint, TrendQueryResponse, TrendQuickPreset, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
@@ -675,6 +675,9 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
     tagPickerFilters: DEFAULT_TAG_PICKER_FILTERS,
     seriesColumnWidths: DEFAULT_SERIES_COLUMN_WIDTHS,
     defaultsSignature: objectDefaultsSignature,
+    toolbarQuickPreset: objectRange.preset === "5m" || objectRange.preset === "15m" || objectRange.preset === "1h"
+      ? objectRange.preset
+      : null,
   };
 }
 
@@ -700,9 +703,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [customFrom, setCustomFrom] = useState(initialViewState.customFrom);
   const [customTo, setCustomTo] = useState(initialViewState.customTo);
   const [toolbarQuickPreset, setToolbarQuickPreset] = useState<TrendRangePreset | null>(
-    initialViewState.rangePreset === "5m" || initialViewState.rangePreset === "15m" || initialViewState.rangePreset === "1h"
-      ? initialViewState.rangePreset
-      : null
+    initialViewState.toolbarQuickPreset !== undefined
+      ? initialViewState.toolbarQuickPreset
+      : initialViewState.rangePreset === "5m" || initialViewState.rangePreset === "15m" || initialViewState.rangePreset === "1h"
+        ? initialViewState.rangePreset
+        : null
   );
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -970,10 +975,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         manualAxes,
         tagPickerFilters,
         seriesColumnWidths,
+        toolbarQuickPreset: (toolbarQuickPreset === "5m" || toolbarQuickPreset === "15m" || toolbarQuickPreset === "1h" ? toolbarQuickPreset : null) as TrendQuickPreset | null,
         defaultsSignature: objectDefaultsSignature,
       },
     });
-  }, [customFrom, customTo, liveMode, manualAxes, object.id, objectDefaultsSignature, rangePreset, selectedTags, seriesColumnWidths, settings, tagPickerFilters]);
+  }, [customFrom, customTo, liveMode, manualAxes, object.id, objectDefaultsSignature, rangePreset, selectedTags, seriesColumnWidths, settings, tagPickerFilters, toolbarQuickPreset]);
 
   useEffect(() => {
     visibleRangeRef.current = visibleRange;

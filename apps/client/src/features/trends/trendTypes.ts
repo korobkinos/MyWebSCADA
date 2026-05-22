@@ -3,6 +3,7 @@ import type { TrendAggregationMode, TrendPoint, TrendQueryResponse, TrendTagInfo
 export type { TrendAggregationMode, TrendPoint, TrendQueryResponse, TrendTagInfo };
 
 export type TrendRangePreset = "5m" | "15m" | "1h" | "8h" | "24h" | "custom";
+export type TrendQuickPreset = "5m" | "15m" | "1h";
 export type TrendSeriesColumnId = "visible" | "tag" | "displayName" | "description" | "color" | "value";
 export type TrendSeriesColumnWidths = Record<TrendSeriesColumnId, number>;
 

@@ -1,4 +1,4 @@
-import type { TrendAxisConfig, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
+import type { TrendAxisConfig, TrendRangePreset, TrendQuickPreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { clamp, defaultTrendSettings, normalizeTrendTableSettings } from "./trendUtils";
 
 const TREND_RUNTIME_VIEW_STATE_STORAGE_PREFIX = "mywebscada.trends.runtimeViewState";
@@ -17,6 +17,7 @@ type TrendRuntimeViewStateData = {
   manualAxes: TrendAxisConfig[];
   tagPickerFilters: TrendTagPickerFilters;
   seriesColumnWidths: TrendSeriesColumnWidths;
+  toolbarQuickPreset?: TrendQuickPreset | null;
   defaultsSignature?: string;
 };
 
@@ -196,6 +197,11 @@ export function resolveRuntimeViewState({
           verticalLabelOffsetX: normalizeVerticalLabelOffsetX((axis as { verticalLabelOffsetX?: unknown }).verticalLabelOffsetX),
         }))
       : [];
+    const rawToolbarQuickPreset = (parsed as Record<string, unknown>).toolbarQuickPreset;
+    const toolbarQuickPreset: TrendQuickPreset | null =
+      rawToolbarQuickPreset === "5m" || rawToolbarQuickPreset === "15m" || rawToolbarQuickPreset === "1h"
+        ? rawToolbarQuickPreset
+        : null;
 
     return {
       rangePreset: preset,
@@ -211,6 +217,7 @@ export function resolveRuntimeViewState({
         parsed.seriesColumnWidths as Partial<Record<TrendSeriesColumnId, unknown>> | undefined,
         defaultSeriesColumnWidths,
       ),
+      toolbarQuickPreset,
       defaultsSignature: typeof parsed.defaultsSignature === "string" ? parsed.defaultsSignature : undefined,
     };
   } catch {
