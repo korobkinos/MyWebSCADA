@@ -2309,6 +2309,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   };
 
   const applyPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
+    setRangePreset(preset);
     const next = parseQuickRange(preset);
     logTrendDiagnostics("range:preset", {
       preset,
@@ -2429,6 +2430,24 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setOfflineResponse(buildEmptyTrendResponse(visibleRange, selectedTags));
     void executeQuery(visibleRange, { force: true, context: "history", targetMode: "offline" });
   };
+
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+
+  useEffect(() => {
+    const intervalMs = settings.refreshIntervalMs;
+    if (liveMode || !intervalMs || intervalMs < 500) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      if (refreshRef.current) {
+        refreshRef.current();
+      }
+    }, intervalMs);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [liveMode, settings.refreshIntervalMs]);
 
   const toggleLiveMode = () => {
     if (!hasSelection) {
