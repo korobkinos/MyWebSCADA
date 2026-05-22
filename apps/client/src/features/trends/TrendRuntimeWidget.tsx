@@ -699,6 +699,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [visibleRange, setVisibleRange] = useState<TrendVisibleRange>(initialViewState.visibleRange);
   const [customFrom, setCustomFrom] = useState(initialViewState.customFrom);
   const [customTo, setCustomTo] = useState(initialViewState.customTo);
+  const [toolbarQuickPreset, setToolbarQuickPreset] = useState<TrendRangePreset | null>(
+    initialViewState.rangePreset === "5m" || initialViewState.rangePreset === "15m" || initialViewState.rangePreset === "1h"
+      ? initialViewState.rangePreset
+      : null
+  );
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<"appearance" | "performance" | "axes" | "series" | "table" | "toolbar">("appearance");
@@ -2310,6 +2315,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const applyPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
     const next = parseQuickRange(preset);
     setRangePreset(preset);
+    setToolbarQuickPreset(preset);
     logTrendDiagnostics("range:preset", {
       preset,
       from: next.from,
@@ -2370,6 +2376,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       } else {
         toolbarRangeRef.current = null;
         setRangePreset("custom");
+        setToolbarQuickPreset(null);
       }
     }
     if (source === "interaction" && liveMode) {
@@ -2647,9 +2654,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           ) : null}
           {settings.showToolbarQuickRangeButtons ? (
             <>
-              <WorkbenchIconButton title="Quick 5m" onClick={() => applyPreset("5m")} active={rangePreset === "5m"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">5m</span>} />
-              <WorkbenchIconButton title="Quick 15m" onClick={() => applyPreset("15m")} active={rangePreset === "15m"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">15m</span>} />
-              <WorkbenchIconButton title="Quick 1h" onClick={() => applyPreset("1h")} active={rangePreset === "1h"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">1h</span>} />
+              <WorkbenchIconButton title="Quick 5m" onClick={() => applyPreset("5m")} active={toolbarQuickPreset === "5m"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">5m</span>} />
+              <WorkbenchIconButton title="Quick 15m" onClick={() => applyPreset("15m")} active={toolbarQuickPreset === "15m"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">15m</span>} />
+              <WorkbenchIconButton title="Quick 1h" onClick={() => applyPreset("1h")} active={toolbarQuickPreset === "1h"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">1h</span>} />
             </>
           ) : null}
           {settings.showToolbarPanButtons ? (
