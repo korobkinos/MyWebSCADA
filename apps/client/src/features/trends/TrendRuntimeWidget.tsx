@@ -640,7 +640,10 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
     const restoredSettings = restored.settings ?? resolvedSettings;
     const normalizedRestoredAxes = normalizeTrendAxes(restored.manualAxes ?? object.axes ?? [], restoredSettings);
     if (restored.liveMode) {
-      const span = Math.max(60_000, restored.visibleRange.to - restored.visibleRange.from);
+      const presetSpan = restored.toolbarQuickPreset
+        ? parseQuickRange(restored.toolbarQuickPreset).to - parseQuickRange(restored.toolbarQuickPreset).from
+        : null;
+      const span = presetSpan ?? Math.max(60_000, restored.visibleRange.to - restored.visibleRange.from);
       const right = Date.now();
       const nextRange: TrendVisibleRange = {
         from: right - span,
@@ -656,11 +659,17 @@ function resolveInitialRuntimeViewState(object: TrendChartObject): TrendRuntimeV
         customTo: toLocalDateTimeInputValue(nextRange.to),
       };
     }
+    const restoredVisibleRange = restored.toolbarQuickPreset
+      ? parseQuickRange(restored.toolbarQuickPreset)
+      : restored.visibleRange;
     return {
       ...restored,
       settings: restoredSettings,
       manualAxes: normalizedRestoredAxes,
       defaultsSignature: objectDefaultsSignature,
+      visibleRange: restoredVisibleRange,
+      customFrom: toLocalDateTimeInputValue(restoredVisibleRange.from),
+      customTo: toLocalDateTimeInputValue(restoredVisibleRange.to),
     };
   }
   return {
