@@ -26,6 +26,7 @@ const MAX_TABLE_COLUMN_WIDTH = 1400;
 const TREND_TABLE_ROW_HEIGHT_DEFAULT = 30;
 const TREND_TABLE_HEADER_HEIGHT_DEFAULT = 30;
 const TREND_TABLE_FONT_SIZE_DEFAULT = 12;
+const TREND_REFRESH_INTERVAL_MS_DEFAULT = 1000;
 const TREND_TABLE_CELL_PADDING_X_DEFAULT = 6;
 const TREND_TABLE_CELL_PADDING_Y_DEFAULT = 3;
 
@@ -582,6 +583,10 @@ export function TrendSettingsPanel({
                     <label className="workbench-field">
                       <span className="workbench-field__label">Zoom debounce (ms)</span>
                       <input className="workbench-input" type="number" min={100} max={1200} value={draftSettings.zoomDebounceMs} onChange={(event) => onNumericInput(event, (value) => patchSettings({ zoomDebounceMs: value }))} />
+                    </label>
+                    <label className="workbench-field">
+                      <span className="workbench-field__label">Refresh interval (ms)</span>
+                      <input className="workbench-input" type="number" min={500} max={60000} value={draftSettings.refreshIntervalMs} onChange={(event) => onNumericInput(event, (value) => patchSettings({ refreshIntervalMs: value }))} />
                     </label>
                   </div>
                 </div>

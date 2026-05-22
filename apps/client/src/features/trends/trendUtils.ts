@@ -106,6 +106,7 @@ export function defaultTrendSettings(): TrendSettings {
     maxPointsPerSeries: 4000,
     aggregation: "raw",
     zoomDebounceMs: 350,
+    refreshIntervalMs: 1000,
     progressive: true,
     disableAnimationsLargeData: true,
     cacheEnabled: true,

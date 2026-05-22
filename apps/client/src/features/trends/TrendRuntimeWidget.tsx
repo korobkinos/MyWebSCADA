@@ -2630,9 +2630,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           ) : null}
           {settings.showToolbarQuickRangeButtons ? (
             <>
-              <WorkbenchIconButton title="Quick 5m" onClick={() => applyPreset("5m")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">5m</span>} />
-              <WorkbenchIconButton title="Quick 15m" onClick={() => applyPreset("15m")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">15m</span>} />
-              <WorkbenchIconButton title="Quick 1h" onClick={() => applyPreset("1h")} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">1h</span>} />
+              <WorkbenchIconButton title="Quick 5m" onClick={() => applyPreset("5m")} active={rangePreset === "5m"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">5m</span>} />
+              <WorkbenchIconButton title="Quick 15m" onClick={() => applyPreset("15m")} active={rangePreset === "15m"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">15m</span>} />
+              <WorkbenchIconButton title="Quick 1h" onClick={() => applyPreset("1h")} active={rangePreset === "1h"} disabled={!hasSelection} icon={<span className="trends-toolbar__quick">1h</span>} />
             </>
           ) : null}
           {settings.showToolbarPanButtons ? (

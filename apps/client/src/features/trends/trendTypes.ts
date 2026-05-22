@@ -93,6 +93,7 @@ export type TrendSettings = {
   maxPointsPerSeries: number;
   aggregation: TrendAggregationMode;
   zoomDebounceMs: number;
+  refreshIntervalMs: number;
   progressive: boolean;
   disableAnimationsLargeData: boolean;
   cacheEnabled: boolean;
