@@ -3,6 +3,9 @@ import type { DriverConfig, TagDefinition, TagValue } from "@web-scada/shared";
 import { ARCHIVE_SCHEMA_SQL, ARCHIVE_TIMESCALE_SQL } from "./archive-schema.js";
 
 const { Pool } = pg;
+const ARCHIVE_SIZE_DELETE_MIN_ROWS = 100_000;
+const ARCHIVE_SIZE_DELETE_MAX_ROWS = 500_000;
+const ARCHIVE_SIZE_DELETE_HEADROOM = 1.15;
 
 export type ArchiveLogger = {
   info(message: string): void;
@@ -95,7 +98,6 @@ export type ArchiveStorageStatsRow = {
 export type ArchiveRuntimeSettingsRow = {
   autoCleanupEnabled: boolean;
   maxDbSizeMb: number | null;
-  maxDataAgeMonths: number | null;
   updatedAt: string;
 };
 
@@ -769,7 +771,11 @@ export class ArchiveRepository {
         AND s.time < now() - make_interval(days => COALESCE(o.retention_days, p.retention_days))
       `,
     );
-    return result.rowCount ?? 0;
+    const deleted = result.rowCount ?? 0;
+    if (deleted > 0) {
+      await this.compactArchiveSamples();
+    }
+    return deleted;
   }
 
   public async configureCompressionPolicy(): Promise<void> {
@@ -832,11 +838,10 @@ export class ArchiveRepository {
     const result = await this.pool.query<{
       auto_cleanup_enabled: boolean;
       max_db_size_mb: number | null;
-      max_data_age_months: number | null;
       updated_at: Date;
     }>(
       `
-      SELECT auto_cleanup_enabled, max_db_size_mb, max_data_age_months, updated_at
+      SELECT auto_cleanup_enabled, max_db_size_mb, updated_at
       FROM archive_runtime_settings
       WHERE id = 1
       `,
@@ -846,14 +851,12 @@ export class ArchiveRepository {
       return {
         autoCleanupEnabled: true,
         maxDbSizeMb: 5120,
-        maxDataAgeMonths: 12,
         updatedAt: new Date(0).toISOString(),
       };
     }
     return {
       autoCleanupEnabled: row.auto_cleanup_enabled,
       maxDbSizeMb: row.max_db_size_mb,
-      maxDataAgeMonths: row.max_data_age_months,
       updatedAt: row.updated_at.toISOString(),
     };
   }
@@ -861,25 +864,23 @@ export class ArchiveRepository {
   public async updateRuntimeSettings(settings: {
     autoCleanupEnabled: boolean;
     maxDbSizeMb: number | null;
-    maxDataAgeMonths: number | null;
   }): Promise<ArchiveRuntimeSettingsRow> {
     const result = await this.pool.query<{
       auto_cleanup_enabled: boolean;
       max_db_size_mb: number | null;
-      max_data_age_months: number | null;
       updated_at: Date;
     }>(
       `
       INSERT INTO archive_runtime_settings (id, auto_cleanup_enabled, max_db_size_mb, max_data_age_months, updated_at)
-      VALUES (1, $1, $2, $3, now())
+      VALUES (1, $1, $2, NULL, now())
       ON CONFLICT (id) DO UPDATE
       SET auto_cleanup_enabled = EXCLUDED.auto_cleanup_enabled,
           max_db_size_mb = EXCLUDED.max_db_size_mb,
-          max_data_age_months = EXCLUDED.max_data_age_months,
+          max_data_age_months = NULL,
           updated_at = now()
-      RETURNING auto_cleanup_enabled, max_db_size_mb, max_data_age_months, updated_at
+      RETURNING auto_cleanup_enabled, max_db_size_mb, updated_at
       `,
-      [settings.autoCleanupEnabled, settings.maxDbSizeMb, settings.maxDataAgeMonths],
+      [settings.autoCleanupEnabled, settings.maxDbSizeMb],
     );
     const row = result.rows[0];
     if (!row) {
@@ -888,7 +889,6 @@ export class ArchiveRepository {
     return {
       autoCleanupEnabled: row.auto_cleanup_enabled,
       maxDbSizeMb: row.max_db_size_mb,
-      maxDataAgeMonths: row.max_data_age_months,
       updatedAt: row.updated_at.toISOString(),
     };
   }
@@ -949,7 +949,6 @@ export class ArchiveRepository {
   public async enforceRuntimeLimits(settings: {
     autoCleanupEnabled: boolean;
     maxDbSizeMb: number | null;
-    maxDataAgeMonths: number | null;
   }): Promise<{ deletedByAge: number; deletedBySize: number }> {
     if (!settings.autoCleanupEnabled) {
       return { deletedByAge: 0, deletedBySize: 0 };
@@ -957,30 +956,35 @@ export class ArchiveRepository {
     let deletedByAge = 0;
     let deletedBySize = 0;
 
-    if ((settings.maxDataAgeMonths ?? 0) > 0) {
-      const result = await this.pool.query(
-        `
-        DELETE FROM archive_samples
-        WHERE time < now() - make_interval(months => $1)
-        `,
-        [settings.maxDataAgeMonths],
-      );
-      deletedByAge = result.rowCount ?? 0;
-    }
-
     if ((settings.maxDbSizeMb ?? 0) > 0) {
       const maxBytes = (settings.maxDbSizeMb ?? 0) * 1024 * 1024;
       let safetyCounter = 0;
       while (safetyCounter < 100) {
         safetyCounter += 1;
-        const sizeResult = await this.pool.query<{ size_bytes: string | number }>(
-          "SELECT COALESCE(pg_total_relation_size('archive_samples'), 0) AS size_bytes",
+        const sizeResult = await this.pool.query<{ size_bytes: string | number; records_count: string | number }>(
+          `
+          SELECT
+            COALESCE(pg_total_relation_size('archive_samples'), 0) AS size_bytes,
+            (SELECT COUNT(*)::bigint FROM archive_samples) AS records_count
+          `,
         );
         const sizeRaw = sizeResult.rows[0]?.size_bytes ?? 0;
+        const recordsRaw = sizeResult.rows[0]?.records_count ?? 0;
         const currentBytes = typeof sizeRaw === "string" ? Number.parseInt(sizeRaw, 10) : Number(sizeRaw);
+        const recordsCount = typeof recordsRaw === "string" ? Number.parseInt(recordsRaw, 10) : Number(recordsRaw);
         if (!Number.isFinite(currentBytes) || currentBytes <= maxBytes) {
           break;
         }
+        if (!Number.isFinite(recordsCount) || recordsCount <= 0) {
+          await this.compactArchiveSamples();
+          break;
+        }
+        const overflowRatio = Math.min(1, Math.max(0, (currentBytes - maxBytes) / currentBytes));
+        const deleteLimit = Math.min(
+          recordsCount,
+          ARCHIVE_SIZE_DELETE_MAX_ROWS,
+          Math.max(ARCHIVE_SIZE_DELETE_MIN_ROWS, Math.ceil(recordsCount * overflowRatio * ARCHIVE_SIZE_DELETE_HEADROOM)),
+        );
         const deleteResult = await this.pool.query(
           `
           DELETE FROM archive_samples
@@ -988,19 +992,35 @@ export class ArchiveRepository {
             SELECT ctid
             FROM archive_samples
             ORDER BY time ASC
-            LIMIT 100000
+            LIMIT $1
           )
           `,
+          [deleteLimit],
         );
         const chunkDeleted = deleteResult.rowCount ?? 0;
         deletedBySize += chunkDeleted;
         if (chunkDeleted === 0) {
+          await this.compactArchiveSamples();
           break;
         }
+        await this.compactArchiveSamples();
       }
     }
 
     return { deletedByAge, deletedBySize };
+  }
+
+  private async compactArchiveSamples(): Promise<void> {
+    try {
+      await this.pool.query("VACUUM (FULL, ANALYZE) archive_samples");
+    } catch (error) {
+      this.logger.warn(`Archive samples compaction failed: ${this.errorText(error)}`);
+      try {
+        await this.pool.query("VACUUM (ANALYZE) archive_samples");
+      } catch (fallbackError) {
+        this.logger.warn(`Archive samples analyze failed: ${this.errorText(fallbackError)}`);
+      }
+    }
   }
 
   private async loadTrendTagMeta(tagNames?: string[]): Promise<TrendTagMetaRow[]> {

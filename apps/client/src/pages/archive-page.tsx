@@ -236,7 +236,6 @@ type ArchiveConfirmState = {
 type ArchiveSettingsDraft = {
   autoCleanupEnabled: boolean;
   maxDbSizeMb: number | null;
-  maxDataAgeMonths: number | null;
 };
 
 const DEFAULT_DETAILS_WIDTH = 420;
@@ -284,7 +283,6 @@ export function ArchivePage() {
   const [settingsDraft, setSettingsDraft] = useState<ArchiveSettingsDraft>({
     autoCleanupEnabled: true,
     maxDbSizeMb: 5120,
-    maxDataAgeMonths: 12,
   });
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [confirmState, setConfirmState] = useState<ArchiveConfirmState | null>(null);
@@ -363,7 +361,6 @@ export function ArchivePage() {
       setSettingsDraft({
         autoCleanupEnabled: nextSettings.autoCleanupEnabled,
         maxDbSizeMb: nextSettings.maxDbSizeMb,
-        maxDataAgeMonths: nextSettings.maxDataAgeMonths,
       });
     } catch (error) {
       const errorText = error instanceof Error ? error.message : "Archive load failed";
@@ -864,12 +861,10 @@ export function ArchivePage() {
     const source = runtimeSettings ?? {
       autoCleanupEnabled: true,
       maxDbSizeMb: 5120,
-      maxDataAgeMonths: 12,
     };
     setSettingsDraft({
       autoCleanupEnabled: source.autoCleanupEnabled,
       maxDbSizeMb: source.maxDbSizeMb,
-      maxDataAgeMonths: source.maxDataAgeMonths,
     });
     setSettingsModalOpen(true);
   };
@@ -880,14 +875,12 @@ export function ArchivePage() {
       const payload: ArchiveSettingsDraft = {
         autoCleanupEnabled: settingsDraft.autoCleanupEnabled,
         maxDbSizeMb: settingsDraft.maxDbSizeMb && settingsDraft.maxDbSizeMb > 0 ? Math.round(settingsDraft.maxDbSizeMb) : null,
-        maxDataAgeMonths: settingsDraft.maxDataAgeMonths && settingsDraft.maxDataAgeMonths > 0 ? Math.round(settingsDraft.maxDataAgeMonths) : null,
       };
       const saved = await api.updateArchiveSettings(payload);
       setRuntimeSettings(saved);
       setSettingsDraft({
         autoCleanupEnabled: saved.autoCleanupEnabled,
         maxDbSizeMb: saved.maxDbSizeMb,
-        maxDataAgeMonths: saved.maxDataAgeMonths,
       });
       setSettingsModalOpen(false);
       void message.success("Archive settings saved");
@@ -942,8 +935,11 @@ export function ArchivePage() {
     if (!status.enabled) {
       return { tone: "warning", text: `Archive status: disabled${status.reason ? ` - ${status.reason}` : ""} | last check ${checkTime}`, details };
     }
+    if (status.maintenanceRunning) {
+      return { tone: "loading", text: `Archive status: optimizing | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+    }
     return { tone: "ok", text: `Archive status: running | queue ${status.queuedSamples} | last check ${checkTime}`, details };
-  }, [lastLoadError, lastStatusCheckAt, loading, status.dbSizeMb, status.enabled, status.queuedSamples, status.reason, status.recordsCount]);
+  }, [lastLoadError, lastStatusCheckAt, loading, status.dbSizeMb, status.enabled, status.maintenanceRunning, status.queuedSamples, status.reason, status.recordsCount]);
 
   return (
     <div className="screen-editor-window-content screen-editor-tags-window screen-editor-archive-window route-page-fill">
@@ -1295,18 +1291,7 @@ export function ArchivePage() {
               onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxDbSizeMb: value === null ? null : Number(value) }))}
               style={{ width: 220 }}
             />
-            <span className="screen-editor-tag-editor__hint">When exceeded, oldest archive samples are deleted first.</span>
-          </label>
-
-          <label className="workbench-field">
-            <span className="workbench-field__label">Max Data Age (months)</span>
-            <InputNumber
-              min={1}
-              value={settingsDraft.maxDataAgeMonths ?? null}
-              onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxDataAgeMonths: value === null ? null : Number(value) }))}
-              style={{ width: 220 }}
-            />
-            <span className="screen-editor-tag-editor__hint">Samples older than this age are removed automatically.</span>
+            <span className="screen-editor-tag-editor__hint">When exceeded, oldest archive samples are deleted until the database is under the limit.</span>
           </label>
 
           <div className="archive-workbench-settings__danger-zone">

@@ -25,6 +25,17 @@ type ArchiveServiceOptions = {
   defaultArchiveEnabled?: boolean;
 };
 
+export function shouldRunArchiveMaintenanceAfterSettingsUpdate(
+  _previous: ArchiveRuntimeSettingsRow,
+  next: ArchiveRuntimeSettingsRow,
+): boolean {
+  if (!next.autoCleanupEnabled) {
+    return false;
+  }
+  const nextMaxDbSizeMb = next.maxDbSizeMb ?? 0;
+  return nextMaxDbSizeMb > 0;
+}
+
 export class ArchiveService {
   private readonly repository: ArchiveRepository;
   private readonly batchSize: number;
@@ -35,6 +46,8 @@ export class ArchiveService {
   private maintenanceTimer: NodeJS.Timeout | undefined;
   private unsubscribe: (() => void) | undefined;
   private flushing = false;
+  private maintenanceRunning = false;
+  private maintenanceRequested = false;
   private initialized = false;
   private readonly snapshotIntervalMs = 1000;
   private lastSnapshotAt = 0;
@@ -154,15 +167,29 @@ export class ArchiveService {
   }
 
   public async runMaintenance(): Promise<{ deletedSamples: number }> {
-    const runtimeSettings = await this.repository.getRuntimeSettings();
-    const runtimeCleanup = await this.repository.enforceRuntimeLimits(runtimeSettings);
-    const deletedByRetention = await this.repository.applyRetention();
-    return {
-      deletedSamples: deletedByRetention + runtimeCleanup.deletedByAge + runtimeCleanup.deletedBySize,
-    };
+    if (this.maintenanceRunning) {
+      this.maintenanceRequested = true;
+      return { deletedSamples: 0 };
+    }
+    this.maintenanceRunning = true;
+    try {
+      await this.flush();
+      const runtimeSettings = await this.repository.getRuntimeSettings();
+      const runtimeCleanup = await this.repository.enforceRuntimeLimits(runtimeSettings);
+      const deletedByRetention = await this.repository.applyRetention();
+      return {
+        deletedSamples: deletedByRetention + runtimeCleanup.deletedByAge + runtimeCleanup.deletedBySize,
+      };
+    } finally {
+      this.maintenanceRunning = false;
+      if (this.maintenanceRequested) {
+        this.maintenanceRequested = false;
+        void this.runMaintenance().catch((error) => this.logger.error(`Archive maintenance failed: ${this.errorText(error)}`));
+      }
+    }
   }
 
-  public async getStatus(): Promise<{ enabled: boolean; queuedSamples: number; reason: string; dbSizeMb: number | null; recordsCount: number | null }> {
+  public async getStatus(): Promise<{ enabled: boolean; queuedSamples: number; reason: string; dbSizeMb: number | null; recordsCount: number | null; maintenanceRunning: boolean }> {
     if (!this.initialized) {
       return {
         enabled: false,
@@ -170,6 +197,7 @@ export class ArchiveService {
         reason: process.env.ARCHIVE_STATUS_REASON ?? "Archive service is not initialized",
         dbSizeMb: null,
         recordsCount: null,
+        maintenanceRunning: false,
       };
     }
     const stats = await this.repository.getStorageStats();
@@ -179,6 +207,7 @@ export class ArchiveService {
       reason: process.env.ARCHIVE_STATUS_REASON ?? "Archive service is initialized",
       dbSizeMb: stats.dbSizeMb,
       recordsCount: stats.recordsCount,
+      maintenanceRunning: this.maintenanceRunning,
     };
   }
 
@@ -193,9 +222,13 @@ export class ArchiveService {
   public async updateRuntimeSettings(settings: {
     autoCleanupEnabled: boolean;
     maxDbSizeMb: number | null;
-    maxDataAgeMonths: number | null;
   }): Promise<ArchiveRuntimeSettingsRow> {
-    return this.repository.updateRuntimeSettings(settings);
+    const previous = await this.repository.getRuntimeSettings();
+    const saved = await this.repository.updateRuntimeSettings(settings);
+    if (shouldRunArchiveMaintenanceAfterSettingsUpdate(previous, saved)) {
+      void this.runMaintenance().catch((error) => this.logger.error(`Archive maintenance failed: ${this.errorText(error)}`));
+    }
+    return saved;
   }
 
   public async previewArchiveDataPurge(): Promise<ArchivePurgePreviewRow> {

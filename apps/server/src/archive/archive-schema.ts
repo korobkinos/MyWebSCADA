@@ -179,7 +179,7 @@ VALUES ('modbus'), ('opcua'), ('simulated'), ('manual'), ('internal'), ('init')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO archive_runtime_settings (id, auto_cleanup_enabled, max_db_size_mb, max_data_age_months)
-VALUES (1, true, 5120, 12)
+VALUES (1, true, 5120, NULL)
 ON CONFLICT (id) DO NOTHING;
 `;
 

@@ -154,7 +154,6 @@ const archiveTagOverrideSchema = z.object({
 const archiveRuntimeSettingsSchema = z.object({
   autoCleanupEnabled: z.boolean(),
   maxDbSizeMb: z.number().int().positive().max(1024 * 1024).nullable(),
-  maxDataAgeMonths: z.number().int().positive().max(1200).nullable(),
 });
 const permissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>((value) => typeof value === "string");
 const loginSchema: z.ZodType<AuthLoginRequest> = z.object({

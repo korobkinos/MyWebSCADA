@@ -105,6 +105,7 @@ export type ArchiveStatus = {
   reason?: string;
   dbSizeMb?: number | null;
   recordsCount?: number | null;
+  maintenanceRunning?: boolean;
 };
 
 export type ArchivePolicyPayload = {
@@ -154,7 +155,6 @@ export type ArchiveTagConfig = {
 export type ArchiveRuntimeSettings = {
   autoCleanupEnabled: boolean;
   maxDbSizeMb: number | null;
-  maxDataAgeMonths: number | null;
   updatedAt: string;
 };
 
