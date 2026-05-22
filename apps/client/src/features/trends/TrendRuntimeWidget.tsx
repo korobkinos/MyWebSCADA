@@ -931,6 +931,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setTagPickerFilters(nextViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
     setSettings(nextViewState.settings ?? resolveSettingsFromObject(object));
     setLiveMode(nextViewState.liveMode);
+    setToolbarQuickPreset(nextViewState.toolbarQuickPreset ?? null);
     setRangePreset(nextViewState.rangePreset);
     setVisibleRange(nextViewState.visibleRange);
     lastStableVisibleRangeRef.current = nextViewState.visibleRange;
