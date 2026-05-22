@@ -761,6 +761,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const liveLastTimestampByTagRef = useRef<Map<string, number>>(new Map());
   const historyLoadTimerRef = useRef<number | null>(null);
   const toolbarRangeRef = useRef<{ preset: TrendRangePreset; range: TrendVisibleRange; expiresAt: number } | null>(null);
+  const pendingToolbarPresetRef = useRef<Exclude<TrendRangePreset, "custom"> | null>(null);
   const viewStateSaveTimerRef = useRef<number | null>(null);
   const visibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
   const lastStableVisibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
@@ -1151,6 +1152,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             return { ok: false, reason: "error" };
           }
           setLiveResponse(boundedCached);
+          if (pendingToolbarPresetRef.current) {
+            setToolbarQuickPreset(pendingToolbarPresetRef.current);
+            pendingToolbarPresetRef.current = null;
+          }
           const cachedPointCount = boundedCached.series.reduce((acc, series) => acc + series.points.length, 0);
           setLiveHistoryPointCount(cachedPointCount);
           setLiveHistoryState(cachedPointCount > 0 ? "loaded" : "empty");
@@ -1165,6 +1170,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           liveHistoryLoadedToRef.current = Number.isFinite(cachedLatestTs) ? Math.max(range.to, cachedLatestTs) : range.to;
         } else {
           setOfflineResponse(boundedCached);
+          if (pendingToolbarPresetRef.current) {
+            setToolbarQuickPreset(pendingToolbarPresetRef.current);
+            pendingToolbarPresetRef.current = null;
+          }
         }
         setStatusAggregation(boundedCached.aggregation);
         setLastLoadAt(Date.now());
@@ -1360,8 +1369,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           return { ok: false, reason: "error" };
         }
         setLiveResponse(boundedNext);
+        if (pendingToolbarPresetRef.current) {
+          setToolbarQuickPreset(pendingToolbarPresetRef.current);
+          pendingToolbarPresetRef.current = null;
+        }
       } else {
         setOfflineResponse(boundedNext);
+        if (pendingToolbarPresetRef.current) {
+          setToolbarQuickPreset(pendingToolbarPresetRef.current);
+          pendingToolbarPresetRef.current = null;
+        }
       }
       setStatusAggregation(boundedNext.aggregation);
       if (isLiveQuery) {
@@ -2315,7 +2332,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const applyPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
     const next = parseQuickRange(preset);
     setRangePreset(preset);
-    setToolbarQuickPreset(preset);
+    pendingToolbarPresetRef.current = preset;
     logTrendDiagnostics("range:preset", {
       preset,
       from: next.from,
@@ -2377,6 +2394,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         toolbarRangeRef.current = null;
         setRangePreset("custom");
         setToolbarQuickPreset(null);
+        pendingToolbarPresetRef.current = null;
       }
     }
     if (source === "interaction" && liveMode) {
@@ -2483,6 +2501,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
     setCustomTo(toLocalDateTimeInputValue(nextRange.to));
     setLiveMode(true);
+    pendingToolbarPresetRef.current = null;
   };
 
   const setSeriesPatch = (tagName: string, patch: Partial<TrendTagSelection>) => {

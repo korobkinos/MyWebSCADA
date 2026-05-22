@@ -6196,7 +6196,8 @@ body {
 .trends-toolbar .workbench-icon-button:hover {
   background: var(--trends-theme-button-hover-bg, #3b3b40);
 }
-.trends-toolbar .workbench-icon-button--active {
+.trends-toolbar .workbench-icon-button--active,
+.trends-toolbar .workbench-icon-button--active:hover {
   background: var(--trends-theme-accent, #007acc);
   border-color: var(--trends-theme-accent, #007acc);
 }
