@@ -2309,8 +2309,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   };
 
   const applyPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
-    setRangePreset(preset);
     const next = parseQuickRange(preset);
+    setRangePreset(preset);
     logTrendDiagnostics("range:preset", {
       preset,
       from: next.from,
@@ -2431,8 +2431,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     void executeQuery(visibleRange, { force: true, context: "history", targetMode: "offline" });
   };
 
-  const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
+  const refreshFromTimer = () => {
+    void executeQuery(visibleRange, { force: true, context: "history", targetMode: "offline" });
+  };
+
+  const refreshFromTimerRef = useRef(refreshFromTimer);
+  refreshFromTimerRef.current = refreshFromTimer;
 
   useEffect(() => {
     const intervalMs = settings.refreshIntervalMs;
@@ -2440,8 +2444,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       return;
     }
     const id = window.setInterval(() => {
-      if (refreshRef.current) {
-        refreshRef.current();
+      if (refreshFromTimerRef.current) {
+        refreshFromTimerRef.current();
       }
     }, intervalMs);
     return () => {
