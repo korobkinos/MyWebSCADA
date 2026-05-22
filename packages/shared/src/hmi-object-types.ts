@@ -747,11 +747,15 @@ export type TrendChartSettings = {
   maxPointsPerSeries?: number;
   aggregation?: TrendChartAggregationMode;
   zoomDebounceMs?: number;
+  refreshIntervalMs?: number;
   progressive?: boolean;
   disableAnimationsLargeData?: boolean;
   cacheEnabled?: boolean;
   cacheSize?: number;
   liveBufferLimit?: number;
+  liveDataSource?: "archivePolling" | "realtimeAppend";
+  liveResyncEnabled?: boolean;
+  liveResyncIntervalSec?: number;
   realtimeAppendSnapshotAggregation?: "auto" | "raw" | "minmax";
   realtimeAppendSnapshotMaxPoints?: number;
   realtimeAppendFlushMs?: number;

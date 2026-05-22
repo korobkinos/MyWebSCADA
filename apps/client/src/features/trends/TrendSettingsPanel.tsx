@@ -550,13 +550,6 @@ export function TrendSettingsPanel({
                 <div className="workbench-section__content">
                   <div className="trends-settings-fields trends-settings-fields--three-col">
                     <label className="workbench-field">
-                      <span className="workbench-field__label">Renderer</span>
-                      <select className="workbench-select" value={draftSettings.renderer} onChange={(event) => patchSettings({ renderer: event.target.value as TrendSettings["renderer"] })}>
-                        <option value="echarts">ECharts</option>
-                        <option value="uplot">uPlot experimental</option>
-                      </select>
-                    </label>
-                    <label className="workbench-field">
                       <span className="workbench-field__label">Max visible points/series</span>
                       <input
                         className="workbench-input"
@@ -564,10 +557,7 @@ export function TrendSettingsPanel({
                         min={1000}
                         max={8000}
                         value={draftSettings.maxVisiblePointsPerSeries}
-                        onChange={(event) => onNumericInput(event, (value) => patchSettings({
-                          maxVisiblePointsPerSeries: value,
-                          maxPointsPerSeries: value,
-                        }))}
+                        onChange={(event) => onNumericInput(event, (value) => patchSettings({ maxVisiblePointsPerSeries: value }))}
                       />
                     </label>
                     <label className="workbench-field">
@@ -579,10 +569,6 @@ export function TrendSettingsPanel({
                         <option value="avg">avg</option>
                         <option value="lttb">lttb</option>
                       </select>
-                    </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Zoom debounce (ms)</span>
-                      <input className="workbench-input" type="number" min={100} max={1200} value={draftSettings.zoomDebounceMs} onChange={(event) => onNumericInput(event, (value) => patchSettings({ zoomDebounceMs: value }))} />
                     </label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">Refresh interval (ms)</span>
@@ -611,65 +597,61 @@ export function TrendSettingsPanel({
                         min={200}
                         max={20000}
                         value={draftSettings.maxLivePointsPerTag}
-                        onChange={(event) => onNumericInput(event, (value) => patchSettings({
-                          maxLivePointsPerTag: value,
-                          liveBufferLimit: value,
-                        }))}
+                        onChange={(event) => onNumericInput(event, (value) => patchSettings({ maxLivePointsPerTag: value }))}
                       />
                     </label>
-                    <label className="workbench-field">
-                      <span className="workbench-field__label">Resync interval (sec)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
-                        min={10}
-                        max={30}
-                        value={draftSettings.liveResyncIntervalSec}
-                        disabled={!draftSettings.liveResyncEnabled}
-                        onChange={(event) => onNumericInput(event, (value) => patchSettings({ liveResyncIntervalSec: value }))}
-                      />
-                    </label>
-                    <label className="workbench-field" aria-disabled={draftSettings.liveDataSource !== "realtimeAppend"}>
-                      <span className="workbench-field__label">Realtime snapshot aggregation</span>
-                      <select
-                        className="workbench-select"
-                        value={draftSettings.realtimeAppendSnapshotAggregation}
-                        disabled={draftSettings.liveDataSource !== "realtimeAppend"}
-                        onChange={(event) => patchSettings({ realtimeAppendSnapshotAggregation: event.target.value as TrendSettings["realtimeAppendSnapshotAggregation"] })}
-                      >
-                        <option value="auto">auto</option>
-                        <option value="raw">raw</option>
-                        <option value="minmax">minmax</option>
-                      </select>
-                    </label>
-                    <label className="workbench-field" aria-disabled={draftSettings.liveDataSource !== "realtimeAppend"}>
-                      <span className="workbench-field__label">Realtime snapshot max points/series</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
-                        min={1000}
-                        max={8000}
-                        value={draftSettings.realtimeAppendSnapshotMaxPoints}
-                        disabled={draftSettings.liveDataSource !== "realtimeAppend"}
-                        onChange={(event) => onNumericInput(event, (value) => patchSettings({ realtimeAppendSnapshotMaxPoints: value }))}
-                      />
-                      <span className="trends-settings-field-note">Server hard cap: 8000</span>
-                    </label>
-                    <label className="workbench-field" aria-disabled={draftSettings.liveDataSource !== "realtimeAppend"}>
-                      <span className="workbench-field__label">Realtime append flush (ms)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
-                        min={50}
-                        max={1000}
-                        value={draftSettings.realtimeAppendFlushMs}
-                        disabled={draftSettings.liveDataSource !== "realtimeAppend"}
-                        onChange={(event) => onNumericInput(event, (value) => patchSettings({ realtimeAppendFlushMs: value }))}
-                      />
-                    </label>
-                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.liveResyncEnabled} onChange={(event) => patchSettings({ liveResyncEnabled: event.target.checked })} /><span>Background archive resync</span></label>
-                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.progressive} onChange={(event) => patchSettings({ progressive: event.target.checked })} /><span>Progressive rendering</span></label>
-                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.disableAnimationsLargeData} onChange={(event) => patchSettings({ disableAnimationsLargeData: event.target.checked })} /><span>Disable animation on large data</span></label>
+                    {draftSettings.liveDataSource === "realtimeAppend" ? (
+                      <>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Resync interval (sec)</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            min={10}
+                            max={30}
+                            value={draftSettings.liveResyncIntervalSec}
+                            disabled={!draftSettings.liveResyncEnabled}
+                            onChange={(event) => onNumericInput(event, (value) => patchSettings({ liveResyncIntervalSec: value }))}
+                          />
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Realtime snapshot aggregation</span>
+                          <select
+                            className="workbench-select"
+                            value={draftSettings.realtimeAppendSnapshotAggregation}
+                            onChange={(event) => patchSettings({ realtimeAppendSnapshotAggregation: event.target.value as TrendSettings["realtimeAppendSnapshotAggregation"] })}
+                          >
+                            <option value="auto">auto</option>
+                            <option value="raw">raw</option>
+                            <option value="minmax">minmax</option>
+                          </select>
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Realtime snapshot max points/series</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            min={1000}
+                            max={8000}
+                            value={draftSettings.realtimeAppendSnapshotMaxPoints}
+                            onChange={(event) => onNumericInput(event, (value) => patchSettings({ realtimeAppendSnapshotMaxPoints: value }))}
+                          />
+                          <span className="trends-settings-field-note">Server hard cap: 8000</span>
+                        </label>
+                        <label className="workbench-field">
+                          <span className="workbench-field__label">Realtime append flush (ms)</span>
+                          <input
+                            className="workbench-input"
+                            type="number"
+                            min={50}
+                            max={1000}
+                            value={draftSettings.realtimeAppendFlushMs}
+                            onChange={(event) => onNumericInput(event, (value) => patchSettings({ realtimeAppendFlushMs: value }))}
+                          />
+                        </label>
+                        <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.liveResyncEnabled} onChange={(event) => patchSettings({ liveResyncEnabled: event.target.checked })} /><span>Background archive resync</span></label>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </section>
@@ -678,7 +660,6 @@ export function TrendSettingsPanel({
                 <div className="workbench-section__header"><span className="workbench-section__title">Cache</span></div>
                 <div className="workbench-section__content">
                   <div className="trends-settings-fields trends-settings-fields--two-col-compact">
-                    <label className="screen-editor-settings-check trends-settings-check"><input type="checkbox" checked={draftSettings.cacheEnabled} onChange={(event) => patchSettings({ cacheEnabled: event.target.checked })} /><span>Cache enabled</span></label>
                     <label className="workbench-field">
                       <span className="workbench-field__label">Max cached ranges</span>
                       <input
@@ -687,10 +668,7 @@ export function TrendSettingsPanel({
                         min={8}
                         max={256}
                         value={draftSettings.maxCachedRanges}
-                        onChange={(event) => onNumericInput(event, (value) => patchSettings({
-                          maxCachedRanges: value,
-                          cacheSize: value,
-                        }))}
+                        onChange={(event) => onNumericInput(event, (value) => patchSettings({ maxCachedRanges: value }))}
                       />
                     </label>
                   </div>

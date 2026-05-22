@@ -81,7 +81,7 @@ function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
   return {
     ...defaults,
     ...source,
-    renderer: source.renderer === "uplot" ? "uplot" : "echarts",
+    renderer: "echarts",
     liveDataSource: source.liveDataSource === "realtimeAppend" ? "realtimeAppend" : defaults.liveDataSource,
     liveResyncEnabled: source.liveResyncEnabled ?? defaults.liveResyncEnabled,
     liveResyncIntervalSec: clamp(Number(source.liveResyncIntervalSec ?? defaults.liveResyncIntervalSec), 10, 30),
@@ -99,6 +99,7 @@ function normalizeSettings(source: Partial<TrendSettings>): TrendSettings {
     cacheSize: maxCachedRanges,
     liveBufferLimit: maxLivePointsPerTag,
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
+    refreshIntervalMs: clamp(Number(source.refreshIntervalMs ?? defaults.refreshIntervalMs), 500, 60000),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
     axisScaleGap: clamp(Number(source.axisScaleGap ?? defaults.axisScaleGap), 0, 64),

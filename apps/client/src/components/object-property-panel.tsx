@@ -1758,7 +1758,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           />
           <TrendSettingsPanel
             open={trendSettingsOpen}
-            settings={{ ...defaultTrendSettings(), ...(object.settings ?? {}) }}
+            settings={{ ...defaultTrendSettings(), ...(object.settings ?? {}), renderer: "echarts" }}
             axes={object.axes ?? []}
             selectedTags={object.selectedTags ?? []}
             initialTab={trendSettingsInitialTab}
@@ -4063,31 +4063,16 @@ function SpecificPropertyFields({
               style={{ width: "100%" }}
               min={1000}
               max={8000}
-              value={settings.maxPointsPerSeries}
-              onChange={(value) => onPatch({ settings: { ...settings, maxPointsPerSeries: Math.max(1000, Math.min(8000, Number(value ?? 4000))) } } as Partial<HmiObject>)}
+              value={settings.maxVisiblePointsPerSeries}
+              onChange={(value) => onPatch({ settings: { ...settings, maxVisiblePointsPerSeries: Math.max(1000, Math.min(8000, Number(value ?? 4000))) } } as Partial<HmiObject>)}
             />
           </Form.Item>
           <Form.Item label="Live Buffer Limit">
-            <InputNumber style={{ width: "100%" }} min={200} max={20000} value={settings.liveBufferLimit} onChange={(value) => onPatch({ settings: { ...settings, liveBufferLimit: Math.max(200, Math.min(20000, Number(value ?? 5000))) } } as Partial<HmiObject>)} />
+            <InputNumber style={{ width: "100%" }} min={200} max={20000} value={settings.maxLivePointsPerTag} onChange={(value) => onPatch({ settings: { ...settings, maxLivePointsPerTag: Math.max(200, Math.min(20000, Number(value ?? 5000))) } } as Partial<HmiObject>)} />
           </Form.Item>
-          <Form.Item label="Zoom debounce (ms)">
-            <InputNumber style={{ width: "100%" }} min={100} max={1200} value={settings.zoomDebounceMs} onChange={(value) => onPatch({ settings: { ...settings, zoomDebounceMs: Math.max(100, Math.min(1200, Number(value ?? 350))) } } as Partial<HmiObject>)} />
+          <Form.Item label="Max cached ranges">
+            <InputNumber style={{ width: "100%" }} min={8} max={256} value={settings.maxCachedRanges} onChange={(value) => onPatch({ settings: { ...settings, maxCachedRanges: Math.max(8, Math.min(256, Number(value ?? 48))) } } as Partial<HmiObject>)} />
           </Form.Item>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Cache Enabled</span>
-            <Switch checked={settings.cacheEnabled} onChange={(checked) => onPatch({ settings: { ...settings, cacheEnabled: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Form.Item label="Cache Size">
-            <InputNumber style={{ width: "100%" }} min={8} max={256} value={settings.cacheSize} onChange={(value) => onPatch({ settings: { ...settings, cacheSize: Math.max(8, Math.min(256, Number(value ?? 48))) } } as Partial<HmiObject>)} />
-          </Form.Item>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Progressive rendering</span>
-            <Switch checked={settings.progressive} onChange={(checked) => onPatch({ settings: { ...settings, progressive: checked } } as Partial<HmiObject>)} />
-          </Space>
-          <Space className="object-property-panel__runtime-switch-row">
-            <span>Disable animation on large data</span>
-            <Switch checked={settings.disableAnimationsLargeData} onChange={(checked) => onPatch({ settings: { ...settings, disableAnimationsLargeData: checked } } as Partial<HmiObject>)} />
-          </Space>
           <Form.Item label="Axis offset step">
             <InputNumber style={{ width: "100%" }} min={8} max={220} value={settings.axisOffsetStep} onChange={(value) => onPatch({ settings: { ...settings, axisOffsetStep: Math.max(8, Math.min(220, Number(value ?? 46))) } } as Partial<HmiObject>)} />
           </Form.Item>

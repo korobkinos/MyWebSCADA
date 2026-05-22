@@ -9,7 +9,7 @@ export type TrendSeriesColumnWidths = Record<TrendSeriesColumnId, number>;
 export type TrendLineType = "solid" | "dashed" | "dotted";
 export type TrendRenderMode = "line" | "step" | "points";
 export type TrendAxisTitleMode = "hidden" | "compactLabel" | "verticalLabel";
-export type TrendRenderer = "echarts" | "uplot";
+export type TrendRenderer = "echarts";
 export type TrendLiveDataSource = "archivePolling" | "realtimeAppend";
 export type TrendRealtimeSnapshotAggregation = "auto" | "raw" | "minmax";
 

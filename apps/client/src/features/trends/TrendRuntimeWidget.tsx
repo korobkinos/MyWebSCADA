@@ -9,14 +9,13 @@ import type { TrendTagInfo } from "../../services/api";
 import { WorkbenchButton, WorkbenchIconButton } from "../../components/workbench";
 import { fetchTrendTags, queryTrendData } from "./trendApi";
 import { TrendChart } from "./TrendChart";
-import { TrendChartUPlot } from "./TrendChartUPlot";
 import { TrendSettingsPanel } from "./TrendSettingsPanel";
 import { TrendTagPickerDialog } from "./TrendTagPickerDialog";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendLiveDataSource, TrendPoint, TrendQueryResponse, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendTableSettings, parseQuickRange } from "./trendUtils";
+import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 import { TrendQueryRateLimiter } from "./trendQueryRateLimiter";
@@ -462,7 +461,7 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
   return {
     ...defaults,
     ...source,
-    renderer: source.renderer === "uplot" ? "uplot" : "echarts",
+    renderer: "echarts",
     liveDataSource: source.liveDataSource === "realtimeAppend" ? "realtimeAppend" : defaults.liveDataSource ?? DEFAULT_LIVE_DATA_SOURCE,
     liveResyncEnabled: source.liveResyncEnabled ?? defaults.liveResyncEnabled,
     liveResyncIntervalSec: clamp(Number(source.liveResyncIntervalSec ?? defaults.liveResyncIntervalSec), LIVE_REALTIME_RESYNC_MIN_SEC, LIVE_REALTIME_RESYNC_MAX_SEC),
@@ -480,6 +479,7 @@ function resolveSettingsFromObject(object: TrendChartObject): TrendSettings {
     cacheSize: maxCachedRanges,
     liveBufferLimit: maxLivePointsPerTag,
     zoomDebounceMs: clamp(Number(source.zoomDebounceMs ?? defaults.zoomDebounceMs), 100, 1200),
+    refreshIntervalMs: clamp(Number(source.refreshIntervalMs ?? defaults.refreshIntervalMs), 500, 60000),
     defaultLineWidth: clamp(Number(source.defaultLineWidth ?? defaults.defaultLineWidth), 1, 5),
     axisOffsetStep: clamp(Number(source.axisOffsetStep ?? defaults.axisOffsetStep), 8, 220),
     axisScaleGap: clamp(Number(source.axisScaleGap ?? defaults.axisScaleGap), 0, 64),
@@ -516,7 +516,6 @@ type TrendContextMenuState = {
 type LiveSocketState = "idle" | "connecting" | "open" | "closed" | "error";
 type LiveHistoryState = "idle" | "loading" | "loaded" | "empty" | "error";
 type TrendMode = "live" | "offline";
-type PendingToolbarRange = { range: TrendVisibleRange; preset: TrendRangePreset };
 type LiveIncomingPoint = { tag: string; value: number | boolean | string | null; quality?: string; timestamp: number; sessionId: number };
 type BackoffError = Error & { reason?: string; retryAfterMs?: number };
 type ExecuteQueryResult =
@@ -715,12 +714,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [liveBootstrapReady, setLiveBootstrapReady] = useState(false);
   const [historyWarning, setHistoryWarning] = useState<string | null>(null);
   const [screenRevision, setScreenRevision] = useState(0);
-  const [pendingToolbarRange, setPendingToolbarRange] = useState<PendingToolbarRange | null>(null);
   const [seriesLatestValues, setSeriesLatestValues] = useState<Record<string, string>>({});
   const [hoverSeriesValues, setHoverSeriesValues] = useState<Record<string, string> | null>(null);
   const [hoverTimestamp, setHoverTimestamp] = useState<number | null>(null);
   const [seriesColumnWidths, setSeriesColumnWidths] = useState<TrendSeriesColumnWidths>(initialViewState.seriesColumnWidths ?? DEFAULT_SERIES_COLUMN_WIDTHS);
-  const TrendChartRenderer = settings.renderer === "uplot" ? TrendChartUPlot : TrendChart;
   const [timeRangeDialogOpen, setTimeRangeDialogOpen] = useState(false);
   const [timeRangeDraftFrom, setTimeRangeDraftFrom] = useState(initialViewState.customFrom);
   const [timeRangeDraftTo, setTimeRangeDraftTo] = useState(initialViewState.customTo);
@@ -758,6 +755,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const liveRealtimeAppendedSinceLastLogRef = useRef(0);
   const liveLastTimestampByTagRef = useRef<Map<string, number>>(new Map());
   const historyLoadTimerRef = useRef<number | null>(null);
+  const toolbarRangeRef = useRef<{ preset: TrendRangePreset; range: TrendVisibleRange; expiresAt: number } | null>(null);
   const viewStateSaveTimerRef = useRef<number | null>(null);
   const visibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
   const lastStableVisibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
@@ -826,16 +824,6 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   useEffect(() => {
     livePendingBufferCapRef.current = resolveLivePendingBufferCap(selectedTagNames.length, settings.maxLivePointsPerTag);
   }, [selectedTagNames.length, settings.maxLivePointsPerTag]);
-
-  useEffect(() => {
-    if (settings.renderer !== "uplot") {
-      return;
-    }
-    hoverSnapshotKeyRef.current = "";
-    hoverTimestampRef.current = null;
-    setHoverSeriesValues(null);
-    setHoverTimestamp(null);
-  }, [settings.renderer]);
 
   useEffect(() => {
     sourcePointCountRef.current = pointCount;
@@ -2277,15 +2265,28 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setLiveLastPointTs(null);
   }, [liveMode]);
 
+  const rememberToolbarRange = (preset: TrendRangePreset, range: TrendVisibleRange) => {
+    toolbarRangeRef.current = { preset, range, expiresAt: Date.now() + 1000 };
+  };
+
+  const isToolbarRangeEcho = (range: TrendVisibleRange): boolean => {
+    const pending = toolbarRangeRef.current;
+    if (!pending || pending.expiresAt < Date.now()) {
+      return false;
+    }
+    return Math.abs(pending.range.from - range.from) < 5 && Math.abs(pending.range.to - range.to) < 5;
+  };
+
   const applyRangeAndQuery = (next: TrendVisibleRange, options?: { keepLive?: boolean; preset?: TrendRangePreset }) => {
     const normalized: TrendVisibleRange = {
       from: Math.min(next.from, next.to),
       to: Math.max(next.from, next.to),
     };
+    const nextPreset = options?.preset ?? "custom";
+    rememberToolbarRange(nextPreset, normalized);
     if (liveMode && options?.keepLive) {
-      setPendingToolbarRange(null);
       setLiveAutoStopReason(null);
-      setRangePreset(options?.preset ?? "custom");
+      setRangePreset(nextPreset);
       setVisibleRange(normalized);
       setCustomFrom(toLocalDateTimeInputValue(normalized.from));
       setCustomTo(toLocalDateTimeInputValue(normalized.to));
@@ -2297,10 +2298,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     if (!options?.keepLive && liveMode) {
       setLiveMode(false);
       setLiveAutoStopReason("Stopped by toolbar history navigation");
-      setPendingToolbarRange({ range: normalized, preset: options?.preset ?? "custom" });
-      return;
     }
-    setRangePreset(options?.preset ?? "custom");
+    setRangePreset(nextPreset);
     setVisibleRange(normalized);
     setCustomFrom(toLocalDateTimeInputValue(normalized.from));
     setCustomTo(toLocalDateTimeInputValue(normalized.to));
@@ -2343,20 +2342,6 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     applyRangeAndQuery({ from, to }, { preset: "custom", keepLive: liveMode });
   };
 
-  useEffect(() => {
-    if (liveMode || !pendingToolbarRange) {
-      return;
-    }
-    const next = pendingToolbarRange.range;
-    setPendingToolbarRange(null);
-    setRangePreset(pendingToolbarRange.preset);
-    setVisibleRange(next);
-    setCustomFrom(toLocalDateTimeInputValue(next.from));
-    setCustomTo(toLocalDateTimeInputValue(next.to));
-    setOfflineResponse(buildEmptyTrendResponse(next, selectedTags));
-    void executeQuery(next, { force: true, context: "history", targetMode: "offline" });
-  }, [executeQuery, liveMode, pendingToolbarRange, selectedTags]);
-
   const zoomBy = (factor: number) => {
     const currentSpan = Math.max(TREND_ZOOM_MIN_SPAN_MS, visibleRange.to - visibleRange.from);
     const nextSpan = clamp(Math.round(currentSpan * factor), TREND_ZOOM_MIN_SPAN_MS, TREND_ZOOM_MAX_SPAN_MS);
@@ -2377,6 +2362,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const handleChartRangeChange = (range: TrendVisibleRange, source: "interaction" | "live") => {
     setVisibleRange(range);
+    if (source === "interaction") {
+      if (isToolbarRangeEcho(range)) {
+        const preset = toolbarRangeRef.current?.preset ?? "custom";
+        setRangePreset(preset);
+        return;
+      } else {
+        toolbarRangeRef.current = null;
+        setRangePreset("custom");
+      }
+    }
     if (source === "interaction" && liveMode) {
       setLiveMode(false);
       setLiveAutoStopReason("Stopped by zoom/pan interaction");
@@ -2409,7 +2404,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         from: now - span,
         to: now,
       };
-      setRangePreset("custom");
+      setRangePreset(resolveQuickPresetFromRangeSpan(nextRange));
       setVisibleRange(nextRange);
       setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
       setCustomTo(toLocalDateTimeInputValue(nextRange.to));
@@ -2470,14 +2465,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       from: right - span,
       to: right,
     };
-    setPendingToolbarRange(null);
     setLiveAutoStopReason(null);
     logTrendDiagnostics("live:toggle-on", {
       from: nextRange.from,
       to: nextRange.to,
       selectedTags: selectedTags.map((item) => item.tag),
     });
-    setRangePreset("custom");
+    setRangePreset(resolveQuickPresetFromRangeSpan(nextRange));
     setVisibleRange(nextRange);
     setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
     setCustomTo(toLocalDateTimeInputValue(nextRange.to));
@@ -2716,7 +2710,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         ) : error ? (
           <div className="trends-empty trends-empty--error">{error}</div>
         ) : (
-          <TrendChartRenderer
+          <TrendChart
             key={object.id}
             data={renderResponse}
             tags={selectedTags}
@@ -2733,9 +2727,6 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             liveWindowMs={liveWindowMs}
             onVisibleRangeChange={handleChartRangeChange}
             onHoverSnapshotChange={(snapshot) => {
-              if (settings.renderer === "uplot") {
-                return;
-              }
               if (!snapshot) {
                 if (liveMode) {
                   return;
@@ -3013,7 +3004,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           );
           setSettings({
             ...next,
-            renderer: next.renderer === "uplot" ? "uplot" : "echarts",
+            renderer: "echarts",
             liveDataSource: next.liveDataSource === "realtimeAppend" ? "realtimeAppend" : DEFAULT_LIVE_DATA_SOURCE,
             maxVisiblePointsPerSeries,
             maxLivePointsPerTag,
@@ -3023,6 +3014,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             cacheSize: maxCachedRanges,
             liveBufferLimit: maxLivePointsPerTag,
             zoomDebounceMs: clamp(next.zoomDebounceMs, 100, 1200),
+            refreshIntervalMs: clamp(next.refreshIntervalMs, 500, 60000),
             liveResyncEnabled: Boolean(next.liveResyncEnabled),
             liveResyncIntervalSec: clamp(next.liveResyncIntervalSec, LIVE_REALTIME_RESYNC_MIN_SEC, LIVE_REALTIME_RESYNC_MAX_SEC),
             realtimeAppendSnapshotAggregation:

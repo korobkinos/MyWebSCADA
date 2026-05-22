@@ -172,7 +172,7 @@ export function loadTrendSettings(): TrendSettings {
     return {
       ...fallback,
       ...parsed,
-      renderer: parsed.renderer === "uplot" ? "uplot" : "echarts",
+      renderer: "echarts",
       maxVisiblePointsPerSeries,
       maxLivePointsPerTag,
       maxCachedRanges,
@@ -190,6 +190,7 @@ export function loadTrendSettings(): TrendSettings {
       realtimeAppendSnapshotMaxPoints: clamp(Number(parsed.realtimeAppendSnapshotMaxPoints ?? fallback.realtimeAppendSnapshotMaxPoints), 1000, 8000),
       realtimeAppendFlushMs: clamp(Number(parsed.realtimeAppendFlushMs ?? fallback.realtimeAppendFlushMs), 50, 1000),
       zoomDebounceMs: clamp(Number(parsed.zoomDebounceMs ?? fallback.zoomDebounceMs), 100, 1200),
+      refreshIntervalMs: clamp(Number(parsed.refreshIntervalMs ?? fallback.refreshIntervalMs), 500, 60000),
       defaultLineWidth: clamp(Number(parsed.defaultLineWidth ?? fallback.defaultLineWidth), 1, 5),
       axisOffsetStep: clamp(Number(parsed.axisOffsetStep ?? fallback.axisOffsetStep), 8, 220),
       axisScaleGap: clamp(Number(parsed.axisScaleGap ?? fallback.axisScaleGap), 0, 64),
@@ -257,6 +258,21 @@ export function parseQuickRange(preset: "5m" | "15m" | "1h" | "8h" | "24h", now 
     from: now - ms,
     to: now,
   };
+}
+
+export function resolveQuickPresetFromRangeSpan(range: TrendVisibleRange): "5m" | "15m" | "1h" | "custom" {
+  const span = Math.abs(range.to - range.from);
+  const toleranceMs = 1_000;
+  if (Math.abs(span - 5 * 60 * 1000) <= toleranceMs) {
+    return "5m";
+  }
+  if (Math.abs(span - 15 * 60 * 1000) <= toleranceMs) {
+    return "15m";
+  }
+  if (Math.abs(span - 60 * 60 * 1000) <= toleranceMs) {
+    return "1h";
+  }
+  return "custom";
 }
 
 type TrendGapBreakInfo = {
@@ -600,7 +616,7 @@ export function buildTrendDataMatrixWithGaps(
       continue;
     }
     const valuesByTs = valueMapsByTag.get(series.tag) ?? new Map<number, number | null>();
-    // uPlot accepts undefined in aligned y-arrays: we keep undefined for cross-series alignment holes
+    // Undefined values preserve cross-series alignment holes without drawing real gaps.
     // and reserve null for explicit real gaps.
     const yValues = xValues.map((timestamp) => (valuesByTs.has(timestamp) ? valuesByTs.get(timestamp) : undefined));
     if (yValues.length !== xValues.length) {

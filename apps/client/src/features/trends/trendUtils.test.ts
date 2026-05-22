@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { appendLiveCarryForwardPoint, applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings } from "./trendUtils";
+import { appendLiveCarryForwardPoint, applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings, resolveQuickPresetFromRangeSpan } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -32,6 +32,23 @@ describe("resolveTrendTheme", () => {
     expect(echarts.toolbarBg).toBeTruthy();
     expect(custom.toolbarBg).toBeTruthy();
     expect(workbench.background).not.toBe(echarts.background);
+  });
+});
+
+describe("resolveQuickPresetFromRangeSpan", () => {
+  it("maps exact toolbar spans to quick presets", () => {
+    const to = 1_000_000;
+
+    expect(resolveQuickPresetFromRangeSpan({ from: to - 5 * 60_000, to })).toBe("5m");
+    expect(resolveQuickPresetFromRangeSpan({ from: to - 15 * 60_000, to })).toBe("15m");
+    expect(resolveQuickPresetFromRangeSpan({ from: to - 60 * 60_000, to })).toBe("1h");
+  });
+
+  it("returns custom for non-toolbar spans", () => {
+    const to = 1_000_000;
+
+    expect(resolveQuickPresetFromRangeSpan({ from: to - 8 * 60 * 60_000, to })).toBe("custom");
+    expect(resolveQuickPresetFromRangeSpan({ from: to - 7 * 60_000, to })).toBe("custom");
   });
 });
 
