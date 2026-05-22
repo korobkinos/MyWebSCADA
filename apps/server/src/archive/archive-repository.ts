@@ -961,22 +961,16 @@ export class ArchiveRepository {
       let safetyCounter = 0;
       while (safetyCounter < 100) {
         safetyCounter += 1;
-        const sizeResult = await this.pool.query<{ size_bytes: string | number; records_count: string | number }>(
-          `
-          SELECT
-            COALESCE(pg_total_relation_size('archive_samples'), 0) AS size_bytes,
-            (SELECT COUNT(*)::bigint FROM archive_samples) AS records_count
-          `,
-        );
-        const sizeRaw = sizeResult.rows[0]?.size_bytes ?? 0;
-        const recordsRaw = sizeResult.rows[0]?.records_count ?? 0;
-        const currentBytes = typeof sizeRaw === "string" ? Number.parseInt(sizeRaw, 10) : Number(sizeRaw);
-        const recordsCount = typeof recordsRaw === "string" ? Number.parseInt(recordsRaw, 10) : Number(recordsRaw);
+        let { currentBytes, recordsCount } = await this.readArchiveSamplesSize();
+        if (!Number.isFinite(currentBytes) || currentBytes <= maxBytes) {
+          break;
+        }
+        await this.compactArchiveSamples();
+        ({ currentBytes, recordsCount } = await this.readArchiveSamplesSize());
         if (!Number.isFinite(currentBytes) || currentBytes <= maxBytes) {
           break;
         }
         if (!Number.isFinite(recordsCount) || recordsCount <= 0) {
-          await this.compactArchiveSamples();
           break;
         }
         const overflowRatio = Math.min(1, Math.max(0, (currentBytes - maxBytes) / currentBytes));
@@ -1008,6 +1002,21 @@ export class ArchiveRepository {
     }
 
     return { deletedByAge, deletedBySize };
+  }
+
+  private async readArchiveSamplesSize(): Promise<{ currentBytes: number; recordsCount: number }> {
+    const sizeResult = await this.pool.query<{ size_bytes: string | number; records_count: string | number }>(
+      `
+      SELECT
+        COALESCE(pg_total_relation_size('archive_samples'), 0) AS size_bytes,
+        (SELECT COUNT(*)::bigint FROM archive_samples) AS records_count
+      `,
+    );
+    const sizeRaw = sizeResult.rows[0]?.size_bytes ?? 0;
+    const recordsRaw = sizeResult.rows[0]?.records_count ?? 0;
+    const currentBytes = typeof sizeRaw === "string" ? Number.parseInt(sizeRaw, 10) : Number(sizeRaw);
+    const recordsCount = typeof recordsRaw === "string" ? Number.parseInt(recordsRaw, 10) : Number(recordsRaw);
+    return { currentBytes, recordsCount };
   }
 
   private async compactArchiveSamples(): Promise<void> {

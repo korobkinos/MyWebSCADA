@@ -1291,7 +1291,7 @@ export function ArchivePage() {
               onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxDbSizeMb: value === null ? null : Number(value) }))}
               style={{ width: 220 }}
             />
-            <span className="screen-editor-tag-editor__hint">When exceeded, oldest archive samples are deleted until the database is under the limit.</span>
+            <span className="screen-editor-tag-editor__hint">When exceeded, the archive is compacted first; oldest samples are deleted only if it is still over the limit.</span>
           </label>
 
           <div className="archive-workbench-settings__danger-zone">
