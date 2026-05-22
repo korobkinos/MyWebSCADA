@@ -973,11 +973,27 @@ export function TrendChartUPlot({
       historyMap.set(series.tag, normalizeTrendPoints(series.points));
     }
 
+    const previousSeriesPoints = seriesPointsRef.current;
     const nextMap = new Map<string, TrendPoint[]>();
     const activeTagNames = new Set(tagsRef.current.filter((tag) => tag.visible !== false).map((tag) => tag.tag));
 
     for (const tagName of activeTagNames) {
-      nextMap.set(tagName, historyMap.get(tagName) ?? []);
+      const newPoints = historyMap.get(tagName) ?? [];
+      if (newPoints.length === 0) {
+        // Preserve the last known point from previous data if the new query returned
+        // nothing for this tag (unchanging value — no new archive rows in the window).
+        // This lets buildLiveVisualHolds extend the line forward from the last known
+        // value instead of drawing nothing.
+        const prevPoints = previousSeriesPoints.get(tagName);
+        if (prevPoints && prevPoints.length > 0) {
+          const lastPrev = prevPoints[prevPoints.length - 1];
+          if (lastPrev && lastPrev.v !== null) {
+            nextMap.set(tagName, [lastPrev]);
+            continue;
+          }
+        }
+      }
+      nextMap.set(tagName, newPoints);
     }
 
     let minTs = Number.POSITIVE_INFINITY;

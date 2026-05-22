@@ -6313,10 +6313,15 @@ body {
   padding: 0;
   border: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
   border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .trends-series-table__color-row .ant-color-picker-color-block {
   border-radius: 1px;
+  width: 100%;
+  height: 100%;
 }
 
 .trends-series-table__cell--value {

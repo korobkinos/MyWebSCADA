@@ -1888,10 +1888,26 @@ export function TrendChart({
       historyMap.set(series.tag, normalizedPointsSource);
     }
 
+    const previousSeriesPoints = seriesPointsRef.current;
     const nextMap = new Map<string, TrendPoint[]>();
     const activeTagNames = activeTagNameSetRef.current;
     for (const tagName of activeTagNames) {
-      nextMap.set(tagName, historyMap.get(tagName) ?? []);
+      const newPoints = historyMap.get(tagName) ?? [];
+      if (newPoints.length === 0) {
+        // Preserve the last known point from previous data if the new query returned
+        // nothing for this tag (unchanging value — no new archive rows in the window).
+        // This lets appendLiveCarryForwardPoint extend the line forward from the
+        // last known value instead of drawing nothing.
+        const prevPoints = previousSeriesPoints.get(tagName);
+        if (prevPoints && prevPoints.length > 0) {
+          const lastPrev = prevPoints[prevPoints.length - 1];
+          if (lastPrev && lastPrev.v !== null) {
+            nextMap.set(tagName, [lastPrev]);
+            continue;
+          }
+        }
+      }
+      nextMap.set(tagName, newPoints);
     }
 
     const nextStats = new Map<string, TrendAxisStats>();
