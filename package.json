@@ -13,6 +13,9 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @web-scada/shared test"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@serialport/bindings-cpp", "esbuild"]
+  },
   "dependencies": {
     "@ant-design/v5-patch-for-react-19": "^1.0.3"
   }
