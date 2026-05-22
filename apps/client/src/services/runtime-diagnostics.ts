@@ -11,6 +11,13 @@ export type RuntimeDiagnosticsSnapshot = {
   connectionState: ClientConnectionState;
 };
 
+export type RuntimeRateDiagnosticsSnapshot = {
+  webSocketTagPackets: number;
+  webSocketTagValues: number;
+  setTagValuesCalls: number;
+  setTagValuesValues: number;
+};
+
 type RuntimeDiagnosticsListener = (snapshot: RuntimeDiagnosticsSnapshot) => void;
 type PollingLoopMeta = {
   count: number;
@@ -43,6 +50,45 @@ const SNAPSHOT: RuntimeDiagnosticsSnapshot = {
   connectionState: "online",
 };
 
+const RATE_SNAPSHOT: RuntimeRateDiagnosticsSnapshot = {
+  webSocketTagPackets: 0,
+  webSocketTagValues: 0,
+  setTagValuesCalls: 0,
+  setTagValuesValues: 0,
+};
+
+let rateReporterTimer: number | undefined;
+
+function maybeStartRuntimeRateDiagnosticsReporter(): void {
+  if (!import.meta.env.DEV || typeof window === "undefined" || rateReporterTimer) {
+    return;
+  }
+  rateReporterTimer = window.setInterval(() => {
+    const snapshot = getRuntimeRateDiagnosticsSnapshot();
+    if (
+      snapshot.webSocketTagPackets > 0
+      || snapshot.webSocketTagValues > 0
+      || snapshot.setTagValuesCalls > 0
+      || snapshot.setTagValuesValues > 0
+    ) {
+      // eslint-disable-next-line no-console
+      console.debug("[RuntimeDiagnostics] tag update rates/sec", snapshot);
+    }
+    if (snapshot.setTagValuesCalls > 10) {
+      // eslint-disable-next-line no-console
+      console.warn("[RuntimeDiagnostics] setTagValues called more than 10 times/sec", snapshot);
+    }
+    resetRuntimeRateDiagnostics();
+  }, 1000);
+}
+
+function resetRuntimeRateDiagnostics(): void {
+  RATE_SNAPSHOT.webSocketTagPackets = 0;
+  RATE_SNAPSHOT.webSocketTagValues = 0;
+  RATE_SNAPSHOT.setTagValuesCalls = 0;
+  RATE_SNAPSHOT.setTagValuesValues = 0;
+}
+
 function emitDiagnostics(): void {
   const next = getRuntimeDiagnosticsSnapshot();
   for (const listener of LISTENERS) {
@@ -73,6 +119,26 @@ export function subscribeRuntimeDiagnostics(listener: RuntimeDiagnosticsListener
   return () => {
     LISTENERS.delete(listener);
   };
+}
+
+export function getRuntimeRateDiagnosticsSnapshot(): RuntimeRateDiagnosticsSnapshot {
+  return { ...RATE_SNAPSHOT };
+}
+
+export function recordWebSocketTagPacket(valueCount: number): void {
+  maybeStartRuntimeRateDiagnosticsReporter();
+  RATE_SNAPSHOT.webSocketTagPackets += 1;
+  RATE_SNAPSHOT.webSocketTagValues += Math.max(0, Math.round(valueCount));
+}
+
+export function recordSetTagValuesCall(valueCount: number): void {
+  maybeStartRuntimeRateDiagnosticsReporter();
+  RATE_SNAPSHOT.setTagValuesCalls += 1;
+  RATE_SNAPSHOT.setTagValuesValues += Math.max(0, Math.round(valueCount));
+}
+
+export function resetRuntimeRateDiagnosticsForTest(): void {
+  resetRuntimeRateDiagnostics();
 }
 
 export function registerPollingLoop(loopId: string): () => void {

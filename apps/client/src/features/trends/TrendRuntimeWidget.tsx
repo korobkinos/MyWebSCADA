@@ -1968,7 +1968,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         setLiveSocketState(state);
       },
     }, { participateInGlobalSubscriptions: false });
-    socket.subscribeTags([...selected]);
+    socket.subscribeTags(selectedTagNames);
     liveSocketRef.current = socket;
 
     const flushTimer = window.setInterval(() => {

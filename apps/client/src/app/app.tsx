@@ -17,6 +17,8 @@ import {
 import { Button, ConfigProvider, Dropdown, Layout, Menu, Space, Spin, Typography, message, theme as antdTheme } from "antd";
 import type { MenuProps } from "antd";
 import type { AppPermission, ProjectTheme } from "@web-scada/shared";
+import { startRuntimePerformanceDiagnostics } from "../services/performance-diagnostics";
+import { createTagValueBatcher } from "../services/tag-value-batcher";
 import { createRuntimeSocket } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
 
@@ -123,14 +125,20 @@ export function App() {
     void bootstrapApp();
   }, [bootstrapApp]);
 
+  useEffect(() => startRuntimePerformanceDiagnostics(), []);
+
   useEffect(() => {
     if (!isRuntimeRoute) {
       return;
     }
+    const tagBatcher = createTagValueBatcher((values) => setTagValues(values));
     const socket = createRuntimeSocket({
-      onTagValues: (values) => setTagValues(values),
+      onTagValues: (values) => tagBatcher.push(values),
     });
-    return () => socket.close();
+    return () => {
+      socket.close();
+      tagBatcher.close();
+    };
   }, [isRuntimeRoute, setTagValues]);
 
   useEffect(() => {

@@ -23,6 +23,7 @@ import type {
 } from "@web-scada/shared";
 import { executeEditorCommand, updateObjectDeep as updateObjectDeepInList } from "@web-scada/shared";
 import { api, isAbortError } from "../services/api";
+import { recordSetTagValuesCall } from "../services/runtime-diagnostics";
 
 type TagMap = Record<string, TagValue>;
 
@@ -399,8 +400,9 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     if (values.length === 0) {
       return;
     }
+    recordSetTagValuesCall(values.length);
     set((state) => {
-      const nextTags: TagMap = { ...state.tags };
+      let nextTags: TagMap | undefined;
       let tagsChanged = false;
       const missing: TagValue[] = [];
       let snapshotNames: Set<string> | undefined;
@@ -414,6 +416,9 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
           prev.source === value.source
         ) {
           continue;
+        }
+        if (!nextTags) {
+          nextTags = { ...state.tags };
         }
         tagsChanged = true;
         nextTags[value.name] = value;
@@ -446,7 +451,7 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
         : state.tagSnapshots;
 
       return {
-        tags: nextTags,
+        tags: nextTags ?? state.tags,
         tagSnapshots: nextSnapshots,
       };
     });

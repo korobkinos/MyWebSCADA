@@ -1,6 +1,6 @@
 import { COMMAND_TIMEOUT_MS, type ManualCommandMeta, type RuntimeWsClientMessage, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
 import { canRequestEndpoint, getEndpointBackoffDelay, isConnectivityFailure, markEndpointFailure, markEndpointSuccess } from "./connection-state";
-import { incrementRuntimeDiagnosticMetric } from "./runtime-diagnostics";
+import { incrementRuntimeDiagnosticMetric, recordWebSocketTagPacket } from "./runtime-diagnostics";
 
 type WsCallbacks = {
   onTagValues: (values: TagValue[]) => void;
@@ -19,6 +19,7 @@ type RuntimeSocketController = {
 
 let activeSocketController: RuntimeSocketController | null = null;
 let pendingGlobalSubscriptions: string[] | null = null;
+let pendingGlobalSubscriptionTimer: ReturnType<typeof setTimeout> | undefined;
 const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.trim();
 const RUNTIME_WS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimeWs";
 const RUNTIME_WS_HEALTHCHECK_PATH = "/api/runtime/status";
@@ -32,6 +33,20 @@ function shouldLogRuntimeWsWarnings(): boolean {
 
 function normalizeTags(tags: string[]): string[] {
   return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+}
+
+function flushGlobalTagSubscriptions(): void {
+  pendingGlobalSubscriptionTimer = undefined;
+  if (pendingGlobalSubscriptions) {
+    activeSocketController?.subscribeTags(pendingGlobalSubscriptions);
+  }
+}
+
+function scheduleGlobalTagSubscriptionFlush(): void {
+  if (pendingGlobalSubscriptionTimer) {
+    return;
+  }
+  pendingGlobalSubscriptionTimer = setTimeout(flushGlobalTagSubscriptions, 100);
 }
 
 function resolveSocketUrl(): string {
@@ -178,6 +193,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     const parsed = JSON.parse(event.data) as RuntimeWsServerMessage;
 
     if (parsed.type === "tag-update") {
+      recordWebSocketTagPacket(1);
       callbacks.onTagValues([{
         ...parsed.payload,
         source: parsed.payload.source ?? "ws",
@@ -186,6 +202,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     }
 
     if (parsed.type === "tag-batch") {
+      recordWebSocketTagPacket(parsed.payload.updates.length);
       callbacks.onTagValues(parsed.payload.updates.map((update) => ({
         ...update,
         source: update.source ?? "ws",
@@ -322,5 +339,5 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
 
 export function updateRuntimeTagSubscriptions(tags: string[]): void {
   pendingGlobalSubscriptions = normalizeTags(tags);
-  activeSocketController?.subscribeTags(pendingGlobalSubscriptions);
+  scheduleGlobalTagSubscriptionFlush();
 }

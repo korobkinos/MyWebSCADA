@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { getRuntimeDiagnosticsSnapshot, registerPollingLoop } from "./runtime-diagnostics";
+import {
+  getRuntimeDiagnosticsSnapshot,
+  getRuntimeRateDiagnosticsSnapshot,
+  recordSetTagValuesCall,
+  recordWebSocketTagPacket,
+  registerPollingLoop,
+  resetRuntimeRateDiagnosticsForTest,
+} from "./runtime-diagnostics";
 
 describe("runtime diagnostics polling loop registry", () => {
   it("counts duplicate loop registrations and unregisters each handle", () => {
@@ -21,5 +28,22 @@ describe("runtime diagnostics polling loop registry", () => {
       warn.mockRestore();
       info.mockRestore();
     }
+  });
+});
+
+describe("runtime diagnostics rate counters", () => {
+  it("counts websocket packets, tag values, and setTagValues calls", () => {
+    resetRuntimeRateDiagnosticsForTest();
+
+    recordWebSocketTagPacket(3);
+    recordWebSocketTagPacket(2);
+    recordSetTagValuesCall(4);
+
+    expect(getRuntimeRateDiagnosticsSnapshot()).toEqual({
+      webSocketTagPackets: 2,
+      webSocketTagValues: 5,
+      setTagValuesCalls: 1,
+      setTagValuesValues: 4,
+    });
   });
 });
