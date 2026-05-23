@@ -295,6 +295,148 @@ export function unionTrendRanges(
   };
 }
 
+export function resolveTrendRenderRange(
+  visibleRange: TrendVisibleRange,
+  domainRange: TrendVisibleRange | null | undefined,
+  paddingRatio = 0.5,
+): TrendVisibleRange {
+  const visible = normalizeTrendRange(visibleRange);
+  const visibleSpan = Math.max(1, visible.to - visible.from);
+  const padding = Math.max(0, Math.round(visibleSpan * paddingRatio));
+  const padded = {
+    from: visible.from - padding,
+    to: visible.to + padding,
+  };
+  if (!domainRange) {
+    return padded;
+  }
+  const domain = normalizeTrendRange(domainRange);
+  if (!(domain.to > domain.from)) {
+    return padded;
+  }
+  const domainSpan = domain.to - domain.from;
+  const desiredSpan = Math.min(domainSpan, Math.max(1, padded.to - padded.from));
+  const clamped = {
+    from: clamp(padded.from, domain.from, domain.to),
+    to: clamp(padded.to, domain.from, domain.to),
+  };
+  if (clamped.to > clamped.from) {
+    return clamped;
+  }
+  if (padded.to <= domain.from) {
+    return {
+      from: domain.from,
+      to: Math.min(domain.to, domain.from + desiredSpan),
+    };
+  }
+  if (padded.from >= domain.to) {
+    return {
+      from: Math.max(domain.from, domain.to - desiredSpan),
+      to: domain.to,
+    };
+  }
+  return {
+    from: domain.from,
+    to: Math.min(domain.to, domain.from + desiredSpan),
+  };
+}
+
+export function sliceTrendPointsByRange(points: TrendPoint[], range: TrendVisibleRange): TrendPoint[] {
+  if (points.length === 0) {
+    return points;
+  }
+  const normalizedRange = normalizeTrendRange(range);
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (first && last && first.t >= normalizedRange.from && last.t <= normalizedRange.to) {
+    return points;
+  }
+
+  let low = 0;
+  let high = points.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const point = points[mid];
+    if (point && point.t < normalizedRange.from) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  const start = low;
+
+  low = start;
+  high = points.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const point = points[mid];
+    if (point && point.t <= normalizedRange.to) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return points.slice(start, low);
+}
+
+export function decimateTrendPoints(points: TrendPoint[], maxPoints: number): TrendPoint[] {
+  if (points.length <= maxPoints) {
+    return points;
+  }
+  const safeMax = clamp(Math.round(maxPoints), 1000, 8000);
+  const bucketSize = Math.max(1, Math.ceil(points.length / safeMax));
+  const result: TrendPoint[] = [];
+  const dedupe = new Set<number>();
+  for (let start = 0; start < points.length; start += bucketSize) {
+    const end = Math.min(points.length, start + bucketSize);
+    const first = points[start];
+    const last = points[end - 1];
+    if (first && !dedupe.has(first.t)) {
+      dedupe.add(first.t);
+      result.push(first);
+    }
+    let minPoint: TrendPoint | null = null;
+    let maxPoint: TrendPoint | null = null;
+    for (let index = start; index < end; index += 1) {
+      const point = points[index];
+      if (!point || typeof point.v !== "number" || !Number.isFinite(point.v)) {
+        continue;
+      }
+      if (!minPoint || point.v < minPoint.v!) {
+        minPoint = point;
+      }
+      if (!maxPoint || point.v > maxPoint.v!) {
+        maxPoint = point;
+      }
+    }
+    const candidates = [minPoint, maxPoint, last]
+      .filter((point): point is TrendPoint => Boolean(point))
+      .sort((a, b) => a.t - b.t);
+    for (const point of candidates) {
+      if (!dedupe.has(point.t)) {
+        dedupe.add(point.t);
+        result.push(point);
+      }
+    }
+  }
+  if (result.length > safeMax) {
+    const stride = Math.ceil(result.length / safeMax);
+    const compacted: TrendPoint[] = [];
+    for (let index = 0; index < result.length; index += stride) {
+      const point = result[index];
+      if (point) {
+        compacted.push(point);
+      }
+    }
+    const tail = result[result.length - 1];
+    if (tail && compacted[compacted.length - 1]?.t !== tail.t) {
+      compacted.push(tail);
+    }
+    return compacted;
+  }
+  return result;
+}
+
 export function resolveQuickPresetFromRangeSpan(range: TrendVisibleRange): "5m" | "15m" | "1h" | "custom" {
   const span = Math.abs(range.to - range.from);
   const toleranceMs = 1_000;

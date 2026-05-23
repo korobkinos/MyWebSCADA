@@ -15,7 +15,7 @@ import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendLiveDataSource, TrendPoint, TrendQueryResponse, TrendQuickPreset, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, isRangeCovered, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendRange, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan, unionTrendRanges } from "./trendUtils";
+import { buildAxes, clamp, decimateTrendPoints, defaultTrendSettings, formatRangeLabel, isRangeCovered, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendRange, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan, unionTrendRanges } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 import { TrendQueryRateLimiter } from "./trendQueryRateLimiter";
@@ -648,64 +648,6 @@ function resolveRetryDelayFromError(error: unknown, fallbackEndpoint: "trendTags
   return endpointDelay > 0 ? endpointDelay : null;
 }
 
-function decimatePoints(points: TrendPoint[], maxPoints: number): TrendPoint[] {
-  if (points.length <= maxPoints) {
-    return points;
-  }
-  const safeMax = Math.max(1000, Math.min(8000, Math.round(maxPoints)));
-  const bucketSize = Math.max(1, Math.ceil(points.length / safeMax));
-  const result: TrendPoint[] = [];
-  const dedupe = new Set<number>();
-  for (let start = 0; start < points.length; start += bucketSize) {
-    const end = Math.min(points.length, start + bucketSize);
-    const first = points[start];
-    const last = points[end - 1];
-    if (first && !dedupe.has(first.t)) {
-      dedupe.add(first.t);
-      result.push(first);
-    }
-    let minPoint: TrendPoint | null = null;
-    let maxPoint: TrendPoint | null = null;
-    for (let index = start; index < end; index += 1) {
-      const point = points[index];
-      if (!point || typeof point.v !== "number" || !Number.isFinite(point.v)) {
-        continue;
-      }
-      if (!minPoint || point.v < minPoint.v!) {
-        minPoint = point;
-      }
-      if (!maxPoint || point.v > maxPoint.v!) {
-        maxPoint = point;
-      }
-    }
-    const candidates = [minPoint, maxPoint, last]
-      .filter((point): point is TrendPoint => Boolean(point))
-      .sort((a, b) => a.t - b.t);
-    for (const point of candidates) {
-      if (!dedupe.has(point.t)) {
-        dedupe.add(point.t);
-        result.push(point);
-      }
-    }
-  }
-  if (result.length > safeMax) {
-    const stride = Math.ceil(result.length / safeMax);
-    const compacted: TrendPoint[] = [];
-    for (let index = 0; index < result.length; index += stride) {
-      const point = result[index];
-      if (point) {
-        compacted.push(point);
-      }
-    }
-    const tail = result[result.length - 1];
-    if (tail && compacted[compacted.length - 1]?.t !== tail.t) {
-      compacted.push(tail);
-    }
-    return compacted;
-  }
-  return result;
-}
-
 const DEFAULT_TAG_PICKER_FILTERS: TrendTagPickerFilters = {
   search: "",
   groupFilter: "all",
@@ -902,6 +844,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     if (!chartResponse) {
       return chartResponse;
     }
+    if (mode === "offline") {
+      return chartResponse;
+    }
     const maxVisiblePoints = clamp(
       Math.round(settings.maxVisiblePointsPerSeries ?? settings.maxPointsPerSeries),
       1000,
@@ -909,13 +854,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     );
     const series = chartResponse.series.map((item) => ({
       ...item,
-      points: decimatePoints(item.points, maxVisiblePoints),
+      points: decimateTrendPoints(item.points, maxVisiblePoints),
     }));
     return {
       ...chartResponse,
       series,
     };
-  }, [chartResponse, settings.maxPointsPerSeries, settings.maxVisiblePointsPerSeries, visibleRange.from, visibleRange.to]);
+  }, [chartResponse, mode, settings.maxPointsPerSeries, settings.maxVisiblePointsPerSeries]);
 
   useEffect(() => {
     liveSocketStateRef.current = liveSocketState;
@@ -2856,6 +2801,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       liveMode,
       rangePreset,
       visibleRange,
+      loadedRange: mode === "offline" ? offlineLoadedRange : null,
       selectedTags: selectedTags.map((item) => item.tag),
       settings: {
         aggregation: settings.aggregation,
@@ -2867,6 +2813,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       },
       statusAggregation,
       pointCount,
+      bufferedPointCount: pointCount,
       liveBatchCount,
       livePointCount,
       liveSocketState,

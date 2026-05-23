@@ -7,7 +7,7 @@ import type { ECharts, EChartsCoreOption } from "echarts/core";
 import type { TrendAxisConfig, TrendAxisTitleMode, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { isTrendPerfDebugEnabled, logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
-import { appendLiveCarryForwardPoint, insertTrendGapBreaks, normalizeTrendPoints, resolveTrendGapBreakMs } from "./trendUtils";
+import { appendLiveCarryForwardPoint, clamp, decimateTrendPoints, insertTrendGapBreaks, normalizeTrendPoints, resolveTrendGapBreakMs, resolveTrendRenderRange, sliceTrendPointsByRange } from "./trendUtils";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, GraphicComponent, CanvasRenderer]);
 const LIVE_GAP_MIN_BREAK_MS = 10_000;
@@ -906,13 +906,31 @@ export function TrendChart({
       .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
     const totalPointCount = activeTags.reduce((acc, tag) => acc + (seriesPointsRef.current.get(tag.tag)?.length ?? 0), 0);
+    const loadedDomain = loadedRange && loadedRange.to > loadedRange.from ? loadedRange : fullRangeRef.current;
+    const useOfflineRenderWindow = !liveModeRef.current && Boolean(loadedRange && loadedRange.to > loadedRange.from);
+    const renderRange = useOfflineRenderWindow
+      ? resolveTrendRenderRange(visibleRange, loadedDomain, 0.5)
+      : null;
+    const maxRenderedPointsPerSeries = clamp(
+      Math.round(settings.maxVisiblePointsPerSeries ?? settings.maxPointsPerSeries),
+      1000,
+      8000,
+    );
     const isLargeDataset = totalPointCount >= 5000;
     const animationEnabled = !disableAnimation && !liveMode && (!settings.disableAnimationsLargeData || !isLargeDataset);
     const progressiveValue = settings.progressive ? 450 : 0;
     const progressiveThreshold = settings.progressive ? 2500 : Number.MAX_SAFE_INTEGER;
+    let renderRangePointCount = 0;
 
     const series: any[] = activeTags.map((tag) => {
-      const sourcePoints = seriesPointsRef.current.get(tag.tag) ?? [];
+      const bufferedPoints = seriesPointsRef.current.get(tag.tag) ?? [];
+      const rangePoints = renderRange
+        ? sliceTrendPointsByRange(bufferedPoints, renderRange)
+        : bufferedPoints;
+      renderRangePointCount += rangePoints.length;
+      const sourcePoints = renderRange
+        ? decimateTrendPoints(rangePoints, maxRenderedPointsPerSeries)
+        : bufferedPoints;
       const lineWidth = tag.lineWidth ?? settings.defaultLineWidth;
       const lineType = tag.lineType ?? "solid";
       const renderMode = tag.mode ?? (tagsByName.get(tag.tag)?.mode ?? "line");
@@ -956,15 +974,25 @@ export function TrendChart({
           : settings.aggregation === "lttb"
             ? "lttb"
             : undefined;
-      const firstPoint = sourcePoints[0];
-      const lastPoint = sourcePoints[sourcePoints.length - 1];
+      const firstPoint = bufferedPoints[0];
+      const lastPoint = bufferedPoints[bufferedPoints.length - 1];
+      const firstRenderedPoint = sourcePoints[0];
+      const lastRenderedPoint = sourcePoints[sourcePoints.length - 1];
       logTrendDiagnostics("chart:series-render", {
         tag: tag.tag,
         liveMode,
-        points: sourcePoints.length,
+        bufferedPointCount: bufferedPoints.length,
+        renderRangePointCount: rangePoints.length,
+        renderedPointCount: dataPoints.length,
+        points: bufferedPoints.length,
         renderPoints: dataPoints.length,
         firstTs: firstPoint?.t ?? null,
         lastTs: lastPoint?.t ?? null,
+        firstRenderedTs: firstRenderedPoint?.t ?? null,
+        lastRenderedTs: lastRenderedPoint?.t ?? null,
+        visibleRange,
+        loadedRange: loadedRange ?? null,
+        renderRange,
         sampling: sampling ?? "none",
       });
       return {
@@ -1318,10 +1346,15 @@ export function TrendChart({
         durationMs: Math.round((performance.now() - renderStartedAt) * 1000) / 1000,
         setOptionDurationMs: Math.round((performance.now() - setOptionStartedAt) * 1000) / 1000,
         seriesCount: series.length,
+        bufferedPointCount: totalPointCount,
+        renderedPointCount: echartsPointCount,
+        renderRangePointCount,
         sourcePointCount: totalPointCount,
         echartsPointCount,
         domain: fullRangeRef.current,
         visibleRange,
+        loadedRange: loadedRange ?? null,
+        renderRange,
         appendLivePointsCalls: appendLivePointsCallCountRef.current,
         liveRenderCount: liveRenderCountRef.current,
         throttledRenderCalls: renderThrottleCountRef.current,
