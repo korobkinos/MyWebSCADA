@@ -546,6 +546,14 @@ export function insertTrendGapBreaks(
   if (normalized.length < 2) {
     return { points: normalized, gaps };
   }
+  if (
+    normalized.length === 2
+    && normalized[0]?.v !== null
+    && normalized[0]?.v === normalized[1]?.v
+    && (normalized[0]?.q ?? "good") === (normalized[1]?.q ?? "good")
+  ) {
+    return { points: normalized, gaps };
+  }
   const safeGapBreakMs = Number.isFinite(gapBreakMs) && gapBreakMs > 0 ? Math.round(gapBreakMs) : 5000;
   const result: TrendPoint[] = [normalized[0]!];
   for (let index = 1; index < normalized.length; index += 1) {

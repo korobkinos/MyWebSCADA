@@ -489,9 +489,26 @@ export class ArchiveRepository {
       const insertsCarryForwardFromBeforeRange = Boolean(
         carryForwardPoint
         && carryForwardPoint.t < fromTs
-        && (normalizedBeforeCarryForward.length === 0 || normalizedBeforeCarryForward[0]!.t > fromTs),
+        && normalizedBeforeCarryForward.length > 0
+        && normalizedBeforeCarryForward[0]!.t > fromTs,
       );
       const pointsWithCarryForward = this.applyTrendCarryForward(points, carryForwardPoint, requestedFrom, requestedTo);
+      const insertsConstantCarryForwardSeries = Boolean(
+        carryForwardPoint
+        && normalizedBeforeCarryForward.length === 0
+        && pointsWithCarryForward.length === 2
+        && pointsWithCarryForward[0]?.t === fromTs
+        && pointsWithCarryForward[1]?.t === requestedTo.getTime(),
+      );
+      if (insertsConstantCarryForwardSeries && carryForwardPoint) {
+        this.logger.info(`trend:carry-forward-constant-series ${JSON.stringify({
+          tag: meta.name,
+          from: requestedFrom.toISOString(),
+          to: requestedTo.toISOString(),
+          previousPointTimestamp: carryForwardPoint.t,
+          insertedPointCount: 2,
+        })}`);
+      }
       if (insertsCarryForwardFromBeforeRange && carryForwardPoint) {
         this.logger.info(`trend:carry-forward-from-before-range ${JSON.stringify({
           tag: meta.name,
@@ -1238,7 +1255,10 @@ export class ArchiveRepository {
       if (!carryForwardPoint) {
         return normalized;
       }
-      return [{ t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q }];
+      return this.normalizeTrendPointRows([
+        { t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q },
+        { t: toTs, v: carryForwardPoint.v, q: carryForwardPoint.q },
+      ]);
     }
     if (carryForwardPoint && normalized[0]!.t > fromTs) {
       normalized.unshift({ t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q });

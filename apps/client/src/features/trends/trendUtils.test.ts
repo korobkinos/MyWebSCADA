@@ -168,6 +168,19 @@ describe("insertTrendGapBreaks", () => {
     });
   });
 
+  it("keeps two-point flat carry-forward spans drawable across long ranges", () => {
+    const result = insertTrendGapBreaks([
+      { t: 1_000, v: 250, q: "good" },
+      { t: 61_000, v: 250, q: "good" },
+    ], 5_000);
+
+    expect(result.points.map((item) => [item.t, item.v])).toEqual([
+      [1_000, 250],
+      [61_000, 250],
+    ]);
+    expect(result.gaps).toHaveLength(0);
+  });
+
   it("does not insert duplicate breaks around existing null markers", () => {
     const result = insertTrendGapBreaks([
       { t: 1_000, v: 10, q: "good" },
