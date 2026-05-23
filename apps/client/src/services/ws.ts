@@ -1,9 +1,17 @@
-import { COMMAND_TIMEOUT_MS, type ManualCommandMeta, type RuntimeWsClientMessage, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
+import {
+  COMMAND_TIMEOUT_MS,
+  type EventOccurrence,
+  type ManualCommandMeta,
+  type RuntimeWsClientMessage,
+  type RuntimeWsServerMessage,
+  type TagValue,
+} from "@web-scada/shared";
 import { canRequestEndpoint, getEndpointBackoffDelay, isConnectivityFailure, markEndpointFailure, markEndpointSuccess } from "./connection-state";
 import { incrementRuntimeDiagnosticMetric, recordWebSocketTagPacket } from "./runtime-diagnostics";
 
 type WsCallbacks = {
   onTagValues: (values: TagValue[]) => void;
+  onEventUpdate?: (payload: { kind: "active" | "cleared" | "acknowledged"; occurrence: EventOccurrence }) => void;
   onSocketStateChange?: (state: "connecting" | "open" | "closed" | "error") => void;
 };
 
@@ -207,6 +215,11 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
         ...update,
         source: update.source ?? "ws",
       })));
+      return;
+    }
+
+    if (parsed.type === "event-update") {
+      callbacks.onEventUpdate?.(parsed.payload);
     }
   };
 

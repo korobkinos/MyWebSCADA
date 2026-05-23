@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
-import { runtimeWsClientMessageSchema, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
+import { runtimeWsClientMessageSchema, type EventOccurrence, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
 import { CommandService } from "../runtime/command-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
 import { logPerf } from "../runtime/perf-logger.js";
@@ -67,6 +67,17 @@ export class WebSocketGateway {
     this.clients.clear();
   }
 
+  public broadcastEventUpdate(kind: "active" | "cleared" | "acknowledged", occurrence: EventOccurrence): void {
+    const message: RuntimeWsServerMessage = {
+      type: "event-update",
+      payload: {
+        kind,
+        occurrence,
+      },
+    };
+    this.broadcastSerialized(JSON.stringify(message));
+  }
+
   private ensureFlusher(): void {
     if (this.flushTimer) {
       return;
@@ -113,13 +124,7 @@ export class WebSocketGateway {
             payload: { updates },
           };
 
-    const serialized = JSON.stringify(message);
-
-    for (const client of this.clients) {
-      if (client.readyState === client.OPEN) {
-        client.send(serialized);
-      }
-    }
+    this.broadcastSerialized(JSON.stringify(message));
     logPerf({
       component: "websocket",
       action: "broadcast",
@@ -177,5 +182,13 @@ export class WebSocketGateway {
       }
     }
     this.runtimeService.setActiveTags(union);
+  }
+
+  private broadcastSerialized(serialized: string): void {
+    for (const client of this.clients) {
+      if (client.readyState === client.OPEN) {
+        client.send(serialized);
+      }
+    }
   }
 }

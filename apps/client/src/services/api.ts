@@ -194,6 +194,14 @@ export type EventArchiveCleanupResult = {
   optimized: boolean;
 };
 
+export type EventAcknowledgeResponse = {
+  ok: boolean;
+  acknowledged: EventOccurrence[];
+  alreadyAcknowledgedIds: string[];
+  notFoundIds: string[];
+  ackTagWriteFailures: Array<{ occurrenceId: string; tagName: string; message: string }>;
+};
+
 export type TrendDataType = "number" | "boolean" | "string" | "enum";
 export type TrendAggregationMode = "auto" | "raw" | "minmax" | "avg" | "lttb";
 export type TrendTagInfo = {
@@ -584,6 +592,11 @@ export const api = {
     request<EventHistoryPage>(
       `/api/events/history${toQueryString(query ?? {})}`,
     ),
+  acknowledgeEvents: (ids: Array<string | number>) =>
+    request<EventAcknowledgeResponse>("/api/events/ack", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
   exportEventHistoryCsv: async (query?: EventHistoryQuery): Promise<string> => {
     const token = getEngineerToken();
     const response = await fetch(resolveRequestUrl(`/api/events/history/export.csv${toQueryString(query ?? {})}`), {

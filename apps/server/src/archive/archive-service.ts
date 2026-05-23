@@ -5,7 +5,9 @@ import type {
   EventHistoryPage,
   EventHistoryQuery,
   EventOccurrence,
+  EventOccurrenceState,
   TagDefinition,
+  TagScalarValue,
   TagValue,
 } from "@web-scada/shared";
 import { TagStore } from "../tags/tag-store.js";
@@ -262,6 +264,43 @@ export class ArchiveService {
 
   public async listActiveEvents(limit?: number): Promise<EventOccurrence[]> {
     return this.repository.listActiveEventOccurrences(limit);
+  }
+
+  public async createEventOccurrence(input: {
+    eventDefinitionId: string;
+    occurredAt: Date;
+    clearedAt?: Date | null;
+    acknowledgedAt?: Date | null;
+    acknowledgedBy?: string | null;
+    state: EventOccurrenceState;
+    sourceTagNameSnapshot?: string | null;
+    categoryIdSnapshot?: string | null;
+    categoryNameSnapshot?: string | null;
+    prioritySnapshot?: number | null;
+    messageTextSnapshot?: string | null;
+    valueAtTrigger?: TagScalarValue;
+    valueAtClear?: TagScalarValue;
+    quality?: string | null;
+    runtimeSource?: string | null;
+    serviceData?: Record<string, unknown> | null;
+  }): Promise<EventOccurrence> {
+    return this.repository.createEventOccurrence(input);
+  }
+
+  public async clearEventOccurrence(id: string | number, clearedAt: Date, valueAtClear?: TagScalarValue): Promise<EventOccurrence | null> {
+    return this.repository.clearEventOccurrence(id, clearedAt, valueAtClear);
+  }
+
+  public async acknowledgeEventOccurrence(
+    id: string | number,
+    acknowledgedAt: Date,
+    acknowledgedBy?: string | null,
+  ): Promise<EventOccurrence | null> {
+    return this.repository.acknowledgeEventOccurrence(id, acknowledgedAt, acknowledgedBy);
+  }
+
+  public async getEventOccurrencesByIds(ids: Array<string | number>): Promise<EventOccurrence[]> {
+    return this.repository.getEventOccurrencesByIds(ids);
   }
 
   public async queryEventHistory(query: EventHistoryQuery): Promise<EventHistoryPage> {

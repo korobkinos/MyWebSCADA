@@ -1,4 +1,5 @@
 import type { ManualCommandMeta } from "./runtime-command-types";
+import type { EventOccurrence } from "./event-types";
 
 export type TagUpdateMessage = {
   type: "tag-update";
@@ -18,6 +19,14 @@ export type TagBatchUpdateMessage = {
   };
 };
 
+export type EventUpdateMessage = {
+  type: "event-update";
+  payload: {
+    kind: "active" | "cleared" | "acknowledged";
+    occurrence: EventOccurrence;
+  };
+};
+
 export type WriteTagMessage = {
   type: "write-tag";
   payload: {
@@ -34,5 +43,5 @@ export type SubscribeTagsMessage = {
   };
 };
 
-export type RuntimeWsServerMessage = TagUpdateMessage | TagBatchUpdateMessage;
+export type RuntimeWsServerMessage = TagUpdateMessage | TagBatchUpdateMessage | EventUpdateMessage;
 export type RuntimeWsClientMessage = WriteTagMessage | SubscribeTagsMessage;

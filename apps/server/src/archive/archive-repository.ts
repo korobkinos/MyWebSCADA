@@ -9,6 +9,7 @@ import type {
   EventOccurrence,
   EventOccurrenceState,
   TagDefinition,
+  TagScalarValue,
   TagValue,
 } from "@web-scada/shared";
 import { ARCHIVE_SCHEMA_SQL, ARCHIVE_TIMESCALE_SQL } from "./archive-schema.js";
@@ -1056,6 +1057,303 @@ export class ArchiveRepository {
     return this.queryEventOccurrences({ state: "active", limit, offset: 0 }).then((page) => page.items);
   }
 
+  public async createEventOccurrence(input: {
+    eventDefinitionId: string;
+    occurredAt: Date;
+    clearedAt?: Date | null;
+    acknowledgedAt?: Date | null;
+    acknowledgedBy?: string | null;
+    state: EventOccurrenceState;
+    sourceTagNameSnapshot?: string | null;
+    categoryIdSnapshot?: string | null;
+    categoryNameSnapshot?: string | null;
+    prioritySnapshot?: number | null;
+    messageTextSnapshot?: string | null;
+    valueAtTrigger?: TagScalarValue;
+    valueAtClear?: TagScalarValue;
+    quality?: string | null;
+    runtimeSource?: string | null;
+    serviceData?: Record<string, unknown> | null;
+  }): Promise<EventOccurrence> {
+    const row = await this.pool.query<{
+      id: number;
+      event_definition_id: string;
+      occurred_at: Date;
+      cleared_at: Date | null;
+      acknowledged_at: Date | null;
+      acknowledged_by: string | null;
+      state: string;
+      source_tag_name_snapshot: string | null;
+      category_id_snapshot: string | null;
+      category_name_snapshot: string | null;
+      priority_snapshot: number | null;
+      message_text_snapshot: string | null;
+      value_at_trigger: string | null;
+      value_at_clear: string | null;
+      quality: string | null;
+      runtime_source: string | null;
+      service_data: Record<string, unknown> | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      INSERT INTO event_occurrences (
+          event_definition_id,
+          occurred_at,
+          cleared_at,
+          acknowledged_at,
+          acknowledged_by,
+          state,
+          source_tag_name_snapshot,
+          category_id_snapshot,
+          category_name_snapshot,
+          priority_snapshot,
+          message_text_snapshot,
+          value_at_trigger,
+          value_at_clear,
+          quality,
+          runtime_source,
+          service_data,
+          created_at,
+          updated_at
+      )
+      VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), now()
+      )
+      RETURNING
+          id,
+          event_definition_id,
+          occurred_at,
+          cleared_at,
+          acknowledged_at,
+          acknowledged_by,
+          state,
+          source_tag_name_snapshot,
+          category_id_snapshot,
+          category_name_snapshot,
+          priority_snapshot,
+          message_text_snapshot,
+          value_at_trigger,
+          value_at_clear,
+          quality,
+          runtime_source,
+          service_data,
+          created_at,
+          updated_at
+      `,
+      [
+        input.eventDefinitionId,
+        input.occurredAt,
+        input.clearedAt ?? null,
+        input.acknowledgedAt ?? null,
+        input.acknowledgedBy ?? null,
+        input.state,
+        input.sourceTagNameSnapshot ?? null,
+        input.categoryIdSnapshot ?? null,
+        input.categoryNameSnapshot ?? null,
+        input.prioritySnapshot ?? null,
+        input.messageTextSnapshot ?? null,
+        this.serializeEventValue(input.valueAtTrigger),
+        this.serializeEventValue(input.valueAtClear),
+        input.quality ?? null,
+        input.runtimeSource ?? null,
+        input.serviceData ?? null,
+      ],
+    );
+
+    const created = row.rows[0];
+    if (!created) {
+      throw new Error("Failed to create event occurrence");
+    }
+    return this.mapEventOccurrenceRow(created);
+  }
+
+  public async clearEventOccurrence(
+    id: string | number,
+    clearedAt: Date,
+    valueAtClear?: TagScalarValue,
+  ): Promise<EventOccurrence | null> {
+    const result = await this.pool.query<{
+      id: number;
+      event_definition_id: string;
+      occurred_at: Date;
+      cleared_at: Date | null;
+      acknowledged_at: Date | null;
+      acknowledged_by: string | null;
+      state: string;
+      source_tag_name_snapshot: string | null;
+      category_id_snapshot: string | null;
+      category_name_snapshot: string | null;
+      priority_snapshot: number | null;
+      message_text_snapshot: string | null;
+      value_at_trigger: string | null;
+      value_at_clear: string | null;
+      quality: string | null;
+      runtime_source: string | null;
+      service_data: Record<string, unknown> | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      UPDATE event_occurrences
+      SET
+          cleared_at = COALESCE(cleared_at, $2),
+          value_at_clear = COALESCE(value_at_clear, $3),
+          state = CASE
+              WHEN state = 'acknowledged' THEN state
+              ELSE 'cleared'
+          END,
+          updated_at = now()
+      WHERE id = $1::bigint
+      RETURNING
+          id,
+          event_definition_id,
+          occurred_at,
+          cleared_at,
+          acknowledged_at,
+          acknowledged_by,
+          state,
+          source_tag_name_snapshot,
+          category_id_snapshot,
+          category_name_snapshot,
+          priority_snapshot,
+          message_text_snapshot,
+          value_at_trigger,
+          value_at_clear,
+          quality,
+          runtime_source,
+          service_data,
+          created_at,
+          updated_at
+      `,
+      [id, clearedAt, this.serializeEventValue(valueAtClear)],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    return this.mapEventOccurrenceRow(row);
+  }
+
+  public async acknowledgeEventOccurrence(
+    id: string | number,
+    acknowledgedAt: Date,
+    acknowledgedBy?: string | null,
+  ): Promise<EventOccurrence | null> {
+    const result = await this.pool.query<{
+      id: number;
+      event_definition_id: string;
+      occurred_at: Date;
+      cleared_at: Date | null;
+      acknowledged_at: Date | null;
+      acknowledged_by: string | null;
+      state: string;
+      source_tag_name_snapshot: string | null;
+      category_id_snapshot: string | null;
+      category_name_snapshot: string | null;
+      priority_snapshot: number | null;
+      message_text_snapshot: string | null;
+      value_at_trigger: string | null;
+      value_at_clear: string | null;
+      quality: string | null;
+      runtime_source: string | null;
+      service_data: Record<string, unknown> | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      UPDATE event_occurrences
+      SET
+          acknowledged_at = COALESCE(acknowledged_at, $2),
+          acknowledged_by = COALESCE(acknowledged_by, $3),
+          state = 'acknowledged',
+          updated_at = now()
+      WHERE id = $1::bigint
+      RETURNING
+          id,
+          event_definition_id,
+          occurred_at,
+          cleared_at,
+          acknowledged_at,
+          acknowledged_by,
+          state,
+          source_tag_name_snapshot,
+          category_id_snapshot,
+          category_name_snapshot,
+          priority_snapshot,
+          message_text_snapshot,
+          value_at_trigger,
+          value_at_clear,
+          quality,
+          runtime_source,
+          service_data,
+          created_at,
+          updated_at
+      `,
+      [id, acknowledgedAt, acknowledgedBy ?? null],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    return this.mapEventOccurrenceRow(row);
+  }
+
+  public async getEventOccurrencesByIds(ids: Array<string | number>): Promise<EventOccurrence[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const rows = await this.pool.query<{
+      id: number;
+      event_definition_id: string;
+      occurred_at: Date;
+      cleared_at: Date | null;
+      acknowledged_at: Date | null;
+      acknowledged_by: string | null;
+      state: string;
+      source_tag_name_snapshot: string | null;
+      category_id_snapshot: string | null;
+      category_name_snapshot: string | null;
+      priority_snapshot: number | null;
+      message_text_snapshot: string | null;
+      value_at_trigger: string | null;
+      value_at_clear: string | null;
+      quality: string | null;
+      runtime_source: string | null;
+      service_data: Record<string, unknown> | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      SELECT
+          id,
+          event_definition_id,
+          occurred_at,
+          cleared_at,
+          acknowledged_at,
+          acknowledged_by,
+          state,
+          source_tag_name_snapshot,
+          category_id_snapshot,
+          category_name_snapshot,
+          priority_snapshot,
+          message_text_snapshot,
+          value_at_trigger,
+          value_at_clear,
+          quality,
+          runtime_source,
+          service_data,
+          created_at,
+          updated_at
+      FROM event_occurrences
+      WHERE id = ANY($1::bigint[])
+      ORDER BY id ASC
+      `,
+      [ids.map((item) => String(item))],
+    );
+    return rows.rows.map((row) => this.mapEventOccurrenceRow(row));
+  }
+
   public async queryEventOccurrences(filters: EventHistoryQuery): Promise<EventHistoryPage> {
     const whereParts: string[] = [];
     const params: unknown[] = [];
@@ -1159,27 +1457,7 @@ export class ArchiveRepository {
       queryParams,
     );
 
-    const items: EventHistoryRecord[] = rows.rows.map((row) => ({
-      id: String(row.id),
-      eventDefinitionId: row.event_definition_id,
-      occurredAt: row.occurred_at.toISOString(),
-      clearedAt: row.cleared_at ? row.cleared_at.toISOString() : null,
-      acknowledgedAt: row.acknowledged_at ? row.acknowledged_at.toISOString() : null,
-      acknowledgedBy: row.acknowledged_by,
-      state: (row.state as EventOccurrenceState) ?? "active",
-      sourceTagNameSnapshot: row.source_tag_name_snapshot,
-      categoryIdSnapshot: row.category_id_snapshot,
-      categoryNameSnapshot: row.category_name_snapshot,
-      prioritySnapshot: row.priority_snapshot,
-      messageTextSnapshot: row.message_text_snapshot,
-      valueAtTrigger: row.value_at_trigger,
-      valueAtClear: row.value_at_clear,
-      quality: row.quality,
-      runtimeSource: row.runtime_source,
-      serviceData: row.service_data,
-      createdAt: row.created_at.toISOString(),
-      updatedAt: row.updated_at.toISOString(),
-    }));
+    const items: EventHistoryRecord[] = rows.rows.map((row) => this.mapEventOccurrenceRow(row));
 
     return {
       items,
@@ -2314,5 +2592,76 @@ export class ArchiveRepository {
 
   private errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  private serializeEventValue(value: TagScalarValue | undefined): string | null {
+    if (value === undefined) {
+      return null;
+    }
+    return JSON.stringify(value);
+  }
+
+  private deserializeEventValue(value: string | null): TagScalarValue {
+    if (value === null) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed === null || typeof parsed === "boolean" || typeof parsed === "number" || typeof parsed === "string") {
+        return parsed;
+      }
+      return value;
+    } catch {
+      return value;
+    }
+  }
+
+  private mapEventOccurrenceRow(row: {
+    id: number;
+    event_definition_id: string;
+    occurred_at: Date;
+    cleared_at: Date | null;
+    acknowledged_at: Date | null;
+    acknowledged_by: string | null;
+    state: string;
+    source_tag_name_snapshot: string | null;
+    category_id_snapshot: string | null;
+    category_name_snapshot: string | null;
+    priority_snapshot: number | null;
+    message_text_snapshot: string | null;
+    value_at_trigger: string | null;
+    value_at_clear: string | null;
+    quality: string | null;
+    runtime_source: string | null;
+    service_data: Record<string, unknown> | null;
+    created_at: Date;
+    updated_at: Date;
+  }): EventOccurrence {
+    const serviceData = row.service_data ?? null;
+    const soundId = typeof serviceData?.soundId === "string" ? serviceData.soundId : null;
+    const requireAck = typeof serviceData?.requireAck === "boolean" ? serviceData.requireAck : undefined;
+    return {
+      id: String(row.id),
+      eventDefinitionId: row.event_definition_id,
+      occurredAt: row.occurred_at.toISOString(),
+      clearedAt: row.cleared_at ? row.cleared_at.toISOString() : null,
+      acknowledgedAt: row.acknowledged_at ? row.acknowledged_at.toISOString() : null,
+      acknowledgedBy: row.acknowledged_by,
+      state: (row.state as EventOccurrenceState) ?? "active",
+      sourceTagNameSnapshot: row.source_tag_name_snapshot,
+      categoryIdSnapshot: row.category_id_snapshot,
+      categoryNameSnapshot: row.category_name_snapshot,
+      prioritySnapshot: row.priority_snapshot,
+      messageTextSnapshot: row.message_text_snapshot,
+      valueAtTrigger: this.deserializeEventValue(row.value_at_trigger),
+      valueAtClear: this.deserializeEventValue(row.value_at_clear),
+      quality: row.quality,
+      runtimeSource: row.runtime_source,
+      soundId,
+      requireAck,
+      serviceData,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    };
   }
 }

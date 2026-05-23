@@ -12,6 +12,7 @@ import { AuthService } from "./auth/auth-service.js";
 import { AssetService } from "./assets/asset-service.js";
 import { DriverManager } from "./drivers/driver-manager.js";
 import { EventSoundService } from "./events/event-sound-service.js";
+import { EventEngine } from "./events/event-engine.js";
 import { LibraryService } from "./libraries/library-service.js";
 import { ProjectService } from "./project/project-service.js";
 import { CommandService } from "./runtime/command-service.js";
@@ -99,6 +100,15 @@ async function bootstrap(): Promise<void> {
       archiveService = undefined;
     }
   }
+  const eventEngine = new EventEngine(tagStore, archiveService, wsGateway, commandService, {
+    logger: {
+      info: (message) => app.log.info(message),
+      warn: (message) => app.log.warn(message),
+      error: (message) => app.log.error(message),
+    },
+    isRuntimeRunning: () => runtimeService.getState().running,
+  });
+  await eventEngine.configureProject(project);
 
   await registerApiRoutes(app, {
     projectService,
@@ -113,11 +123,13 @@ async function bootstrap(): Promise<void> {
     macroService,
     authService,
     archiveService,
+    eventEngine,
   });
 
   await wsGateway.register(app);
 
   app.addHook("onClose", async () => {
+    await eventEngine.stop();
     await wsGateway.close();
     await runtimeService.stop();
     await archiveService?.close();
@@ -127,6 +139,9 @@ async function bootstrap(): Promise<void> {
   app.log.info(`Server is listening on port ${port}`);
   void runtimeService.start(project).catch((error) => {
     app.log.error(error, "Runtime failed to start");
+  });
+  void eventEngine.start(project).catch((error) => {
+    app.log.error(error, "Event engine failed to start");
   });
   if (!process.env.DEFAULT_ADMIN_PASSWORD) {
     app.log.warn(

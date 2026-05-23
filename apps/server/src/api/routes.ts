@@ -27,6 +27,7 @@ import { AuthService, AuthValidationError } from "../auth/auth-service.js";
 import { AssetService } from "../assets/asset-service.js";
 import { DriverManager } from "../drivers/driver-manager.js";
 import { EventSoundService } from "../events/event-sound-service.js";
+import type { EventEngine } from "../events/event-engine.js";
 import {
   browseOpcUaNode,
   collectOpcUaSubtreeVariables,
@@ -56,6 +57,7 @@ type ApiDeps = {
   macroService: MacroService;
   authService: AuthService;
   archiveService?: ArchiveService;
+  eventEngine?: EventEngine;
 };
 
 type LibraryElementUsage = {
@@ -184,6 +186,9 @@ const eventArchiveSettingsSchema = z.object({
   cleanupIntervalMinutes: z.number().int().positive(),
   optimizeAfterCleanup: z.boolean(),
   updatedAt: z.string().optional(),
+});
+const eventAckSchema = z.object({
+  ids: z.array(z.union([z.string().min(1), z.number().int().positive()])).min(1).max(1000),
 });
 const EVENT_HISTORY_EXPORT_PAGE_SIZE = 5000;
 const EVENT_HISTORY_EXPORT_MAX_ROWS = 200_000;
@@ -769,10 +774,13 @@ async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): P
   deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
   deps.macroService.configure(saved);
   await deps.archiveService?.syncMetadata([...(saved.tags ?? []), ...variableDefinitions], saved.drivers);
+  await deps.eventEngine?.configureProject(saved);
 
   if (deps.runtimeService.getState().running) {
+    await deps.eventEngine?.stop();
     await deps.runtimeService.stop();
     await deps.runtimeService.start(saved);
+    await deps.eventEngine?.start(saved);
   }
 
   return saved;
@@ -1186,7 +1194,29 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.code(503).send({ message: "Event archive database is not configured" });
     }
     const payload = eventArchiveSettingsSchema.parse(request.body ?? {});
-    return reply.send(await deps.archiveService.updateEventArchiveSettings(payload));
+    const updated = await deps.archiveService.updateEventArchiveSettings(payload);
+    deps.eventEngine?.setArchiveEnabled(updated.enabled);
+    return reply.send(updated);
+  });
+
+  app.post("/api/events/ack", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    const payload = eventAckSchema.parse(request.body ?? {});
+    if (!deps.eventEngine) {
+      return reply.code(503).send({ message: "Event engine is not available" });
+    }
+    const result = await deps.eventEngine.acknowledgeOccurrences(payload.ids, auth.userId);
+    const statusCode = result.notFoundIds.length > 0 ? 207 : 200;
+    return reply.code(statusCode).send({
+      ok: result.notFoundIds.length === 0,
+      ...result,
+    });
   });
 
   app.get("/api/archive/status", async (request, reply) => {
@@ -2163,6 +2193,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const project = deps.projectService.getProject();
     await deps.runtimeService.start(project);
+    await deps.eventEngine?.start(project);
     return deps.runtimeService.getState();
   });
 
@@ -2171,6 +2202,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     if (!auth) {
       return;
     }
+    await deps.eventEngine?.stop();
     await deps.runtimeService.stop();
     return deps.runtimeService.getState();
   });

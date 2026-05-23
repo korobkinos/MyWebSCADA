@@ -78,6 +78,8 @@ export type EventOccurrence = {
   valueAtClear?: TagScalarValue;
   quality?: string | null;
   runtimeSource?: string | null;
+  soundId?: string | null;
+  requireAck?: boolean;
   createdAt?: string;
   updatedAt?: string;
   serviceData?: Record<string, unknown> | null;
