@@ -38,6 +38,7 @@ function resolveSoundUrl(sound: EventSound | undefined): string | undefined {
 class EventSoundPlayer {
   private readonly cache = new Map<string, CachedEntry>();
   private currentSoundId: string | null = null;
+  private seamlessLoopSoundId: string | null = null;
   private userGestureUnlocked = false;
   private blockedByAutoplay = false;
 
@@ -47,6 +48,10 @@ class EventSoundPlayer {
 
   public getCurrentSoundId(): string | null {
     return this.currentSoundId;
+  }
+
+  public isSeamlessLoopActive(): boolean {
+    return Boolean(this.seamlessLoopSoundId);
   }
 
   public async enableSoundsWithUserGesture(): Promise<PlaybackResult> {
@@ -155,7 +160,9 @@ class EventSoundPlayer {
       };
     }
     this.stopCurrentSound();
+    this.seamlessLoopSoundId = null;
     this.currentSoundId = soundId;
+    cached.audio.loop = false;
     cached.audio.currentTime = 0;
     try {
       await cached.audio.play();
@@ -183,21 +190,104 @@ class EventSoundPlayer {
     }
   }
 
+  public async startSeamlessLoop(
+    soundId: string,
+    sounds: EventSound[],
+  ): Promise<PlaybackResult> {
+    const preloadResult = this.preload(soundId, sounds);
+    if (!preloadResult.ok) {
+      return preloadResult;
+    }
+    const cached = this.cache.get(soundId);
+    if (!cached) {
+      return {
+        ok: false,
+        reason: "unknown",
+        message: "Sound cache is unavailable.",
+      };
+    }
+
+    if (this.seamlessLoopSoundId && this.seamlessLoopSoundId !== soundId) {
+      this.stopSeamlessLoop();
+    }
+    if (this.currentSoundId && this.currentSoundId !== soundId) {
+      this.stopCurrentSound();
+    }
+
+    this.currentSoundId = soundId;
+    this.seamlessLoopSoundId = soundId;
+    cached.audio.loop = true;
+    if (cached.audio.paused) {
+      cached.audio.currentTime = 0;
+    }
+
+    try {
+      await cached.audio.play();
+      this.blockedByAutoplay = false;
+      return { ok: true };
+    } catch (error) {
+      if (this.seamlessLoopSoundId === soundId) {
+        this.seamlessLoopSoundId = null;
+      }
+      if (this.currentSoundId === soundId) {
+        this.currentSoundId = null;
+      }
+      cached.audio.loop = false;
+      const text = error instanceof Error ? error.message : String(error);
+      const blocked =
+        !this.userGestureUnlocked || /notallowederror/i.test(text);
+      if (blocked) {
+        this.blockedByAutoplay = true;
+        return {
+          ok: false,
+          reason: "autoplay_blocked",
+          message:
+            "Sound playback was blocked by the browser. Click Enable sounds.",
+        };
+      }
+      return {
+        ok: false,
+        reason: "load_failed",
+        message: text || "Failed to play the selected sound.",
+      };
+    }
+  }
+
+  public stopSeamlessLoop(): void {
+    if (!this.seamlessLoopSoundId) {
+      return;
+    }
+    const cached = this.cache.get(this.seamlessLoopSoundId);
+    if (cached) {
+      cached.audio.loop = false;
+      cached.audio.pause();
+      cached.audio.currentTime = 0;
+    }
+    this.seamlessLoopSoundId = null;
+    this.currentSoundId = null;
+  }
+
   public stopCurrentSound(): void {
     if (!this.currentSoundId) {
       return;
     }
     const cached = this.cache.get(this.currentSoundId);
     if (cached) {
+      cached.audio.loop = false;
       cached.audio.pause();
       cached.audio.currentTime = 0;
+    }
+    if (this.seamlessLoopSoundId === this.currentSoundId) {
+      this.seamlessLoopSoundId = null;
     }
     this.currentSoundId = null;
   }
 
   public stopAllSounds(): void {
+    this.stopSeamlessLoop();
     this.stopCurrentSound();
     for (const cached of this.cache.values()) {
+      cached.audio.loop = false;
       cached.audio.pause();
       cached.audio.currentTime = 0;
     }

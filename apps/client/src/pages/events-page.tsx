@@ -93,6 +93,8 @@ type EventEditorDraft = {
   message: string;
   textColor: string;
   backgroundColor: string;
+  backgroundBlinkEnabled: boolean;
+  backgroundBlinkDurationMs: number;
   requireAck: boolean;
   ackValue: string;
   soundEnabled: boolean;
@@ -170,6 +172,8 @@ const CSV_HEADERS = [
   "soundId",
   "textColor",
   "backgroundColor",
+  "backgroundBlinkEnabled",
+  "backgroundBlinkDurationMs",
   "ackTagName",
   "notificationTagName",
   "elapsedTimeTagName",
@@ -179,6 +183,14 @@ const CSV_HEADERS = [
   "createdAt",
   "updatedAt",
 ];
+
+function normalizeBlinkDurationMs(value: unknown, fallback = 1600): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(300, Math.min(10000, Math.round(parsed)));
+}
 
 function createDefaultColumnVisibility(): EventColumnVisibility {
   return EVENT_COLUMNS.reduce<EventColumnVisibility>(
@@ -421,6 +433,11 @@ function toDraft(event: EventDefinition, fallbackId: string): EventEditorDraft {
     message: event.message ?? "",
     textColor: event.textColor ?? "",
     backgroundColor: event.backgroundColor ?? "",
+    backgroundBlinkEnabled: event.backgroundBlinkEnabled === true,
+    backgroundBlinkDurationMs: normalizeBlinkDurationMs(
+      event.backgroundBlinkDurationMs,
+      1600,
+    ),
     requireAck: event.requireAck === true,
     ackValue: ackValueToText(event.ackValue),
     soundEnabled: event.soundEnabled === true,
@@ -450,6 +467,8 @@ function createDefaultDraft(existingIds: Set<string>): EventEditorDraft {
     message: "",
     textColor: "",
     backgroundColor: "",
+    backgroundBlinkEnabled: false,
+    backgroundBlinkDurationMs: 1600,
     requireAck: false,
     ackValue: "",
     soundEnabled: false,
@@ -573,6 +592,10 @@ function buildEventFromDraft(
     soundId: draft.soundEnabled ? draft.soundId.trim() || undefined : undefined,
     textColor: draft.textColor.trim() || undefined,
     backgroundColor: draft.backgroundColor.trim() || undefined,
+    backgroundBlinkEnabled: draft.backgroundBlinkEnabled === true,
+    backgroundBlinkDurationMs: draft.backgroundBlinkEnabled
+      ? normalizeBlinkDurationMs(draft.backgroundBlinkDurationMs, 1600)
+      : undefined,
     ackTagName: draft.ackTagName.trim() || undefined,
     notificationTagName: draft.notificationTagName.trim() || undefined,
     elapsedTimeTagName: draft.elapsedTimeTagName.trim() || undefined,
@@ -813,9 +836,6 @@ function EventManagerColorField({
             />
           </button>
         </ColorPicker>
-        <span className="event-manager-color-field__value">
-          {hasCustom ? value.trim() : "(auto)"}
-        </span>
         <WorkbenchButton
           onClick={onClear}
           disabled={!hasCustom}
@@ -1840,6 +1860,10 @@ export function EventsPage() {
         event.soundId ?? "",
         event.textColor ?? "",
         event.backgroundColor ?? "",
+        event.backgroundBlinkEnabled ? "true" : "false",
+        typeof event.backgroundBlinkDurationMs === "number"
+          ? event.backgroundBlinkDurationMs
+          : "",
         event.ackTagName ?? "",
         event.notificationTagName ?? "",
         event.elapsedTimeTagName ?? "",
@@ -1988,6 +2012,14 @@ export function EventsPage() {
             soundId: read("soundId") || base.soundId,
             textColor: read("textColor") || base.textColor,
             backgroundColor: read("backgroundColor") || base.backgroundColor,
+            backgroundBlinkEnabled:
+              parseBooleanField("backgroundBlinkEnabled")
+              ?? base.backgroundBlinkEnabled,
+            backgroundBlinkDurationMs: normalizeBlinkDurationMs(
+              parseNumberField("backgroundBlinkDurationMs")
+              ?? base.backgroundBlinkDurationMs,
+              base.backgroundBlinkDurationMs,
+            ),
             ackTagName: read("ackTagName") || base.ackTagName,
             notificationTagName:
               read("notificationTagName") || base.notificationTagName,
@@ -2352,6 +2384,40 @@ export function EventsPage() {
             <label className="screen-editor-tags-checkbox-field">
               <input
                 type="checkbox"
+                checked={draftEvent.backgroundBlinkEnabled}
+                onChange={(event) =>
+                  setDraftPatch({ backgroundBlinkEnabled: event.target.checked })
+                }
+              />
+              <span>Blink background (unacknowledged only)</span>
+            </label>
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Blink duration (ms)</span>
+            <input
+              className="workbench-input"
+              type="number"
+              min={300}
+              max={10000}
+              step={100}
+              value={draftEvent.backgroundBlinkDurationMs}
+              onChange={(event) =>
+                setDraftPatch({
+                  backgroundBlinkDurationMs: normalizeBlinkDurationMs(
+                    event.target.value,
+                    draftEvent.backgroundBlinkDurationMs,
+                  ),
+                })
+              }
+              disabled={!draftEvent.backgroundBlinkEnabled}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <label className="screen-editor-tags-checkbox-field">
+              <input
+                type="checkbox"
                 checked={draftEvent.requireAck}
                 onChange={(event) =>
                   setDraftPatch({ requireAck: event.target.checked })
@@ -2439,79 +2505,6 @@ export function EventsPage() {
             </WorkbenchButton>
           </div>
 
-          <div className="event-manager-runtime-sound-mode">
-            <div className="event-manager-runtime-sound-mode__title">
-              EventTable Runtime Sound Mode
-            </div>
-            <div className="event-manager-runtime-sound-mode__grid">
-              <label className="workbench-field">
-                <span className="workbench-field__label">Playback mode</span>
-                <select
-                  className="workbench-select"
-                  value={eventTableSoundSettings.soundPlaybackMode}
-                  onChange={(event) =>
-                    applyEventTableSoundSettings({
-                      soundPlaybackMode: event.target.value as
-                        | "once"
-                        | "loopUntilAcknowledged",
-                    })
-                  }
-                >
-                  <option value="once">once</option>
-                  <option value="loopUntilAcknowledged">
-                    loopUntilAcknowledged
-                  </option>
-                </select>
-              </label>
-              <label className="workbench-field">
-                <span className="workbench-field__label">
-                  Repeat interval (ms)
-                </span>
-                <input
-                  className="workbench-input"
-                  type="number"
-                  min={1000}
-                  max={60000}
-                  value={eventTableSoundSettings.soundRepeatIntervalMs}
-                  onChange={(event) =>
-                    applyEventTableSoundSettings({
-                      soundRepeatIntervalMs: Math.max(
-                        1000,
-                        Math.min(60000, Math.round(Number(event.target.value) || 5000)),
-                      ),
-                    })
-                  }
-                />
-              </label>
-              <label className="screen-editor-tags-checkbox-field">
-                <input
-                  type="checkbox"
-                  checked={eventTableSoundSettings.stopSoundOnAck}
-                  onChange={(event) =>
-                    applyEventTableSoundSettings({
-                      stopSoundOnAck: event.target.checked,
-                    })
-                  }
-                />
-                <span>Stop sound on Ack</span>
-              </label>
-              <label className="screen-editor-tags-checkbox-field">
-                <input
-                  type="checkbox"
-                  checked={eventTableSoundSettings.stopSoundOnSilence}
-                  onChange={(event) =>
-                    applyEventTableSoundSettings({
-                      stopSoundOnSilence: event.target.checked,
-                    })
-                  }
-                />
-                <span>Stop sound on Silence</span>
-              </label>
-            </div>
-            <div className="screen-editor-tag-editor__hint">
-              These settings are applied to all EventTable widgets in project screens.
-            </div>
-          </div>
           {eventSoundPlayer.hasAutoplayBlock() ? (
             <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
               Browser blocked playback. Click Enable sounds.
@@ -3258,13 +3251,87 @@ export function EventsPage() {
               }}
             />
 
-            <div className="screen-editor-tags-window__toolbar-meta">
+          <div className="screen-editor-tags-window__toolbar-meta">
               Sound Library: {sounds.length} total | Defaults:{" "}
               {
                 sounds.filter((sound) => isDefaultEventSoundId(sound.id)).length
               }{" "}
               | Custom:{" "}
               {sounds.filter((sound) => !isDefaultEventSoundId(sound.id)).length}
+            </div>
+          </div>
+
+          <div className="event-manager-runtime-sound-mode">
+            <div className="event-manager-runtime-sound-mode__title">
+              EventTable Runtime Sound Mode
+            </div>
+            <div className="event-manager-runtime-sound-mode__grid">
+              <label className="workbench-field">
+                <span className="workbench-field__label">Playback mode</span>
+                <select
+                  className="workbench-select"
+                  value={eventTableSoundSettings.soundPlaybackMode}
+                  onChange={(event) =>
+                    applyEventTableSoundSettings({
+                      soundPlaybackMode: event.target.value as
+                        | "once"
+                        | "loopUntilAcknowledged",
+                    })
+                  }
+                >
+                  <option value="once">once</option>
+                  <option value="loopUntilAcknowledged">
+                    loopUntilAcknowledged
+                  </option>
+                </select>
+              </label>
+              <label className="workbench-field">
+                <span className="workbench-field__label">
+                  Repeat interval (ms)
+                </span>
+                <input
+                  className="workbench-input"
+                  type="number"
+                  min={1000}
+                  max={60000}
+                  value={eventTableSoundSettings.soundRepeatIntervalMs}
+                  onChange={(event) =>
+                    applyEventTableSoundSettings({
+                      soundRepeatIntervalMs: Math.max(
+                        1000,
+                        Math.min(60000, Math.round(Number(event.target.value) || 5000)),
+                      ),
+                    })
+                  }
+                />
+              </label>
+              <label className="screen-editor-tags-checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={eventTableSoundSettings.stopSoundOnAck}
+                  onChange={(event) =>
+                    applyEventTableSoundSettings({
+                      stopSoundOnAck: event.target.checked,
+                    })
+                  }
+                />
+                <span>Stop sound on Ack</span>
+              </label>
+              <label className="screen-editor-tags-checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={eventTableSoundSettings.stopSoundOnSilence}
+                  onChange={(event) =>
+                    applyEventTableSoundSettings({
+                      stopSoundOnSilence: event.target.checked,
+                    })
+                  }
+                />
+                <span>Stop sound on Silence</span>
+              </label>
+            </div>
+            <div className="screen-editor-tag-editor__hint">
+              These settings are applied to all EventTable widgets in project screens.
             </div>
           </div>
 

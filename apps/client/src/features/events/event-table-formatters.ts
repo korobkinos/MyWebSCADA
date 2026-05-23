@@ -112,11 +112,7 @@ export function getEventCellText(column: EventTableColumnId, item: EventOccurren
   if (!item.acknowledgedAt) {
     return "-";
   }
-
-  const who = item.acknowledgedBy?.trim();
-  return who
-    ? `${formatEventCellDateTime(item.acknowledgedAt)} | ${who}`
-    : formatEventCellDateTime(item.acknowledgedAt);
+  return formatEventCellDateTime(item.acknowledgedAt);
 }
 
 export function downloadCsvFile(name: string, content: string): void {

@@ -1307,6 +1307,8 @@ const eventDefinitionSchema = z.object({
   soundId: z.string().optional(),
   textColor: z.string().optional(),
   backgroundColor: z.string().optional(),
+  backgroundBlinkEnabled: z.boolean().optional(),
+  backgroundBlinkDurationMs: z.number().int().positive().optional(),
   securityEnabled: z.boolean().optional(),
   securityTagName: z.string().optional(),
   securityBitValue: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional(),

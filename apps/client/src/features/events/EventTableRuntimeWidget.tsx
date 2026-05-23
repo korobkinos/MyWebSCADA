@@ -1,4 +1,4 @@
-import type { EventOccurrence, EventTableObject, HmiObject } from "@web-scada/shared";
+import type { EventDefinition, EventOccurrence, EventTableObject, HmiObject } from "@web-scada/shared";
 import {
   CheckCircleOutlined,
   DownloadOutlined,
@@ -108,6 +108,29 @@ function resolveTitleAlign(value: EventTableObject["titleAlign"]): "flex-start" 
   return "flex-start";
 }
 
+function normalizeColorValue(value: string | null | undefined): string | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text ? text : null;
+}
+
+function resolveEventMessageVisual(definition: EventDefinition | undefined): {
+  textColor: string | null;
+  backgroundColor: string | null;
+  backgroundBlinkEnabled: boolean;
+  backgroundBlinkDurationMs: number;
+} {
+  return {
+    textColor: normalizeColorValue(definition?.textColor),
+    backgroundColor: normalizeColorValue(definition?.backgroundColor),
+    backgroundBlinkEnabled: definition?.backgroundBlinkEnabled === true,
+    backgroundBlinkDurationMs: clamp(
+      Math.round(toFiniteNumber(definition?.backgroundBlinkDurationMs, 1600)),
+      300,
+      10000,
+    ),
+  };
+}
+
 export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeWidgetProps) {
   const runtimeEvents = useSyncExternalStore(
     eventRuntimeStore.subscribe,
@@ -126,12 +149,12 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [runtimeColumnWidths, setRuntimeColumnWidths] = useState<Record<string, number>>({});
+  const [soundSilenced, setSoundSilenced] = useState(false);
 
   const oncePlayedIdsRef = useRef<Set<string>>(new Set());
   const silenceBlockedRef = useRef(false);
   const silenceSnapshotActiveIdsRef = useRef<Set<string>>(new Set());
-  const soundLoopTimerRef = useRef<number | null>(null);
-  const soundLoopInFlightRef = useRef(false);
+  const soundLoopRetryTimerRef = useRef<number | null>(null);
   const columnResizeRef = useRef<ColumnResizeState>(null);
   const persistenceWarningShownRef = useRef(false);
 
@@ -200,6 +223,17 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     queryKey: "",
     updatedAt: null as number | null,
   };
+
+  const eventDefinitionById = useMemo(() => {
+    const map = new Map<string, EventDefinition>();
+    for (const definition of project?.events ?? []) {
+      const id = definition.id?.trim();
+      if (id) {
+        map.set(id, definition);
+      }
+    }
+    return map;
+  }, [project?.events]);
 
   const historyFilterObject = useMemo(
     () => ({
@@ -387,6 +421,34 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     }
   }, [object, projectEventSounds, runtimeEvents.soundStatusMessage, soundStatusText]);
 
+  const startLoopSoundForOccurrence = useCallback(async (occurrence: EventOccurrence) => {
+    const soundId = resolveEventOccurrenceSoundId(occurrence, object, projectEventSounds);
+    if (!soundId) {
+      return { ok: false as const, reason: "missing_sound_id" as const };
+    }
+
+    const result = await eventSoundPlayer.startSeamlessLoop(soundId, projectEventSounds);
+    if (!result.ok) {
+      if (result.reason === "autoplay_blocked") {
+        const autoplayText = "Sound playback was blocked by the browser. Click Enable sounds.";
+        setSoundStatusText(autoplayText);
+        eventRuntimeStore.setSoundStatusMessage(autoplayText);
+        return { ok: false as const, reason: "autoplay_blocked" as const };
+      }
+      setSoundStatusText(result.message);
+      eventRuntimeStore.setSoundStatusMessage(result.message);
+      return { ok: false as const, reason: "playback_failed" as const };
+    }
+
+    if (runtimeEvents.soundStatusMessage) {
+      eventRuntimeStore.setSoundStatusMessage(null);
+    }
+    if (soundStatusText) {
+      setSoundStatusText("");
+    }
+    return { ok: true as const };
+  }, [object, projectEventSounds, runtimeEvents.soundStatusMessage, soundStatusText]);
+
   useEffect(() => {
     if (mode !== "online" || config.soundPlaybackMode !== "once") {
       return;
@@ -422,16 +484,17 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     }
   }, [config.soundPlaybackMode, mode, playSoundForOccurrence, runtimeEvents.activeEvents]);
 
-  const stopSoundLoopTimer = useCallback(() => {
-    if (soundLoopTimerRef.current !== null) {
-      window.clearInterval(soundLoopTimerRef.current);
-      soundLoopTimerRef.current = null;
+  const clearSoundLoopRetryTimer = useCallback(() => {
+    if (soundLoopRetryTimerRef.current !== null) {
+      window.clearTimeout(soundLoopRetryTimerRef.current);
+      soundLoopRetryTimerRef.current = null;
     }
   }, []);
 
   useEffect(() => {
     if (mode !== "online" || config.soundPlaybackMode !== "loopUntilAcknowledged") {
-      stopSoundLoopTimer();
+      clearSoundLoopRetryTimer();
+      eventSoundPlayer.stopSeamlessLoop();
       return;
     }
 
@@ -447,23 +510,24 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       if (hasNewUnackedActive) {
         silenceBlockedRef.current = false;
         silenceSnapshotActiveIdsRef.current.clear();
+        setSoundSilenced(false);
       }
     }
 
-    const loopCandidates = runtimeEvents.activeEvents
-      .filter((item) => !item.acknowledgedAt)
-      .filter((item) => !item.clearedAt || Boolean(item.clearedAt));
+    const loopCandidates = runtimeEvents.activeEvents.filter((item) => !item.acknowledgedAt);
 
     if (loopCandidates.length === 0) {
-      stopSoundLoopTimer();
+      clearSoundLoopRetryTimer();
       if (config.stopSoundOnAck) {
+        eventSoundPlayer.stopSeamlessLoop();
         eventSoundPlayer.stopCurrentSound();
       }
       return;
     }
 
     if (silenceBlockedRef.current) {
-      stopSoundLoopTimer();
+      clearSoundLoopRetryTimer();
+      eventSoundPlayer.stopSeamlessLoop();
       return;
     }
 
@@ -472,35 +536,42 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       return sorted[0] ?? null;
     };
 
-    const tick = () => {
-      if (soundLoopInFlightRef.current) {
+    const candidate = pickCurrentCandidate();
+    if (!candidate) {
+      clearSoundLoopRetryTimer();
+      return;
+    }
+
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) {
         return;
       }
-      const candidate = pickCurrentCandidate();
-      if (!candidate) {
-        return;
-      }
-      soundLoopInFlightRef.current = true;
-      void playSoundForOccurrence(candidate).finally(() => {
-        soundLoopInFlightRef.current = false;
+      void startLoopSoundForOccurrence(candidate).then((result) => {
+        if (cancelled || result.ok) {
+          return;
+        }
+        clearSoundLoopRetryTimer();
+        soundLoopRetryTimerRef.current = window.setTimeout(run, config.soundRepeatIntervalMs);
       });
     };
 
-    tick();
-    stopSoundLoopTimer();
-    soundLoopTimerRef.current = window.setInterval(tick, config.soundRepeatIntervalMs);
+    clearSoundLoopRetryTimer();
+    run();
 
     return () => {
-      stopSoundLoopTimer();
+      cancelled = true;
+      clearSoundLoopRetryTimer();
     };
   }, [
+    clearSoundLoopRetryTimer,
     config.soundPlaybackMode,
     config.soundRepeatIntervalMs,
     config.stopSoundOnAck,
     mode,
-    playSoundForOccurrence,
+    soundSilenced,
+    startLoopSoundForOccurrence,
     runtimeEvents.activeEvents,
-    stopSoundLoopTimer,
   ]);
 
   const acknowledgeRows = useCallback(async (ids: string[]) => {
@@ -530,6 +601,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       }
 
       if (config.stopSoundOnAck) {
+        eventSoundPlayer.stopSeamlessLoop();
         eventSoundPlayer.stopAllSounds();
       }
 
@@ -679,7 +751,8 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     [columns, effectiveColumnWidths],
   );
 
-  const hasSoundNote = soundStatusText
+  const hasSoundNote = (soundSilenced ? "Sound is silenced." : "")
+    || soundStatusText
     || runtimeEvents.soundStatusMessage
     || (eventSoundPlayer.hasAutoplayBlock() ? "Sound playback was blocked by the browser. Click Enable sounds." : "");
   const historyFilterNote = mode === "history" && hasMultiValueHistoryFilters(object)
@@ -755,10 +828,10 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
       {config.showUnackedOnlyToggle ? (
         <WorkbenchIconButton
-          title={`Unacknowledged only (${object.showUnacknowledgedOnly === true ? "on" : "off"})`}
-          active={object.showUnacknowledgedOnly === true}
+          title={`Show acknowledged rows (${object.showUnacknowledgedOnly === true ? "off" : "on"})`}
+          active={object.showUnacknowledgedOnly !== true}
           onClick={() => patchObject({ showUnacknowledgedOnly: object.showUnacknowledgedOnly !== true })}
-          icon={<StopOutlined />}
+          icon={<CheckCircleOutlined />}
         />
       ) : null}
 
@@ -782,9 +855,12 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
       {config.showSilenceButton ? (
         <WorkbenchIconButton
-          title="Silence"
+          title={`Sound ${soundSilenced ? "off" : "on"} (Silence)`}
+          active={soundSilenced}
           onClick={() => {
+            eventSoundPlayer.stopSeamlessLoop();
             eventSoundPlayer.stopAllSounds();
+            setSoundSilenced(true);
             if (config.stopSoundOnSilence) {
               silenceBlockedRef.current = true;
               silenceSnapshotActiveIdsRef.current = new Set(
@@ -803,7 +879,8 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
       {config.showEnableSoundsButton ? (
         <WorkbenchIconButton
-          title="Enable sounds"
+          title={`Sound ${soundSilenced ? "off" : "on"} (Enable sounds)`}
+          active={!soundSilenced}
           onClick={() => {
             void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
               if (!result.ok) {
@@ -811,6 +888,9 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                 eventRuntimeStore.setSoundStatusMessage(result.message);
                 return;
               }
+              silenceBlockedRef.current = false;
+              silenceSnapshotActiveIdsRef.current.clear();
+              setSoundSilenced(false);
               setSoundStatusText("Sounds enabled.");
               eventRuntimeStore.setSoundStatusMessage(null);
             });
@@ -992,7 +1072,21 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                   {visibleRows.map((row, rowIndex) => {
                     const rowId = String(row.id);
                     const selected = selectedIds.has(rowId);
-                    const rowColor = getOccurrenceRowColor(row, object, textColor);
+                    const eventDefinition = eventDefinitionById.get(row.eventDefinitionId);
+                    const messageVisual = resolveEventMessageVisual(eventDefinition);
+                    const rowDefaultColor = getOccurrenceRowColor(row, object, textColor);
+                    const rowColor = messageVisual.textColor ?? rowDefaultColor;
+                    const rowIsUnacknowledged = !row.acknowledgedAt;
+                    const customBackgroundColor = messageVisual.backgroundColor;
+                    const shouldBlinkBackground = Boolean(
+                      customBackgroundColor
+                      && messageVisual.backgroundBlinkEnabled
+                      && rowIsUnacknowledged,
+                    ) && !selected;
+                    const baseRowBackground = selected
+                      ? (object.selectedRowColor ?? "#223248")
+                      : (customBackgroundColor
+                        ?? (object.zebraRows && rowIndex % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"));
 
                     return (
                       <div
@@ -1011,14 +1105,16 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                           gridTemplateColumns,
                           alignItems: "center",
                           minHeight: rowHeight,
-                          background: selected
-                            ? (object.selectedRowColor ?? "#223248")
-                            : (object.zebraRows && rowIndex % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"),
+                          background: baseRowBackground,
                           borderBottom: `1px solid ${gridLineColor}`,
                           cursor: "pointer",
                           color: rowColor,
                           fontSize: Math.max(9, fontSize - 1),
+                          animation: shouldBlinkBackground
+                            ? `event-table-row-background-pulse ${messageVisual.backgroundBlinkDurationMs}ms ease-in-out infinite`
+                            : "none",
                         }}
+                        className={shouldBlinkBackground ? "event-table-row--blinking" : ""}
                       >
                         {columns.map((column, index) => {
                           const cellText = getEventCellText(column, row);

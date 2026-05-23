@@ -52,6 +52,8 @@ export type EventDefinition = {
   soundId?: string;
   textColor?: string;
   backgroundColor?: string;
+  backgroundBlinkEnabled?: boolean;
+  backgroundBlinkDurationMs?: number;
   securityEnabled?: boolean;
   securityTagName?: string;
   securityBitValue?: boolean | 0 | 1;
