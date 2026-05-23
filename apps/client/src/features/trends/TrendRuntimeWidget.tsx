@@ -330,9 +330,11 @@ function normalizeTrendResponseForRange(
   response: TrendQueryResponse,
   range: TrendVisibleRange,
   selectedTags: TrendTagSelection[],
+  options?: { carryForwardToRangeEnd?: boolean },
 ): TrendQueryResponse {
   const safeFrom = Math.min(range.from, range.to);
   const safeTo = Math.max(range.from, range.to);
+  const carryForwardToRangeEnd = options?.carryForwardToRangeEnd !== false;
   const sourceByTag = new Map(response.series.map((series) => [series.tag, series]));
   const normalizedSeries = selectedTags.map((selection) => {
     const source = sourceByTag.get(selection.tag);
@@ -351,13 +353,13 @@ function normalizeTrendResponseForRange(
         })
         .filter((point): point is TrendPoint => point !== null),
     ).filter((point) => point.t >= safeFrom && point.t <= safeTo);
-    if (normalizedPoints.length > 0) {
+    if (carryForwardToRangeEnd && normalizedPoints.length > 0) {
       const last = normalizedPoints[normalizedPoints.length - 1];
       if (last && last.t < safeTo) {
         normalizedPoints.push({ t: safeTo, v: last.v, q: last.q });
       }
     }
-    if (normalizedPoints.length >= 2) {
+    if (carryForwardToRangeEnd && normalizedPoints.length >= 2) {
       const last = normalizedPoints[normalizedPoints.length - 1];
       const previous = normalizedPoints[normalizedPoints.length - 2];
       if (
@@ -414,16 +416,17 @@ function buildBufferedTrendResponse(
   overlay: TrendQueryResponse,
   range: TrendVisibleRange,
   selectedTags: TrendTagSelection[],
+  options?: { carryForwardToRangeEnd?: boolean },
 ): TrendQueryResponse {
   if (!base) {
-    return normalizeTrendResponseForRange(overlay, range, selectedTags);
+    return normalizeTrendResponseForRange(overlay, range, selectedTags, options);
   }
   return normalizeTrendResponseForRange({
     ...overlay,
     from: new Date(range.from).toISOString(),
     to: new Date(range.to).toISOString(),
     series: mergeTrendSeriesPoints(base.series, overlay.series),
-  }, range, selectedTags);
+  }, range, selectedTags, options);
 }
 
 function resolveInitialLoadedRange(visibleRange: TrendVisibleRange): TrendVisibleRange {
@@ -803,6 +806,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
   const liveSocketStateRef = useRef<LiveSocketState>(liveSocketState);
   const liveModeRef = useRef(liveMode);
+  const previousLiveModeForCleanupRef = useRef(liveMode);
   const liveFollowRef = useRef(liveFollow);
   const liveSessionIdRef = useRef(0);
   const liveHistoryLoadedToRef = useRef<number | null>(null);
@@ -1146,19 +1150,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const buildRetainedLiveResponse = useCallback((
     nextResponse: TrendQueryResponse,
     range: TrendVisibleRange,
+    options?: { mergeWithPrevious?: boolean },
   ): TrendQueryResponse => {
     const bounds = getSeriesBounds(nextResponse.series);
     const right = Math.max(
       range.to,
-      Date.now(),
       bounds.lastTs ?? Number.NEGATIVE_INFINITY,
     );
     const retentionRange = {
       from: right - liveRetentionMs,
       to: right,
     };
+    const base = options?.mergeWithPrevious ? liveResponseRef.current : null;
     return boundResponseSeriesPoints(
-      buildBufferedTrendResponse(liveResponseRef.current, nextResponse, retentionRange, selectedTags),
+      buildBufferedTrendResponse(base, nextResponse, retentionRange, selectedTags, { carryForwardToRangeEnd: false }),
       settings.maxLivePointsPerTag,
     );
   }, [liveRetentionMs, selectedTags, settings.maxLivePointsPerTag]);
@@ -1256,7 +1261,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           seriesCount: cached.series.length,
           cache: cacheRef.current.getStats(),
         });
-        const normalizedCached = normalizeTrendResponseForRange(cached, range, selectedTags);
+        const normalizedCached = normalizeTrendResponseForRange(cached, range, selectedTags, {
+          carryForwardToRangeEnd: targetMode !== "live",
+        });
         const boundedCached = boundResponseSeriesPoints(
           normalizedCached,
           targetMode === "live" ? settings.maxLivePointsPerTag : TREND_BUFFER_POINTS_PER_SERIES_MAX,
@@ -1266,7 +1273,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             return { ok: false, reason: "error" };
           }
           const nextLiveResponse = liveDataSource === "archivePolling"
-            ? buildRetainedLiveResponse(boundedCached, range)
+            ? buildRetainedLiveResponse(boundedCached, range, { mergeWithPrevious: !liveFollowRef.current })
             : boundedCached;
           liveResponseRef.current = nextLiveResponse;
           setLiveResponse(nextLiveResponse);
@@ -1306,7 +1313,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         }
         setStatusAggregation(boundedCached.aggregation);
         setLastLoadAt(Date.now());
-        return { ok: true, response: boundedCached };
+        return { ok: true, response: targetMode === "live" ? (liveResponseRef.current ?? boundedCached) : boundedCached };
       }
     }
 
@@ -1317,9 +1324,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }));
     }
 
-    requestIdRef.current += 1;
+    const ownsGlobalRequest = !options?.skipLoadingState;
+    if (ownsGlobalRequest) {
+      requestIdRef.current += 1;
+      requestControllerRef.current?.abort();
+    }
     const requestId = requestIdRef.current;
-    requestControllerRef.current?.abort();
     const controller = new AbortController();
     requestControllerRef.current = controller;
 
@@ -1359,7 +1369,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         signal: controller.signal,
         inFlightKey: `trendsQuery:${object.id}`,
       });
-      if (requestId !== requestIdRef.current) {
+      if (ownsGlobalRequest && requestId !== requestIdRef.current) {
         return { ok: false, reason: "error" };
       }
       if (targetMode === "live" && liveSessionId !== liveSessionIdRef.current) {
@@ -1454,7 +1464,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       const normalizedRange = isLiveBootstrapQuery
         ? { from: range.from, to: Math.max(range.to, liveBootstrapMergeUpperTs) }
         : range;
-      next = normalizeTrendResponseForRange(next, normalizedRange, selectedTags);
+      next = normalizeTrendResponseForRange(next, normalizedRange, selectedTags, {
+        carryForwardToRangeEnd: targetMode !== "live",
+      });
       const boundedNext = boundResponseSeriesPoints(
         next,
         targetMode === "live" ? settings.maxLivePointsPerTag : TREND_BUFFER_POINTS_PER_SERIES_MAX,
@@ -1500,7 +1512,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           return { ok: false, reason: "error" };
         }
         const nextLiveResponse = liveDataSource === "archivePolling"
-          ? buildRetainedLiveResponse(boundedNext, normalizedRange)
+          ? buildRetainedLiveResponse(boundedNext, normalizedRange, { mergeWithPrevious: !liveFollowRef.current })
           : boundedNext;
         liveResponseRef.current = nextLiveResponse;
         setLiveResponse(nextLiveResponse);
@@ -1613,7 +1625,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         pointsInChart: chartApiRef.current?.getPointCount() ?? 0,
         cacheEntryCount: cacheRef.current.getStats().entryCount,
       });
-      if (requestId === requestIdRef.current && !options?.skipLoadingState) {
+      if (ownsGlobalRequest && requestId === requestIdRef.current) {
         setLoading(false);
       }
     }
@@ -1742,6 +1754,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       context: "live",
       targetMode: "live",
       liveSessionId: sessionId,
+      skipRateLimit: true,
     });
     if (!loadedResult.ok || sessionId !== liveSessionIdRef.current || !liveModeRef.current) {
       logTrendDiagnostics("liveRealtime:snapshot-load-error", {
@@ -1886,7 +1899,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   }, [liveMode, requestBufferedRange, screenRevision, selectedTagNamesKey, selectedTags]);
 
   useEffect(() => {
+    const wasLive = previousLiveModeForCleanupRef.current;
+    previousLiveModeForCleanupRef.current = liveMode;
     if (!liveMode || selectedTagNames.length === 0) {
+      setLoading(false);
       setLiveHistoryState("idle");
       setLiveHistoryPointCount(0);
       setLiveBootstrapReady(false);
@@ -1901,6 +1917,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       liveRealtimeAppendedSinceLastLogRef.current = 0;
       liveLastTimestampByTagRef.current.clear();
       liveSessionIdRef.current += 1;
+      if (wasLive) {
+        trendQueryRateLimiterRef.current.cancel({ ok: false, reason: "error" });
+        requestControllerRef.current?.abort();
+      }
       setLiveResponse(null);
       liveResponseRef.current = null;
       return;
@@ -1980,6 +2000,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     let disposed = false;
     let inFlight = false;
     let timerId: number | null = null;
+    setLoading(false);
     setLiveBootstrapReady(true);
     setLiveHistoryState("loading");
     setLiveHistoryPointCount(0);
@@ -2030,9 +2051,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
       inFlight = true;
       const now = Date.now();
-      const span = Math.max(60_000, liveWindowMs);
+      const followSpan = Math.max(60_000, liveWindowMs);
+      const querySpan = Math.max(followSpan, liveRetentionMs);
+      const queryRange: TrendVisibleRange = {
+        from: now - querySpan,
+        to: now,
+      };
       const nextRange: TrendVisibleRange = {
-        from: now - span,
+        from: now - followSpan,
         to: now,
       };
       logTrendDiagnostics("livePolling:tick-start", {
@@ -2041,19 +2067,23 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         plannedAt,
         startedAt: now,
         driftMs: now - plannedAt,
-        rangeFrom: nextRange.from,
-        rangeTo: nextRange.to,
+        rangeFrom: queryRange.from,
+        rangeTo: queryRange.to,
+        followRangeFrom: nextRange.from,
+        followRangeTo: nextRange.to,
+        liveRetentionMs,
       });
       const requestStartedAt = now;
       let nextDelayOverride: number | undefined;
       try {
-        const loadedResult = await executeQuery(nextRange, {
+        const loadedResult = await executeQuery(queryRange, {
           force: true,
           context: "live",
           targetMode: "live",
           liveSessionId: sessionId,
           skipLoadingState: true,
           skipLiveLoadingState: true,
+          skipRateLimit: true,
         });
         const finishedAt = Date.now();
         if (!loadedResult.ok && loadedResult.reason === "backoff") {
@@ -2083,8 +2113,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             finishedAt,
             durationMs: finishedAt - requestStartedAt,
             pointCount,
-            rangeFrom: nextRange.from,
-            rangeTo: nextRange.to,
+            rangeFrom: queryRange.from,
+            rangeTo: queryRange.to,
+            followRangeFrom: nextRange.from,
+            followRangeTo: nextRange.to,
           });
         } else {
           logTrendDiagnostics("livePolling:tick-error", {
@@ -2414,7 +2446,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       inFlight = true;
       let nextDelayOverride: number | undefined;
       const startedAt = Date.now();
-      const span = Math.max(60_000, liveWindowMs);
+      const span = Math.max(60_000, liveWindowMs, liveRetentionMs);
       const range: TrendVisibleRange = {
         from: startedAt - span,
         to: startedAt,
@@ -2437,6 +2469,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           liveSessionId: sessionId,
           skipLoadingState: true,
           skipLiveLoadingState: true,
+          skipRateLimit: true,
         });
         if (!loadedResult.ok && loadedResult.reason === "backoff") {
           nextDelayOverride = loadedResult.retryAfterMs;
@@ -2698,6 +2731,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           liveSessionId: liveSessionIdRef.current,
           skipLoadingState: true,
           skipLiveLoadingState: true,
+          skipRateLimit: true,
         });
       }
       return;
@@ -2766,6 +2800,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       logTrendDiagnostics("live:toggle-off", {
         reason: "toolbar",
       });
+      setLoading(false);
       setLiveMode(false);
       liveFollowRef.current = false;
       setLiveFollow(false);
@@ -2778,6 +2813,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       to: right,
     };
     setLiveAutoStopReason(null);
+    setLoading(false);
     logTrendDiagnostics("live:toggle-on", {
       from: nextRange.from,
       to: nextRange.to,
