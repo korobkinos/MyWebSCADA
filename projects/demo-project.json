@@ -9393,6 +9393,25 @@
       "updatedAt": "2026-05-19T07:46:13.528Z"
     }
   ],
+  "events": [
+    {
+      "id": "event_isv4q2",
+      "enabled": true,
+      "categoryName": "Default",
+      "message": "Произошла какая-то залупа",
+      "priority": 2,
+      "sourceTagName": "Counter2",
+      "conditionMode": "word",
+      "wordOperator": ">=",
+      "wordValue": 50,
+      "startupDelayMs": 0,
+      "requireAck": false,
+      "soundEnabled": false,
+      "securityEnabled": false,
+      "createdAt": "2026-05-23T17:56:47.530Z",
+      "updatedAt": "2026-05-23T18:38:28.050Z"
+    }
+  ],
   "variables": [
     {
       "name": "Counter",

@@ -15,6 +15,9 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   const borderColor = object.borderColor ?? "#3c3c3c";
   const fontSize = Math.max(10, Math.min(24, Number(object.fontSize ?? 12)));
   const rowHeight = Math.max(20, Math.min(60, Number(object.rowHeight ?? 28)));
+  const mode = object.mode ?? (object.enableHistoryMode ? "history" : "online");
+  const historyPreset = object.historyPeriodPreset ?? "lastHour";
+  const pageSize = Math.max(1, Math.round(object.pageSize ?? 50));
 
   return (
     <div
@@ -67,6 +70,13 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
           <span>Active: {object.showActiveOnly !== false ? "On" : "Off"}</span>
           <span>Unacked: {object.showUnacknowledgedOnly === true ? "On" : "Off"}</span>
           <span>Rows: {Math.max(1, Math.round(object.maxRows ?? 100))}</span>
+          <span>Mode: {mode}</span>
+          {mode === "history" && object.showHistoryToolbar !== false ? (
+            <>
+              <span>Range: {historyPreset}</span>
+              <span>Page: {pageSize}</span>
+            </>
+          ) : null}
         </div>
       ) : null}
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -107,7 +117,9 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
             padding: 12,
           }}
         >
-          Event runtime data is not connected yet.
+          {mode === "history"
+            ? "History mode is configured, archive API is not connected yet."
+            : "Event runtime data is not connected yet."}
         </div>
       </div>
     </div>

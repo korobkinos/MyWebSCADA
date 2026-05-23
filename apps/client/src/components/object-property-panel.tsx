@@ -4095,12 +4095,96 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "eventTable") {
+    const mode = object.mode ?? (object.enableHistoryMode ? "history" : "online");
+    const isHistoryMode = mode === "history";
+
     return (
       <>
         <Typography.Text strong>General</Typography.Text>
         <Form.Item label="Title">
           <Input value={object.title ?? ""} onChange={(e) => onPatch({ title: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Mode">
+          <Select
+            value={mode}
+            options={[
+              { value: "online", label: "online" },
+              { value: "history", label: "history" },
+            ]}
+            onChange={(value: "online" | "history") => onPatch({
+              mode: value,
+              enableHistoryMode: value === "history",
+            } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Enable History Mode</span>
+          <Switch
+            checked={isHistoryMode}
+            onChange={(checked) => onPatch({
+              enableHistoryMode: checked,
+              mode: checked ? "history" : "online",
+            } as Partial<HmiObject>)}
+          />
+        </Space>
+        {isHistoryMode ? (
+          <>
+            <Form.Item label="History Preset">
+              <Select
+                value={object.historyPeriodPreset ?? "lastHour"}
+                options={[
+                  { value: "lastHour", label: "lastHour" },
+                  { value: "shift", label: "shift" },
+                  { value: "day", label: "day" },
+                  { value: "week", label: "week" },
+                  { value: "custom", label: "custom" },
+                ]}
+                onChange={(value) => onPatch({ historyPeriodPreset: value } as Partial<HmiObject>)}
+              />
+            </Form.Item>
+            {(object.historyPeriodPreset ?? "lastHour") === "custom" ? (
+              <>
+                <Form.Item label="History From (ms timestamp)">
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={0}
+                    value={object.historyFrom ?? undefined}
+                    onChange={(value) => onPatch({ historyFrom: value === null ? undefined : Number(value) } as Partial<HmiObject>)}
+                  />
+                </Form.Item>
+                <Form.Item label="History To (ms timestamp)">
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={0}
+                    value={object.historyTo ?? undefined}
+                    onChange={(value) => onPatch({ historyTo: value === null ? undefined : Number(value) } as Partial<HmiObject>)}
+                  />
+                </Form.Item>
+              </>
+            ) : null}
+            <Form.Item label="Page Size">
+              <InputNumber
+                style={{ width: "100%" }}
+                min={1}
+                max={5000}
+                value={object.pageSize ?? 50}
+                onChange={(value) => onPatch({ pageSize: Math.max(1, Math.min(5000, Math.round(Number(value ?? 50)))) } as Partial<HmiObject>)}
+              />
+            </Form.Item>
+            <Space className="object-property-panel__runtime-switch-row">
+              <span>Server-side Pagination</span>
+              <Switch checked={object.serverSidePagination ?? true} onChange={(checked) => onPatch({ serverSidePagination: checked } as Partial<HmiObject>)} />
+            </Space>
+            <Space className="object-property-panel__runtime-switch-row">
+              <span>Show History Toolbar</span>
+              <Switch checked={object.showHistoryToolbar ?? true} onChange={(checked) => onPatch({ showHistoryToolbar: checked } as Partial<HmiObject>)} />
+            </Space>
+            <Space className="object-property-panel__runtime-switch-row">
+              <span>Enable CSV Export</span>
+              <Switch checked={object.enableCsvExport ?? true} onChange={(checked) => onPatch({ enableCsvExport: checked } as Partial<HmiObject>)} />
+            </Space>
+          </>
+        ) : null}
         <Form.Item label="Max Rows">
           <InputNumber
             style={{ width: "100%" }}
@@ -4834,8 +4918,6 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
-
-
 
 
 

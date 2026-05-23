@@ -1,5 +1,16 @@
 import pg, { type Pool as PgPool, type PoolClient } from "pg";
-import type { DriverConfig, TagDefinition, TagValue } from "@web-scada/shared";
+import type {
+  DriverConfig,
+  EventArchiveCleanupMode,
+  EventArchiveSettings,
+  EventHistoryPage,
+  EventHistoryQuery,
+  EventHistoryRecord,
+  EventOccurrence,
+  EventOccurrenceState,
+  TagDefinition,
+  TagValue,
+} from "@web-scada/shared";
 import { ARCHIVE_SCHEMA_SQL, ARCHIVE_TIMESCALE_SQL } from "./archive-schema.js";
 
 const { Pool } = pg;
@@ -99,6 +110,20 @@ export type ArchiveRuntimeSettingsRow = {
   autoCleanupEnabled: boolean;
   maxDbSizeMb: number | null;
   updatedAt: string;
+};
+
+export type EventArchiveStatusRow = {
+  dbSizeMb: number;
+  recordsCount: number;
+  oldestRecordAt: string | null;
+  newestRecordAt: string | null;
+  settings: EventArchiveSettings;
+};
+
+export type EventArchiveCleanupResultRow = {
+  deletedByAge: number;
+  deletedBySize: number;
+  optimized: boolean;
 };
 
 export type ArchivePurgePreviewRow = {
@@ -1025,6 +1050,389 @@ export class ArchiveRepository {
       clearedTotalSizeMb: preview.totalSizeMb,
       tables: preview.tables,
     };
+  }
+
+  public async listActiveEventOccurrences(limit = 200): Promise<EventOccurrence[]> {
+    return this.queryEventOccurrences({ state: "active", limit, offset: 0 }).then((page) => page.items);
+  }
+
+  public async queryEventOccurrences(filters: EventHistoryQuery): Promise<EventHistoryPage> {
+    const whereParts: string[] = [];
+    const params: unknown[] = [];
+
+    const addParam = (value: unknown): string => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+
+    if (filters.from) {
+      whereParts.push(`occurred_at >= ${addParam(new Date(filters.from))}`);
+    }
+    if (filters.to) {
+      whereParts.push(`occurred_at <= ${addParam(new Date(filters.to))}`);
+    }
+    if (filters.category) {
+      const categoryParam = addParam(filters.category);
+      whereParts.push(
+        `(COALESCE(category_name_snapshot, '') = ${categoryParam} OR COALESCE(category_id_snapshot, '') = ${categoryParam})`,
+      );
+    }
+    if (typeof filters.priority === "number") {
+      whereParts.push(`priority_snapshot = ${addParam(filters.priority)}`);
+    }
+    if (filters.sourceTagName) {
+      whereParts.push(`source_tag_name_snapshot = ${addParam(filters.sourceTagName)}`);
+    }
+    if (filters.state) {
+      whereParts.push(`state = ${addParam(filters.state)}`);
+    }
+    if (filters.search?.trim()) {
+      const pattern = `%${filters.search.trim()}%`;
+      whereParts.push(`(
+        COALESCE(message_text_snapshot, '') ILIKE ${addParam(pattern)}
+        OR COALESCE(source_tag_name_snapshot, '') ILIKE ${addParam(pattern)}
+        OR COALESCE(category_name_snapshot, '') ILIKE ${addParam(pattern)}
+        OR COALESCE(event_definition_id, '') ILIKE ${addParam(pattern)}
+      )`);
+    }
+
+    const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const limit = Math.max(1, Math.min(5000, filters.limit ?? 200));
+    const offset = Math.max(0, filters.offset ?? 0);
+
+    const countQuery = await this.pool.query<{ total: string | number }>(
+      `SELECT COUNT(*)::bigint AS total FROM event_occurrences ${whereSql}`,
+      params,
+    );
+    const totalRaw = countQuery.rows[0]?.total ?? 0;
+    const total = typeof totalRaw === "string" ? Number.parseInt(totalRaw, 10) : Number(totalRaw);
+
+    const queryParams = [...params, limit, offset];
+    const rows = await this.pool.query<{
+      id: number;
+      event_definition_id: string;
+      occurred_at: Date;
+      cleared_at: Date | null;
+      acknowledged_at: Date | null;
+      acknowledged_by: string | null;
+      state: string;
+      source_tag_name_snapshot: string | null;
+      category_id_snapshot: string | null;
+      category_name_snapshot: string | null;
+      priority_snapshot: number | null;
+      message_text_snapshot: string | null;
+      value_at_trigger: string | null;
+      value_at_clear: string | null;
+      quality: string | null;
+      runtime_source: string | null;
+      service_data: Record<string, unknown> | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      SELECT
+          id,
+          event_definition_id,
+          occurred_at,
+          cleared_at,
+          acknowledged_at,
+          acknowledged_by,
+          state,
+          source_tag_name_snapshot,
+          category_id_snapshot,
+          category_name_snapshot,
+          priority_snapshot,
+          message_text_snapshot,
+          value_at_trigger,
+          value_at_clear,
+          quality,
+          runtime_source,
+          service_data,
+          created_at,
+          updated_at
+      FROM event_occurrences
+      ${whereSql}
+      ORDER BY occurred_at DESC, id DESC
+      LIMIT $${params.length + 1}
+      OFFSET $${params.length + 2}
+      `,
+      queryParams,
+    );
+
+    const items: EventHistoryRecord[] = rows.rows.map((row) => ({
+      id: String(row.id),
+      eventDefinitionId: row.event_definition_id,
+      occurredAt: row.occurred_at.toISOString(),
+      clearedAt: row.cleared_at ? row.cleared_at.toISOString() : null,
+      acknowledgedAt: row.acknowledged_at ? row.acknowledged_at.toISOString() : null,
+      acknowledgedBy: row.acknowledged_by,
+      state: (row.state as EventOccurrenceState) ?? "active",
+      sourceTagNameSnapshot: row.source_tag_name_snapshot,
+      categoryIdSnapshot: row.category_id_snapshot,
+      categoryNameSnapshot: row.category_name_snapshot,
+      prioritySnapshot: row.priority_snapshot,
+      messageTextSnapshot: row.message_text_snapshot,
+      valueAtTrigger: row.value_at_trigger,
+      valueAtClear: row.value_at_clear,
+      quality: row.quality,
+      runtimeSource: row.runtime_source,
+      serviceData: row.service_data,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    }));
+
+    return {
+      items,
+      total: Number.isFinite(total) ? Math.max(0, Math.round(total)) : 0,
+      limit,
+      offset,
+    };
+  }
+
+  public async getEventArchiveSettings(): Promise<EventArchiveSettings> {
+    const result = await this.pool.query<{
+      enabled: boolean;
+      retention_days: number;
+      max_database_size_mb: number;
+      cleanup_mode: string;
+      cleanup_interval_minutes: number;
+      optimize_after_cleanup: boolean;
+      updated_at: Date;
+    }>(
+      `
+      SELECT
+          enabled,
+          retention_days,
+          max_database_size_mb,
+          cleanup_mode,
+          cleanup_interval_minutes,
+          optimize_after_cleanup,
+          updated_at
+      FROM event_archive_settings
+      WHERE id = 1
+      `,
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return {
+        enabled: true,
+        retentionDays: 90,
+        maxDatabaseSizeMb: 2048,
+        cleanupMode: "byAgeAndSize",
+        cleanupIntervalMinutes: 60,
+        optimizeAfterCleanup: false,
+        updatedAt: new Date(0).toISOString(),
+      };
+    }
+    return {
+      enabled: row.enabled,
+      retentionDays: row.retention_days,
+      maxDatabaseSizeMb: row.max_database_size_mb,
+      cleanupMode: (row.cleanup_mode as EventArchiveCleanupMode) ?? "byAgeAndSize",
+      cleanupIntervalMinutes: row.cleanup_interval_minutes,
+      optimizeAfterCleanup: row.optimize_after_cleanup,
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  public async updateEventArchiveSettings(settings: EventArchiveSettings): Promise<EventArchiveSettings> {
+    const result = await this.pool.query<{
+      enabled: boolean;
+      retention_days: number;
+      max_database_size_mb: number;
+      cleanup_mode: string;
+      cleanup_interval_minutes: number;
+      optimize_after_cleanup: boolean;
+      updated_at: Date;
+    }>(
+      `
+      INSERT INTO event_archive_settings (
+        id,
+        enabled,
+        retention_days,
+        max_database_size_mb,
+        cleanup_mode,
+        cleanup_interval_minutes,
+        optimize_after_cleanup,
+        updated_at
+      )
+      VALUES (1, $1, $2, $3, $4, $5, $6, now())
+      ON CONFLICT (id) DO UPDATE
+      SET enabled = EXCLUDED.enabled,
+          retention_days = EXCLUDED.retention_days,
+          max_database_size_mb = EXCLUDED.max_database_size_mb,
+          cleanup_mode = EXCLUDED.cleanup_mode,
+          cleanup_interval_minutes = EXCLUDED.cleanup_interval_minutes,
+          optimize_after_cleanup = EXCLUDED.optimize_after_cleanup,
+          updated_at = now()
+      RETURNING
+          enabled,
+          retention_days,
+          max_database_size_mb,
+          cleanup_mode,
+          cleanup_interval_minutes,
+          optimize_after_cleanup,
+          updated_at
+      `,
+      [
+        settings.enabled,
+        settings.retentionDays,
+        settings.maxDatabaseSizeMb,
+        settings.cleanupMode,
+        settings.cleanupIntervalMinutes,
+        settings.optimizeAfterCleanup,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Failed to update event archive settings");
+    }
+    return {
+      enabled: row.enabled,
+      retentionDays: row.retention_days,
+      maxDatabaseSizeMb: row.max_database_size_mb,
+      cleanupMode: (row.cleanup_mode as EventArchiveCleanupMode) ?? "byAgeAndSize",
+      cleanupIntervalMinutes: row.cleanup_interval_minutes,
+      optimizeAfterCleanup: row.optimize_after_cleanup,
+      updatedAt: row.updated_at.toISOString(),
+    };
+  }
+
+  public async getEventArchiveStatus(): Promise<EventArchiveStatusRow> {
+    const settings = await this.getEventArchiveSettings();
+    const result = await this.pool.query<{
+      records_count: string | number;
+      db_size_bytes: string | number;
+      oldest_record_at: Date | null;
+      newest_record_at: Date | null;
+    }>(
+      `
+      SELECT
+          (SELECT COUNT(*)::bigint FROM event_occurrences) AS records_count,
+          COALESCE(pg_total_relation_size('event_occurrences'), 0) AS db_size_bytes,
+          (SELECT MIN(occurred_at) FROM event_occurrences) AS oldest_record_at,
+          (SELECT MAX(occurred_at) FROM event_occurrences) AS newest_record_at
+      `,
+    );
+    const row = result.rows[0];
+    const recordsCountRaw = row?.records_count ?? 0;
+    const dbSizeBytesRaw = row?.db_size_bytes ?? 0;
+    const recordsCount = typeof recordsCountRaw === "string" ? Number.parseInt(recordsCountRaw, 10) : Number(recordsCountRaw);
+    const dbSizeBytes = typeof dbSizeBytesRaw === "string" ? Number.parseInt(dbSizeBytesRaw, 10) : Number(dbSizeBytesRaw);
+    return {
+      dbSizeMb: Number.isFinite(dbSizeBytes) ? Math.max(0, dbSizeBytes / (1024 * 1024)) : 0,
+      recordsCount: Number.isFinite(recordsCount) ? Math.max(0, Math.round(recordsCount)) : 0,
+      oldestRecordAt: row?.oldest_record_at ? row.oldest_record_at.toISOString() : null,
+      newestRecordAt: row?.newest_record_at ? row.newest_record_at.toISOString() : null,
+      settings,
+    };
+  }
+
+  public async cleanupEventArchive(options?: {
+    retentionDays?: number;
+    maxDatabaseSizeMb?: number;
+    cleanupMode?: EventArchiveCleanupMode;
+    optimizeAfterCleanup?: boolean;
+  }): Promise<EventArchiveCleanupResultRow> {
+    const settings = await this.getEventArchiveSettings();
+    if (!settings.enabled) {
+      return {
+        deletedByAge: 0,
+        deletedBySize: 0,
+        optimized: false,
+      };
+    }
+    const cleanupMode = options?.cleanupMode ?? settings.cleanupMode;
+    const retentionDays = Math.max(1, Math.round(options?.retentionDays ?? settings.retentionDays));
+    const maxDatabaseSizeMb = Math.max(1, Math.round(options?.maxDatabaseSizeMb ?? settings.maxDatabaseSizeMb));
+    const optimizeAfterCleanup = options?.optimizeAfterCleanup ?? settings.optimizeAfterCleanup;
+
+    let deletedByAge = 0;
+    let deletedBySize = 0;
+
+    if (cleanupMode === "byAge" || cleanupMode === "byAgeAndSize") {
+      const byAge = await this.pool.query(
+        `
+        DELETE FROM event_occurrences
+        WHERE occurred_at < now() - make_interval(days => $1::int)
+        `,
+        [retentionDays],
+      );
+      deletedByAge = byAge.rowCount ?? 0;
+    }
+
+    if (cleanupMode === "bySize" || cleanupMode === "byAgeAndSize") {
+      const sizeLimitBytes = maxDatabaseSizeMb * 1024 * 1024;
+      let safetyCounter = 0;
+      while (safetyCounter < 100) {
+        safetyCounter += 1;
+        const sizeState = await this.pool.query<{ db_size_bytes: string | number; records_count: string | number }>(
+          `
+          SELECT
+              COALESCE(pg_total_relation_size('event_occurrences'), 0) AS db_size_bytes,
+              (SELECT COUNT(*)::bigint FROM event_occurrences) AS records_count
+          `,
+        );
+        const dbSizeRaw = sizeState.rows[0]?.db_size_bytes ?? 0;
+        const recordsRaw = sizeState.rows[0]?.records_count ?? 0;
+        const dbSizeBytes = typeof dbSizeRaw === "string" ? Number.parseInt(dbSizeRaw, 10) : Number(dbSizeRaw);
+        const recordsCount = typeof recordsRaw === "string" ? Number.parseInt(recordsRaw, 10) : Number(recordsRaw);
+        if (!Number.isFinite(dbSizeBytes) || dbSizeBytes <= sizeLimitBytes) {
+          break;
+        }
+        if (!Number.isFinite(recordsCount) || recordsCount <= 0) {
+          break;
+        }
+        const overflowRatio = Math.min(1, Math.max(0, (dbSizeBytes - sizeLimitBytes) / dbSizeBytes));
+        const deleteLimit = Math.min(
+          recordsCount,
+          ARCHIVE_SIZE_DELETE_MAX_ROWS,
+          Math.max(ARCHIVE_SIZE_DELETE_MIN_ROWS, Math.ceil(recordsCount * overflowRatio * ARCHIVE_SIZE_DELETE_HEADROOM)),
+        );
+        const deleteResult = await this.pool.query(
+          `
+          DELETE FROM event_occurrences
+          WHERE ctid IN (
+            SELECT ctid
+            FROM event_occurrences
+            ORDER BY occurred_at ASC, id ASC
+            LIMIT $1
+          )
+          `,
+          [deleteLimit],
+        );
+        const chunkDeleted = deleteResult.rowCount ?? 0;
+        deletedBySize += chunkDeleted;
+        if (chunkDeleted === 0) {
+          break;
+        }
+      }
+    }
+
+    let optimized = false;
+    if (optimizeAfterCleanup) {
+      await this.optimizeEventArchive();
+      optimized = true;
+    }
+
+    return {
+      deletedByAge,
+      deletedBySize,
+      optimized,
+    };
+  }
+
+  public async optimizeEventArchive(): Promise<void> {
+    try {
+      await this.pool.query("VACUUM (FULL, ANALYZE) event_occurrences");
+    } catch (error) {
+      this.logger.warn(`Event archive full vacuum failed: ${this.errorText(error)}`);
+      try {
+        await this.pool.query("VACUUM (ANALYZE) event_occurrences");
+      } catch (fallbackError) {
+        this.logger.warn(`Event archive analyze failed: ${this.errorText(fallbackError)}`);
+      }
+    }
   }
 
   public async enforceRuntimeLimits(settings: {

@@ -2,7 +2,7 @@ import type { HmiObject, RuntimeAction, TextStyle } from "./hmi-object-types";
 import type { TagDataType, TagDefinition, TagScalarValue } from "./tag-types";
 import type { Asset, AssetGroup, ProjectLibraryRef } from "./asset-library-types";
 import type { MacroRunReason } from "./runtime-command-types";
-import type { EventCategory, EventDefinition, EventSound } from "./event-types";
+import type { EventArchiveSettings, EventCategory, EventDefinition, EventSound } from "./event-types";
 
 export type DriverHealth = "disabled" | "stopped" | "starting" | "running" | "error" | "reconnecting";
 
@@ -333,6 +333,7 @@ export type ScadaProject = {
   events?: EventDefinition[];
   eventCategories?: EventCategory[];
   eventSounds?: EventSound[];
+  eventArchiveSettings?: EventArchiveSettings;
   variables?: InternalVariableDefinition[];
   lwStore?: LwStoreConfig;
   macros?: MacroDefinition[];

@@ -1,7 +1,18 @@
-import type { DriverConfig, TagDefinition, TagValue } from "@web-scada/shared";
+import type {
+  DriverConfig,
+  EventArchiveCleanupMode,
+  EventArchiveSettings,
+  EventHistoryPage,
+  EventHistoryQuery,
+  EventOccurrence,
+  TagDefinition,
+  TagValue,
+} from "@web-scada/shared";
 import { TagStore } from "../tags/tag-store.js";
 import {
   ArchiveRepository,
+  type EventArchiveCleanupResultRow,
+  type EventArchiveStatusRow,
   type ArchivePurgePreviewRow,
   type ArchivePurgeResultRow,
   type ArchiveLogger,
@@ -51,6 +62,7 @@ export class ArchiveService {
   private initialized = false;
   private readonly snapshotIntervalMs = 1000;
   private lastSnapshotAt = 0;
+  private lastEventArchiveCleanupAt = 0;
 
   public constructor(
     options: ArchiveServiceOptions,
@@ -177,6 +189,15 @@ export class ArchiveService {
       const runtimeSettings = await this.repository.getRuntimeSettings();
       const runtimeCleanup = await this.repository.enforceRuntimeLimits(runtimeSettings);
       const deletedByRetention = await this.repository.applyRetention();
+      const eventArchiveSettings = await this.repository.getEventArchiveSettings();
+      if (eventArchiveSettings.enabled) {
+        const now = Date.now();
+        const minIntervalMs = Math.max(1, Math.round(eventArchiveSettings.cleanupIntervalMinutes)) * 60 * 1000;
+        if (now - this.lastEventArchiveCleanupAt >= minIntervalMs) {
+          await this.repository.cleanupEventArchive();
+          this.lastEventArchiveCleanupAt = now;
+        }
+      }
       return {
         deletedSamples: deletedByRetention + runtimeCleanup.deletedByAge + runtimeCleanup.deletedBySize,
       };
@@ -237,6 +258,42 @@ export class ArchiveService {
 
   public async clearArchiveData(): Promise<ArchivePurgeResultRow> {
     return this.repository.clearArchiveData();
+  }
+
+  public async listActiveEvents(limit?: number): Promise<EventOccurrence[]> {
+    return this.repository.listActiveEventOccurrences(limit);
+  }
+
+  public async queryEventHistory(query: EventHistoryQuery): Promise<EventHistoryPage> {
+    return this.repository.queryEventOccurrences(query);
+  }
+
+  public async getEventArchiveSettings(): Promise<EventArchiveSettings> {
+    return this.repository.getEventArchiveSettings();
+  }
+
+  public async updateEventArchiveSettings(settings: EventArchiveSettings): Promise<EventArchiveSettings> {
+    return this.repository.updateEventArchiveSettings(settings);
+  }
+
+  public async getEventArchiveStatus(): Promise<EventArchiveStatusRow> {
+    return this.repository.getEventArchiveStatus();
+  }
+
+  public async cleanupEventArchive(options?: {
+    retentionDays?: number;
+    maxDatabaseSizeMb?: number;
+    cleanupMode?: EventArchiveCleanupMode;
+    optimizeAfterCleanup?: boolean;
+  }): Promise<EventArchiveCleanupResultRow> {
+    const result = await this.repository.cleanupEventArchive(options);
+    this.lastEventArchiveCleanupAt = Date.now();
+    return result;
+  }
+
+  public async optimizeEventArchive(): Promise<{ ok: boolean }> {
+    await this.repository.optimizeEventArchive();
+    return { ok: true };
   }
 
   public async close(): Promise<void> {

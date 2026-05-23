@@ -888,6 +888,15 @@ const trendChartObjectSchema = hmiBaseSchema.extend({
 const eventTableObjectSchema = hmiBaseSchema.extend({
   type: z.literal("eventTable"),
   title: z.string().optional(),
+  mode: z.enum(["online", "history"]).optional(),
+  enableHistoryMode: z.boolean().optional(),
+  historyPeriodPreset: z.enum(["lastHour", "shift", "day", "week", "custom"]).optional(),
+  historyFrom: z.number().optional(),
+  historyTo: z.number().optional(),
+  enableCsvExport: z.boolean().optional(),
+  showHistoryToolbar: z.boolean().optional(),
+  pageSize: z.number().int().positive().optional(),
+  serverSidePagination: z.boolean().optional(),
   showHeader: z.boolean().optional(),
   showToolbar: z.boolean().optional(),
   showActiveOnly: z.boolean().optional(),
@@ -1264,6 +1273,16 @@ const eventSoundSchema = z.object({
   updatedAt: z.string().optional(),
 });
 
+const eventArchiveSettingsSchema = z.object({
+  enabled: z.boolean(),
+  retentionDays: z.number().int().positive(),
+  maxDatabaseSizeMb: z.number().int().positive(),
+  cleanupMode: z.enum(["byAge", "bySize", "byAgeAndSize"]),
+  cleanupIntervalMinutes: z.number().int().positive(),
+  optimizeAfterCleanup: z.boolean(),
+  updatedAt: z.string().optional(),
+});
+
 export const macroSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -1393,6 +1412,7 @@ export const projectSchema = z.object({
   events: z.array(eventDefinitionSchema).optional(),
   eventCategories: z.array(eventCategorySchema).optional(),
   eventSounds: z.array(eventSoundSchema).optional(),
+  eventArchiveSettings: eventArchiveSettingsSchema.optional(),
   variables: z.array(variableSchema).optional(),
   lwStore: z
     .object({

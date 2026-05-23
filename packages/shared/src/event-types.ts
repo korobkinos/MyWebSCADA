@@ -53,3 +53,60 @@ export type EventDefinition = {
   createdAt?: string;
   updatedAt?: string;
 };
+
+export type EventOccurrenceState = "active" | "cleared" | "acknowledged";
+
+export type EventOccurrence = {
+  id: string;
+  eventDefinitionId: string;
+  occurredAt: string;
+  clearedAt?: string | null;
+  acknowledgedAt?: string | null;
+  acknowledgedBy?: string | null;
+  state: EventOccurrenceState;
+  sourceTagNameSnapshot?: string | null;
+  categoryIdSnapshot?: string | null;
+  categoryNameSnapshot?: string | null;
+  prioritySnapshot?: number | null;
+  messageTextSnapshot?: string | null;
+  valueAtTrigger?: TagScalarValue;
+  valueAtClear?: TagScalarValue;
+  quality?: string | null;
+  runtimeSource?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  serviceData?: Record<string, unknown> | null;
+};
+
+export type EventHistoryRecord = EventOccurrence;
+
+export type EventArchiveCleanupMode = "byAge" | "bySize" | "byAgeAndSize";
+
+export type EventArchiveSettings = {
+  enabled: boolean;
+  retentionDays: number;
+  maxDatabaseSizeMb: number;
+  cleanupMode: EventArchiveCleanupMode;
+  cleanupIntervalMinutes: number;
+  optimizeAfterCleanup: boolean;
+  updatedAt?: string;
+};
+
+export type EventHistoryQuery = {
+  from?: string;
+  to?: string;
+  category?: string;
+  priority?: number;
+  sourceTagName?: string;
+  state?: EventOccurrenceState;
+  search?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type EventHistoryPage = {
+  items: EventHistoryRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+};

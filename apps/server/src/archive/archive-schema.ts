@@ -142,6 +142,57 @@ ON archive_events (time DESC);
 CREATE INDEX IF NOT EXISTS idx_archive_events_tag_time
 ON archive_events (tag_id, time DESC);
 
+CREATE TABLE IF NOT EXISTS event_archive_settings (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    retention_days INTEGER NOT NULL DEFAULT 90,
+    max_database_size_mb INTEGER NOT NULL DEFAULT 2048,
+    cleanup_mode TEXT NOT NULL DEFAULT 'byAgeAndSize' CHECK (cleanup_mode IN ('byAge', 'bySize', 'byAgeAndSize')),
+    cleanup_interval_minutes INTEGER NOT NULL DEFAULT 60,
+    optimize_after_cleanup BOOLEAN NOT NULL DEFAULT false,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS event_occurrences (
+    id BIGSERIAL PRIMARY KEY,
+    event_definition_id TEXT NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL,
+    cleared_at TIMESTAMPTZ,
+    acknowledged_at TIMESTAMPTZ,
+    acknowledged_by TEXT,
+    state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'cleared', 'acknowledged')),
+    source_tag_name_snapshot TEXT,
+    category_id_snapshot TEXT,
+    category_name_snapshot TEXT,
+    priority_snapshot INTEGER,
+    message_text_snapshot TEXT,
+    value_at_trigger TEXT,
+    value_at_clear TEXT,
+    quality TEXT,
+    runtime_source TEXT,
+    service_data JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_occurred_at
+ON event_occurrences (occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_definition_id
+ON event_occurrences (event_definition_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_state
+ON event_occurrences (state);
+
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_category
+ON event_occurrences (category_name_snapshot, category_id_snapshot);
+
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_priority
+ON event_occurrences (priority_snapshot);
+
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_source
+ON event_occurrences (source_tag_name_snapshot);
+
 CREATE TABLE IF NOT EXISTS archive_alarms (
     id BIGSERIAL PRIMARY KEY,
     tag_id BIGINT REFERENCES tags(id),
@@ -180,6 +231,18 @@ ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO archive_runtime_settings (id, auto_cleanup_enabled, max_db_size_mb, max_data_age_months)
 VALUES (1, true, 5120, NULL)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO event_archive_settings (
+    id,
+    enabled,
+    retention_days,
+    max_database_size_mb,
+    cleanup_mode,
+    cleanup_interval_minutes,
+    optimize_after_cleanup
+)
+VALUES (1, true, 90, 2048, 'byAgeAndSize', 60, false)
 ON CONFLICT (id) DO NOTHING;
 `;
 

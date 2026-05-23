@@ -6,6 +6,10 @@ import type {
   ChangeOwnPasswordRequest,
   CreateUserRequest,
   DriverStatus,
+  EventArchiveSettings,
+  EventHistoryPage,
+  EventHistoryQuery,
+  EventOccurrence,
   ElementLibrary,
   LibraryImportOptions,
   LibraryImportValidationResult,
@@ -175,6 +179,20 @@ export type ArchivePurgeResult = {
   tables: string[];
 };
 
+export type EventArchiveStatus = {
+  dbSizeMb: number;
+  recordsCount: number;
+  oldestRecordAt: string | null;
+  newestRecordAt: string | null;
+  settings: EventArchiveSettings;
+};
+
+export type EventArchiveCleanupResult = {
+  deletedByAge: number;
+  deletedBySize: number;
+  optimized: boolean;
+};
+
 export type TrendDataType = "number" | "boolean" | "string" | "enum";
 export type TrendAggregationMode = "auto" | "raw" | "minmax" | "avg" | "lttb";
 export type TrendTagInfo = {
@@ -325,6 +343,18 @@ function sanitizeMacroId(id: unknown): string {
     throw new Error("Invalid macro id");
   }
   return macroId;
+}
+
+function toQueryString(query: Record<string, string | number | boolean | undefined | null>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    params.set(key, String(value));
+  }
+  const text = params.toString();
+  return text ? `?${text}` : "";
 }
 
 async function request<T>(url: string, init?: RequestInit, options?: RequestOptions): Promise<T> {
@@ -545,6 +575,42 @@ export const api = {
     }),
   previewArchivePurge: () => request<ArchivePurgePreview>("/api/archive/purge/preview", { method: "POST" }),
   runArchivePurge: () => request<ArchivePurgeResult>("/api/archive/purge/run", { method: "POST" }),
+  getActiveEvents: (query?: Pick<EventHistoryQuery, "limit">) =>
+    request<EventOccurrence[]>(
+      `/api/events/active${toQueryString({ limit: query?.limit })}`,
+    ),
+  getEventHistory: (query?: EventHistoryQuery) =>
+    request<EventHistoryPage>(
+      `/api/events/history${toQueryString(query ?? {})}`,
+    ),
+  exportEventHistoryCsv: async (query?: EventHistoryQuery): Promise<string> => {
+    const token = getEngineerToken();
+    const response = await fetch(resolveRequestUrl(`/api/events/history/export.csv${toQueryString(query ?? {})}`), {
+      headers: token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => `${response.status} ${response.statusText}`);
+      throw new Error(message || `${response.status} ${response.statusText}`);
+    }
+    return response.text();
+  },
+  getEventArchiveStatus: () => request<EventArchiveStatus>("/api/events/archive/status"),
+  cleanupEventArchive: (payload?: {
+    retentionDays?: number;
+    maxDatabaseSizeMb?: number;
+    cleanupMode?: EventArchiveSettings["cleanupMode"];
+    optimizeAfterCleanup?: boolean;
+  }) => request<EventArchiveCleanupResult>("/api/events/archive/cleanup", {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  }),
+  optimizeEventArchive: () => request<{ ok: boolean }>("/api/events/archive/optimize", { method: "POST" }),
+  getEventArchiveSettings: () => request<EventArchiveSettings>("/api/events/archive/settings"),
+  updateEventArchiveSettings: (payload: EventArchiveSettings) =>
+    request<EventArchiveSettings>("/api/events/archive/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   getDrivers: () => request<DriverStatus[]>("/api/drivers"),
   opcUaTest: (config: OpcUaDriverConfigInput) =>
     request<{ ok: boolean; message?: string }>("/api/drivers/opcua/test", {

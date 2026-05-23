@@ -9,6 +9,7 @@ import {
   type ChangeOwnPasswordRequest,
   type CreateUserRequest,
   type DriverConfig,
+  type EventHistoryRecord,
   type MacroDefinition,
   type MacroTrigger,
   type OpcUaDriverConfig,
@@ -155,6 +156,35 @@ const archiveRuntimeSettingsSchema = z.object({
   autoCleanupEnabled: z.boolean(),
   maxDbSizeMb: z.number().int().positive().max(1024 * 1024).nullable(),
 });
+const eventHistoryQuerySchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  category: z.string().min(1).optional(),
+  priority: z.coerce.number().int().min(0).max(3).optional(),
+  sourceTagName: z.string().min(1).optional(),
+  state: z.enum(["active", "cleared", "acknowledged"]).optional(),
+  search: z.string().optional(),
+  limit: z.coerce.number().int().positive().max(5000).optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
+const eventArchiveCleanupModeSchema = z.enum(["byAge", "bySize", "byAgeAndSize"]);
+const eventArchiveCleanupSchema = z.object({
+  retentionDays: z.number().int().positive().optional(),
+  maxDatabaseSizeMb: z.number().int().positive().optional(),
+  cleanupMode: eventArchiveCleanupModeSchema.optional(),
+  optimizeAfterCleanup: z.boolean().optional(),
+});
+const eventArchiveSettingsSchema = z.object({
+  enabled: z.boolean(),
+  retentionDays: z.number().int().positive(),
+  maxDatabaseSizeMb: z.number().int().positive(),
+  cleanupMode: eventArchiveCleanupModeSchema,
+  cleanupIntervalMinutes: z.number().int().positive(),
+  optimizeAfterCleanup: z.boolean(),
+  updatedAt: z.string().optional(),
+});
+const EVENT_HISTORY_EXPORT_PAGE_SIZE = 5000;
+const EVENT_HISTORY_EXPORT_MAX_ROWS = 200_000;
 const permissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>((value) => typeof value === "string");
 const loginSchema: z.ZodType<AuthLoginRequest> = z.object({
   username: z.string().min(1),
@@ -655,6 +685,78 @@ function normalizeTrendTags(input: string[] | string | undefined): string[] {
   return [...new Set(source.map((item) => item.trim()).filter(Boolean))];
 }
 
+function toEventHistoryQuery(query: z.infer<typeof eventHistoryQuerySchema>) {
+  return {
+    from: query.from,
+    to: query.to,
+    category: query.category,
+    priority: query.priority,
+    sourceTagName: query.sourceTagName,
+    state: query.state,
+    search: query.search,
+    limit: query.limit,
+    offset: query.offset,
+  };
+}
+
+function csvEscape(value: unknown): string {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function eventHistoryToCsvRows(records: Array<{
+  id: string;
+  occurredAt: string;
+  clearedAt?: string | null;
+  acknowledgedAt?: string | null;
+  acknowledgedBy?: string | null;
+  state: string;
+  categoryIdSnapshot?: string | null;
+  categoryNameSnapshot?: string | null;
+  prioritySnapshot?: number | null;
+  messageTextSnapshot?: string | null;
+  sourceTagNameSnapshot?: string | null;
+  valueAtTrigger?: unknown;
+  valueAtClear?: unknown;
+  quality?: string | null;
+  eventDefinitionId: string;
+}>): string {
+  const header = [
+    "occurredAt",
+    "clearedAt",
+    "acknowledgedAt",
+    "acknowledgedBy",
+    "state",
+    "category",
+    "priority",
+    "message",
+    "sourceTagName",
+    "valueAtTrigger",
+    "valueAtClear",
+    "quality",
+    "eventDefinitionId",
+    "occurrenceId",
+  ];
+
+  const lines = [header, ...records.map((row) => [
+    row.occurredAt,
+    row.clearedAt ?? "",
+    row.acknowledgedAt ?? "",
+    row.acknowledgedBy ?? "",
+    row.state,
+    row.categoryNameSnapshot ?? row.categoryIdSnapshot ?? "",
+    row.prioritySnapshot ?? "",
+    row.messageTextSnapshot ?? "",
+    row.sourceTagNameSnapshot ?? "",
+    row.valueAtTrigger ?? "",
+    row.valueAtClear ?? "",
+    row.quality ?? "",
+    row.eventDefinitionId,
+    row.id,
+  ])];
+
+  return lines.map((line) => line.map((cell) => csvEscape(cell)).join(",")).join("\n");
+}
+
 async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): Promise<ScadaProject> {
   const saved = await deps.projectService.saveProject(nextProject);
   const variableDefinitions = buildInternalAndLwTagDefinitions(saved.variables ?? [], saved.lwStore);
@@ -958,6 +1060,128 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       }
       throw error;
     }
+  });
+
+  app.get("/api/events/active", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    const parsed = eventHistoryQuerySchema.parse(request.query ?? {});
+    const limit = parsed.limit ?? 200;
+    return reply.send(await deps.archiveService.listActiveEvents(limit));
+  });
+
+  app.get("/api/events/history", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    const parsed = eventHistoryQuerySchema.parse(request.query ?? {});
+    return reply.send(await deps.archiveService.queryEventHistory(toEventHistoryQuery(parsed)));
+  });
+
+  app.get("/api/events/history/export.csv", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    const parsed = eventHistoryQuerySchema.parse(request.query ?? {});
+    const filters = toEventHistoryQuery(parsed);
+    const records: EventHistoryRecord[] = [];
+    let offset = 0;
+    let total = Number.POSITIVE_INFINITY;
+
+    while (offset < total) {
+      const page = await deps.archiveService.queryEventHistory({
+        ...filters,
+        limit: EVENT_HISTORY_EXPORT_PAGE_SIZE,
+        offset,
+      });
+      total = page.total;
+      records.push(...page.items);
+      offset += page.items.length;
+
+      if (records.length > EVENT_HISTORY_EXPORT_MAX_ROWS) {
+        return reply.code(413).send({
+          message: `Too many rows for export. Limit is ${EVENT_HISTORY_EXPORT_MAX_ROWS} rows. Narrow the filter range and try again.`,
+        });
+      }
+      if (page.items.length === 0) {
+        break;
+      }
+    }
+
+    const csv = eventHistoryToCsvRows(records);
+    reply.header("content-type", "text/csv; charset=utf-8");
+    reply.header("content-disposition", "attachment; filename=event-history.csv");
+    return reply.send(csv);
+  });
+
+  app.get("/api/events/archive/status", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.getEventArchiveStatus());
+  });
+
+  app.post("/api/events/archive/cleanup", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "runtime.control");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    const payload = eventArchiveCleanupSchema.parse(request.body ?? {});
+    return reply.send(await deps.archiveService.cleanupEventArchive(payload));
+  });
+
+  app.post("/api/events/archive/optimize", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "runtime.control");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.optimizeEventArchive());
+  });
+
+  app.get("/api/events/archive/settings", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.getEventArchiveSettings());
+  });
+
+  app.put("/api/events/archive/settings", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Event archive database is not configured" });
+    }
+    const payload = eventArchiveSettingsSchema.parse(request.body ?? {});
+    return reply.send(await deps.archiveService.updateEventArchiveSettings(payload));
   });
 
   app.get("/api/archive/status", async (request, reply) => {

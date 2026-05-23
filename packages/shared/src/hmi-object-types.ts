@@ -815,6 +815,15 @@ export type TrendChartObject = HmiObjectBase & {
 export type EventTableObject = HmiObjectBase & {
   type: "eventTable";
   title?: string;
+  mode?: "online" | "history";
+  enableHistoryMode?: boolean;
+  historyPeriodPreset?: "lastHour" | "shift" | "day" | "week" | "custom";
+  historyFrom?: number;
+  historyTo?: number;
+  enableCsvExport?: boolean;
+  showHistoryToolbar?: boolean;
+  pageSize?: number;
+  serverSidePagination?: boolean;
   showHeader?: boolean;
   showToolbar?: boolean;
   showActiveOnly?: boolean;
