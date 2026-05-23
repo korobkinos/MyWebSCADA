@@ -1073,7 +1073,7 @@ export function EditorPage() {
     { id: "screens", title: "Screens", icon: <AppstoreOutlined />, active: isWindowOpen("screens"), onClick: () => openDefinedWindow("screens") },
     { id: "search", title: "Search", icon: <SearchOutlined />, active: isWindowOpen("search"), onClick: () => openDefinedWindow("search") },
     { id: "tags", title: "Tags", icon: <TagsOutlined />, active: isWindowOpen("tags"), onClick: () => openDefinedWindow("tags") },
-    { id: "events", title: "Event Manager / Менеджер событий", icon: <BellOutlined />, active: isWindowOpen("events"), onClick: () => openDefinedWindow("events") },
+    { id: "events", title: "Event Manager", icon: <BellOutlined />, active: isWindowOpen("events"), onClick: () => openDefinedWindow("events") },
     { id: "archive", title: "Archive", icon: <DatabaseOutlined />, active: isWindowOpen("archive"), onClick: () => openDefinedWindow("archive") },
     { id: "macros", title: "Macros", icon: <CodeOutlined />, active: isWindowOpen("macros"), onClick: () => openDefinedWindow("macros") },
     { id: "assets", title: "Assets", icon: <FileImageOutlined />, active: isWindowOpen("assets"), onClick: () => openDefinedWindow("assets") },

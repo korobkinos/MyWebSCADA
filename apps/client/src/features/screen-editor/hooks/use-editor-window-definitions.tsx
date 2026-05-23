@@ -330,7 +330,7 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
       },
       {
         id: "events",
-        title: "Event Manager / Менеджер событий",
+        title: "Event Manager",
         defaultRect: { x: 140, y: 90, width: 1100, height: 680 },
         minWidth: 720,
         minHeight: 420,
