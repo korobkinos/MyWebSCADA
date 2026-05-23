@@ -1,18 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
-import type { EventDefinition } from "@web-scada/shared";
-import { WorkbenchButton } from "../components/workbench";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import type { EventBitTrigger, EventDefinition, EventWordOperator, TagScalarValue } from "@web-scada/shared";
+import { WorkbenchButton, WorkbenchTabs } from "../components/workbench";
 import { useScadaStore } from "../store/scada-store";
 
 type EventColumnId =
   | "enabled"
-  | "id"
   | "category"
+  | "message"
   | "priority"
-  | "source"
-  | "condition"
-  | "ack"
-  | "sound"
-  | "message";
+  | "conditionMode"
+  | "trigger"
+  | "sourceTagName"
+  | "wordValue"
+  | "soundEnabled"
+  | "soundId"
+  | "requireAck"
+  | "actions";
 
 type EventColumnConfig = {
   id: EventColumnId;
@@ -23,40 +26,121 @@ type EventColumnConfig = {
 
 type EventColumnVisibility = Record<EventColumnId, boolean>;
 
+type EventEditorMode = "view" | "add" | "edit";
+type EventEditorTab = "general" | "message" | "statistics" | "security";
+
+type EventEditorDraft = {
+  id: string;
+  enabled: boolean;
+  categoryId: string;
+  categoryName: string;
+  priority: number;
+  startupDelayMs: number;
+  sourceTagName: string;
+  conditionMode: "bit" | "word";
+  bitTrigger: EventBitTrigger;
+  wordOperator: EventWordOperator;
+  wordValue: string;
+  message: string;
+  textColor: string;
+  backgroundColor: string;
+  requireAck: boolean;
+  ackValue: string;
+  soundEnabled: boolean;
+  soundId: string;
+  ackTagName: string;
+  notificationTagName: string;
+  elapsedTimeTagName: string;
+  securityEnabled: boolean;
+  securityTagName: string;
+  securityBitValue: "" | "true" | "false" | "1" | "0";
+};
+
+type EventDraftErrors = Partial<Record<keyof EventEditorDraft, string>>;
+
+type EventRow = {
+  key: string;
+  index: number;
+  id: string;
+  event: EventDefinition;
+};
+
 const EVENT_COLUMNS: EventColumnConfig[] = [
-  { id: "enabled", title: "ON", defaultWidth: 60, minWidth: 44 },
-  { id: "id", title: "ID", defaultWidth: 220, minWidth: 140 },
-  { id: "category", title: "CATEGORY", defaultWidth: 140, minWidth: 110 },
+  { id: "enabled", title: "ON", defaultWidth: 54, minWidth: 44 },
+  { id: "category", title: "CATEGORY", defaultWidth: 120, minWidth: 100 },
+  { id: "message", title: "MESSAGE", defaultWidth: 280, minWidth: 160 },
   { id: "priority", title: "PRIORITY", defaultWidth: 90, minWidth: 76 },
-  { id: "source", title: "SOURCE TAG", defaultWidth: 170, minWidth: 130 },
-  { id: "condition", title: "CONDITION", defaultWidth: 170, minWidth: 130 },
-  { id: "ack", title: "ACK", defaultWidth: 120, minWidth: 90 },
-  { id: "sound", title: "SOUND", defaultWidth: 130, minWidth: 96 },
-  { id: "message", title: "MESSAGE", defaultWidth: 360, minWidth: 170 },
+  { id: "conditionMode", title: "MODE", defaultWidth: 78, minWidth: 66 },
+  { id: "trigger", title: "TRIGGER / OP", defaultWidth: 120, minWidth: 96 },
+  { id: "sourceTagName", title: "SOURCE TAG", defaultWidth: 150, minWidth: 110 },
+  { id: "wordValue", title: "WORD VALUE", defaultWidth: 100, minWidth: 84 },
+  { id: "soundEnabled", title: "SOUND", defaultWidth: 76, minWidth: 64 },
+  { id: "soundId", title: "SOUND ID", defaultWidth: 130, minWidth: 94 },
+  { id: "requireAck", title: "ACK", defaultWidth: 68, minWidth: 56 },
+  { id: "actions", title: "ACTIONS", defaultWidth: 202, minWidth: 170 },
 ];
 
 const EVENTS_COLUMNS_WIDTH_STORAGE_KEY = "screenEditor.events.columnWidths";
 const EVENTS_COLUMN_VISIBILITY_STORAGE_KEY = "screenEditor.events.columnVisibility";
 const EVENTS_PAGE_SIZE_STORAGE_KEY = "screenEditor.events.pageSize";
 const EVENTS_DETAILS_WIDTH_STORAGE_KEY = "screenEditor.events.detailsWidth";
-const DEFAULT_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 50;
 const MIN_DETAILS_WIDTH = 260;
 const MAX_DETAILS_WIDTH = 640;
 const DEFAULT_DETAILS_WIDTH = 360;
+
+const PRIORITY_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 0, label: "Low (0)" },
+  { value: 1, label: "Warning (1)" },
+  { value: 2, label: "Alarm (2)" },
+  { value: 3, label: "Critical (3)" },
+];
+
+const CSV_HEADERS = [
+  "id",
+  "enabled",
+  "categoryId",
+  "categoryName",
+  "message",
+  "priority",
+  "sourceTagName",
+  "conditionMode",
+  "bitTrigger",
+  "wordOperator",
+  "wordValue",
+  "startupDelayMs",
+  "requireAck",
+  "ackValue",
+  "soundEnabled",
+  "soundId",
+  "textColor",
+  "backgroundColor",
+  "ackTagName",
+  "notificationTagName",
+  "elapsedTimeTagName",
+  "securityEnabled",
+  "securityTagName",
+  "securityBitValue",
+  "createdAt",
+  "updatedAt",
+];
 
 function createDefaultColumnVisibility(): EventColumnVisibility {
   return EVENT_COLUMNS.reduce<EventColumnVisibility>(
     (acc, column) => ({ ...acc, [column.id]: true }),
     {
       enabled: true,
-      id: true,
       category: true,
-      priority: true,
-      source: true,
-      condition: true,
-      ack: true,
-      sound: true,
       message: true,
+      priority: true,
+      conditionMode: true,
+      trigger: true,
+      sourceTagName: true,
+      wordValue: true,
+      soundEnabled: true,
+      soundId: true,
+      requireAck: true,
+      actions: true,
     },
   );
 }
@@ -66,14 +150,17 @@ function createDefaultColumnWidths(): Record<EventColumnId, number> {
     (acc, column) => ({ ...acc, [column.id]: column.defaultWidth }),
     {
       enabled: 0,
-      id: 0,
       category: 0,
-      priority: 0,
-      source: 0,
-      condition: 0,
-      ack: 0,
-      sound: 0,
       message: 0,
+      priority: 0,
+      conditionMode: 0,
+      trigger: 0,
+      sourceTagName: 0,
+      wordValue: 0,
+      soundEnabled: 0,
+      soundId: 0,
+      requireAck: 0,
+      actions: 0,
     },
   );
 }
@@ -109,9 +196,9 @@ function parseStoredColumnVisibility(raw: string | null): EventColumnVisibility 
       acc[column.id] = parsed[column.id] === false ? false : true;
       return acc;
     }, { ...defaults });
-    next.id = true;
+    next.message = true;
     if (!Object.values(next).some(Boolean)) {
-      next.id = true;
+      next.message = true;
     }
     return next;
   } catch {
@@ -128,24 +215,375 @@ function clampDetailsWidth(value: number): number {
   return Math.max(MIN_DETAILS_WIDTH, Math.min(MAX_DETAILS_WIDTH, value));
 }
 
-function formatCondition(event: EventDefinition): string {
-  if (event.conditionMode === "bit") {
-    return event.bitTrigger ? `bit ${event.bitTrigger}` : "bit -";
+function clampPriority(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
   }
+  return Math.min(3, Math.max(0, Math.round(value)));
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function normalizeId(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function createEventId(existingIds: Set<string>): string {
+  let id = `event_${Math.random().toString(36).slice(2, 8)}`;
+  while (existingIds.has(id)) {
+    id = `event_${Math.random().toString(36).slice(2, 8)}`;
+  }
+  return id;
+}
+
+function parseOptionalNumber(value: string): number | undefined {
+  const text = value.trim();
+  if (!text) {
+    return undefined;
+  }
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseBooleanText(value: string): boolean | undefined {
+  const text = value.trim().toLowerCase();
+  if (!text) {
+    return undefined;
+  }
+  if (["1", "true", "yes", "on"].includes(text)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(text)) {
+    return false;
+  }
+  return undefined;
+}
+
+function parseAckValueText(value: string): TagScalarValue | undefined {
+  const text = value.trim();
+  if (!text) {
+    return undefined;
+  }
+  if (text.toLowerCase() === "null") {
+    return null;
+  }
+  if (text.toLowerCase() === "true") {
+    return true;
+  }
+  if (text.toLowerCase() === "false") {
+    return false;
+  }
+  const parsed = Number(text);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+  return text;
+}
+
+function ackValueToText(value: TagScalarValue | undefined): string {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "undefined") {
+    return "";
+  }
+  return String(value);
+}
+
+function securityBitValueToText(value: EventDefinition["securityBitValue"]): EventEditorDraft["securityBitValue"] {
+  if (value === true) {
+    return "true";
+  }
+  if (value === false) {
+    return "false";
+  }
+  if (value === 1) {
+    return "1";
+  }
+  if (value === 0) {
+    return "0";
+  }
+  return "";
+}
+
+function parseSecurityBitValue(value: EventEditorDraft["securityBitValue"]): EventDefinition["securityBitValue"] {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  if (value === "1") {
+    return 1;
+  }
+  if (value === "0") {
+    return 0;
+  }
+  return undefined;
+}
+
+function toDraft(event: EventDefinition, fallbackId: string): EventEditorDraft {
+  const conditionMode = event.conditionMode === "word" ? "word" : "bit";
+  return {
+    id: normalizeId(event.id) || fallbackId,
+    enabled: event.enabled !== false,
+    categoryId: event.categoryId ?? "",
+    categoryName: event.categoryName?.trim() || "Default",
+    priority: clampPriority(typeof event.priority === "number" ? event.priority : 0),
+    startupDelayMs: typeof event.startupDelayMs === "number" && Number.isFinite(event.startupDelayMs)
+      ? Math.max(0, Math.round(event.startupDelayMs))
+      : 0,
+    sourceTagName: event.sourceTagName ?? "",
+    conditionMode,
+    bitTrigger: event.bitTrigger ?? "ON",
+    wordOperator: event.wordOperator ?? "=",
+    wordValue: typeof event.wordValue === "number" && Number.isFinite(event.wordValue) ? String(event.wordValue) : "",
+    message: event.message ?? "",
+    textColor: event.textColor ?? "",
+    backgroundColor: event.backgroundColor ?? "",
+    requireAck: event.requireAck === true,
+    ackValue: ackValueToText(event.ackValue),
+    soundEnabled: event.soundEnabled === true,
+    soundId: event.soundId ?? "",
+    ackTagName: event.ackTagName ?? "",
+    notificationTagName: event.notificationTagName ?? "",
+    elapsedTimeTagName: event.elapsedTimeTagName ?? "",
+    securityEnabled: event.securityEnabled === true,
+    securityTagName: event.securityTagName ?? "",
+    securityBitValue: securityBitValueToText(event.securityBitValue),
+  };
+}
+
+function createDefaultDraft(existingIds: Set<string>): EventEditorDraft {
+  return {
+    id: createEventId(existingIds),
+    enabled: true,
+    categoryId: "",
+    categoryName: "Default",
+    priority: 0,
+    startupDelayMs: 0,
+    sourceTagName: "",
+    conditionMode: "bit",
+    bitTrigger: "ON",
+    wordOperator: "=",
+    wordValue: "",
+    message: "",
+    textColor: "",
+    backgroundColor: "",
+    requireAck: false,
+    ackValue: "",
+    soundEnabled: false,
+    soundId: "",
+    ackTagName: "",
+    notificationTagName: "",
+    elapsedTimeTagName: "",
+    securityEnabled: false,
+    securityTagName: "",
+    securityBitValue: "",
+  };
+}
+
+function getPriorityLabel(value: number | undefined): string {
+  const priority = clampPriority(typeof value === "number" ? value : 0);
+  if (priority === 0) {
+    return "Low";
+  }
+  if (priority === 1) {
+    return "Warning";
+  }
+  if (priority === 2) {
+    return "Alarm";
+  }
+  return "Critical";
+}
+
+function getCategoryLabel(event: EventDefinition): string {
+  const category = (event.categoryName ?? event.categoryId ?? "").trim();
+  return category || "Default";
+}
+
+function getTriggerLabel(event: EventDefinition): string {
   if (event.conditionMode === "word") {
-    const op = event.wordOperator ?? "?";
-    const value = typeof event.wordValue === "number" ? String(event.wordValue) : "-";
-    return `word ${op} ${value}`;
+    return event.wordOperator ?? "-";
   }
-  return "-";
+  return event.bitTrigger ?? "-";
+}
+
+function getWordValueLabel(event: EventDefinition): string {
+  if (event.conditionMode !== "word") {
+    return "-";
+  }
+  return typeof event.wordValue === "number" && Number.isFinite(event.wordValue) ? String(event.wordValue) : "-";
+}
+
+function validateDraft(
+  draft: EventEditorDraft,
+  existingEvents: EventDefinition[],
+  editingIndex: number | null,
+): EventDraftErrors {
+  const errors: EventDraftErrors = {};
+  const id = draft.id.trim();
+  if (!id) {
+    errors.id = "ID is required";
+  } else {
+    const duplicateIndex = existingEvents.findIndex((item, index) => normalizeId(item.id) === id && index !== editingIndex);
+    if (duplicateIndex >= 0) {
+      errors.id = "ID must be unique";
+    }
+  }
+
+  if (!draft.message.trim()) {
+    errors.message = "Message is required";
+  }
+  if (!draft.sourceTagName.trim()) {
+    errors.sourceTagName = "Source tag is required";
+  }
+
+  if (draft.conditionMode === "bit") {
+    if (!draft.bitTrigger) {
+      errors.bitTrigger = "Bit trigger is required";
+    }
+  } else {
+    if (!draft.wordOperator) {
+      errors.wordOperator = "Operator is required";
+    }
+    const word = parseOptionalNumber(draft.wordValue);
+    if (typeof word !== "number") {
+      errors.wordValue = "Word value is required";
+    }
+  }
+
+  if (!Number.isFinite(draft.priority)) {
+    errors.priority = "Priority is required";
+  }
+
+  return errors;
+}
+
+function buildEventFromDraft(draft: EventEditorDraft, previous?: EventDefinition): EventDefinition {
+  const id = draft.id.trim();
+  const conditionMode = draft.conditionMode === "word" ? "word" : "bit";
+  const wordValue = parseOptionalNumber(draft.wordValue);
+  const ackValue = parseAckValueText(draft.ackValue);
+
+  return {
+    ...(previous ?? {}),
+    id,
+    enabled: draft.enabled,
+    categoryId: draft.categoryId.trim() || undefined,
+    categoryName: draft.categoryName.trim() || "Default",
+    message: draft.message.trim(),
+    priority: clampPriority(draft.priority),
+    sourceTagName: draft.sourceTagName.trim(),
+    startupDelayMs: Math.max(0, Math.round(draft.startupDelayMs || 0)),
+    conditionMode,
+    bitTrigger: conditionMode === "bit" ? draft.bitTrigger : undefined,
+    wordOperator: conditionMode === "word" ? draft.wordOperator : undefined,
+    wordValue: conditionMode === "word" ? wordValue : undefined,
+    requireAck: draft.requireAck,
+    ackValue,
+    soundEnabled: draft.soundEnabled,
+    soundId: draft.soundEnabled ? (draft.soundId.trim() || undefined) : undefined,
+    textColor: draft.textColor.trim() || undefined,
+    backgroundColor: draft.backgroundColor.trim() || undefined,
+    ackTagName: draft.ackTagName.trim() || undefined,
+    notificationTagName: draft.notificationTagName.trim() || undefined,
+    elapsedTimeTagName: draft.elapsedTimeTagName.trim() || undefined,
+    securityEnabled: draft.securityEnabled,
+    securityTagName: draft.securityEnabled ? (draft.securityTagName.trim() || undefined) : undefined,
+    securityBitValue: draft.securityEnabled ? parseSecurityBitValue(draft.securityBitValue) : undefined,
+    createdAt: previous?.createdAt ?? nowIso(),
+    updatedAt: nowIso(),
+  };
+}
+
+function escapeCsvCell(value: unknown): string {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function parseCsvText(input: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+
+    if (ch === '"') {
+      if (inQuotes && input[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === "," && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && input[i + 1] === "\n") {
+        i += 1;
+      }
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+
+    field += ch;
+  }
+
+  if (inQuotes) {
+    throw new Error("CSV parse error: unterminated quoted field");
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows.filter((candidate) => candidate.some((cell) => cell.trim().length > 0));
+}
+
+function parseLooseCsvValue(raw: string): unknown {
+  const text = raw.trim();
+  if (!text) {
+    return "";
+  }
+  if (text.toLowerCase() === "null") {
+    return null;
+  }
+  if (text.toLowerCase() === "true") {
+    return true;
+  }
+  if (text.toLowerCase() === "false") {
+    return false;
+  }
+  const parsed = Number(text);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+  return text;
 }
 
 export function EventsPage() {
   const project = useScadaStore((s) => s.project);
+  const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
+  const saveProject = useScadaStore((s) => s.saveProject);
 
   const [search, setSearch] = useState("");
-  const [enabledFilter, setEnabledFilter] = useState<"all" | "on" | "off">("all");
+  const [enabledFilter, setEnabledFilter] = useState<"all" | "enabled" | "disabled">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<"all" | "0" | "1" | "2" | "3">("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(() => {
     if (typeof window === "undefined") {
@@ -153,7 +591,8 @@ export function EventsPage() {
     }
     return parseStoredPageSize(window.localStorage.getItem(EVENTS_PAGE_SIZE_STORAGE_KEY));
   });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeRowKey, setActiveRowKey] = useState<string | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set());
   const [detailsWidth, setDetailsWidth] = useState<number>(() => {
     if (typeof window === "undefined") {
       return DEFAULT_DETAILS_WIDTH;
@@ -175,7 +614,15 @@ export function EventsPage() {
     }
     return parseStoredColumnWidths(window.localStorage.getItem(EVENTS_COLUMNS_WIDTH_STORAGE_KEY));
   });
+  const [editorMode, setEditorMode] = useState<EventEditorMode>("view");
+  const [editorTab, setEditorTab] = useState<EventEditorTab>("general");
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draftEvent, setDraftEvent] = useState<EventEditorDraft | null>(null);
+  const [draftErrors, setDraftErrors] = useState<EventDraftErrors>({});
+  const [statusText, setStatusText] = useState<string>("");
+
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!project) {
     return (
@@ -189,46 +636,65 @@ export function EventsPage() {
   const categories = project.eventCategories ?? [];
   const sounds = project.eventSounds ?? [];
 
-  const categoryOptions = useMemo(
-    () => categories.map((item) => ({ id: item.id, name: item.name || item.id })),
-    [categories],
-  );
+  const rows = useMemo<EventRow[]>(() => {
+    const seenKeys = new Map<string, number>();
+    return events.map((event, index) => {
+      const id = normalizeId(event.id);
+      const base = id || `row_${index + 1}`;
+      const count = (seenKeys.get(base) ?? 0) + 1;
+      seenKeys.set(base, count);
+      const key = count === 1 ? base : `${base}__${count}`;
+      return { key, index, id, event };
+    });
+  }, [events]);
 
-  const soundNameById = useMemo(
-    () => new Map(sounds.map((sound) => [sound.id, sound.name || sound.id])),
-    [sounds],
-  );
+  const categoryOptions = useMemo(() => {
+    const values = new Set<string>(["Default"]);
+    for (const category of categories) {
+      const byName = category.name?.trim();
+      if (byName) {
+        values.add(byName);
+      }
+    }
+    for (const row of rows) {
+      values.add(getCategoryLabel(row.event));
+    }
+    return [...values].sort((a, b) => a.localeCompare(b));
+  }, [categories, rows]);
 
-  const filteredEvents = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return events.filter((event) => {
-      if (enabledFilter === "on" && event.enabled === false) {
+    return rows.filter((row) => {
+      const event = row.event;
+      if (enabledFilter === "enabled" && event.enabled === false) {
         return false;
       }
-      if (enabledFilter === "off" && event.enabled !== false) {
+      if (enabledFilter === "disabled" && event.enabled !== false) {
         return false;
       }
-      if (categoryFilter !== "all") {
-        const eventCategory = event.categoryId ?? event.categoryName ?? "";
-        if (eventCategory !== categoryFilter) {
-          return false;
-        }
+      if (priorityFilter !== "all" && clampPriority(typeof event.priority === "number" ? event.priority : 0) !== Number(priorityFilter)) {
+        return false;
+      }
+      if (categoryFilter !== "all" && getCategoryLabel(event) !== categoryFilter) {
+        return false;
       }
       if (!term) {
         return true;
       }
       const fields = [
-        event.id,
-        event.categoryName ?? "",
-        event.categoryId ?? "",
+        row.id,
+        getCategoryLabel(event),
         event.message ?? "",
         event.sourceTagName ?? "",
-        event.notificationTagName ?? "",
+        event.soundId ?? "",
         event.ackTagName ?? "",
+        event.notificationTagName ?? "",
       ];
       return fields.some((field) => field.toLowerCase().includes(term));
     });
-  }, [categoryFilter, enabledFilter, events, search]);
+  }, [categoryFilter, enabledFilter, priorityFilter, rows, search]);
+
+  const filteredKeys = useMemo(() => new Set(filteredRows.map((row) => row.key)), [filteredRows]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -259,26 +725,156 @@ export function EventsPage() {
   }, [detailsWidth]);
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(filteredEvents.length / pageSize));
-    setPage((prev) => Math.min(Math.max(1, prev), totalPages));
-  }, [filteredEvents.length, pageSize]);
+    setSelectedRowKeys((prev) => {
+      const next = new Set<string>();
+      for (const key of prev) {
+        if (rows.some((row) => row.key === key)) {
+          next.add(key);
+        }
+      }
+      return next;
+    });
 
-  const totalRows = filteredEvents.length;
+    if (!activeRowKey || !rows.some((row) => row.key === activeRowKey)) {
+      setActiveRowKey(rows[0]?.key ?? null);
+      if (editorMode === "edit") {
+        setEditorMode("view");
+        setEditingIndex(null);
+        setDraftEvent(null);
+        setDraftErrors({});
+      }
+    }
+  }, [activeRowKey, editorMode, rows]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+    setPage((prev) => Math.min(Math.max(1, prev), totalPages));
+  }, [filteredRows.length, pageSize]);
+
+  const visibleColumns = EVENT_COLUMNS.filter((column) => columnVisibility[column.id] !== false);
+  const tableGridTemplateColumns = ["42px", ...visibleColumns.map((column) => `${Math.max(column.minWidth, columnWidths[column.id])}px`)].join(" ");
+
+  const totalRows = filteredRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * pageSize;
-  const pageRows = filteredEvents.slice(pageStart, pageStart + pageSize);
-  const selectedEvent = filteredEvents.find((item) => item.id === selectedId) ?? pageRows[0] ?? null;
+  const pageRows = filteredRows.slice(pageStart, pageStart + pageSize);
 
-  const visibleColumns = EVENT_COLUMNS.filter((column) => columnVisibility[column.id] !== false);
-  const eventGridTemplateColumns = visibleColumns
-    .map((column) => `${Math.max(column.minWidth, columnWidths[column.id])}px`)
-    .join(" ");
+  const totalEnabledCount = events.filter((item) => item.enabled !== false).length;
+  const totalDisabledCount = events.length - totalEnabledCount;
+  const selectedFilteredCount = [...selectedRowKeys].filter((key) => filteredKeys.has(key)).length;
 
-  const resetWidths = useCallback(() => {
-    setDetailsWidth(DEFAULT_DETAILS_WIDTH);
-    setColumnWidths(createDefaultColumnWidths());
-  }, []);
+  const activeRow = rows.find((row) => row.key === activeRowKey) ?? pageRows[0] ?? null;
+
+  const existingIds = useMemo(() => {
+    const values = new Set<string>();
+    for (const event of events) {
+      const id = normalizeId(event.id);
+      if (id) {
+        values.add(id);
+      }
+    }
+    return values;
+  }, [events]);
+
+  const saveEvents = useCallback((nextEvents: EventDefinition[]) => {
+    updateProjectJson({
+      ...project,
+      events: nextEvents,
+    });
+  }, [project, updateProjectJson]);
+
+  const openAdd = () => {
+    setDraftEvent(createDefaultDraft(existingIds));
+    setDraftErrors({});
+    setEditorMode("add");
+    setEditorTab("general");
+    setEditingIndex(null);
+  };
+
+  const openEdit = useCallback((row: EventRow) => {
+    const fallbackId = row.id || createEventId(existingIds);
+    setDraftEvent(toDraft(row.event, fallbackId));
+    setDraftErrors({});
+    setEditorMode("edit");
+    setEditorTab("general");
+    setEditingIndex(row.index);
+    setActiveRowKey(row.key);
+  }, [existingIds]);
+
+  const cancelEditor = () => {
+    setEditorMode("view");
+    setEditingIndex(null);
+    setDraftEvent(null);
+    setDraftErrors({});
+  };
+
+  const duplicateRow = useCallback((row: EventRow) => {
+    const ids = new Set(existingIds);
+    const copyId = createEventId(ids);
+    const baseDraft = toDraft(row.event, copyId);
+    baseDraft.id = copyId;
+    const nextEvent = buildEventFromDraft(baseDraft, undefined);
+    const nextEvents = [...events];
+    nextEvents.splice(row.index + 1, 0, nextEvent);
+    saveEvents(nextEvents);
+    setStatusText(`Duplicated event ${row.id || `(row ${row.index + 1})`} as ${copyId}`);
+  }, [events, existingIds, saveEvents]);
+
+  const deleteRowsByKey = useCallback((keys: Set<string>, reason: string) => {
+    if (keys.size === 0) {
+      return;
+    }
+    const nextEvents = rows.filter((row) => !keys.has(row.key)).map((row) => row.event);
+    saveEvents(nextEvents);
+    setSelectedRowKeys((prev) => {
+      const next = new Set<string>(prev);
+      for (const key of keys) {
+        next.delete(key);
+      }
+      return next;
+    });
+    setStatusText(reason);
+  }, [rows, saveEvents]);
+
+  const deleteSelected = () => {
+    if (selectedRowKeys.size === 0) {
+      return;
+    }
+    if (!window.confirm(`Delete ${selectedRowKeys.size} selected event(s)?`)) {
+      return;
+    }
+    deleteRowsByKey(new Set(selectedRowKeys), `Deleted ${selectedRowKeys.size} selected event(s)`);
+  };
+
+  const deleteFiltered = () => {
+    if (filteredRows.length === 0) {
+      return;
+    }
+    if (!window.confirm(`Delete ${filteredRows.length} filtered event(s)?`)) {
+      return;
+    }
+    deleteRowsByKey(new Set(filteredRows.map((row) => row.key)), `Deleted ${filteredRows.length} filtered event(s)`);
+  };
+
+  const clearAll = () => {
+    if (events.length === 0) {
+      return;
+    }
+    if (!window.confirm(`Clear all ${events.length} events?`)) {
+      return;
+    }
+    saveEvents([]);
+    setSelectedRowKeys(new Set());
+    setStatusText("Cleared all events");
+  };
+
+  const deleteOne = (row: EventRow) => {
+    if (!window.confirm(`Delete event ${row.id || `(row ${row.index + 1})`}?`)) {
+      return;
+    }
+    deleteRowsByKey(new Set([row.key]), `Deleted event ${row.id || `(row ${row.index + 1})`}`);
+  };
 
   const startDetailsResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -329,24 +925,654 @@ export function EventsPage() {
     window.addEventListener("mouseup", onUp);
   }, [columnWidths]);
 
-  const selectedCategory = selectedEvent?.categoryName ?? selectedEvent?.categoryId ?? "-";
-  const selectedSound = selectedEvent?.soundEnabled && selectedEvent?.soundId
-    ? (soundNameById.get(selectedEvent.soundId) ?? selectedEvent.soundId)
-    : "Off";
-  const selectedAck = selectedEvent?.requireAck ? (selectedEvent.ackTagName ?? "Required") : "No";
-  const selectedCondition = selectedEvent ? formatCondition(selectedEvent) : "-";
+  const toggleRowSelection = (key: string) => {
+    setSelectedRowKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = () => {
+    if (filteredRows.length === 0) {
+      return;
+    }
+    setSelectedRowKeys((prev) => {
+      const next = new Set(prev);
+      const allSelected = filteredRows.every((row) => next.has(row.key));
+      if (allSelected) {
+        for (const row of filteredRows) {
+          next.delete(row.key);
+        }
+      } else {
+        for (const row of filteredRows) {
+          next.add(row.key);
+        }
+      }
+      return next;
+    });
+  };
+
+  const resetWidths = () => {
+    setDetailsWidth(DEFAULT_DETAILS_WIDTH);
+    setColumnWidths(createDefaultColumnWidths());
+  };
+
+  const setDraftPatch = (patch: Partial<EventEditorDraft>) => {
+    setDraftEvent((prev) => (prev ? { ...prev, ...patch } : prev));
+  };
+
+  const renderFieldError = (field: keyof EventEditorDraft) => {
+    const error = draftErrors[field];
+    if (!error) {
+      return null;
+    }
+    return <span className="workbench-field__error">{error}</span>;
+  };
+
+  const saveDraft = () => {
+    if (!draftEvent) {
+      return;
+    }
+
+    const normalizedDraft: EventEditorDraft = {
+      ...draftEvent,
+      categoryName: draftEvent.categoryName.trim() || "Default",
+      priority: clampPriority(draftEvent.priority),
+      conditionMode: draftEvent.conditionMode === "word" ? "word" : "bit",
+    };
+
+    const errors = validateDraft(normalizedDraft, events, editorMode === "edit" ? editingIndex : null);
+    setDraftErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      return;
+    }
+
+    const nextEvent = buildEventFromDraft(normalizedDraft, editorMode === "edit" && editingIndex !== null ? events[editingIndex] : undefined);
+
+    if (editorMode === "edit" && editingIndex !== null) {
+      const nextEvents = [...events];
+      nextEvents[editingIndex] = nextEvent;
+      saveEvents(nextEvents);
+      setStatusText(`Updated event ${nextEvent.id}`);
+    } else {
+      const nextEvents = [...events, nextEvent];
+      saveEvents(nextEvents);
+      setStatusText(`Added event ${nextEvent.id}`);
+    }
+
+    setEditorMode("view");
+    setEditingIndex(null);
+    setDraftEvent(null);
+    setDraftErrors({});
+  };
+
+  const exportCsv = () => {
+    const csv = [
+      CSV_HEADERS,
+      ...events.map((event) => [
+        event.id,
+        event.enabled === false ? "false" : "true",
+        event.categoryId ?? "",
+        event.categoryName ?? "",
+        event.message ?? "",
+        typeof event.priority === "number" ? event.priority : 0,
+        event.sourceTagName ?? "",
+        event.conditionMode ?? "bit",
+        event.bitTrigger ?? "",
+        event.wordOperator ?? "",
+        typeof event.wordValue === "number" ? event.wordValue : "",
+        typeof event.startupDelayMs === "number" ? event.startupDelayMs : 0,
+        event.requireAck ? "true" : "false",
+        ackValueToText(event.ackValue),
+        event.soundEnabled ? "true" : "false",
+        event.soundId ?? "",
+        event.textColor ?? "",
+        event.backgroundColor ?? "",
+        event.ackTagName ?? "",
+        event.notificationTagName ?? "",
+        event.elapsedTimeTagName ?? "",
+        event.securityEnabled ? "true" : "false",
+        event.securityTagName ?? "",
+        typeof event.securityBitValue === "undefined" ? "" : String(event.securityBitValue),
+        event.createdAt ?? "",
+        event.updatedAt ?? "",
+      ]),
+    ].map((line) => line.map((cell) => escapeCsvCell(cell)).join(",")).join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "events.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setStatusText(`Exported ${events.length} event(s)`);
+  };
+
+  const importCsv = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result ?? "");
+        const rowsFromCsv = parseCsvText(text);
+        if (rowsFromCsv.length === 0) {
+          setStatusText("CSV file is empty");
+          return;
+        }
+
+        const headers = (rowsFromCsv[0] ?? []).map((header) => header.trim());
+        const headerIndexByLower = new Map<string, number>();
+        headers.forEach((header, index) => {
+          headerIndexByLower.set(header.toLowerCase(), index);
+        });
+
+        const nextEvents = [...events];
+        const importErrors: string[] = [];
+        let created = 0;
+        let updated = 0;
+
+        for (let rowIndex = 1; rowIndex < rowsFromCsv.length; rowIndex += 1) {
+          const rowCells = rowsFromCsv[rowIndex] ?? [];
+          const read = (name: string): string => {
+            const index = headerIndexByLower.get(name.toLowerCase());
+            if (typeof index !== "number") {
+              return "";
+            }
+            return String(rowCells[index] ?? "").trim();
+          };
+
+          const parseBooleanField = (name: string): boolean | undefined => {
+            const value = read(name);
+            if (!value) {
+              return undefined;
+            }
+            const parsed = parseBooleanText(value);
+            if (typeof parsed === "undefined") {
+              importErrors.push(`Row ${rowIndex + 1}: invalid boolean in ${name}`);
+            }
+            return parsed;
+          };
+
+          const parseNumberField = (name: string): number | undefined => {
+            const value = read(name);
+            if (!value) {
+              return undefined;
+            }
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) {
+              importErrors.push(`Row ${rowIndex + 1}: invalid number in ${name}`);
+              return undefined;
+            }
+            return parsed;
+          };
+
+          const rawId = read("id");
+          const targetIndex = rawId
+            ? nextEvents.findIndex((item) => normalizeId(item.id) === rawId)
+            : -1;
+
+          const idsForNew = new Set(nextEvents.map((item) => normalizeId(item.id)).filter(Boolean));
+          const base = targetIndex >= 0
+            ? toDraft(nextEvents[targetIndex]!, rawId || createEventId(idsForNew))
+            : createDefaultDraft(idsForNew);
+
+          const conditionModeRaw = read("conditionMode");
+          const bitTriggerRaw = read("bitTrigger");
+          const wordOperatorRaw = read("wordOperator");
+          const securityBitRaw = read("securityBitValue");
+
+          const knownPatch: Partial<EventEditorDraft> = {
+            id: rawId || base.id,
+            enabled: parseBooleanField("enabled") ?? base.enabled,
+            categoryId: read("categoryId") || base.categoryId,
+            categoryName: read("categoryName") || base.categoryName,
+            message: read("message") || base.message,
+            priority: parseNumberField("priority") ?? base.priority,
+            sourceTagName: read("sourceTagName") || base.sourceTagName,
+            conditionMode: conditionModeRaw === "word" || conditionModeRaw === "bit" ? conditionModeRaw : base.conditionMode,
+            bitTrigger: bitTriggerRaw === "ON" || bitTriggerRaw === "OFF" || bitTriggerRaw === "OFF_TO_ON" || bitTriggerRaw === "ON_TO_OFF"
+              ? bitTriggerRaw
+              : base.bitTrigger,
+            wordOperator: wordOperatorRaw === "<" || wordOperatorRaw === ">" || wordOperatorRaw === "=" || wordOperatorRaw === "<>" || wordOperatorRaw === ">=" || wordOperatorRaw === "<="
+              ? wordOperatorRaw
+              : base.wordOperator,
+            wordValue: read("wordValue") || base.wordValue,
+            startupDelayMs: parseNumberField("startupDelayMs") ?? base.startupDelayMs,
+            requireAck: parseBooleanField("requireAck") ?? base.requireAck,
+            ackValue: read("ackValue") || base.ackValue,
+            soundEnabled: parseBooleanField("soundEnabled") ?? base.soundEnabled,
+            soundId: read("soundId") || base.soundId,
+            textColor: read("textColor") || base.textColor,
+            backgroundColor: read("backgroundColor") || base.backgroundColor,
+            ackTagName: read("ackTagName") || base.ackTagName,
+            notificationTagName: read("notificationTagName") || base.notificationTagName,
+            elapsedTimeTagName: read("elapsedTimeTagName") || base.elapsedTimeTagName,
+            securityEnabled: parseBooleanField("securityEnabled") ?? base.securityEnabled,
+            securityTagName: read("securityTagName") || base.securityTagName,
+            securityBitValue:
+              securityBitRaw === "true" || securityBitRaw === "false" || securityBitRaw === "1" || securityBitRaw === "0" || securityBitRaw === ""
+                ? (securityBitRaw as EventEditorDraft["securityBitValue"])
+                : base.securityBitValue,
+          };
+
+          const draft: EventEditorDraft = {
+            ...base,
+            ...knownPatch,
+          };
+
+          const rowErrors = validateDraft(draft, nextEvents, targetIndex >= 0 ? targetIndex : null);
+          if (Object.keys(rowErrors).length > 0) {
+            const firstError = Object.values(rowErrors)[0] ?? "validation error";
+            importErrors.push(`Row ${rowIndex + 1}: ${firstError}`);
+            continue;
+          }
+
+          const normalized = buildEventFromDraft(draft, targetIndex >= 0 ? nextEvents[targetIndex] : undefined);
+          const extras: Record<string, unknown> = {};
+          headers.forEach((header, index) => {
+            const key = header.trim();
+            if (!key || CSV_HEADERS.includes(key)) {
+              return;
+            }
+            const cell = String(rowCells[index] ?? "");
+            if (!cell.trim()) {
+              return;
+            }
+            extras[key] = parseLooseCsvValue(cell);
+          });
+
+          const merged = {
+            ...(targetIndex >= 0 ? (nextEvents[targetIndex] as Record<string, unknown>) : {}),
+            ...extras,
+            ...normalized,
+          } as EventDefinition;
+
+          if (targetIndex >= 0) {
+            nextEvents[targetIndex] = merged;
+            updated += 1;
+          } else {
+            nextEvents.push(merged);
+            created += 1;
+          }
+        }
+
+        saveEvents(nextEvents);
+        const summary = `CSV import finished: created ${created}, updated ${updated}`;
+        setStatusText(summary);
+
+        if (importErrors.length > 0) {
+          const preview = importErrors.slice(0, 15).join("\n");
+          const suffix = importErrors.length > 15 ? `\n... and ${importErrors.length - 15} more` : "";
+          window.alert(`${summary}\n\nErrors:\n${preview}${suffix}`);
+        }
+      } catch (error) {
+        const textError = error instanceof Error ? error.message : "Failed to import CSV";
+        window.alert(`CSV import failed: ${textError}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const isAllFilteredSelected = filteredRows.length > 0 && filteredRows.every((row) => selectedRowKeys.has(row.key));
+
+  const editorTabs = [
+    { id: "general", title: "General" },
+    { id: "message", title: "Message" },
+    { id: "statistics", title: "Statistics" },
+    { id: "security", title: "Security" },
+  ];
+
+  const renderEditorSection = (): ReactNode => {
+    if (!draftEvent) {
+      return null;
+    }
+
+    if (editorTab === "general") {
+      return (
+        <>
+          <label className="workbench-field">
+            <span className="workbench-field__label">ID</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.id}
+              onChange={(event) => setDraftPatch({ id: event.target.value })}
+            />
+            {renderFieldError("id")}
+          </label>
+
+          <label className="workbench-field">
+            <label className="screen-editor-tags-checkbox-field">
+              <input
+                type="checkbox"
+                checked={draftEvent.enabled}
+                onChange={(event) => setDraftPatch({ enabled: event.target.checked })}
+              />
+              <span>Enabled</span>
+            </label>
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Category ID</span>
+            <select
+              className="workbench-select"
+              value={draftEvent.categoryId}
+              onChange={(event) => {
+                const nextId = event.target.value;
+                const matched = categories.find((item) => item.id === nextId);
+                setDraftPatch({
+                  categoryId: nextId,
+                  categoryName: matched?.name ?? draftEvent.categoryName,
+                });
+              }}
+            >
+              <option value="">(none)</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name} ({category.id})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Category Name</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.categoryName}
+              onChange={(event) => setDraftPatch({ categoryName: event.target.value })}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Priority</span>
+            <select
+              className="workbench-select"
+              value={String(draftEvent.priority)}
+              onChange={(event) => setDraftPatch({ priority: clampPriority(Number(event.target.value)) })}
+            >
+              {PRIORITY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            {renderFieldError("priority")}
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Startup Delay (ms)</span>
+            <input
+              className="workbench-input"
+              type="number"
+              min={0}
+              value={draftEvent.startupDelayMs}
+              onChange={(event) => setDraftPatch({ startupDelayMs: Math.max(0, Number(event.target.value) || 0) })}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Source Tag Name</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.sourceTagName}
+              onChange={(event) => setDraftPatch({ sourceTagName: event.target.value })}
+            />
+            {renderFieldError("sourceTagName")}
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Condition Mode</span>
+            <select
+              className="workbench-select"
+              value={draftEvent.conditionMode}
+              onChange={(event) => setDraftPatch({ conditionMode: event.target.value as EventEditorDraft["conditionMode"] })}
+            >
+              <option value="bit">bit</option>
+              <option value="word">word</option>
+            </select>
+          </label>
+
+          {draftEvent.conditionMode === "bit" ? (
+            <label className="workbench-field">
+              <span className="workbench-field__label">Bit Trigger</span>
+              <select
+                className="workbench-select"
+                value={draftEvent.bitTrigger}
+                onChange={(event) => setDraftPatch({ bitTrigger: event.target.value as EventBitTrigger })}
+              >
+                <option value="ON">ON</option>
+                <option value="OFF">OFF</option>
+                <option value="OFF_TO_ON">OFF_TO_ON</option>
+                <option value="ON_TO_OFF">ON_TO_OFF</option>
+              </select>
+              {renderFieldError("bitTrigger")}
+            </label>
+          ) : (
+            <>
+              <label className="workbench-field">
+                <span className="workbench-field__label">Word Operator</span>
+                <select
+                  className="workbench-select"
+                  value={draftEvent.wordOperator}
+                  onChange={(event) => setDraftPatch({ wordOperator: event.target.value as EventWordOperator })}
+                >
+                  <option value="<">&lt;</option>
+                  <option value=">">&gt;</option>
+                  <option value="=">=</option>
+                  <option value="<>">&lt;&gt;</option>
+                  <option value=">=">&gt;=</option>
+                  <option value="<=">&lt;=</option>
+                </select>
+                {renderFieldError("wordOperator")}
+              </label>
+
+              <label className="workbench-field">
+                <span className="workbench-field__label">Word Value</span>
+                <input
+                  className="workbench-input"
+                  value={draftEvent.wordValue}
+                  onChange={(event) => setDraftPatch({ wordValue: event.target.value })}
+                />
+                {renderFieldError("wordValue")}
+              </label>
+            </>
+          )}
+        </>
+      );
+    }
+
+    if (editorTab === "message") {
+      return (
+        <>
+          <label className="workbench-field">
+            <span className="workbench-field__label">Message</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.message}
+              onChange={(event) => setDraftPatch({ message: event.target.value })}
+            />
+            {renderFieldError("message")}
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Text Color</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.textColor}
+              onChange={(event) => setDraftPatch({ textColor: event.target.value })}
+              placeholder="#ffffff"
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Background Color</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.backgroundColor}
+              onChange={(event) => setDraftPatch({ backgroundColor: event.target.value })}
+              placeholder="#ff0000"
+            />
+          </label>
+
+          <label className="workbench-field">
+            <label className="screen-editor-tags-checkbox-field">
+              <input
+                type="checkbox"
+                checked={draftEvent.requireAck}
+                onChange={(event) => setDraftPatch({ requireAck: event.target.checked })}
+              />
+              <span>Require Acknowledge</span>
+            </label>
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Ack Value</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.ackValue}
+              onChange={(event) => setDraftPatch({ ackValue: event.target.value })}
+              placeholder="true / false / number / text / null"
+            />
+          </label>
+
+          <label className="workbench-field">
+            <label className="screen-editor-tags-checkbox-field">
+              <input
+                type="checkbox"
+                checked={draftEvent.soundEnabled}
+                onChange={(event) => setDraftPatch({ soundEnabled: event.target.checked })}
+              />
+              <span>Sound Enabled</span>
+            </label>
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Sound ID</span>
+            <select
+              className="workbench-select"
+              value={draftEvent.soundId}
+              onChange={(event) => setDraftPatch({ soundId: event.target.value })}
+              disabled={!draftEvent.soundEnabled}
+            >
+              <option value="">(none)</option>
+              {sounds.map((sound) => (
+                <option key={sound.id} value={sound.id}>
+                  {sound.name} ({sound.id})
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      );
+    }
+
+    if (editorTab === "statistics") {
+      return (
+        <>
+          <label className="workbench-field">
+            <span className="workbench-field__label">Ack Tag Name</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.ackTagName}
+              onChange={(event) => setDraftPatch({ ackTagName: event.target.value })}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Notification Tag Name</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.notificationTagName}
+              onChange={(event) => setDraftPatch({ notificationTagName: event.target.value })}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Elapsed Time Tag Name (optional)</span>
+            <input
+              className="workbench-input"
+              value={draftEvent.elapsedTimeTagName}
+              onChange={(event) => setDraftPatch({ elapsedTimeTagName: event.target.value })}
+            />
+          </label>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <label className="workbench-field">
+          <label className="screen-editor-tags-checkbox-field">
+            <input
+              type="checkbox"
+              checked={draftEvent.securityEnabled}
+              onChange={(event) => setDraftPatch({ securityEnabled: event.target.checked })}
+            />
+            <span>Security Enabled</span>
+          </label>
+        </label>
+
+        <label className="workbench-field">
+          <span className="workbench-field__label">Security Tag Name</span>
+          <input
+            className="workbench-input"
+            value={draftEvent.securityTagName}
+            onChange={(event) => setDraftPatch({ securityTagName: event.target.value })}
+            disabled={!draftEvent.securityEnabled}
+          />
+        </label>
+
+        <label className="workbench-field">
+          <span className="workbench-field__label">Security Bit Value</span>
+          <select
+            className="workbench-select"
+            value={draftEvent.securityBitValue}
+            onChange={(event) => setDraftPatch({ securityBitValue: event.target.value as EventEditorDraft["securityBitValue"] })}
+            disabled={!draftEvent.securityEnabled}
+          >
+            <option value="">(unset)</option>
+            <option value="true">true</option>
+            <option value="false">false</option>
+            <option value="1">1</option>
+            <option value="0">0</option>
+          </select>
+        </label>
+      </>
+    );
+  };
 
   return (
     <div className="screen-editor-window-content screen-editor-tags-window">
       <div className="screen-editor-tags-window__toolbar">
-        <WorkbenchButton variant="primary" disabled>
-          Add Event
+        <WorkbenchButton variant="primary" onClick={openAdd}>
+          Add
         </WorkbenchButton>
-        <WorkbenchButton disabled>
+        <WorkbenchButton onClick={() => activeRow && openEdit(activeRow)} disabled={!activeRow}>
           Edit
         </WorkbenchButton>
-        <WorkbenchButton variant="danger" disabled>
-          Delete
+        <WorkbenchButton onClick={() => activeRow && duplicateRow(activeRow)} disabled={!activeRow}>
+          Duplicate
+        </WorkbenchButton>
+        <WorkbenchButton variant="danger" onClick={deleteSelected} disabled={selectedRowKeys.size === 0}>
+          Delete Selected
+        </WorkbenchButton>
+        <WorkbenchButton variant="danger" onClick={deleteFiltered} disabled={filteredRows.length === 0}>
+          Delete Filtered
+        </WorkbenchButton>
+        <WorkbenchButton variant="danger" onClick={clearAll} disabled={events.length === 0}>
+          Clear All
+        </WorkbenchButton>
+        <WorkbenchButton onClick={() => importInputRef.current?.click()}>
+          Import CSV
+        </WorkbenchButton>
+        <WorkbenchButton onClick={exportCsv} disabled={events.length === 0}>
+          Export CSV
+        </WorkbenchButton>
+        <WorkbenchButton onClick={() => void saveProject()}>
+          Save Project
         </WorkbenchButton>
         <WorkbenchButton onClick={resetWidths}>
           Reset Widths
@@ -356,20 +1582,27 @@ export function EventsPage() {
         </WorkbenchButton>
 
         <input
+          ref={importInputRef}
+          hidden
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.currentTarget.value = "";
+            if (!file) {
+              return;
+            }
+            importCsv(file);
+          }}
+        />
+
+        <input
           className="workbench-input screen-editor-tags-window__toolbar-input"
           value={search}
-          placeholder="Search id / message / tag"
+          placeholder="Search id / message / source"
           onChange={(event) => setSearch(event.target.value)}
         />
-        <select
-          className="workbench-select screen-editor-tags-window__toolbar-select"
-          value={enabledFilter}
-          onChange={(event) => setEnabledFilter(event.target.value as "all" | "on" | "off")}
-        >
-          <option value="all">All states</option>
-          <option value="on">Enabled</option>
-          <option value="off">Disabled</option>
-        </select>
+
         <select
           className="workbench-select screen-editor-tags-window__toolbar-select"
           value={categoryFilter}
@@ -377,13 +1610,37 @@ export function EventsPage() {
         >
           <option value="all">All categories</option>
           {categoryOptions.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
+            <option key={category} value={category}>
+              {category}
             </option>
           ))}
         </select>
+
+        <select
+          className="workbench-select screen-editor-tags-window__toolbar-select"
+          value={priorityFilter}
+          onChange={(event) => setPriorityFilter(event.target.value as "all" | "0" | "1" | "2" | "3")}
+        >
+          <option value="all">All priorities</option>
+          {PRIORITY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="workbench-select screen-editor-tags-window__toolbar-select"
+          value={enabledFilter}
+          onChange={(event) => setEnabledFilter(event.target.value as "all" | "enabled" | "disabled")}
+        >
+          <option value="all">All states</option>
+          <option value="enabled">Enabled</option>
+          <option value="disabled">Disabled</option>
+        </select>
+
         <div className="screen-editor-tags-window__toolbar-meta">
-          Definitions: {events.length} | Categories: {categories.length} | Sounds: {sounds.length} | Filtered: {totalRows}
+          Total: {events.length} | Enabled: {totalEnabledCount} | Disabled: {totalDisabledCount} | Filtered: {filteredRows.length} | Selected: {selectedFilteredCount}
         </div>
       </div>
 
@@ -394,13 +1651,12 @@ export function EventsPage() {
               <input
                 type="checkbox"
                 checked={columnVisibility[column.id] !== false}
-                disabled={column.id === "id"}
-                onChange={(event) =>
-                  setColumnVisibility((prev) => ({
-                    ...prev,
-                    [column.id]: event.target.checked,
-                    id: true,
-                  }))}
+                disabled={column.id === "message"}
+                onChange={(event) => setColumnVisibility((prev) => ({
+                  ...prev,
+                  [column.id]: event.target.checked,
+                  message: true,
+                }))}
               />
               <span>{column.title}</span>
             </label>
@@ -415,10 +1671,15 @@ export function EventsPage() {
       >
         <div className="screen-editor-tags-window__list">
           <div className="screen-editor-tags-table">
-            <div
-              className="screen-editor-tags-row screen-editor-tags-row--header"
-              style={{ gridTemplateColumns: eventGridTemplateColumns }}
-            >
+            <div className="screen-editor-tags-row screen-editor-tags-row--header" style={{ gridTemplateColumns: tableGridTemplateColumns }}>
+              <div className="screen-editor-tags-cell screen-editor-tags-header-cell">
+                <input
+                  type="checkbox"
+                  checked={isAllFilteredSelected}
+                  onChange={toggleSelectAllFiltered}
+                  aria-label="Select all filtered"
+                />
+              </div>
               {visibleColumns.map((column) => (
                 <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell">
                   <span>{column.title}</span>
@@ -429,37 +1690,106 @@ export function EventsPage() {
                 </div>
               ))}
             </div>
-            {pageRows.map((event) => {
-              const selected = selectedEvent?.id === event.id;
-              const rowCells: Record<EventColumnId, string> = {
-                enabled: event.enabled === false ? "OFF" : "ON",
-                id: event.id,
-                category: event.categoryName ?? event.categoryId ?? "-",
-                priority: typeof event.priority === "number" ? String(event.priority) : "-",
-                source: event.sourceTagName ?? "-",
-                condition: formatCondition(event),
-                ack: event.requireAck ? (event.ackTagName ?? "Required") : "No",
-                sound: event.soundEnabled && event.soundId ? (soundNameById.get(event.soundId) ?? event.soundId) : "Off",
-                message: event.message?.trim() || "-",
-              };
+
+            {pageRows.map((row) => {
+              const event = row.event;
+              const selected = row.key === activeRow?.key;
+              const checked = selectedRowKeys.has(row.key);
+
               return (
                 <div
-                  key={event.id}
+                  key={row.key}
                   className={["screen-editor-tags-row", selected ? "screen-editor-tags-row--selected" : ""].filter(Boolean).join(" ")}
-                  onClick={() => setSelectedId(event.id)}
-                  style={{ gridTemplateColumns: eventGridTemplateColumns }}
+                  style={{ gridTemplateColumns: tableGridTemplateColumns }}
+                  onClick={() => setActiveRowKey(row.key)}
                 >
+                  <div className="screen-editor-tags-cell" onClick={(eventCell) => eventCell.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleRowSelection(row.key)}
+                      aria-label={`Select ${row.id || `row ${row.index + 1}`}`}
+                    />
+                  </div>
+
                   {visibleColumns.map((column) => {
-                    const value = rowCells[column.id];
+                    let content: ReactNode = null;
+                    let title = "";
+
+                    if (column.id === "enabled") {
+                      title = event.enabled === false ? "OFF" : "ON";
+                      content = title;
+                    } else if (column.id === "category") {
+                      title = getCategoryLabel(event);
+                      content = title;
+                    } else if (column.id === "message") {
+                      title = event.message?.trim() || "-";
+                      content = title;
+                    } else if (column.id === "priority") {
+                      title = `${getPriorityLabel(event.priority)} (${clampPriority(typeof event.priority === "number" ? event.priority : 0)})`;
+                      content = title;
+                    } else if (column.id === "conditionMode") {
+                      title = event.conditionMode === "word" ? "word" : "bit";
+                      content = title;
+                    } else if (column.id === "trigger") {
+                      title = getTriggerLabel(event);
+                      content = title;
+                    } else if (column.id === "sourceTagName") {
+                      title = event.sourceTagName?.trim() || "-";
+                      content = title;
+                    } else if (column.id === "wordValue") {
+                      title = getWordValueLabel(event);
+                      content = title;
+                    } else if (column.id === "soundEnabled") {
+                      title = event.soundEnabled ? "Yes" : "No";
+                      content = title;
+                    } else if (column.id === "soundId") {
+                      title = event.soundId ?? "-";
+                      content = title;
+                    } else if (column.id === "requireAck") {
+                      title = event.requireAck ? "Yes" : "No";
+                      content = title;
+                    } else {
+                      content = (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={(eventCell) => eventCell.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="workbench-button workbench-button--ghost"
+                            style={{ height: 20, padding: "0 6px", fontSize: 11 }}
+                            onClick={() => openEdit(row)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="workbench-button workbench-button--ghost"
+                            style={{ height: 20, padding: "0 6px", fontSize: 11 }}
+                            onClick={() => duplicateRow(row)}
+                          >
+                            Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            className="workbench-button workbench-button--danger"
+                            style={{ height: 20, padding: "0 6px", fontSize: 11 }}
+                            onClick={() => deleteOne(row)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      );
+                    }
+
                     return (
-                      <div key={column.id} className="screen-editor-tags-cell" title={value}>
-                        {value}
+                      <div key={column.id} className="screen-editor-tags-cell" title={title}>
+                        {content}
                       </div>
                     );
                   })}
                 </div>
               );
             })}
+
             {pageRows.length === 0 ? (
               <div className="screen-editor-empty-state">No events match the filters</div>
             ) : null}
@@ -467,33 +1797,65 @@ export function EventsPage() {
         </div>
 
         <div
-          className={[
-            "screen-editor-tags-resize-handle",
-            isDetailsResizeActive ? "screen-editor-tags-resize-handle--active" : "",
-          ].filter(Boolean).join(" ")}
+          className={["screen-editor-tags-resize-handle", isDetailsResizeActive ? "screen-editor-tags-resize-handle--active" : ""].filter(Boolean).join(" ")}
           onMouseDown={startDetailsResize}
         />
 
         <div className="screen-editor-tags-window__details">
           <div className="screen-editor-tag-editor">
-            <div className="screen-editor-tag-editor__title">Event Details</div>
-            {selectedEvent ? (
+            {editorMode === "view" ? (
               <>
-                <div className="screen-editor-tag-editor__kv"><span>ID</span><strong>{selectedEvent.id}</strong></div>
-                <div className="screen-editor-tag-editor__kv"><span>Enabled</span><strong>{selectedEvent.enabled === false ? "No" : "Yes"}</strong></div>
-                <div className="screen-editor-tag-editor__kv"><span>Category</span><strong>{selectedCategory}</strong></div>
-                <div className="screen-editor-tag-editor__kv"><span>Priority</span><strong>{typeof selectedEvent.priority === "number" ? selectedEvent.priority : "-"}</strong></div>
-                <div className="screen-editor-tag-editor__kv"><span>Source Tag</span><strong>{selectedEvent.sourceTagName ?? "-"}</strong></div>
-                <div className="screen-editor-tag-editor__kv"><span>Condition</span><strong>{selectedCondition}</strong></div>
-                <div className="screen-editor-tag-editor__kv"><span>Acknowledgement</span><strong>{selectedAck}</strong></div>
-                <div className="screen-editor-tag-editor__kv"><span>Sound</span><strong>{selectedSound}</strong></div>
-                <div className="screen-editor-tag-editor__kv"><span>Message</span><strong>{selectedEvent.message?.trim() || "-"}</strong></div>
+                <div className="screen-editor-tag-editor__title">Event Details</div>
+                {activeRow ? (
+                  <>
+                    <div className="screen-editor-tag-editor__kv"><span>ID</span><strong>{activeRow.id || "(missing)"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Enabled</span><strong>{activeRow.event.enabled === false ? "No" : "Yes"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Category</span><strong>{getCategoryLabel(activeRow.event)}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Message</span><strong>{activeRow.event.message?.trim() || "-"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Priority</span><strong>{getPriorityLabel(activeRow.event.priority)} ({clampPriority(typeof activeRow.event.priority === "number" ? activeRow.event.priority : 0)})</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Condition</span><strong>{activeRow.event.conditionMode === "word" ? "word" : "bit"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Trigger / Operator</span><strong>{getTriggerLabel(activeRow.event)}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Source Tag</span><strong>{activeRow.event.sourceTagName?.trim() || "-"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Word Value</span><strong>{getWordValueLabel(activeRow.event)}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Require Ack</span><strong>{activeRow.event.requireAck ? "Yes" : "No"}</strong></div>
+                    <div className="screen-editor-tag-editor__kv"><span>Sound</span><strong>{activeRow.event.soundEnabled ? (activeRow.event.soundId ?? "On") : "Off"}</strong></div>
+
+                    <div className="screen-editor-tag-editor-actions">
+                      <WorkbenchButton onClick={() => openEdit(activeRow)}>Edit</WorkbenchButton>
+                      <WorkbenchButton onClick={() => duplicateRow(activeRow)}>Duplicate</WorkbenchButton>
+                      <WorkbenchButton variant="danger" onClick={() => deleteOne(activeRow)}>Delete</WorkbenchButton>
+                    </div>
+                  </>
+                ) : (
+                  <div className="screen-editor-empty-state">Select an event</div>
+                )}
               </>
             ) : (
-              <div className="screen-editor-empty-state">Select an event</div>
+              <>
+                <div className="screen-editor-tag-editor__title">
+                  {editorMode === "add" ? "Add Event" : "Edit Event"}
+                </div>
+
+                <WorkbenchTabs
+                  items={editorTabs.map((tab) => ({
+                    id: tab.id,
+                    title: tab.title,
+                    active: editorTab === tab.id,
+                    onClick: () => setEditorTab(tab.id as EventEditorTab),
+                  }))}
+                />
+
+                {renderEditorSection()}
+
+                <div className="screen-editor-tag-editor-actions">
+                  <WorkbenchButton variant="primary" onClick={saveDraft}>Save</WorkbenchButton>
+                  <WorkbenchButton onClick={cancelEditor}>Cancel</WorkbenchButton>
+                </div>
+              </>
             )}
+
             <div className="screen-editor-tag-editor__hint">
-              Event Manager scaffold is ready. Runtime processing and acknowledgements will be added in a future step.
+              {statusText || "Event Manager editor updates project.events only. Runtime processing is not implemented in this step."}
             </div>
           </div>
         </div>

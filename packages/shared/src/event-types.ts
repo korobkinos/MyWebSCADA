@@ -42,6 +42,7 @@ export type EventDefinition = {
   ackValue?: TagScalarValue;
   ackTagName?: string;
   notificationTagName?: string;
+  elapsedTimeTagName?: string;
   soundEnabled?: boolean;
   soundId?: string;
   textColor?: string;

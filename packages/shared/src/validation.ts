@@ -1231,6 +1231,7 @@ const eventDefinitionSchema = z.object({
   ackValue: z.union([z.boolean(), z.number(), z.string(), z.null()]).optional(),
   ackTagName: z.string().optional(),
   notificationTagName: z.string().optional(),
+  elapsedTimeTagName: z.string().optional(),
   soundEnabled: z.boolean().optional(),
   soundId: z.string().optional(),
   textColor: z.string().optional(),
