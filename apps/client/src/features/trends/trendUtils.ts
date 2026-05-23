@@ -96,14 +96,21 @@ export function formatTrendArchivePolicy(mode: string | undefined, periodMs: num
 
 export function hasSparseTrendArchivePolicy(mode: string | undefined): boolean {
   const normalizedMode = (mode ?? "").trim().toLowerCase();
-  return normalizedMode === "on_change" || normalizedMode === "on_change_with_periodic";
+  return normalizedMode === "on_change" || normalizedMode === "on_change_with_periodic" || normalizedMode === "periodic";
 }
 
 export function getSparseTrendArchivePolicyWarning(mode: string | undefined): string | null {
   if (!hasSparseTrendArchivePolicy(mode)) {
     return null;
   }
-  return "History may be incomplete unless periodic samples are written.";
+  const normalizedMode = (mode ?? "").trim().toLowerCase();
+  if (normalizedMode === "on_change_with_periodic") {
+    return "on_change_with_periodic writes periodic rows only when new samples arrive; no archive heartbeat is active. For continuous trends, use periodic source samples or a source heartbeat.";
+  }
+  if (normalizedMode === "periodic") {
+    return "periodic archive policy still depends on incoming samples; no archive heartbeat is active. For continuous trends, keep the source sending samples.";
+  }
+  return "History may be incomplete unless new samples are written. For continuous trends, use periodic samples or a source heartbeat.";
 }
 
 export function defaultTrendSettings(): TrendSettings {

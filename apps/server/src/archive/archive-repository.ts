@@ -149,6 +149,9 @@ export type TrendSeriesDiagnosticsRow = {
   tag: string;
   policyMode: string;
   policyPeriodMs: number;
+  policyRequiresIncomingSamples: boolean;
+  archiveHeartbeatEnabled: boolean;
+  policyGuidance: string | null;
   rangeFrom: string;
   rangeTo: string;
   pointsInRange: number;
@@ -512,6 +515,9 @@ export class ArchiveRepository {
         tag: meta.name,
         policyMode: meta.policyMode,
         policyPeriodMs: meta.policyPeriodMs,
+        policyRequiresIncomingSamples: this.archivePolicyRequiresIncomingSamples(meta.policyMode),
+        archiveHeartbeatEnabled: false,
+        policyGuidance: this.archivePolicyGuidance(meta.policyMode),
         rangeFrom: requestedFrom.toISOString(),
         rangeTo: requestedTo.toISOString(),
         pointsInRange: rangeStats.pointsInRange,
@@ -1227,6 +1233,25 @@ export class ArchiveRepository {
     };
   }
 
+  private archivePolicyRequiresIncomingSamples(mode: string): boolean {
+    const normalized = mode.trim().toLowerCase();
+    return normalized === "periodic" || normalized === "on_change" || normalized === "on_change_with_periodic";
+  }
+
+  private archivePolicyGuidance(mode: string): string | null {
+    const normalized = mode.trim().toLowerCase();
+    if (normalized === "on_change_with_periodic") {
+      return "on_change_with_periodic writes periodic rows only when new TagValue samples arrive; no archive heartbeat is active.";
+    }
+    if (normalized === "periodic") {
+      return "periodic archive policy still depends on incoming TagValue samples; no archive heartbeat is active.";
+    }
+    if (normalized === "on_change") {
+      return "on_change writes only incoming changes; continuous trend history requires periodic source samples or a source heartbeat.";
+    }
+    return null;
+  }
+
   private resolveTrendAggregation(input: {
     requested: TrendAggregationMode;
     dataType: TrendDataType;
@@ -1791,6 +1816,9 @@ export class ArchiveRepository {
     const periodicDue = elapsedMs >= tag.periodMs;
     const changed = this.hasValueOrMetaChange(previous, currentValue, sample, tag.deadband);
     if (tag.mode === "periodic") {
+      // The archive repository does not own an independent heartbeat timer.
+      // Even strictly periodic policies are evaluated only when a fresh
+      // TagValue arrives from the runtime source.
       return periodicDue;
     }
     if (tag.mode === "on_change_with_periodic") {

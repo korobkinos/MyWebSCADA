@@ -186,6 +186,8 @@ describe("ArchiveRepository.queryTrends diagnostics", () => {
       tag: "speed",
       policyMode: "on_change_with_periodic",
       policyPeriodMs: 5000,
+      policyRequiresIncomingSamples: true,
+      archiveHeartbeatEnabled: false,
       pointsInRange: 1,
       firstPointTs: 2_000,
       lastPointTs: 2_000,

@@ -201,6 +201,9 @@ export type TrendSeriesDiagnostics = {
   tag: string;
   policyMode: string;
   policyPeriodMs: number;
+  policyRequiresIncomingSamples: boolean;
+  archiveHeartbeatEnabled: boolean;
+  policyGuidance: string | null;
   rangeFrom: string;
   rangeTo: string;
   pointsInRange: number;

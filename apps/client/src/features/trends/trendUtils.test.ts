@@ -152,9 +152,9 @@ describe("trend archive policy helpers", () => {
   });
 
   it("warns for sparse archive policies", () => {
-    expect(getSparseTrendArchivePolicyWarning("on_change")).toBe("History may be incomplete unless periodic samples are written.");
-    expect(getSparseTrendArchivePolicyWarning("on_change_with_periodic")).toBe("History may be incomplete unless periodic samples are written.");
-    expect(getSparseTrendArchivePolicyWarning("periodic")).toBeNull();
+    expect(getSparseTrendArchivePolicyWarning("on_change")).toContain("History may be incomplete");
+    expect(getSparseTrendArchivePolicyWarning("on_change_with_periodic")).toContain("only when new samples arrive");
+    expect(getSparseTrendArchivePolicyWarning("periodic")).toContain("depends on incoming samples");
   });
 });
 
