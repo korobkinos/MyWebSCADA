@@ -38,6 +38,13 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+type SaveTagsResult = {
+  deletedTagNames: string[];
+  affectedEventCount: number;
+  disabledBySourceCount: number;
+  disabledBySecurityCount: number;
+};
+
 export function TagsPage() {
   const project = useScadaStore((s) => s.project);
   const drivers = useScadaStore((s) => s.project?.drivers ?? []);
@@ -104,23 +111,24 @@ export function TagsPage() {
   const pageRows = filtered.slice(start, start + 50);
   const selectedTag = tags.find((tag) => (tag.id ?? tag.name) === selectedId) ?? pageRows[0] ?? null;
 
-  const saveTags = (nextTags: TagDefinition[]): {
-    deletedTagNames: string[];
-    disabledEventCount: number;
-  } => {
+  const saveTags = (nextTags: TagDefinition[]): SaveTagsResult => {
     const previousTagNames = new Set((project.tags ?? []).map((tag) => tag.name));
     const nextTagNames = new Set(nextTags.map((tag) => tag.name));
     const deletedTagNames = [...previousTagNames].filter((name) => !nextTagNames.has(name));
 
     let nextProject = { ...project, tags: nextTags };
-    let disabledEventCount = 0;
+    let affectedEventCount = 0;
+    let disabledBySourceCount = 0;
+    let disabledBySecurityCount = 0;
     if (deletedTagNames.length > 0) {
       const reconciled = reconcileEventsAfterTagDeletion(nextProject, deletedTagNames);
       nextProject = reconciled.project;
-      disabledEventCount = reconciled.affectedEventCount;
+      affectedEventCount = reconciled.affectedEventCount;
+      disabledBySourceCount = reconciled.disabledBySourceCount;
+      disabledBySecurityCount = reconciled.disabledBySecurityCount;
     }
     updateProjectJson(nextProject);
-    return { deletedTagNames, disabledEventCount };
+    return { deletedTagNames, affectedEventCount, disabledBySourceCount, disabledBySecurityCount };
   };
 
   const openAdd = (): void => {
@@ -148,12 +156,12 @@ export function TagsPage() {
     Modal.confirm({
       title: `Delete tag ${tag.name}?`,
       onOk: () => {
-        const { deletedTagNames, disabledEventCount } = saveTags(
+        const { affectedEventCount } = saveTags(
           tags.filter((item) => (item.id ?? item.name) !== (tag.id ?? tag.name)),
         );
-        if (deletedTagNames.length > 0) {
-          void message.warning(
-            `Tag deleted. ${disabledEventCount} event(s) disabled because their source/security tag is missing.`,
+        if (affectedEventCount > 0) {
+          void message.info(
+            `Tag deleted. ${affectedEventCount} event(s) disabled because their source/security tag is missing.`,
           );
         }
       },
@@ -311,10 +319,10 @@ export function TagsPage() {
           };
         })
         .filter((tag) => tag.name);
-      const { deletedTagNames, disabledEventCount } = saveTags(next);
-      if (deletedTagNames.length > 0) {
-        void message.warning(
-          `Tags updated. ${disabledEventCount} event(s) disabled because their source/security tag is missing.`,
+      const { affectedEventCount } = saveTags(next);
+      if (affectedEventCount > 0) {
+        void message.info(
+          `Tags updated. ${affectedEventCount} event(s) disabled because their source/security tag is missing.`,
         );
       }
       void message.success(`Imported ${next.length} tags`);
