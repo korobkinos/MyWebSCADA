@@ -1,4 +1,12 @@
 import {
+  BellOutlined,
+  DeleteOutlined,
+  PlayCircleOutlined,
+  ReloadOutlined,
+  SoundOutlined,
+  UploadOutlined,
+} from "@ant-design/icons";
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -56,6 +64,7 @@ type EventColumnConfig = {
 
 type EventColumnVisibility = Record<EventColumnId, boolean>;
 
+type EventManagerSection = "events" | "sounds";
 type EventEditorMode = "view" | "add" | "edit";
 type EventEditorTab = "general" | "message" | "statistics" | "security";
 type TagPickerTargetField = Extract<
@@ -656,13 +665,35 @@ function parseLooseCsvValue(raw: string): unknown {
 }
 
 type EventSoundWarning = {
-  code: "missing_sound_id" | "unknown_sound_id";
+  code:
+    | "missing_sound_id"
+    | "unknown_sound_id"
+    | "placeholder_sound_file"
+    | "missing_sound_file";
   message: string;
 };
 
 const SUPPORTED_SOUND_FILE_EXTENSIONS = new Set(["mp3", "wav", "ogg"]);
 const DEFAULT_SOUND_PLACEHOLDER_MESSAGE =
   "Default sound file is not bundled yet. Upload a custom sound or add bundled default audio files.";
+const SOUND_FILE_NOT_AVAILABLE_MESSAGE =
+  "Sound file is not available. Upload a custom sound or configure a valid sound file.";
+
+function hasPlayableSoundFile(sound: EventSound): boolean {
+  return Boolean(
+    sound.url?.trim() || sound.assetId?.trim() || sound.filePath?.trim(),
+  );
+}
+
+function getSoundStatusLabel(sound: EventSound): string {
+  if (!hasPlayableSoundFile(sound)) {
+    if (isDefaultEventSoundId(sound.id)) {
+      return "Placeholder / No file bundled";
+    }
+    return "Missing file";
+  }
+  return "Ready";
+}
 
 function getEventSoundWarning(
   event: EventDefinition,
@@ -682,6 +713,19 @@ function getEventSoundWarning(
     return {
       code: "unknown_sound_id",
       message: `Sound '${soundId}' is missing in project.eventSounds.`,
+    };
+  }
+  const sound = soundsById.get(soundId);
+  if (sound && !hasPlayableSoundFile(sound)) {
+    if (isDefaultEventSoundId(sound.id)) {
+      return {
+        code: "placeholder_sound_file",
+        message: SOUND_FILE_NOT_AVAILABLE_MESSAGE,
+      };
+    }
+    return {
+      code: "missing_sound_file",
+      message: `Sound '${sound.name}' has no available file.`,
     };
   }
   return null;
@@ -787,8 +831,9 @@ export function EventsPage() {
   const [draftErrors, setDraftErrors] = useState<EventDraftErrors>({});
   const [tagPickerTargetField, setTagPickerTargetField] =
     useState<TagPickerTargetField | null>(null);
+  const [activeSection, setActiveSection] =
+    useState<EventManagerSection>("events");
   const [statusText, setStatusText] = useState<string>("");
-  const [soundLibraryOpen, setSoundLibraryOpen] = useState(false);
   const [soundLibraryBusy, setSoundLibraryBusy] = useState(false);
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -1078,15 +1123,17 @@ export function EventsPage() {
       if (
         selectedSound &&
         isDefaultEventSoundId(selectedSound.id) &&
-        !selectedSound.url &&
-        !selectedSound.assetId &&
-        !selectedSound.filePath
+        !hasPlayableSoundFile(selectedSound)
       ) {
-        setStatusText(DEFAULT_SOUND_PLACEHOLDER_MESSAGE);
+        setStatusText("Default placeholder sound has no audio file yet");
         return;
       }
       const result = await eventSoundPlayer.playSound(selectedSoundId, sounds);
       if (!result.ok) {
+        if (result.reason === "autoplay_blocked") {
+          setStatusText("Browser blocked playback. Click Enable sounds.");
+          return;
+        }
         setStatusText(result.message);
         return;
       }
@@ -1107,16 +1154,14 @@ export function EventsPage() {
   const uploadSound = useCallback(
     async (file: File) => {
       if (!isSupportedSoundFile(file)) {
-        setStatusText(
-          "Invalid sound file. Supported extensions: mp3, wav, ogg.",
-        );
+        setStatusText("Unsupported file type");
         return;
       }
       setSoundLibraryBusy(true);
       try {
         const uploaded = await api.uploadEventSound(file);
         saveEventSounds([...sounds, uploaded]);
-        setStatusText(`Uploaded sound: ${uploaded.name}`);
+        setStatusText("Sound uploaded");
       } catch (error) {
         const text =
           error instanceof Error ? error.message : "Failed to upload sound";
@@ -1144,7 +1189,7 @@ export function EventsPage() {
         saveEventSounds(
           sounds.map((item) => (item.id === updated.id ? updated : item)),
         );
-        setStatusText(`Renamed sound: ${updated.name}`);
+        setStatusText("Sound renamed");
       } catch (error) {
         const text =
           error instanceof Error ? error.message : "Failed to rename sound";
@@ -1169,7 +1214,7 @@ export function EventsPage() {
       try {
         await api.deleteEventSound(sound.id);
         saveEventSounds(sounds.filter((item) => item.id !== sound.id));
-        setStatusText(`Deleted sound: ${sound.name}`);
+        setStatusText("Sound deleted");
       } catch (error) {
         const text =
           error instanceof Error ? error.message : "Failed to delete sound";
@@ -1180,6 +1225,21 @@ export function EventsPage() {
     },
     [saveEventSounds, sounds],
   );
+
+  const refreshSounds = useCallback(async () => {
+    setSoundLibraryBusy(true);
+    try {
+      const listed = await api.listEventSounds();
+      saveEventSounds(ensureDefaultEventSounds(listed));
+      setStatusText("Sound library refreshed");
+    } catch (error) {
+      const text =
+        error instanceof Error ? error.message : "Failed to refresh sounds";
+      setStatusText(text);
+    } finally {
+      setSoundLibraryBusy(false);
+    }
+  }, [saveEventSounds]);
 
   const openAdd = () => {
     setDraftEvent(createDefaultDraft(existingIds));
@@ -2181,100 +2241,36 @@ export function EventsPage() {
             </select>
             {draftSoundWarning ? (
               <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
-                {draftSoundWarning.message}
+                {draftSoundWarning.code === "unknown_sound_id" ||
+                draftSoundWarning.code === "placeholder_sound_file" ||
+                draftSoundWarning.code === "missing_sound_file"
+                  ? SOUND_FILE_NOT_AVAILABLE_MESSAGE
+                  : draftSoundWarning.message}
               </span>
             ) : null}
           </label>
 
           <div className="event-sound-actions-row">
             <WorkbenchButton
+              icon={<PlayCircleOutlined />}
               onClick={() => void testSound(draftEvent.soundId)}
               disabled={!draftEvent.soundEnabled || !draftEvent.soundId.trim()}
             >
-              Test sound
+              Test
             </WorkbenchButton>
             <WorkbenchButton
-              onClick={() => setSoundLibraryOpen((open) => !open)}
+              icon={<SoundOutlined />}
+              onClick={() => setActiveSection("sounds")}
             >
-              {soundLibraryOpen ? "Hide sounds" : "Manage sounds"}
+              Sound Library
             </WorkbenchButton>
             <WorkbenchButton onClick={() => void enableSounds()}>
               Enable sounds
             </WorkbenchButton>
           </div>
-
-          {soundLibraryOpen ? (
-            <div className="event-sound-library-panel">
-              <div className="event-sound-library-panel__toolbar">
-                <WorkbenchButton
-                  onClick={() => soundUploadInputRef.current?.click()}
-                  disabled={soundLibraryBusy}
-                >
-                  Upload sound
-                </WorkbenchButton>
-                <span className="screen-editor-tag-editor__hint">
-                  Formats: mp3, wav, ogg
-                </span>
-                <input
-                  ref={soundUploadInputRef}
-                  hidden
-                  type="file"
-                  accept=".mp3,.wav,.ogg,audio/mpeg,audio/wav,audio/ogg"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.currentTarget.value = "";
-                    if (!file) {
-                      return;
-                    }
-                    void uploadSound(file);
-                  }}
-                />
-              </div>
-              <div className="event-sound-library-panel__list">
-                {sounds.map((sound) => {
-                  const canEdit =
-                    sound.kind === "custom" && !isDefaultEventSoundId(sound.id);
-                  return (
-                    <div key={sound.id} className="event-sound-library-item">
-                      <div className="event-sound-library-item__meta">
-                        <div className="event-sound-library-item__name">
-                          {sound.name}
-                        </div>
-                        <div className="event-sound-library-item__info">
-                          <span>{formatSoundKind(sound.kind)}</span>
-                          <span>{sound.fileName ?? "-"}</span>
-                          <span>{formatSoundSize(sound.sizeBytes)}</span>
-                        </div>
-                      </div>
-                      <div className="event-sound-library-item__actions">
-                        <WorkbenchButton
-                          onClick={() => void testSound(sound.id)}
-                        >
-                          Test
-                        </WorkbenchButton>
-                        <WorkbenchButton
-                          onClick={() => void renameSound(sound)}
-                          disabled={!canEdit || soundLibraryBusy}
-                        >
-                          Rename
-                        </WorkbenchButton>
-                        <WorkbenchButton
-                          variant="danger"
-                          onClick={() => void deleteSound(sound)}
-                          disabled={!canEdit || soundLibraryBusy}
-                        >
-                          Delete
-                        </WorkbenchButton>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
           {eventSoundPlayer.hasAutoplayBlock() ? (
             <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
-              Sound playback was blocked by the browser. Click Enable sounds.
+              Browser blocked playback. Click Enable sounds.
             </span>
           ) : null}
           <label className="workbench-field">
@@ -2348,6 +2344,27 @@ export function EventsPage() {
 
   return (
     <div className="screen-editor-window-content screen-editor-tags-window">
+      <WorkbenchTabs
+        items={[
+          {
+            id: "events",
+            title: "Events",
+            icon: <BellOutlined />,
+            active: activeSection === "events",
+            onClick: () => setActiveSection("events"),
+          },
+          {
+            id: "sounds",
+            title: "Sounds",
+            icon: <SoundOutlined />,
+            active: activeSection === "sounds",
+            onClick: () => setActiveSection("sounds"),
+          },
+        ]}
+      />
+
+      {activeSection === "events" ? (
+        <>
       <div className="screen-editor-tags-window__toolbar">
         <WorkbenchButton variant="primary" onClick={openAdd}>
           Add
@@ -2397,6 +2414,12 @@ export function EventsPage() {
         <WorkbenchButton onClick={resetWidths}>Reset Widths</WorkbenchButton>
         <WorkbenchButton onClick={() => setColumnsPanelOpen((open) => !open)}>
           Columns
+        </WorkbenchButton>
+        <WorkbenchButton
+          icon={<SoundOutlined />}
+          onClick={() => setActiveSection("sounds")}
+        >
+          Sound Library
         </WorkbenchButton>
 
         <input
@@ -2900,53 +2923,198 @@ export function EventsPage() {
         </div>
       </div>
 
-      <TagPickerDialog
-        open={Boolean(draftEvent && tagPickerTargetField)}
-        project={project}
-        selectedTagName={selectedPickerTagName}
-        onClose={() => setTagPickerTargetField(null)}
-        onSelect={applyTagPickerSelection}
-      />
+          <TagPickerDialog
+            open={Boolean(draftEvent && tagPickerTargetField)}
+            project={project}
+            selectedTagName={selectedPickerTagName}
+            onClose={() => setTagPickerTargetField(null)}
+            onSelect={applyTagPickerSelection}
+          />
 
-      <div className="screen-editor-tags-pagination">
-        <span>
-          Rows: {totalRows} | Page {safePage} / {totalPages}
-        </span>
-        <WorkbenchButton disabled={safePage <= 1} onClick={() => setPage(1)}>
-          First
-        </WorkbenchButton>
-        <WorkbenchButton
-          disabled={safePage <= 1}
-          onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-        >
-          Prev
-        </WorkbenchButton>
-        <WorkbenchButton
-          disabled={safePage >= totalPages}
-          onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-        >
-          Next
-        </WorkbenchButton>
-        <WorkbenchButton
-          disabled={safePage >= totalPages}
-          onClick={() => setPage(totalPages)}
-        >
-          Last
-        </WorkbenchButton>
-        <select
-          className="workbench-select screen-editor-tags-page-size"
-          value={pageSize}
-          onChange={(event) => {
-            setPageSize(Number(event.target.value));
-            setPage(1);
-          }}
-        >
-          <option value={50}>50</option>
-          <option value={100}>100</option>
-          <option value={200}>200</option>
-          <option value={500}>500</option>
-        </select>
-      </div>
+          <div className="screen-editor-tags-pagination">
+            <span>
+              Rows: {totalRows} | Page {safePage} / {totalPages}
+            </span>
+            <WorkbenchButton disabled={safePage <= 1} onClick={() => setPage(1)}>
+              First
+            </WorkbenchButton>
+            <WorkbenchButton
+              disabled={safePage <= 1}
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            >
+              Prev
+            </WorkbenchButton>
+            <WorkbenchButton
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+            >
+              Next
+            </WorkbenchButton>
+            <WorkbenchButton
+              disabled={safePage >= totalPages}
+              onClick={() => setPage(totalPages)}
+            >
+              Last
+            </WorkbenchButton>
+            <select
+              className="workbench-select screen-editor-tags-page-size"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+            >
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={200}>200</option>
+              <option value={500}>500</option>
+            </select>
+          </div>
+        </>
+      ) : (
+        <div className="event-sounds-section">
+          <div className="screen-editor-tags-window__toolbar">
+            <WorkbenchButton
+              variant="primary"
+              icon={<UploadOutlined />}
+              onClick={() => soundUploadInputRef.current?.click()}
+              disabled={soundLibraryBusy}
+            >
+              Upload Sound
+            </WorkbenchButton>
+            <WorkbenchButton
+              icon={<ReloadOutlined />}
+              onClick={() => void refreshSounds()}
+              disabled={soundLibraryBusy}
+            >
+              Refresh
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => void enableSounds()}>
+              Enable sounds
+            </WorkbenchButton>
+            <WorkbenchButton
+              icon={<BellOutlined />}
+              onClick={() => setActiveSection("events")}
+            >
+              Back To Events
+            </WorkbenchButton>
+
+            <input
+              ref={soundUploadInputRef}
+              hidden
+              type="file"
+              accept=".mp3,.wav,.ogg,audio/mpeg,audio/wav,audio/ogg"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = "";
+                if (!file) {
+                  return;
+                }
+                void uploadSound(file);
+              }}
+            />
+
+            <div className="screen-editor-tags-window__toolbar-meta">
+              Sound Library: {sounds.length} total | Defaults:{" "}
+              {
+                sounds.filter((sound) => isDefaultEventSoundId(sound.id)).length
+              }{" "}
+              | Custom:{" "}
+              {sounds.filter((sound) => !isDefaultEventSoundId(sound.id)).length}
+            </div>
+          </div>
+
+          <div className="event-sound-library-table">
+            <div className="event-sound-library-table__header">
+              <span>Name</span>
+              <span>Kind</span>
+              <span>fileName</span>
+              <span>mimeType</span>
+              <span>sizeBytes</span>
+              <span>Status</span>
+              <span>Actions</span>
+            </div>
+
+            {sounds.map((sound) => {
+              const canEdit =
+                sound.kind === "custom" && !isDefaultEventSoundId(sound.id);
+              const status = getSoundStatusLabel(sound);
+              const isWarningStatus =
+                status === "Placeholder / No file bundled" ||
+                status === "Missing file";
+              return (
+                <div key={sound.id} className="event-sound-library-table__row">
+                  <span title={sound.name}>{sound.name}</span>
+                  <span title={formatSoundKind(sound.kind)}>
+                    {formatSoundKind(sound.kind)}
+                  </span>
+                  <span title={sound.fileName ?? "-"}>
+                    {sound.fileName ?? "-"}
+                  </span>
+                  <span title={sound.mimeType ?? "-"}>
+                    {sound.mimeType ?? "-"}
+                  </span>
+                  <span title={formatSoundSize(sound.sizeBytes)}>
+                    {formatSoundSize(sound.sizeBytes)}
+                  </span>
+                  <span
+                    className={
+                      isWarningStatus
+                        ? "screen-editor-tag-editor__hint--warning"
+                        : ""
+                    }
+                    title={status}
+                  >
+                    {status}
+                  </span>
+                  <span className="event-sound-library-table__actions">
+                    <WorkbenchButton
+                      icon={<PlayCircleOutlined />}
+                      onClick={() => void testSound(sound.id)}
+                      disabled={soundLibraryBusy}
+                    >
+                      Test
+                    </WorkbenchButton>
+                    <WorkbenchButton
+                      onClick={() => void renameSound(sound)}
+                      disabled={!canEdit || soundLibraryBusy}
+                    >
+                      Rename
+                    </WorkbenchButton>
+                    <WorkbenchButton
+                      variant="danger"
+                      icon={<DeleteOutlined />}
+                      onClick={() => void deleteSound(sound)}
+                      disabled={!canEdit || soundLibraryBusy}
+                      title={
+                        canEdit
+                          ? "Delete custom sound"
+                          : "Default sounds cannot be deleted"
+                      }
+                    >
+                      Delete
+                    </WorkbenchButton>
+                  </span>
+                </div>
+              );
+            })}
+
+            {sounds.length === 0 ? (
+              <div className="screen-editor-empty-state">No sounds found</div>
+            ) : null}
+          </div>
+
+          {eventSoundPlayer.hasAutoplayBlock() ? (
+            <div className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+              Browser blocked playback. Click Enable sounds.
+            </div>
+          ) : null}
+
+          <div className="screen-editor-tag-editor__hint">
+            {statusText || DEFAULT_SOUND_PLACEHOLDER_MESSAGE}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

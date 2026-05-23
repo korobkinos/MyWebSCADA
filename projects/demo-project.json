@@ -9406,10 +9406,40 @@
       "wordValue": 50,
       "startupDelayMs": 0,
       "requireAck": false,
-      "soundEnabled": false,
+      "soundEnabled": true,
+      "soundId": "default_warning",
       "securityEnabled": false,
       "createdAt": "2026-05-23T17:56:47.530Z",
-      "updatedAt": "2026-05-23T18:38:28.050Z"
+      "updatedAt": "2026-05-23T19:55:41.360Z"
+    }
+  ],
+  "eventSounds": [
+    {
+      "id": "default_notification",
+      "name": "Notification",
+      "kind": "notification",
+      "fileName": "TODO_notification_placeholder.mp3",
+      "mimeType": "audio/mpeg",
+      "createdAt": "2026-05-23T19:53:06.805Z",
+      "updatedAt": "2026-05-23T19:53:06.805Z"
+    },
+    {
+      "id": "default_warning",
+      "name": "Warning",
+      "kind": "warning",
+      "fileName": "TODO_warning_placeholder.mp3",
+      "mimeType": "audio/mpeg",
+      "createdAt": "2026-05-23T19:53:06.805Z",
+      "updatedAt": "2026-05-23T19:53:06.805Z"
+    },
+    {
+      "id": "default_alarm",
+      "name": "Alarm",
+      "kind": "alarm",
+      "fileName": "TODO_alarm_placeholder.mp3",
+      "mimeType": "audio/mpeg",
+      "createdAt": "2026-05-23T19:53:06.805Z",
+      "updatedAt": "2026-05-23T19:53:06.805Z"
     }
   ],
   "variables": [

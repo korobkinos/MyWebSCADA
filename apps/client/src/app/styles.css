@@ -4128,6 +4128,64 @@ body {
   margin: 6px 0 2px;
 }
 
+.event-sounds-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.event-sound-library-table {
+  border: 1px solid #323232;
+  background: #1f1f20;
+  display: flex;
+  flex-direction: column;
+  max-height: 520px;
+  overflow: auto;
+}
+
+.event-sound-library-table__header,
+.event-sound-library-table__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) 86px minmax(120px, 1.2fr) minmax(120px, 1.2fr) 90px minmax(150px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+}
+
+.event-sound-library-table__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #2a2b2e;
+  border-bottom: 1px solid #3a3a3a;
+  color: #c4c4c4;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.event-sound-library-table__row {
+  border-bottom: 1px solid #2f2f2f;
+  font-size: 12px;
+}
+
+.event-sound-library-table__row:hover {
+  background: #242427;
+}
+
+.event-sound-library-table__row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-sound-library-table__actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .event-sound-library-panel {
   border: 1px solid #323232;
   background: #1f1f20;
