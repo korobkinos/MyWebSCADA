@@ -197,6 +197,18 @@ function resolveLiveBufferedPointLimitPerSeries(maxLivePointsPerTag: number, tag
   return Math.max(1, Math.min(configuredLimit, totalLimited));
 }
 
+function resolveLiveTailToleranceMs(range: TrendVisibleRange): number {
+  const span = Math.max(1, range.to - range.from);
+  return clamp(Math.round(span * 0.02), 2000, 15_000);
+}
+
+function isRangeAtLiveTail(range: TrendVisibleRange, latestTs: number, toleranceMs: number): boolean {
+  if (!Number.isFinite(latestTs) || !Number.isFinite(toleranceMs)) {
+    return false;
+  }
+  return Math.abs(range.to - latestTs) <= Math.max(0, toleranceMs);
+}
+
 function isAuthenticationRequiredErrorMessage(message: string): boolean {
   const text = message.toLowerCase();
   return text.includes("authentication required") || text.includes("unauthorized");
@@ -1051,6 +1063,23 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       livePendingPointCount,
       liveBootstrapPendingPointCount,
     };
+  };
+
+  const resolveLatestLiveRightEdge = (): number => {
+    const liveBounds = getSeriesBounds(liveResponseRef.current?.series ?? []);
+    if (liveBounds.lastTs !== null) {
+      return liveBounds.lastTs;
+    }
+    if (liveLastPointTs !== null && Number.isFinite(liveLastPointTs)) {
+      return liveLastPointTs;
+    }
+    let latestByTag = Number.NEGATIVE_INFINITY;
+    for (const timestamp of liveLastTimestampByTagRef.current.values()) {
+      if (Number.isFinite(timestamp)) {
+        latestByTag = Math.max(latestByTag, timestamp);
+      }
+    }
+    return Number.isFinite(latestByTag) ? latestByTag : Date.now();
   };
 
   const tagInfoMap = useMemo(() => new Map(allTags.map((tag) => [tag.name, tag])), [allTags]);
@@ -3028,8 +3057,22 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         return;
       }
       if (liveMode) {
-        liveFollowRef.current = false;
-        setLiveFollow(false);
+        const toleranceMs = resolveLiveTailToleranceMs(normalized);
+        const latestRightEdge = resolveLatestLiveRightEdge();
+        const atLiveTail = isRangeAtLiveTail(normalized, latestRightEdge, toleranceMs);
+        liveFollowRef.current = atLiveTail;
+        setLiveFollow(atLiveTail);
+        if (atLiveTail) {
+          liveFollowWindowMsRef.current = Math.max(60_000, normalized.to - normalized.from);
+          logTrendDiagnostics("live:follow-auto-resume", {
+            reason: "interaction-at-tail",
+            rangeFrom: normalized.from,
+            rangeTo: normalized.to,
+            latestRightEdge,
+            toleranceMs,
+            spanMs: normalized.to - normalized.from,
+          });
+        }
       }
       toolbarRangeRef.current = null;
       setRangePreset("custom");
