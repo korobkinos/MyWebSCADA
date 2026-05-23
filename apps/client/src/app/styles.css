@@ -7391,13 +7391,13 @@ body {
 
 @keyframes event-table-row-background-pulse {
   0% {
-    filter: brightness(0.82);
+    background-color: var(--event-row-blink-from, transparent);
   }
   50% {
-    filter: brightness(1.14);
+    background-color: var(--event-row-blink-to, rgba(244, 135, 113, 0.45));
   }
   100% {
-    filter: brightness(0.82);
+    background-color: var(--event-row-blink-from, transparent);
   }
 }
 

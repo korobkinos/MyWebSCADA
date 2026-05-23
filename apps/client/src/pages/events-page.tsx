@@ -96,6 +96,7 @@ type EventEditorDraft = {
   backgroundColor: string;
   backgroundBlinkEnabled: boolean;
   backgroundBlinkDurationMs: number;
+  backgroundBlinkOpacity: number;
   requireAck: boolean;
   ackValue: string;
   soundEnabled: boolean;
@@ -178,6 +179,7 @@ const CSV_HEADERS = [
   "backgroundColor",
   "backgroundBlinkEnabled",
   "backgroundBlinkDurationMs",
+  "backgroundBlinkOpacity",
   "ackTagName",
   "notificationTagName",
   "elapsedTimeTagName",
@@ -194,6 +196,14 @@ function normalizeBlinkDurationMs(value: unknown, fallback = 1600): number {
     return fallback;
   }
   return Math.max(300, Math.min(10000, Math.round(parsed)));
+}
+
+function normalizeBlinkOpacity(value: unknown, fallback = 0.45): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(1, Math.round(parsed * 100) / 100));
 }
 
 function createDefaultColumnVisibility(): EventColumnVisibility {
@@ -442,6 +452,7 @@ function toDraft(event: EventDefinition, fallbackId: string): EventEditorDraft {
       event.backgroundBlinkDurationMs,
       1600,
     ),
+    backgroundBlinkOpacity: normalizeBlinkOpacity(event.backgroundBlinkOpacity, 0.45),
     requireAck: event.requireAck === true,
     ackValue: ackValueToText(event.ackValue),
     soundEnabled: event.soundEnabled === true,
@@ -476,6 +487,7 @@ function createDefaultDraft(existingIds: Set<string>): EventEditorDraft {
     backgroundColor: "",
     backgroundBlinkEnabled: false,
     backgroundBlinkDurationMs: 1600,
+    backgroundBlinkOpacity: 0.45,
     requireAck: false,
     ackValue: "",
     soundEnabled: false,
@@ -605,6 +617,9 @@ function buildEventFromDraft(
     backgroundBlinkEnabled: draft.backgroundBlinkEnabled === true,
     backgroundBlinkDurationMs: draft.backgroundBlinkEnabled
       ? normalizeBlinkDurationMs(draft.backgroundBlinkDurationMs, 1600)
+      : undefined,
+    backgroundBlinkOpacity: draft.backgroundBlinkEnabled
+      ? normalizeBlinkOpacity(draft.backgroundBlinkOpacity, 0.45)
       : undefined,
     ackTagName: draft.ackTagName.trim() || undefined,
     notificationTagName: draft.notificationTagName.trim() || undefined,
@@ -2590,6 +2605,9 @@ export function EventsPage() {
         typeof event.backgroundBlinkDurationMs === "number"
           ? event.backgroundBlinkDurationMs
           : "",
+        typeof event.backgroundBlinkOpacity === "number"
+          ? event.backgroundBlinkOpacity
+          : "",
         event.ackTagName ?? "",
         event.notificationTagName ?? "",
         event.elapsedTimeTagName ?? "",
@@ -2745,6 +2763,11 @@ export function EventsPage() {
               parseNumberField("backgroundBlinkDurationMs")
               ?? base.backgroundBlinkDurationMs,
               base.backgroundBlinkDurationMs,
+            ),
+            backgroundBlinkOpacity: normalizeBlinkOpacity(
+              parseNumberField("backgroundBlinkOpacity")
+              ?? base.backgroundBlinkOpacity,
+              base.backgroundBlinkOpacity,
             ),
             ackTagName: read("ackTagName") || base.ackTagName,
             notificationTagName:
@@ -3134,6 +3157,27 @@ export function EventsPage() {
                   backgroundBlinkDurationMs: normalizeBlinkDurationMs(
                     event.target.value,
                     draftEvent.backgroundBlinkDurationMs,
+                  ),
+                })
+              }
+              disabled={!draftEvent.backgroundBlinkEnabled}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Blink background opacity (0..1)</span>
+            <input
+              className="workbench-input"
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={draftEvent.backgroundBlinkOpacity}
+              onChange={(event) =>
+                setDraftPatch({
+                  backgroundBlinkOpacity: normalizeBlinkOpacity(
+                    event.target.value,
+                    draftEvent.backgroundBlinkOpacity,
                   ),
                 })
               }

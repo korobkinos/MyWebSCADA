@@ -13,7 +13,7 @@ import {
   FilterOutlined,
 } from "@ant-design/icons";
 import { message, Spin } from "antd";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { WorkbenchIconButton } from "../../components/workbench";
 import { useScadaStore } from "../../store/scada-store";
 import {
@@ -115,11 +115,39 @@ function normalizeColorValue(value: string | null | undefined): string | null {
   return text ? text : null;
 }
 
+function parseColorToRgba(color: string, alpha: number): string | null {
+  const trimmed = color.trim();
+  const normalizedAlpha = clamp(alpha, 0, 1);
+
+  const hex = trimmed.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+  if (hex) {
+    const body = hex[1]!;
+    const six = body.length === 3
+      ? `${body[0]}${body[0]}${body[1]}${body[1]}${body[2]}${body[2]}`
+      : body;
+    const r = Number.parseInt(six.slice(0, 2), 16);
+    const g = Number.parseInt(six.slice(2, 4), 16);
+    const b = Number.parseInt(six.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${normalizedAlpha})`;
+  }
+
+  const rgb = trimmed.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*[\d.]+\s*)?\)$/i);
+  if (rgb) {
+    const r = clamp(Math.round(Number(rgb[1])), 0, 255);
+    const g = clamp(Math.round(Number(rgb[2])), 0, 255);
+    const b = clamp(Math.round(Number(rgb[3])), 0, 255);
+    return `rgba(${r}, ${g}, ${b}, ${normalizedAlpha})`;
+  }
+
+  return null;
+}
+
 function resolveEventMessageVisual(definition: EventDefinition | undefined): {
   textColor: string | null;
   backgroundColor: string | null;
   backgroundBlinkEnabled: boolean;
   backgroundBlinkDurationMs: number;
+  backgroundBlinkOpacity: number;
 } {
   return {
     textColor: normalizeColorValue(definition?.textColor),
@@ -129,6 +157,11 @@ function resolveEventMessageVisual(definition: EventDefinition | undefined): {
       Math.round(toFiniteNumber(definition?.backgroundBlinkDurationMs, 1600)),
       300,
       10000,
+    ),
+    backgroundBlinkOpacity: clamp(
+      toFiniteNumber(definition?.backgroundBlinkOpacity, 0.45),
+      0,
+      1,
     ),
   };
 }
@@ -639,6 +672,13 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     void acknowledgeRows(ids);
   }, [acknowledgeRows, selectedIds, visibleRows]);
 
+  const handleAcknowledgeSingle = useCallback((occurrenceId: string, acknowledgedAt: string | null | undefined) => {
+    if (acknowledgedAt || busyAck) {
+      return;
+    }
+    void acknowledgeRows([occurrenceId]);
+  }, [acknowledgeRows, busyAck]);
+
   const handleExportCsv = useCallback(async () => {
     if (mode !== "history") {
       void message.info("CSV export is available in history mode only.");
@@ -855,27 +895,34 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         />
       ) : null}
 
-      {(config.showSilenceButton || config.showEnableSoundsButton) ? (
+      {config.showSilenceButton ? (
         <WorkbenchIconButton
-          title={`Sound ${soundSilenced ? "off" : "on"}`}
+          title={soundSilenced ? "Silenced" : "Silence sounds"}
+          active={soundSilenced}
+          onClick={() => {
+            eventSoundPlayer.stopSeamlessLoop();
+            eventSoundPlayer.stopAllSounds();
+            setSoundSilenced(true);
+            // Explicit operator mute: stay muted until operator turns sound back on.
+            silenceBlockedRef.current = true;
+            silenceSnapshotActiveIdsRef.current = new Set(
+              runtimeEvents.activeEvents
+                .filter((item) => !item.acknowledgedAt && !item.clearedAt)
+                .map((item) => normalizeOccurrenceId(item))
+                .filter(Boolean),
+            );
+            setSoundStatusText("Sound playback stopped.");
+            eventRuntimeStore.setSoundStatusMessage(null);
+          }}
+          icon={<AudioMutedOutlined />}
+        />
+      ) : null}
+
+      {config.showEnableSoundsButton ? (
+        <WorkbenchIconButton
+          title={soundSilenced ? "Enable sounds" : "Sounds enabled"}
           active={!soundSilenced}
           onClick={() => {
-            if (!soundSilenced) {
-              eventSoundPlayer.stopSeamlessLoop();
-              eventSoundPlayer.stopAllSounds();
-              setSoundSilenced(true);
-              // Sound toggle is explicit operator mute: stay muted until operator turns sound back on.
-              silenceBlockedRef.current = true;
-              silenceSnapshotActiveIdsRef.current = new Set(
-                runtimeEvents.activeEvents
-                  .filter((item) => !item.acknowledgedAt && !item.clearedAt)
-                  .map((item) => normalizeOccurrenceId(item))
-                  .filter(Boolean),
-              );
-              setSoundStatusText("Sound playback stopped.");
-              eventRuntimeStore.setSoundStatusMessage(null);
-              return;
-            }
             void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
               if (!result.ok) {
                 setSoundStatusText(result.message);
@@ -889,7 +936,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
               eventRuntimeStore.setSoundStatusMessage(null);
             });
           }}
-          icon={soundSilenced ? <AudioMutedOutlined /> : <SoundOutlined />}
+          icon={<SoundOutlined />}
         />
       ) : null}
 
@@ -1073,14 +1120,18 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                     const rowIsUnacknowledged = !row.acknowledgedAt;
                     const customBackgroundColor = messageVisual.backgroundColor;
                     const shouldBlinkBackground = Boolean(
-                      customBackgroundColor
-                      && messageVisual.backgroundBlinkEnabled
+                      messageVisual.backgroundBlinkEnabled
                       && rowIsUnacknowledged,
                     ) && !selected;
                     const baseRowBackground = selected
                       ? (object.selectedRowColor ?? "#223248")
                       : (customBackgroundColor
                         ?? (object.zebraRows && rowIndex % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"));
+                    const blinkFromBackground = baseRowBackground;
+                    const blinkToBackground = parseColorToRgba(
+                      customBackgroundColor ?? (object.warningColor ?? "#f48771"),
+                      messageVisual.backgroundBlinkOpacity,
+                    ) ?? "rgba(244, 135, 113, 0.45)";
 
                     return (
                       <div
@@ -1099,7 +1150,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                           gridTemplateColumns,
                           alignItems: "center",
                           minHeight: rowHeight,
-                          background: baseRowBackground,
+                          backgroundColor: baseRowBackground,
                           borderBottom: `1px solid ${gridLineColor}`,
                           cursor: "pointer",
                           color: rowColor,
@@ -1107,15 +1158,25 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                           animation: shouldBlinkBackground
                             ? `event-table-row-background-pulse ${messageVisual.backgroundBlinkDurationMs}ms ease-in-out infinite`
                             : "none",
-                        }}
+                          ["--event-row-blink-from" as "--event-row-blink-from"]: blinkFromBackground,
+                          ["--event-row-blink-to" as "--event-row-blink-to"]: blinkToBackground,
+                        } as CSSProperties}
                         className={shouldBlinkBackground ? "event-table-row--blinking" : ""}
                       >
                         {columns.map((column, index) => {
                           const cellText = getEventCellText(column, row);
                           const textAlign = config.columnAlignments[column];
+                          const isMessageCell = column === "message";
+                          const isAckByClickAvailable = isMessageCell && !row.acknowledgedAt;
                           return (
                             <div
                               key={`${rowId}-${column}`}
+                              onClick={isMessageCell
+                                ? (event) => {
+                                  event.stopPropagation();
+                                  handleAcknowledgeSingle(rowId, row.acknowledgedAt);
+                                }
+                                : undefined}
                               style={{
                                 padding: `2px ${config.cellPadding}px`,
                                 borderRight: showGridLines && index < columns.length - 1 ? `1px solid ${gridLineColor}` : "none",
@@ -1124,8 +1185,9 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                                 whiteSpace: "nowrap",
                                 userSelect: "none",
                                 textAlign,
+                                cursor: isAckByClickAvailable ? "pointer" : undefined,
                               }}
-                              title={cellText}
+                              title={isAckByClickAvailable ? `${cellText} (click to acknowledge)` : cellText}
                             >
                               {cellText}
                             </div>

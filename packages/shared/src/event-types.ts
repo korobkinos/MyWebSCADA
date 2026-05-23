@@ -55,6 +55,7 @@ export type EventDefinition = {
   backgroundColor?: string;
   backgroundBlinkEnabled?: boolean;
   backgroundBlinkDurationMs?: number;
+  backgroundBlinkOpacity?: number;
   securityEnabled?: boolean;
   securityTagName?: string;
   securityBitValue?: boolean | 0 | 1;

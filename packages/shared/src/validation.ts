@@ -1315,6 +1315,7 @@ const eventDefinitionSchema = z.object({
   backgroundColor: z.string().optional(),
   backgroundBlinkEnabled: z.boolean().optional(),
   backgroundBlinkDurationMs: z.number().int().positive().optional(),
+  backgroundBlinkOpacity: z.number().min(0).max(1).optional(),
   securityEnabled: z.boolean().optional(),
   securityTagName: z.string().optional(),
   securityBitValue: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional(),
