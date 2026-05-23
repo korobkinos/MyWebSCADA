@@ -6229,28 +6229,20 @@ body {
 
 .trends-series-table__summary {
   min-height: 26px;
-  padding: 2px 4px 2px 8px;
+  padding: 2px 4px;
   border-bottom: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: var(--trends-series-table-muted, var(--trends-theme-muted, #8a8a8a));
-  font-size: 11px;
+  justify-content: flex-end;
 }
 
-.trends-series-table__summary-metrics {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  overflow: hidden;
-  white-space: nowrap;
+.trends-series-table-wrap--collapsed .trends-series-table__summary {
+  border-bottom: 0;
 }
 
 .trends-series-table__collapse-btn.workbench-icon-button {
   width: 22px;
   height: 22px;
-  margin-left: auto;
   color: var(--trends-series-table-muted, var(--trends-theme-muted, #8a8a8a));
 }
 

@@ -3566,13 +3566,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       </div>
 
       {settings.showSeriesTable ? (
-        <div className="trends-series-table-wrap">
+        <div className={["trends-series-table-wrap", seriesTableCollapsed ? "trends-series-table-wrap--collapsed" : ""].filter(Boolean).join(" ")}>
           <div className="trends-series-table__summary">
-            <div className="trends-series-table__summary-metrics">
-              <span>{selectedSeriesCount.toLocaleString()} selected</span>
-              <span>{visibleSelectedSeriesCount.toLocaleString()} visible</span>
-              <span>{loadedSeriesCount.toLocaleString()} loaded</span>
-            </div>
             <WorkbenchIconButton
               className="trends-series-table__collapse-btn"
               title={seriesTableCollapsed ? "Expand series table" : "Collapse series table"}
@@ -3580,99 +3575,101 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
               icon={<ToolbarGlyph path={seriesTableCollapsed ? "M6 9l6 6 6-6" : "M6 15l6-6 6 6"} />}
             />
           </div>
-          <div className="trends-series-table">
-            <div className="screen-editor-tags-row screen-editor-tags-row--header trends-series-table__row trends-series-table__row--head" style={{ gridTemplateColumns: visibleSeriesColumnTemplate }}>
-              {visibleSeriesColumns.map((column, index) => (
-                <div key={column.id} className={`screen-editor-tags-cell screen-editor-tags-header-cell trends-series-table__cell trends-series-table__cell--${column.id} trends-series-table__cell--header`}>
-                  {column.id === "visible" ? (
-                    <button
-                      type="button"
-                      className={[
-                        "trends-series-table__visibility-all",
-                        allSelectedSeriesVisible ? "trends-series-table__visibility-all--all" : "",
-                        someSelectedSeriesVisible ? "trends-series-table__visibility-all--mixed" : "",
-                      ].filter(Boolean).join(" ")}
-                      title={visibleAllTitle}
-                      aria-label={visibleAllTitle}
-                      aria-pressed={allSelectedSeriesVisible}
-                      disabled={selectedSeriesCount === 0}
-                      onClick={toggleAllSeriesVisibility}
-                    >
-                      <span className="trends-series-table__visibility-all-box" aria-hidden="true" />
-                    </button>
-                  ) : (
-                    <span>{column.label}</span>
-                  )}
-                  {index < visibleSeriesColumns.length - 1 ? (
-                    <div className="screen-editor-tags-column-resize-handle trends-series-table__resize-handle" onMouseDown={(event) => startColumnResize(event, column.id)} />
-                  ) : null}
+          {!seriesTableCollapsed ? (
+            <div className="trends-series-table">
+              <div className="screen-editor-tags-row screen-editor-tags-row--header trends-series-table__row trends-series-table__row--head" style={{ gridTemplateColumns: visibleSeriesColumnTemplate }}>
+                {visibleSeriesColumns.map((column, index) => (
+                  <div key={column.id} className={`screen-editor-tags-cell screen-editor-tags-header-cell trends-series-table__cell trends-series-table__cell--${column.id} trends-series-table__cell--header`}>
+                    {column.id === "visible" ? (
+                      <button
+                        type="button"
+                        className={[
+                          "trends-series-table__visibility-all",
+                          allSelectedSeriesVisible ? "trends-series-table__visibility-all--all" : "",
+                          someSelectedSeriesVisible ? "trends-series-table__visibility-all--mixed" : "",
+                        ].filter(Boolean).join(" ")}
+                        title={visibleAllTitle}
+                        aria-label={visibleAllTitle}
+                        aria-pressed={allSelectedSeriesVisible}
+                        disabled={selectedSeriesCount === 0}
+                        onClick={toggleAllSeriesVisibility}
+                      >
+                        <span className="trends-series-table__visibility-all-box" aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <span>{column.label}</span>
+                    )}
+                    {index < visibleSeriesColumns.length - 1 ? (
+                      <div className="screen-editor-tags-column-resize-handle trends-series-table__resize-handle" onMouseDown={(event) => startColumnResize(event, column.id)} />
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+              {selectedTags.map((tag) => (
+                <div key={tag.tag} className="screen-editor-tags-row trends-series-table__row" style={{ gridTemplateColumns: visibleSeriesColumnTemplate }}>
+                  {visibleSeriesColumns.map((column) => {
+                    if (column.id === "visible") {
+                      const rowVisibilityTitle = tag.visible === false ? "Show series" : "Hide series";
+                      return (
+                        <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--visible">
+                          <input
+                            className="trends-series-table__visibility-checkbox"
+                            type="checkbox"
+                            title={rowVisibilityTitle}
+                            aria-label={`${rowVisibilityTitle}: ${tag.displayName || tag.tag}`}
+                            checked={tag.visible !== false}
+                            onChange={(event) => setSeriesPatch(tag.tag, { visible: event.target.checked })}
+                          />
+                        </div>
+                      );
+                    }
+                    if (column.id === "tag") {
+                      return (
+                        <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--tag" title={tag.displayName || tag.tag}>
+                          {tag.tag}
+                        </div>
+                      );
+                    }
+                    if (column.id === "displayName") {
+                      return (
+                        <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--display-name" title={tag.displayName || tagInfoMap.get(tag.tag)?.displayName || "-"}>
+                          {tag.displayName || tagInfoMap.get(tag.tag)?.displayName || "-"}
+                        </div>
+                      );
+                    }
+                    if (column.id === "description") {
+                      return (
+                        <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--description" title={tagInfoMap.get(tag.tag)?.description || "-"}>
+                          {tagInfoMap.get(tag.tag)?.description || "-"}
+                        </div>
+                      );
+                    }
+                    if (column.id === "color") {
+                      const colorValue = normalizeHexColor(tag.color, "#4FC3F7");
+                      return (
+                        <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--color">
+                          <div className="trends-series-table__color-row">
+                            <ColorPicker
+                              size="small"
+                              value={colorValue}
+                              onChangeComplete={(color) => setSeriesPatch(tag.tag, { color: color.toHexString() })}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--value">
+                        {tag.visible === false
+                          ? "-"
+                          : (hoverSeriesValues?.[tag.tag] ?? seriesLatestValues[tag.tag] ?? ((loadedPointCountByTag.get(tag.tag) ?? 0) === 0 ? "No data" : "-"))}
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>
-            {!seriesTableCollapsed ? selectedTags.map((tag) => (
-              <div key={tag.tag} className="screen-editor-tags-row trends-series-table__row" style={{ gridTemplateColumns: visibleSeriesColumnTemplate }}>
-                {visibleSeriesColumns.map((column) => {
-                  if (column.id === "visible") {
-                    const rowVisibilityTitle = tag.visible === false ? "Show series" : "Hide series";
-                    return (
-                      <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--visible">
-                        <input
-                          className="trends-series-table__visibility-checkbox"
-                          type="checkbox"
-                          title={rowVisibilityTitle}
-                          aria-label={`${rowVisibilityTitle}: ${tag.displayName || tag.tag}`}
-                          checked={tag.visible !== false}
-                          onChange={(event) => setSeriesPatch(tag.tag, { visible: event.target.checked })}
-                        />
-                      </div>
-                    );
-                  }
-                  if (column.id === "tag") {
-                    return (
-                      <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--tag" title={tag.displayName || tag.tag}>
-                        {tag.tag}
-                      </div>
-                    );
-                  }
-                  if (column.id === "displayName") {
-                    return (
-                      <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--display-name" title={tag.displayName || tagInfoMap.get(tag.tag)?.displayName || "-"}>
-                        {tag.displayName || tagInfoMap.get(tag.tag)?.displayName || "-"}
-                      </div>
-                    );
-                  }
-                  if (column.id === "description") {
-                    return (
-                      <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--description" title={tagInfoMap.get(tag.tag)?.description || "-"}>
-                        {tagInfoMap.get(tag.tag)?.description || "-"}
-                      </div>
-                    );
-                  }
-                  if (column.id === "color") {
-                    const colorValue = normalizeHexColor(tag.color, "#4FC3F7");
-                    return (
-                      <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--color">
-                        <div className="trends-series-table__color-row">
-                          <ColorPicker
-                            size="small"
-                            value={colorValue}
-                            onChangeComplete={(color) => setSeriesPatch(tag.tag, { color: color.toHexString() })}
-                          />
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--value">
-                      {tag.visible === false
-                        ? "-"
-                        : (hoverSeriesValues?.[tag.tag] ?? seriesLatestValues[tag.tag] ?? ((loadedPointCountByTag.get(tag.tag) ?? 0) === 0 ? "No data" : "-"))}
-                    </div>
-                  );
-                })}
-              </div>
-            )) : null}
-          </div>
+          ) : null}
         </div>
       ) : null}
       {contextMenu ? (
