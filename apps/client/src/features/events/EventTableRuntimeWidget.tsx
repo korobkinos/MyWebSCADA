@@ -1,13 +1,15 @@
 import type { EventDefinition, EventOccurrence, EventTableObject, HmiObject } from "@web-scada/shared";
 import {
+  AudioMutedOutlined,
   CheckCircleOutlined,
   DownloadOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined,
   LeftOutlined,
   RightOutlined,
   SearchOutlined,
   SettingOutlined,
   SoundOutlined,
-  StopOutlined,
   FilterOutlined,
 } from "@ant-design/icons";
 import { message, Spin } from "antd";
@@ -831,7 +833,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
           title={`Show acknowledged rows (${object.showUnacknowledgedOnly === true ? "off" : "on"})`}
           active={object.showUnacknowledgedOnly !== true}
           onClick={() => patchObject({ showUnacknowledgedOnly: object.showUnacknowledgedOnly !== true })}
-          icon={<CheckCircleOutlined />}
+          icon={object.showUnacknowledgedOnly === true ? <EyeInvisibleOutlined /> : <EyeOutlined />}
         />
       ) : null}
 
@@ -853,15 +855,16 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         />
       ) : null}
 
-      {config.showSilenceButton ? (
+      {(config.showSilenceButton || config.showEnableSoundsButton) ? (
         <WorkbenchIconButton
-          title={`Sound ${soundSilenced ? "off" : "on"} (Silence)`}
-          active={soundSilenced}
+          title={`Sound ${soundSilenced ? "off" : "on"}`}
+          active={!soundSilenced}
           onClick={() => {
-            eventSoundPlayer.stopSeamlessLoop();
-            eventSoundPlayer.stopAllSounds();
-            setSoundSilenced(true);
-            if (config.stopSoundOnSilence) {
+            if (!soundSilenced) {
+              eventSoundPlayer.stopSeamlessLoop();
+              eventSoundPlayer.stopAllSounds();
+              setSoundSilenced(true);
+              // Sound toggle is explicit operator mute: stay muted until operator turns sound back on.
               silenceBlockedRef.current = true;
               silenceSnapshotActiveIdsRef.current = new Set(
                 runtimeEvents.activeEvents
@@ -869,19 +872,10 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                   .map((item) => normalizeOccurrenceId(item))
                   .filter(Boolean),
               );
+              setSoundStatusText("Sound playback stopped.");
+              eventRuntimeStore.setSoundStatusMessage(null);
+              return;
             }
-            setSoundStatusText("Sound playback stopped.");
-            eventRuntimeStore.setSoundStatusMessage(null);
-          }}
-          icon={<StopOutlined />}
-        />
-      ) : null}
-
-      {config.showEnableSoundsButton ? (
-        <WorkbenchIconButton
-          title={`Sound ${soundSilenced ? "off" : "on"} (Enable sounds)`}
-          active={!soundSilenced}
-          onClick={() => {
             void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
               if (!result.ok) {
                 setSoundStatusText(result.message);
@@ -895,7 +889,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
               eventRuntimeStore.setSoundStatusMessage(null);
             });
           }}
-          icon={<SoundOutlined />}
+          icon={soundSilenced ? <AudioMutedOutlined /> : <SoundOutlined />}
         />
       ) : null}
 
