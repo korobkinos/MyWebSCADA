@@ -6317,9 +6317,14 @@ body {
   justify-content: center;
 }
 
+.trends-series-table__cell--visible.trends-series-table__cell--header {
+  padding-left: var(--trends-series-table-cell-padding-x, 6px);
+  padding-right: var(--trends-series-table-cell-padding-x, 6px);
+}
+
 .trends-series-table__visibility-all {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border: 0;
   background: transparent;
   color: var(--trends-series-table-muted, var(--trends-theme-muted, #8a8a8a));
@@ -6342,8 +6347,8 @@ body {
 
 .trends-series-table__visibility-all-box {
   position: relative;
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   border: 1px solid currentColor;
   border-radius: 2px;
   box-sizing: border-box;
@@ -6388,6 +6393,7 @@ body {
   margin: 0;
   accent-color: var(--trends-theme-accent, #007acc);
   cursor: pointer;
+  display: block;
 }
 
 .trends-series-table__cell--color {
