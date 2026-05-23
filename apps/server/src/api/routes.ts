@@ -200,13 +200,25 @@ const macroRunSchema = z.object({
   context: z.record(z.unknown()).optional(),
   commandMeta: commandMetaSchema.optional(),
 });
+const macroTriggerUpdateSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("onScreenOpen"), screenKey: z.string().min(1) }),
+  z.object({ type: z.literal("onScreenClose"), screenKey: z.string().min(1) }),
+  z.object({
+    type: z.literal("onButtonClick"),
+    objectId: z.string().min(1),
+    screenKey: z.string().optional(),
+  }),
+  z.object({ type: z.literal("onTagChange"), tag: z.string().min(1) }),
+  z.object({ type: z.literal("onCondition"), condition: z.string().min(1) }),
+  z.object({ type: z.literal("interval"), intervalMs: z.number().int().positive() }),
+]);
 const macroUpdateSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   description: z.string().optional(),
   enabled: z.boolean(),
   language: z.literal("javascript-lite"),
-  code: z.string(),
-  triggers: z.array(z.record(z.unknown())).optional(),
+  code: z.string().min(1, "Macro code is required"),
+  triggers: z.array(macroTriggerUpdateSchema).optional(),
   options: z.record(z.unknown()).optional(),
 });
 const createLibrarySchema = z.object({
@@ -462,6 +474,34 @@ function sendAuthError(reply: FastifyReply, error: unknown): FastifyReply {
       error: "Validation Error",
       message: "Invalid request payload",
       errors: error.issues.map((issue) => issue.message),
+    });
+  }
+  if (error instanceof Error) {
+    return reply.code(400).send({
+      error: "Bad Request",
+      message: error.message,
+    });
+  }
+  return reply.code(400).send({
+    error: "Bad Request",
+    message: String(error),
+  });
+}
+
+function formatZodIssues(error: z.ZodError): string[] {
+  return error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+    return `${path}${issue.message}`;
+  });
+}
+
+function sendBadRequest(reply: FastifyReply, message: string, error: unknown): FastifyReply {
+  if (error instanceof z.ZodError) {
+    const errors = formatZodIssues(error);
+    return reply.code(400).send({
+      error: "Validation Error",
+      message,
+      errors,
     });
   }
   if (error instanceof Error) {
@@ -1218,7 +1258,11 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
 
     const params = request.params as { id: string };
-    const payload = macroUpdateSchema.parse(request.body);
+    const payloadResult = macroUpdateSchema.safeParse(request.body);
+    if (!payloadResult.success) {
+      return sendBadRequest(reply, "Invalid macro payload", payloadResult.error);
+    }
+    const payload = payloadResult.data;
     const project = deps.projectService.getProject();
     const macros = project.macros ?? [];
     const index = macros.findIndex((m) => m.id === params.id);
@@ -1248,11 +1292,19 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       macros: nextMacros,
     };
 
-    const saved = await deps.projectService.saveProject(nextProject);
-    deps.macroService.configure(saved);
-
-    if (deps.runtimeService.getState().running) {
-      deps.runtimeService.macroRegistry.reloadMacro(updatedMacro);
+    let saved: ScadaProject;
+    try {
+      saved = await deps.projectService.saveProject(nextProject);
+      deps.macroService.configure(saved);
+      if (deps.runtimeService.getState().running) {
+        deps.runtimeService.macroRegistry.reloadMacro(updatedMacro);
+      }
+    } catch (error) {
+      request.log.warn({
+        err: error,
+        macroId: params.id,
+      }, "macro save rejected");
+      return sendBadRequest(reply, "Macro could not be saved", error);
     }
 
     return reply.send(updatedMacro);

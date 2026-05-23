@@ -73,6 +73,19 @@ function toDraft(macro: MacroWithExtras): MacroDraft {
 
 function parseErrorText(error: unknown): string {
   if (error instanceof Error) {
+    const details = (error as { details?: unknown }).details;
+    if (details && typeof details === "object") {
+      const errors = (details as { errors?: unknown }).errors;
+      if (Array.isArray(errors)) {
+        const detailText = errors
+          .map((item) => String(item).trim())
+          .filter(Boolean)
+          .join("; ");
+        if (detailText) {
+          return `${error.message}: ${detailText}`;
+        }
+      }
+    }
     return error.message;
   }
   return String(error);

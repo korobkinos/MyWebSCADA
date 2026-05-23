@@ -9447,7 +9447,7 @@
       "triggers": [
         {
           "type": "interval",
-          "intervalMs": 100
+          "intervalMs": 1000
         }
       ]
     }
