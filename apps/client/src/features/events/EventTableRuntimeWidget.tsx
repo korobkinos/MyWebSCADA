@@ -725,8 +725,9 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
     const text = mode === "history" ? historySegments.join(" | ") : onlineSegments.join(" | ");
     const tone = mode === "history" ? (object.warningColor ?? "#e6b450") : (object.activeAlarmColor ?? "#4ec94e");
+    const isCompactStyle = statusStyle === "compact";
 
-    if (config.statusSingleLine || statusStyle === "compact") {
+    if (isCompactStyle) {
       return (
         <div
           className="event-table-status"
@@ -754,21 +755,32 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         : `DB ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)} | total ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`)
       : `${object.showLastUpdate === false ? "update --:--:--" : `update ${formatStatusClockTime(runtimeEvents.lastUpdateAt)}`} | ${object.showRecordCount === false ? "rows --" : `rows ${onlineRows.length}`}`;
 
+    const archiveLikeContainerStyle: CSSProperties = {
+      minHeight: Math.max(24, rowHeight),
+      padding: compactMode ? "4px 8px" : "5px 10px",
+      borderTop: showBottomStatus ? `1px solid ${gridLineColor}` : "none",
+      borderBottom: showTopStatus ? `1px solid ${gridLineColor}` : "none",
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      gap: 1,
+      overflow: "hidden",
+      background: "linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%)",
+    };
+
+    if (config.statusSingleLine) {
+      return (
+        <div style={archiveLikeContainerStyle} className="event-table-status">
+          <div style={{ color: tone, fontWeight: 600, fontSize: Math.max(10, fontSize - 1), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {lineOne}
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div
-        style={{
-          minHeight: Math.max(24, rowHeight),
-          padding: compactMode ? "4px 8px" : "5px 10px",
-          borderTop: showBottomStatus ? `1px solid ${gridLineColor}` : "none",
-          borderBottom: showTopStatus ? `1px solid ${gridLineColor}` : "none",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          gap: 1,
-          overflow: "hidden",
-        }}
-      >
-        <div style={{ color: tone, fontSize: Math.max(10, fontSize - 1), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+      <div style={archiveLikeContainerStyle}>
+        <div style={{ color: tone, fontWeight: 600, fontSize: Math.max(10, fontSize - 1), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {lineOne}
         </div>
         <div style={{ color: mutedTextColor, opacity: 0.9, fontSize: Math.max(9, fontSize - 2), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1133,16 +1145,24 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                       messageVisual.backgroundBlinkOpacity,
                     ) ?? "rgba(244, 135, 113, 0.45)";
 
+                    const handleRowActivate = () => {
+                      if (!row.acknowledgedAt) {
+                        handleAcknowledgeSingle(rowId, row.acknowledgedAt);
+                        return;
+                      }
+                      toggleRowSelection(rowId);
+                    };
+
                     return (
                       <div
                         key={rowId}
                         role="button"
                         tabIndex={0}
-                        onClick={() => toggleRowSelection(rowId)}
+                        onClick={handleRowActivate}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            toggleRowSelection(rowId);
+                            handleRowActivate();
                           }
                         }}
                         style={{
