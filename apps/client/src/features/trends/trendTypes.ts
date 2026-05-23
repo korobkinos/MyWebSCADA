@@ -157,6 +157,7 @@ export type TrendChartApi = {
   notifyLiveHeartbeat?: (timestampMs?: number) => void;
   getWidth: () => number;
   getPointCount: () => number;
+  getRenderedPointCount?: () => number;
 };
 
 export type TrendQueryCacheEntry = {

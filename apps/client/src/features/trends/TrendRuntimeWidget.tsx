@@ -49,7 +49,11 @@ const TREND_PREFETCH_MAX_MS = 60 * 60 * 1000;
 const TREND_PREFETCH_EDGE_RATIO = 0.2;
 const TREND_PREFETCH_DEBOUNCE_MS = 220;
 const TREND_BUFFER_QUERY_MAX_POINTS = 8000;
-const TREND_BUFFER_POINTS_PER_SERIES_MAX = 120_000;
+const MAX_OFFLINE_BUFFER_POINTS_PER_SERIES = 40_000;
+const MAX_OFFLINE_BUFFER_POINTS_TOTAL = 240_000;
+const MAX_OFFLINE_BUFFER_TIME_SPAN_MS = 24 * 60 * 60 * 1000;
+const MAX_LIVE_BUFFER_POINTS_TOTAL = 120_000;
+const TREND_BUFFER_POINTS_PER_SERIES_MAX = MAX_OFFLINE_BUFFER_POINTS_PER_SERIES;
 const TREND_CACHE_POINTS_MAX = 600_000;
 const TREND_SERIES_TABLE_HEADER_PX = 30;
 const TREND_SERIES_TABLE_ROW_PX = 30;
@@ -185,6 +189,14 @@ function resolveLiveRetentionMs(): number {
   return LIVE_RETENTION_MIN_MS;
 }
 
+function resolveLiveBufferedPointLimitPerSeries(maxLivePointsPerTag: number, tagCount: number): number {
+  const configuredLimit = Number.isFinite(maxLivePointsPerTag)
+    ? clamp(Math.round(maxLivePointsPerTag), 1, 20_000)
+    : 5000;
+  const totalLimited = Math.max(1, Math.floor(MAX_LIVE_BUFFER_POINTS_TOTAL / Math.max(1, tagCount)));
+  return Math.max(1, Math.min(configuredLimit, totalLimited));
+}
+
 function isAuthenticationRequiredErrorMessage(message: string): boolean {
   const text = message.toLowerCase();
   return text.includes("authentication required") || text.includes("unauthorized");
@@ -316,6 +328,141 @@ function getSeriesBounds(series: TrendQueryResponse["series"]): { firstTs: numbe
   };
 }
 
+function countTrendResponsePoints(response: TrendQueryResponse | null | undefined): number {
+  return response?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0;
+}
+
+function lowerBoundTrendPointIndex(points: TrendPoint[], timestamp: number): number {
+  let low = 0;
+  let high = points.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if ((points[mid]?.t ?? Number.NEGATIVE_INFINITY) < timestamp) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function upperBoundTrendPointIndex(points: TrendPoint[], timestamp: number): number {
+  let low = 0;
+  let high = points.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if ((points[mid]?.t ?? Number.NEGATIVE_INFINITY) <= timestamp) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+function resolveOfflineRetentionRange(visibleRange: TrendVisibleRange, loadedRange: TrendVisibleRange): TrendVisibleRange {
+  const visible = normalizeTrendRange(visibleRange);
+  const loaded = normalizeTrendRange(loadedRange);
+  const visibleSpan = Math.max(TREND_ZOOM_MIN_SPAN_MS, visible.to - visible.from);
+  const desiredSpan = clamp(Math.round(visibleSpan * 3), TREND_INITIAL_BUFFER_MS, MAX_OFFLINE_BUFFER_TIME_SPAN_MS);
+  if (desiredSpan <= visibleSpan) {
+    return visible;
+  }
+  const padding = Math.max(0, Math.floor((desiredSpan - visibleSpan) / 2));
+  let from = visible.from - padding;
+  let to = visible.to + padding;
+  if (from < loaded.from) {
+    to += loaded.from - from;
+    from = loaded.from;
+  }
+  if (to > loaded.to) {
+    from -= to - loaded.to;
+    to = loaded.to;
+  }
+  from = Math.max(from, loaded.from);
+  to = Math.min(Math.max(to, visible.to), loaded.to);
+  if (to <= from) {
+    return visible;
+  }
+  return { from, to };
+}
+
+function trimTrendPointsForMemoryRange(
+  points: TrendPoint[],
+  retentionRange: TrendVisibleRange,
+  visibleRange: TrendVisibleRange,
+  pointLimit: number,
+): TrendPoint[] {
+  const safeLimit = Math.max(1, Math.round(pointLimit));
+  const start = lowerBoundTrendPointIndex(points, retentionRange.from);
+  const end = upperBoundTrendPointIndex(points, retentionRange.to);
+  const retained = points.slice(start, end);
+  if (retained.length <= safeLimit) {
+    return retained;
+  }
+  const visible = normalizeTrendRange(visibleRange);
+  const visibleStart = lowerBoundTrendPointIndex(retained, visible.from);
+  const visibleEnd = upperBoundTrendPointIndex(retained, visible.to);
+  const visibleCount = Math.max(0, visibleEnd - visibleStart);
+  if (visibleCount >= safeLimit) {
+    const centerIndex = lowerBoundTrendPointIndex(retained, visible.from + (visible.to - visible.from) / 2);
+    const from = clamp(centerIndex - Math.floor(safeLimit / 2), 0, Math.max(0, retained.length - safeLimit));
+    return retained.slice(from, from + safeLimit);
+  }
+  const remaining = safeLimit - visibleCount;
+  const before = Math.min(visibleStart, Math.floor(remaining / 2));
+  const after = Math.min(retained.length - visibleEnd, remaining - before);
+  const extraBefore = Math.min(visibleStart - before, remaining - before - after);
+  const from = visibleStart - before - extraBefore;
+  const to = Math.min(retained.length, from + safeLimit);
+  return retained.slice(from, to);
+}
+
+function limitOfflineTrendResponse(
+  response: TrendQueryResponse,
+  loadedRange: TrendVisibleRange,
+  visibleRange: TrendVisibleRange,
+): { response: TrendQueryResponse; loadedRange: TrendVisibleRange; trimmedPointCount: number } {
+  const retentionRange = resolveOfflineRetentionRange(visibleRange, loadedRange);
+  const perSeriesLimit = Math.max(
+    1,
+    Math.min(
+      MAX_OFFLINE_BUFFER_POINTS_PER_SERIES,
+      Math.floor(MAX_OFFLINE_BUFFER_POINTS_TOTAL / Math.max(1, response.series.length)),
+    ),
+  );
+  let trimmedPointCount = 0;
+  let minTs = Number.POSITIVE_INFINITY;
+  let maxTs = Number.NEGATIVE_INFINITY;
+  const series = response.series.map((item) => {
+    const beforeCount = item.points.length;
+    const points = trimTrendPointsForMemoryRange(item.points, retentionRange, visibleRange, perSeriesLimit);
+    trimmedPointCount += Math.max(0, beforeCount - points.length);
+    const first = points[0];
+    const last = points[points.length - 1];
+    if (first && first.t < minTs) {
+      minTs = first.t;
+    }
+    if (last && last.t > maxTs) {
+      maxTs = last.t;
+    }
+    return points === item.points ? item : { ...item, points };
+  });
+  const nextRange = Number.isFinite(minTs) && Number.isFinite(maxTs) && maxTs > minTs
+    ? { from: Math.min(retentionRange.from, minTs), to: Math.max(retentionRange.to, maxTs) }
+    : retentionRange;
+  return {
+    response: {
+      ...response,
+      from: new Date(nextRange.from).toISOString(),
+      to: new Date(nextRange.to).toISOString(),
+      series,
+    },
+    loadedRange: nextRange,
+    trimmedPointCount,
+  };
+}
+
 function normalizeTimestampMs(timestamp: unknown): number | null {
   let numeric = Number.NaN;
   if (typeof timestamp === "number") {
@@ -420,8 +567,13 @@ function normalizeTrendResponseForRange(
 function boundResponseSeriesPoints(
   response: TrendQueryResponse,
   maxPointsPerSeries: number,
+  options?: { minLimit?: number; maxLimit?: number },
 ): TrendQueryResponse {
-  const safeLimit = clamp(Math.round(maxPointsPerSeries), 200, TREND_BUFFER_POINTS_PER_SERIES_MAX);
+  const safeLimit = clamp(
+    Math.round(maxPointsPerSeries),
+    options?.minLimit ?? 200,
+    options?.maxLimit ?? TREND_BUFFER_POINTS_PER_SERIES_MAX,
+  );
   const boundedSeries = response.series.map((series) => {
     if (series.points.length <= safeLimit) {
       return series;
@@ -873,6 +1025,34 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setOfflineLoadState(nextState);
   }, []);
 
+  const buildWidgetDiagnostics = () => {
+    const runtimeDiagnostics = getRuntimeDiagnosticsSnapshot();
+    const cacheStats = cacheRef.current.getStats();
+    const offlineBufferedPointCount = countTrendResponsePoints(offlineResponseRef.current);
+    const liveBufferedPointCount = countTrendResponsePoints(liveResponseRef.current);
+    const livePendingPointCount = liveBufferRef.current.length;
+    const liveBootstrapPendingPointCount = liveBootstrapBufferRef.current.length;
+    const echartsBufferedPointCount = chartApiRef.current?.getPointCount() ?? 0;
+    const echartsRenderedPointCount = chartApiRef.current?.getRenderedPointCount?.() ?? echartsBufferedPointCount;
+    return {
+      objectId: object.id,
+      activeLoopCount: runtimeDiagnostics.activePollingLoopIds
+        .filter((loopId) => loopId.endsWith(`:${object.id}`)).length,
+      lastQueryTime: trendQueryLastStartedAtRef.current,
+      queryCountPerMinute: trendQueryStartedAtRef.current.length,
+      inFlightQueryCount: trendQueryInFlightCountRef.current,
+      pointsInState: offlineBufferedPointCount + liveBufferedPointCount + livePendingPointCount + liveBootstrapPendingPointCount,
+      pointsInChart: echartsBufferedPointCount,
+      offlineBufferedPointCount,
+      liveBufferedPointCount,
+      cachePointCount: cacheStats.pointCount,
+      cacheEntryCount: cacheStats.entryCount,
+      echartsRenderedPointCount,
+      livePendingPointCount,
+      liveBootstrapPendingPointCount,
+    };
+  };
+
   const tagInfoMap = useMemo(() => new Map(allTags.map((tag) => [tag.name, tag])), [allTags]);
 
   const { axes, resolvedAxisIdByTag } = useMemo(
@@ -969,25 +1149,15 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   }, [connectionState, selectedTagNames.length]);
 
   useEffect(() => {
-    setRuntimeDiagnosticMetric("trendPointsInMemory", pointCount + liveBufferRef.current.length + liveBootstrapBufferRef.current.length);
-    setRuntimeDiagnosticMetric("cachedTrendRanges", cacheRef.current.getStats().entryCount);
+    const diagnostics = buildWidgetDiagnostics();
+    setRuntimeDiagnosticMetric("trendPointsInMemory", diagnostics.pointsInState + diagnostics.cachePointCount);
+    setRuntimeDiagnosticMetric("cachedTrendRanges", diagnostics.cacheEntryCount);
   }, [pointCount, screenRevision, settings.maxCachedRanges]);
 
   useEffect(() => {
     const now = Date.now();
     trendQueryStartedAtRef.current = trendQueryStartedAtRef.current.filter((item) => now - item < 60_000);
-    const activeLoopCount = getRuntimeDiagnosticsSnapshot().activePollingLoopIds
-      .filter((loopId) => loopId.endsWith(`:${object.id}`)).length;
-    setTrendWidgetDiagnostics(object.id, {
-      objectId: object.id,
-      activeLoopCount,
-      lastQueryTime: trendQueryLastStartedAtRef.current,
-      queryCountPerMinute: trendQueryStartedAtRef.current.length,
-      inFlightQueryCount: trendQueryInFlightCountRef.current,
-      pointsInState: pointCount + liveBufferRef.current.length + liveBootstrapBufferRef.current.length,
-      pointsInChart: chartApiRef.current?.getPointCount() ?? 0,
-      cacheEntryCount: cacheRef.current.getStats().entryCount,
-    });
+    setTrendWidgetDiagnostics(object.id, buildWidgetDiagnostics());
   }, [liveDataSource, liveMode, object.id, pointCount, screenRevision, selectedTagNamesKey, settings.maxCachedRanges]);
 
   useEffect(() => {
@@ -1203,10 +1373,26 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       to: right,
     };
     const base = options?.mergeWithPrevious ? liveResponseRef.current : null;
-    return boundResponseSeriesPoints(
+    const perSeriesLimit = resolveLiveBufferedPointLimitPerSeries(settings.maxLivePointsPerTag, selectedTags.length);
+    const bounded = boundResponseSeriesPoints(
       buildBufferedTrendResponse(base, nextResponse, retentionRange, selectedTags, { carryForwardToRangeEnd: false }),
-      settings.maxLivePointsPerTag,
+      perSeriesLimit,
+      { minLimit: 1, maxLimit: 20_000 },
     );
+    const rawPointCount = countTrendResponsePoints(nextResponse) + (base ? countTrendResponsePoints(base) : 0);
+    const retainedPointCount = countTrendResponsePoints(bounded);
+    if (rawPointCount > retainedPointCount) {
+      logTrendDiagnostics("trend:memory-trim-live", {
+        rawPointCount,
+        retainedPointCount,
+        trimmedPointCount: rawPointCount - retainedPointCount,
+        liveRetentionMs,
+        perSeriesLimit,
+        totalPointCap: MAX_LIVE_BUFFER_POINTS_TOTAL,
+        mergeWithPrevious: options?.mergeWithPrevious === true,
+      });
+    }
+    return bounded;
   }, [liveRetentionMs, selectedTags, settings.maxLivePointsPerTag]);
 
   const executeQuery = useCallback(async (
@@ -1307,9 +1493,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         const normalizedCached = normalizeTrendResponseForRange(cached, range, selectedTags, {
           carryForwardToRangeEnd: targetMode !== "live",
         });
+        const targetPointLimit = targetMode === "live"
+          ? resolveLiveBufferedPointLimitPerSeries(settings.maxLivePointsPerTag, selectedTags.length)
+          : TREND_BUFFER_POINTS_PER_SERIES_MAX;
         const boundedCached = boundResponseSeriesPoints(
           normalizedCached,
-          targetMode === "live" ? settings.maxLivePointsPerTag : TREND_BUFFER_POINTS_PER_SERIES_MAX,
+          targetPointLimit,
+          targetMode === "live" ? { minLimit: 1, maxLimit: 20_000 } : undefined,
         );
         if (targetMode === "live") {
           if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
@@ -1337,17 +1527,49 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           }
           liveHistoryLoadedToRef.current = Number.isFinite(cachedLatestTs) ? Math.max(range.to, cachedLatestTs) : range.to;
         } else {
+          const targetLoadedRange = options?.mergeWithExisting
+            ? unionTrendRanges(offlineLoadedRangeRef.current, range)
+            : range;
           if (options?.mergeWithExisting) {
-            const mergedRange = unionTrendRanges(offlineLoadedRangeRef.current, range);
-            const mergedCached = boundResponseSeriesPoints(
-              buildBufferedTrendResponse(offlineResponseRef.current, boundedCached, mergedRange, selectedTags),
+            const mergedCachedRaw = boundResponseSeriesPoints(
+              buildBufferedTrendResponse(offlineResponseRef.current, boundedCached, targetLoadedRange, selectedTags),
               TREND_BUFFER_POINTS_PER_SERIES_MAX,
             );
-            offlineResponseRef.current = mergedCached;
-            setOfflineResponse(mergedCached);
+            const limited = limitOfflineTrendResponse(mergedCachedRaw, targetLoadedRange, visibleRangeRef.current);
+            if (limited.trimmedPointCount > 0) {
+              logTrendDiagnostics("trend:memory-trim-offline", {
+                trimmedPointCount: limited.trimmedPointCount,
+                loadedRange: targetLoadedRange,
+                retainedRange: limited.loadedRange,
+                visibleRange: visibleRangeRef.current,
+                pointCount: countTrendResponsePoints(limited.response),
+                maxPointsPerSeries: MAX_OFFLINE_BUFFER_POINTS_PER_SERIES,
+                maxTotalPoints: MAX_OFFLINE_BUFFER_POINTS_TOTAL,
+                maxTimeSpanMs: MAX_OFFLINE_BUFFER_TIME_SPAN_MS,
+              });
+            }
+            offlineLoadedRangeRef.current = limited.loadedRange;
+            setOfflineLoadedRange(limited.loadedRange);
+            offlineResponseRef.current = limited.response;
+            setOfflineResponse(limited.response);
           } else {
-            offlineResponseRef.current = boundedCached;
-            setOfflineResponse(boundedCached);
+            const limited = limitOfflineTrendResponse(boundedCached, targetLoadedRange, visibleRangeRef.current);
+            if (limited.trimmedPointCount > 0) {
+              logTrendDiagnostics("trend:memory-trim-offline", {
+                trimmedPointCount: limited.trimmedPointCount,
+                loadedRange: targetLoadedRange,
+                retainedRange: limited.loadedRange,
+                visibleRange: visibleRangeRef.current,
+                pointCount: countTrendResponsePoints(limited.response),
+                maxPointsPerSeries: MAX_OFFLINE_BUFFER_POINTS_PER_SERIES,
+                maxTotalPoints: MAX_OFFLINE_BUFFER_POINTS_TOTAL,
+                maxTimeSpanMs: MAX_OFFLINE_BUFFER_TIME_SPAN_MS,
+              });
+            }
+            offlineLoadedRangeRef.current = limited.loadedRange;
+            setOfflineLoadedRange(limited.loadedRange);
+            offlineResponseRef.current = limited.response;
+            setOfflineResponse(limited.response);
           }
           if (pendingToolbarPresetRef.current) {
             setToolbarQuickPreset(pendingToolbarPresetRef.current);
@@ -1392,17 +1614,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       trendQueryLastStartedAtRef.current = queryStartedAt;
       trendQueryStartedAtRef.current = [...trendQueryStartedAtRef.current.filter((item) => queryStartedAt - item < 60_000), queryStartedAt];
       trendQueryInFlightCountRef.current += 1;
-      setTrendWidgetDiagnostics(object.id, {
-        objectId: object.id,
-        activeLoopCount: getRuntimeDiagnosticsSnapshot().activePollingLoopIds
-          .filter((loopId) => loopId.endsWith(`:${object.id}`)).length,
-        lastQueryTime: queryStartedAt,
-        queryCountPerMinute: trendQueryStartedAtRef.current.length,
-        inFlightQueryCount: trendQueryInFlightCountRef.current,
-        pointsInState: sourcePointCountRef.current + liveBufferRef.current.length + liveBootstrapBufferRef.current.length,
-        pointsInChart: chartApiRef.current?.getPointCount() ?? 0,
-        cacheEntryCount: cacheRef.current.getStats().entryCount,
-      });
+      setTrendWidgetDiagnostics(object.id, buildWidgetDiagnostics());
       let next = await queryTrendData({
         tags: tagNames,
         from: new Date(range.from).toISOString(),
@@ -1511,9 +1723,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       next = normalizeTrendResponseForRange(next, normalizedRange, selectedTags, {
         carryForwardToRangeEnd: targetMode !== "live",
       });
+      const targetPointLimit = targetMode === "live"
+        ? resolveLiveBufferedPointLimitPerSeries(settings.maxLivePointsPerTag, selectedTags.length)
+        : TREND_BUFFER_POINTS_PER_SERIES_MAX;
       const boundedNext = boundResponseSeriesPoints(
         next,
-        targetMode === "live" ? settings.maxLivePointsPerTag : TREND_BUFFER_POINTS_PER_SERIES_MAX,
+        targetPointLimit,
+        targetMode === "live" ? { minLimit: 1, maxLimit: 20_000 } : undefined,
       );
       const totalPointCount = boundedNext.series.reduce((acc, series) => acc + series.points.length, 0);
       if (isLiveBootstrapQuery) {
@@ -1548,8 +1764,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         }
       }
       if (settings.cacheEnabled && !isLiveBootstrapQuery) {
-        cacheRef.current.set(key, boundedNext);
-        setRuntimeDiagnosticMetric("cachedTrendRanges", cacheRef.current.getStats().entryCount);
+        const cacheResult = cacheRef.current.set(key, boundedNext);
+        setRuntimeDiagnosticMetric("cachedTrendRanges", cacheResult.stats.entryCount);
+        if (cacheResult.evictedEntryCount > 0 && cacheResult.limitReason) {
+          logTrendDiagnostics("trend:cache-evict-memory-limit", {
+            evictedEntryCount: cacheResult.evictedEntryCount,
+            evictedPointCount: cacheResult.evictedPointCount,
+            limitReason: cacheResult.limitReason,
+            cache: cacheResult.stats,
+          });
+        }
       }
       if (targetMode === "live") {
         if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
@@ -1570,17 +1794,49 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           pendingToolbarPresetRef.current = null;
         }
       } else {
+        const targetLoadedRange = options?.mergeWithExisting
+          ? unionTrendRanges(offlineLoadedRangeRef.current, range)
+          : range;
         if (options?.mergeWithExisting) {
-          const mergedRange = unionTrendRanges(offlineLoadedRangeRef.current, range);
-          const mergedNext = boundResponseSeriesPoints(
-            buildBufferedTrendResponse(offlineResponseRef.current, boundedNext, mergedRange, selectedTags),
+          const mergedNextRaw = boundResponseSeriesPoints(
+            buildBufferedTrendResponse(offlineResponseRef.current, boundedNext, targetLoadedRange, selectedTags),
             TREND_BUFFER_POINTS_PER_SERIES_MAX,
           );
-          offlineResponseRef.current = mergedNext;
-          setOfflineResponse(mergedNext);
+          const limited = limitOfflineTrendResponse(mergedNextRaw, targetLoadedRange, visibleRangeRef.current);
+          if (limited.trimmedPointCount > 0) {
+            logTrendDiagnostics("trend:memory-trim-offline", {
+              trimmedPointCount: limited.trimmedPointCount,
+              loadedRange: targetLoadedRange,
+              retainedRange: limited.loadedRange,
+              visibleRange: visibleRangeRef.current,
+              pointCount: countTrendResponsePoints(limited.response),
+              maxPointsPerSeries: MAX_OFFLINE_BUFFER_POINTS_PER_SERIES,
+              maxTotalPoints: MAX_OFFLINE_BUFFER_POINTS_TOTAL,
+              maxTimeSpanMs: MAX_OFFLINE_BUFFER_TIME_SPAN_MS,
+            });
+          }
+          offlineLoadedRangeRef.current = limited.loadedRange;
+          setOfflineLoadedRange(limited.loadedRange);
+          offlineResponseRef.current = limited.response;
+          setOfflineResponse(limited.response);
         } else {
-          offlineResponseRef.current = boundedNext;
-          setOfflineResponse(boundedNext);
+          const limited = limitOfflineTrendResponse(boundedNext, targetLoadedRange, visibleRangeRef.current);
+          if (limited.trimmedPointCount > 0) {
+            logTrendDiagnostics("trend:memory-trim-offline", {
+              trimmedPointCount: limited.trimmedPointCount,
+              loadedRange: targetLoadedRange,
+              retainedRange: limited.loadedRange,
+              visibleRange: visibleRangeRef.current,
+              pointCount: countTrendResponsePoints(limited.response),
+              maxPointsPerSeries: MAX_OFFLINE_BUFFER_POINTS_PER_SERIES,
+              maxTotalPoints: MAX_OFFLINE_BUFFER_POINTS_TOTAL,
+              maxTimeSpanMs: MAX_OFFLINE_BUFFER_TIME_SPAN_MS,
+            });
+          }
+          offlineLoadedRangeRef.current = limited.loadedRange;
+          setOfflineLoadedRange(limited.loadedRange);
+          offlineResponseRef.current = limited.response;
+          setOfflineResponse(limited.response);
         }
         if (pendingToolbarPresetRef.current) {
           setToolbarQuickPreset(pendingToolbarPresetRef.current);
@@ -1668,17 +1924,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       return { ok: false, reason: "error" };
     } finally {
       trendQueryInFlightCountRef.current = Math.max(0, trendQueryInFlightCountRef.current - 1);
-      setTrendWidgetDiagnostics(object.id, {
-        objectId: object.id,
-        activeLoopCount: getRuntimeDiagnosticsSnapshot().activePollingLoopIds
-          .filter((loopId) => loopId.endsWith(`:${object.id}`)).length,
-        lastQueryTime: trendQueryLastStartedAtRef.current,
-        queryCountPerMinute: trendQueryStartedAtRef.current.length,
-        inFlightQueryCount: trendQueryInFlightCountRef.current,
-        pointsInState: sourcePointCountRef.current + liveBufferRef.current.length + liveBootstrapBufferRef.current.length,
-        pointsInChart: chartApiRef.current?.getPointCount() ?? 0,
-        cacheEntryCount: cacheRef.current.getStats().entryCount,
-      });
+      setTrendWidgetDiagnostics(object.id, buildWidgetDiagnostics());
       if (ownsGlobalRequest && requestId === requestIdRef.current) {
         setLoading(false);
       }
@@ -1737,20 +1983,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     }
     if (offlineLoadSeq !== null && offlineLoadSeqRef.current === offlineLoadSeq) {
       if (result.ok) {
-        const totalPointCount = result.response.series.reduce((acc, series) => acc + series.points.length, 0);
+        const totalPointCount = countTrendResponsePoints(offlineResponseRef.current);
         setOfflineLoadState(totalPointCount > 0 ? "loaded" : "empty");
       } else if (result.reason === "aborted") {
         setOfflineLoadState("idle");
       } else {
         setOfflineLoadState("error");
       }
-    }
-    if (result.ok) {
-      const nextLoadedRange = options?.replace
-        ? normalized
-        : unionTrendRanges(offlineLoadedRangeRef.current, normalized);
-      offlineLoadedRangeRef.current = nextLoadedRange;
-      setOfflineLoadedRange(nextLoadedRange);
     }
     return result;
   }, [executeQuery, selectedTagNames.length]);
@@ -1875,7 +2114,15 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   useEffect(() => {
     cacheRef.current = new TrendQueryCache(settings.maxCachedRanges, resolveTrendCachePointLimit(settings.maxCachedRanges));
     setRuntimeDiagnosticMetric("cachedTrendRanges", cacheRef.current.getStats().entryCount);
-  }, [settings.maxCachedRanges]);
+  }, [
+    selectedTagNamesKey,
+    settings.aggregation,
+    settings.cacheEnabled,
+    settings.maxCachedRanges,
+    settings.maxLivePointsPerTag,
+    settings.realtimeAppendSnapshotAggregation,
+    settings.realtimeAppendSnapshotMaxPoints,
+  ]);
 
   useEffect(() => {
     if (allTags.length > 0) {
@@ -2235,7 +2482,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       disposed = true;
       unregisterPollingLoop();
       ++liveSessionIdRef.current;
-      requestControllerRef.current?.abort();
+      if (requestTargetModeRef.current === "live") {
+        requestControllerRef.current?.abort();
+      }
       if (timerId !== null) {
         window.clearTimeout(timerId);
       }
@@ -3062,6 +3311,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       livePointCount,
       liveSocketState,
       livePendingBufferCap: livePendingBufferCapRef.current,
+      memory: buildWidgetDiagnostics(),
+      limits: {
+        maxOfflineBufferPointsPerSeries: MAX_OFFLINE_BUFFER_POINTS_PER_SERIES,
+        maxOfflineBufferPointsTotal: MAX_OFFLINE_BUFFER_POINTS_TOTAL,
+        maxOfflineBufferTimeSpanMs: MAX_OFFLINE_BUFFER_TIME_SPAN_MS,
+        maxLiveBufferPointsTotal: MAX_LIVE_BUFFER_POINTS_TOTAL,
+      },
       cache: cacheRef.current.getStats(),
     });
     downloadTextFile(`trend-diagnostics-${object.id}-${Date.now()}.json`, payload);

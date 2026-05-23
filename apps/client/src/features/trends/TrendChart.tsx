@@ -17,6 +17,7 @@ const LIVE_DOMAIN_GRACE_MS = 1500;
 const LIVE_CARRY_FORWARD_TICK_MS = 500;
 const LIVE_MIN_SERIES_POINT_CAP = 200;
 const LIVE_MAX_SERIES_POINT_CAP = 20_000;
+const LIVE_MAX_TOTAL_POINT_CAP = 120_000;
 const LIVE_GAP_BREAK_RECALC_APPEND_INTERVAL = 256;
 const Y_AXIS_HIT_ZONE_MIN_PX = 42;
 const Y_AXIS_HIT_ZONE_MAX_PX = 96;
@@ -78,12 +79,13 @@ type TrendAxisStats = {
   hasNumeric: boolean;
 };
 
-function resolveLiveSeriesPointCap(liveBufferLimit: number): number {
+function resolveLiveSeriesPointCap(liveBufferLimit: number, tagCount: number): number {
+  const totalLimitedCap = Math.max(1, Math.floor(LIVE_MAX_TOTAL_POINT_CAP / Math.max(1, tagCount)));
   if (!Number.isFinite(liveBufferLimit)) {
-    return LIVE_MIN_SERIES_POINT_CAP;
+    return Math.min(LIVE_MIN_SERIES_POINT_CAP, totalLimitedCap);
   }
   const normalized = Math.round(liveBufferLimit);
-  return Math.max(LIVE_MIN_SERIES_POINT_CAP, Math.min(LIVE_MAX_SERIES_POINT_CAP, normalized));
+  return Math.max(1, Math.min(LIVE_MAX_SERIES_POINT_CAP, normalized, totalLimitedCap));
 }
 
 export function TrendChart({
@@ -132,7 +134,8 @@ export function TrendChart({
   const probeTimestampRef = useRef<number | null>(probeTimestamp);
   const onProbeTimestampChangeRef = useRef(onProbeTimestampChange);
   const zoomDebounceMsRef = useRef(settings.zoomDebounceMs);
-  const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.maxLivePointsPerTag));
+  const liveSeriesPointCapRef = useRef(resolveLiveSeriesPointCap(settings.maxLivePointsPerTag, tags.length));
+  const lastRenderedPointCountRef = useRef(0);
   const tagsRef = useRef(tags);
   const lastAxisPointerTsRef = useRef<number | null>(null);
   const renderChartRef = useRef<() => void>(() => {});
@@ -656,8 +659,8 @@ export function TrendChart({
   }, [settings.zoomDebounceMs]);
 
   useEffect(() => {
-    liveSeriesPointCapRef.current = resolveLiveSeriesPointCap(settings.maxLivePointsPerTag);
-  }, [settings.maxLivePointsPerTag]);
+    liveSeriesPointCapRef.current = resolveLiveSeriesPointCap(settings.maxLivePointsPerTag, tags.length);
+  }, [settings.maxLivePointsPerTag, tags.length]);
 
   useEffect(() => {
     tagsRef.current = tags;
@@ -1382,6 +1385,7 @@ export function TrendChart({
     const setOptionStartedAt = debugPerf ? performance.now() : 0;
     const lazyUpdate = !liveModeRef.current;
     const replaceMerge: string[] = liveModeRef.current ? ["series", "yAxis", "graphic"] : ["series", "yAxis", "graphic"];
+    lastRenderedPointCountRef.current = echartsPointCount;
     chart.setOption(option, { notMerge: false, lazyUpdate, replaceMerge });
     const hasPointerPixels = pointerInsideRef.current
       && lastPointerPixelXRef.current !== null
@@ -1938,6 +1942,7 @@ export function TrendChart({
         const trimRightTs = Number.isFinite(maxUpdateTs) ? maxUpdateTs : Date.now();
         const trimFromTs = trimRightTs - liveRetentionMsRef.current - LIVE_TRIM_GRACE_MS;
         const seriesPointCap = liveSeriesPointCapRef.current;
+        let memoryTrimPointCount = 0;
         for (const tagName of updatedTags) {
           const points = seriesPointsRef.current.get(tagName);
           if (!points) {
@@ -1956,6 +1961,7 @@ export function TrendChart({
               }
             }
             points.splice(0, cutIndex);
+            memoryTrimPointCount += cutIndex;
           }
           if (points.length > seriesPointCap) {
             const trimCount = points.length - seriesPointCap;
@@ -1966,6 +1972,7 @@ export function TrendChart({
               }
             }
             points.splice(0, trimCount);
+            memoryTrimPointCount += trimCount;
           }
           if (trimmedAxisExtrema || statsNeedsFullRecompute.has(tagName)) {
             axisStatsByTagRef.current.set(tagName, recomputeAxisStats(points));
@@ -1974,6 +1981,17 @@ export function TrendChart({
             cacheGapBreakMsForTag(tagName, points);
           }
           seriesPointsRef.current.set(tagName, points);
+        }
+        if (memoryTrimPointCount > 0) {
+          logTrendDiagnostics("trend:memory-trim-live", {
+            trimmedPointCount: memoryTrimPointCount,
+            trimFromTs,
+            trimRightTs,
+            liveRetentionMs: liveRetentionMsRef.current,
+            seriesPointCap,
+            totalPointCap: LIVE_MAX_TOTAL_POINT_CAP,
+            liveBufferPointCount: [...seriesPointsRef.current.values()].reduce((acc, points) => acc + points.length, 0),
+          });
         }
 
         if (liveModeRef.current) {
@@ -2038,6 +2056,7 @@ export function TrendChart({
       },
       getWidth: () => rootRef.current?.clientWidth ?? 0,
       getPointCount: () => [...seriesPointsRef.current.values()].reduce((acc, points) => acc + points.length, 0),
+      getRenderedPointCount: () => lastRenderedPointCountRef.current,
     });
     renderChartRef.current();
 
@@ -2080,6 +2099,8 @@ export function TrendChart({
       setRootCursor("");
       chart.dispose();
       chartRef.current = null;
+      seriesPointsRef.current.clear();
+      axisStatsByTagRef.current.clear();
       liveLastEmittedRightRef.current = null;
       gapBreakMsByTagRef.current.clear();
       liveGapBreakAppendCountByTagRef.current.clear();

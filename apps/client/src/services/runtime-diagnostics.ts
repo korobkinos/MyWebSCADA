@@ -32,7 +32,13 @@ export type TrendWidgetDiagnostics = {
   inFlightQueryCount: number;
   pointsInState: number;
   pointsInChart: number;
+  offlineBufferedPointCount: number;
+  liveBufferedPointCount: number;
+  cachePointCount: number;
   cacheEntryCount: number;
+  echartsRenderedPointCount: number;
+  livePendingPointCount: number;
+  liveBootstrapPendingPointCount: number;
 };
 
 const POLLING_LOOP_IDS = new Map<string, PollingLoopMeta>();

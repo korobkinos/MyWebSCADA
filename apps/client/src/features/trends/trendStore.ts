@@ -4,6 +4,13 @@ type CacheEntry = TrendQueryCacheEntry & {
   pointCount: number;
 };
 
+export type TrendQueryCacheSetResult = {
+  evictedEntryCount: number;
+  evictedPointCount: number;
+  limitReason: "entry" | "points" | "entry+points" | null;
+  stats: { entryCount: number; pointCount: number; maxSize: number; maxTotalPoints: number };
+};
+
 export class TrendQueryCache {
   private readonly entries = new Map<string, CacheEntry>();
   private totalPointCount = 0;
@@ -23,7 +30,7 @@ export class TrendQueryCache {
     return hit.value;
   }
 
-  public set(key: string, value: TrendQueryResponse): void {
+  public set(key: string, value: TrendQueryResponse): TrendQueryCacheSetResult {
     const pointCount = estimateResponsePointCount(value);
     const existing = this.entries.get(key);
     if (existing) {
@@ -37,6 +44,10 @@ export class TrendQueryCache {
       pointCount,
     });
     this.totalPointCount += pointCount;
+    let evictedEntryCount = 0;
+    let evictedPointCount = 0;
+    const exceededEntryLimit = this.entries.size > this.maxSize;
+    const exceededPointLimit = this.totalPointCount > this.maxTotalPoints;
     while (this.entries.size > this.maxSize || this.totalPointCount > this.maxTotalPoints) {
       const oldest = this.entries.keys().next().value;
       if (!oldest) {
@@ -45,9 +56,23 @@ export class TrendQueryCache {
       const removed = this.entries.get(oldest);
       if (removed) {
         this.totalPointCount -= removed.pointCount;
+        evictedPointCount += removed.pointCount;
       }
       this.entries.delete(oldest);
+      evictedEntryCount += 1;
     }
+    return {
+      evictedEntryCount,
+      evictedPointCount,
+      limitReason: exceededEntryLimit && exceededPointLimit
+        ? "entry+points"
+        : exceededEntryLimit
+          ? "entry"
+          : exceededPointLimit
+            ? "points"
+            : null,
+      stats: this.getStats(),
+    };
   }
 
   public clear(): void {
