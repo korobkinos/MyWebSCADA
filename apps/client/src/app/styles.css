@@ -7504,6 +7504,22 @@ body {
   font-size: 12px;
 }
 
+.event-table-export-dialog-body {
+  overflow: hidden;
+}
+
+.event-table-export-dialog-fields {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.event-table-export-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 @media (max-width: 980px) {
   .trends-settings-body {
     grid-template-columns: 1fr;

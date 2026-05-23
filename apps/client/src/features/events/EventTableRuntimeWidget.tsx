@@ -2,9 +2,9 @@ import type { EventDefinition, EventOccurrence, EventTableObject, HmiObject } fr
 import {
   AudioMutedOutlined,
   CheckCircleOutlined,
+  ExportOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
-  FileExcelOutlined,
   LeftOutlined,
   RightOutlined,
   SearchOutlined,
@@ -25,6 +25,10 @@ import {
   resolveEventOccurrenceSoundId,
 } from "./event-table-config";
 import { EventTableSettingsDialog } from "./EventTableSettingsDialog";
+import {
+  EventTableExportDialog,
+  type EventTableExportOptions,
+} from "./EventTableExportDialog";
 import {
   buildEventTableHistoryQuery,
   hasMultiValueHistoryFilters,
@@ -147,21 +151,107 @@ function escapeCsvCell(value: string): string {
   return `"${normalized.replaceAll("\"", "\"\"")}"`;
 }
 
+function escapeHtmlCell(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function downloadBlobFile(name: string, blob: Blob): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 function buildClientCsv(
   rows: EventOccurrence[],
   columns: EventTableColumnId[],
   columnLabels: Partial<Record<EventTableColumnId, string>> | undefined,
+  delimiter: string,
+  includeHeaders: boolean,
+  statusSummary: string | null,
 ): string {
   const header = columns.map((column) => {
     const label = columnLabels?.[column]?.trim() || DEFAULT_EVENT_TABLE_COLUMN_LABELS[column] || column;
     return escapeCsvCell(label);
-  }).join(",");
+  }).join(delimiter);
 
   const lines = rows.map((row) => columns
     .map((column) => escapeCsvCell(getEventCellText(column, row)))
-    .join(","));
+    .join(delimiter));
 
-  return `\uFEFF${[header, ...lines].join("\n")}`;
+  const contentLines: string[] = [];
+  if (statusSummary) {
+    contentLines.push(escapeCsvCell(statusSummary));
+  }
+  if (includeHeaders) {
+    contentLines.push(header);
+  }
+  contentLines.push(...lines);
+
+  return `\uFEFF${contentLines.join("\n")}`;
+}
+
+function buildHtmlExport(
+  rows: EventOccurrence[],
+  columns: EventTableColumnId[],
+  columnLabels: Partial<Record<EventTableColumnId, string>> | undefined,
+  includeHeaders: boolean,
+  title: string,
+  statusSummary: string | null,
+  pageOrientation: "portrait" | "landscape",
+): string {
+  const headerHtml = includeHeaders
+    ? `<thead><tr>${columns
+      .map((column) => {
+        const label = columnLabels?.[column]?.trim() || DEFAULT_EVENT_TABLE_COLUMN_LABELS[column] || column;
+        return `<th>${escapeHtmlCell(label)}</th>`;
+      })
+      .join("")}</tr></thead>`
+    : "";
+
+  const bodyHtml = rows
+    .map((row) => `<tr>${columns
+      .map((column) => `<td>${escapeHtmlCell(getEventCellText(column, row))}</td>`)
+      .join("")}</tr>`)
+    .join("");
+
+  const statusHtml = statusSummary
+    ? `<div class=\"event-export-summary\">${escapeHtmlCell(statusSummary)}</div>`
+    : "";
+
+  return `<!doctype html>
+<html lang=\"en\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <title>${escapeHtmlCell(title)}</title>
+    <style>
+      @page { size: ${pageOrientation}; margin: 12mm; }
+      body { font-family: "Segoe UI", Tahoma, sans-serif; margin: 0; color: #1e1e1e; }
+      h1 { margin: 0 0 8px 0; font-size: 18px; }
+      .event-export-summary { margin: 0 0 10px 0; font-size: 12px; color: #4b5563; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      th, td { border: 1px solid #9ca3af; padding: 4px 6px; font-size: 11px; vertical-align: top; word-break: break-word; }
+      th { background: #e5e7eb; text-align: left; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtmlCell(title)}</h1>
+    ${statusHtml}
+    <table>
+      ${headerHtml}
+      <tbody>${bodyHtml}</tbody>
+    </table>
+  </body>
+</html>`;
 }
 
 function resolveEventMessageVisual(definition: EventDefinition | undefined): {
@@ -201,10 +291,11 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
   const [soundStatusText, setSoundStatusText] = useState<string>("");
   const [busyAck, setBusyAck] = useState(false);
-  const [busyCsv, setBusyCsv] = useState(false);
+  const [busyExport, setBusyExport] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [runtimeColumnWidths, setRuntimeColumnWidths] = useState<Record<string, number>>({});
   const [soundSilenced, setSoundSilenced] = useState(false);
 
@@ -701,37 +792,104 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     void acknowledgeRows([occurrenceId]);
   }, [acknowledgeRows, busyAck]);
 
-  const handleExportCsv = useCallback(async () => {
+  const resolveExportRows = useCallback((selectedOnly: boolean) => {
+    if (!selectedOnly) {
+      return visibleRows;
+    }
+    return visibleRows.filter((item) => selectedIds.has(String(item.id)));
+  }, [selectedIds, visibleRows]);
+
+  const buildExportStatusSummary = useCallback(() => {
+    if (mode === "history") {
+      return `Mode: history | Period: ${historyPreset.label} | Rows: ${historyTotalRows}`;
+    }
+    const onlineStatusLabel = runtimeEvents.onlineStatus === "open" ? "online" : runtimeEvents.onlineStatus;
+    return `Mode: online (${onlineStatusLabel}) | Active: ${runtimeEvents.activeCount} | Unacked: ${runtimeEvents.unacknowledgedCount} | Rows: ${onlineRows.length}`;
+  }, [historyPreset.label, historyTotalRows, mode, onlineRows.length, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount]);
+
+  const handleExport = useCallback(async (options: EventTableExportOptions) => {
     if (object.enableCsvExport === false) {
       void message.info("CSV export is disabled in widget settings.");
       return;
     }
 
-    if (mode !== "history") {
-      if (visibleRows.length === 0) {
-        void message.info("No messages to export.");
-        return;
-      }
-      const csvText = buildClientCsv(visibleRows, columns, object.columnLabels);
-      const timestamp = new Date().toISOString().replaceAll(":", "-");
-      downloadCsvFile(`event-online-${timestamp}.csv`, csvText);
-      void message.success(`Exported ${visibleRows.length} message${visibleRows.length === 1 ? "" : "s"} to CSV.`);
+    const rows = resolveExportRows(options.selectedOnly);
+    if (rows.length === 0) {
+      void message.info("No messages to export.");
       return;
     }
 
-    setBusyCsv(true);
+    const statusSummary = options.includeStatusLine ? buildExportStatusSummary() : null;
+    const timestamp = new Date().toISOString().replaceAll(":", "-");
+    const baseName = mode === "history" ? `event-history-${timestamp}` : `event-online-${timestamp}`;
+
+    setBusyExport(true);
     try {
-      const csvText = await eventRuntimeStore.exportHistoryCsv(historyQuery);
-      const timestamp = new Date().toISOString().replaceAll(":", "-");
-      downloadCsvFile(`event-history-${timestamp}.csv`, csvText);
-      void message.success("CSV export started.");
+      const useArchiveCsv = options.format === "csv"
+        && mode === "history"
+        && options.csvSource === "archiveQuery"
+        && !options.selectedOnly
+        && options.includeHeaders
+        && options.csvDelimiter === ","
+        && !options.includeStatusLine;
+
+      if (useArchiveCsv) {
+        const csvText = await eventRuntimeStore.exportHistoryCsv(historyQuery);
+        downloadCsvFile(`${baseName}.csv`, csvText);
+        void message.success("CSV export started.");
+        return;
+      }
+
+      if (options.format === "csv") {
+        const csvText = buildClientCsv(
+          rows,
+          columns,
+          object.columnLabels,
+          options.csvDelimiter,
+          options.includeHeaders,
+          statusSummary,
+        );
+        downloadCsvFile(`${baseName}.csv`, csvText);
+        void message.success(`Exported ${rows.length} row${rows.length === 1 ? "" : "s"} to CSV.`);
+        return;
+      }
+
+      const html = buildHtmlExport(
+        rows,
+        columns,
+        object.columnLabels,
+        options.includeHeaders,
+        title,
+        statusSummary,
+        options.pdfOrientation,
+      );
+
+      if (options.format === "excel") {
+        const excelBlob = new Blob([`\uFEFF${html}`], { type: "application/vnd.ms-excel;charset=utf-8" });
+        downloadBlobFile(`${baseName}.xls`, excelBlob);
+        void message.success(`Exported ${rows.length} row${rows.length === 1 ? "" : "s"} to Excel.`);
+        return;
+      }
+
+      const popup = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
+      if (!popup) {
+        throw new Error("Popup window was blocked by the browser.");
+      }
+      popup.document.open();
+      popup.document.write(html);
+      popup.document.close();
+      popup.focus();
+      window.setTimeout(() => {
+        popup.print();
+      }, 120);
+      void message.success("PDF print preview opened.");
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
-      void message.error(`CSV export failed: ${text}`);
+      void message.error(`Export failed: ${text}`);
     } finally {
-      setBusyCsv(false);
+      setBusyExport(false);
     }
-  }, [columns, historyQuery, mode, object.columnLabels, object.enableCsvExport, visibleRows]);
+  }, [buildExportStatusSummary, columns, historyQuery, mode, object.columnLabels, object.enableCsvExport, resolveExportRows, title]);
 
   const muteSounds = useCallback(() => {
     eventSoundPlayer.stopSeamlessLoop();
@@ -1013,10 +1171,10 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         <WorkbenchIconButton
           title={csvTooltipTitle}
           onClick={() => {
-            void handleExportCsv();
+            setExportOpen(true);
           }}
-          disabled={busyCsv || object.enableCsvExport === false}
-          icon={<FileExcelOutlined />}
+          disabled={busyExport || object.enableCsvExport === false}
+          icon={<ExportOutlined />}
         />
       ) : null}
 
@@ -1043,7 +1201,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         </div>
       ) : null}
 
-      {busyAck || busyCsv ? <Spin size="small" /> : null}
+      {busyAck || busyExport ? <Spin size="small" /> : null}
     </div>
   );
 
@@ -1286,6 +1444,18 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         object={object}
         onClose={() => setSettingsOpen(false)}
         onPatch={patchObject}
+      />
+
+      <EventTableExportDialog
+        open={exportOpen}
+        mode={mode}
+        selectedCount={selectedIds.size}
+        busy={busyExport}
+        onClose={() => setExportOpen(false)}
+        onExport={(options) => {
+          setExportOpen(false);
+          void handleExport(options);
+        }}
       />
     </>
   );
