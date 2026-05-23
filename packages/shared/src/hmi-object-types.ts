@@ -872,6 +872,7 @@ export type EventTableObject = HmiObjectBase & {
   enableAckButton?: boolean;
   enableAckSelectedButton?: boolean;
   enableSilenceButton?: boolean;
+  enableSoundsButton?: boolean;
   enableSearchInToolbar?: boolean;
   enableActiveOnlyToggle?: boolean;
   enableUnackedOnlyToggle?: boolean;

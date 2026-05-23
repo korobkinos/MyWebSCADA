@@ -16,8 +16,13 @@ export type EventCategory = {
 export type EventSound = {
   id: string;
   name: string;
+  kind?: "notification" | "warning" | "alarm" | "custom";
+  fileName?: string;
   assetId?: string;
+  url?: string;
   filePath?: string;
+  mimeType?: string;
+  sizeBytes?: number;
   enabled?: boolean;
   volume?: number;
   loop?: boolean;

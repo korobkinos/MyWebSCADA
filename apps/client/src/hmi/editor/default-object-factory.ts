@@ -637,6 +637,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         enableAckButton: true,
         enableAckSelectedButton: true,
         enableSilenceButton: true,
+        enableSoundsButton: true,
         enableSearchInToolbar: true,
         enableActiveOnlyToggle: true,
         enableUnackedOnlyToggle: true,

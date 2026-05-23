@@ -4117,6 +4117,82 @@ body {
   min-width: 0;
 }
 
+.event-sound-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+
+.event-sound-library-panel {
+  border: 1px solid #323232;
+  background: #1f1f20;
+  padding: 8px;
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.event-sound-library-panel__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.event-sound-library-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.event-sound-library-item {
+  border: 1px solid #333;
+  background: #262628;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-sound-library-item__meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-sound-library-item__name {
+  font-size: 12px;
+  color: #dcdcdc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-sound-library-item__info {
+  display: flex;
+  gap: 8px;
+  color: #9a9a9a;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.event-sound-library-item__info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-sound-library-item__actions {
+  display: flex;
+  gap: 6px;
+}
+
 .screen-editor-event-cell-with-warning {
   display: inline-flex;
   align-items: center;

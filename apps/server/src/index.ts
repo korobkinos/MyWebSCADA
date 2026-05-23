@@ -11,6 +11,7 @@ import { ArchiveService } from "./archive/archive-service.js";
 import { AuthService } from "./auth/auth-service.js";
 import { AssetService } from "./assets/asset-service.js";
 import { DriverManager } from "./drivers/driver-manager.js";
+import { EventSoundService } from "./events/event-sound-service.js";
 import { LibraryService } from "./libraries/library-service.js";
 import { ProjectService } from "./project/project-service.js";
 import { CommandService } from "./runtime/command-service.js";
@@ -36,6 +37,7 @@ const projectFile = resolveServerPath(process.env.PROJECT_FILE, "../../projects/
 const librariesRoot = resolveServerPath(process.env.LIBRARIES_DIR, "../../libraries");
 const authDbFile = resolveServerPath(process.env.AUTH_DB_FILE, "../../data/auth-db.json");
 const legacyUsersFile = resolveServerPath(process.env.USERS_FILE, "../../data/users.json");
+const eventSoundsDir = resolveServerPath(process.env.EVENT_SOUNDS_DIR, "../../data/event-sounds");
 const defaultAdminUsername = process.env.DEFAULT_ADMIN_USERNAME ?? "admin";
 const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD ?? process.env.ENGINEER_PASSWORD ?? "1234";
 
@@ -52,6 +54,7 @@ async function bootstrap(): Promise<void> {
 
   const projectService = new ProjectService(projectFile);
   const assetService = new AssetService(projectService);
+  const eventSoundService = new EventSoundService(projectService, eventSoundsDir);
   const libraryService = new LibraryService(librariesRoot, projectService);
   const tagStore = new TagStore();
   const driverManager = new DriverManager();
@@ -100,6 +103,7 @@ async function bootstrap(): Promise<void> {
   await registerApiRoutes(app, {
     projectService,
     assetService,
+    eventSoundService,
     libraryService,
     tagStore,
     driverManager,

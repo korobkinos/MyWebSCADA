@@ -4385,6 +4385,10 @@ function SpecificPropertyFields({
             <Switch checked={object.enableSilenceButton ?? true} onChange={(checked) => onPatch({ enableSilenceButton: checked } as Partial<HmiObject>)} />
           </div>
           <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Enable Sounds Button</span>
+            <Switch checked={object.enableSoundsButton ?? true} onChange={(checked) => onPatch({ enableSoundsButton: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Enable Search In Toolbar</span>
             <Switch checked={object.enableSearchInToolbar ?? true} onChange={(checked) => onPatch({ enableSearchInToolbar: checked } as Partial<HmiObject>)} />
           </div>
@@ -5106,6 +5110,5 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
-
 
 

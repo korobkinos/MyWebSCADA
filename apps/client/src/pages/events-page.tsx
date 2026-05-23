@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import type { EventBitTrigger, EventDefinition, EventWordOperator, TagScalarValue } from "@web-scada/shared";
+import type { EventBitTrigger, EventDefinition, EventSound, EventWordOperator, TagScalarValue } from "@web-scada/shared";
+import { ensureDefaultEventSounds, isDefaultEventSoundId } from "@web-scada/shared";
 import { WorkbenchButton, WorkbenchTabs } from "../components/workbench";
 import { TagPickerDialog } from "../components/tag-picker-dialog";
 import { createProjectTagIndex, findMissingEventTagReferences, getEventTagWarnings, reconcileEventsWithProjectTags, type EventTagReferenceField, type EventTagWarning } from "../features/events/event-tag-utils";
+import { eventSoundPlayer } from "../features/events/event-sound-player";
+import { api } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 
 type EventColumnId =
@@ -578,6 +581,64 @@ function parseLooseCsvValue(raw: string): unknown {
   return text;
 }
 
+type EventSoundWarning = {
+  code: "missing_sound_id" | "unknown_sound_id";
+  message: string;
+};
+
+const SUPPORTED_SOUND_FILE_EXTENSIONS = new Set(["mp3", "wav", "ogg"]);
+
+function getEventSoundWarning(event: EventDefinition, soundsById: Map<string, EventSound>): EventSoundWarning | null {
+  if (!event.soundEnabled) {
+    return null;
+  }
+  const soundId = (event.soundId ?? "").trim();
+  if (!soundId) {
+    return {
+      code: "missing_sound_id",
+      message: "Sound is enabled, but Sound ID is not selected.",
+    };
+  }
+  if (!soundsById.has(soundId)) {
+    return {
+      code: "unknown_sound_id",
+      message: `Sound '${soundId}' is missing in project.eventSounds.`,
+    };
+  }
+  return null;
+}
+
+function formatSoundKind(kind: EventSound["kind"]): string {
+  if (kind === "alarm") {
+    return "alarm";
+  }
+  if (kind === "warning") {
+    return "warning";
+  }
+  if (kind === "custom") {
+    return "custom";
+  }
+  return "notification";
+}
+
+function formatSoundSize(sizeBytes: number | undefined): string {
+  if (typeof sizeBytes !== "number" || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
+    return "-";
+  }
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function isSupportedSoundFile(file: File): boolean {
+  const extension = file.name.split(".").at(-1)?.trim().toLowerCase() ?? "";
+  return SUPPORTED_SOUND_FILE_EXTENSIONS.has(extension);
+}
+
 export function EventsPage() {
   const project = useScadaStore((s) => s.project);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
@@ -624,9 +685,12 @@ export function EventsPage() {
   const [draftErrors, setDraftErrors] = useState<EventDraftErrors>({});
   const [tagPickerTargetField, setTagPickerTargetField] = useState<TagPickerTargetField | null>(null);
   const [statusText, setStatusText] = useState<string>("");
+  const [soundLibraryOpen, setSoundLibraryOpen] = useState(false);
+  const [soundLibraryBusy, setSoundLibraryBusy] = useState(false);
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const soundUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!project) {
     return (
@@ -638,9 +702,20 @@ export function EventsPage() {
 
   const events = project.events ?? [];
   const categories = project.eventCategories ?? [];
-  const sounds = project.eventSounds ?? [];
+  const sounds = useMemo(() => ensureDefaultEventSounds(project.eventSounds), [project.eventSounds]);
+  const soundsById = useMemo(() => new Map(sounds.map((sound) => [sound.id, sound])), [sounds]);
   const projectTagIndex = useMemo(() => createProjectTagIndex(project), [project]);
   const missingReferencesAudit = useMemo(() => findMissingEventTagReferences(project), [project]);
+
+  useEffect(() => {
+    if (Array.isArray(project.eventSounds) && project.eventSounds.length > 0) {
+      return;
+    }
+    updateProjectJson({
+      ...project,
+      eventSounds: sounds,
+    });
+  }, [project, sounds, updateProjectJson]);
 
   const rows = useMemo<EventRow[]>(() => {
     const seenKeys = new Map<string, number>();
@@ -674,6 +749,17 @@ export function EventsPage() {
     }
     return map;
   }, [rowWarningsByKey]);
+
+  const rowSoundWarningsByKey = useMemo(() => {
+    const map = new Map<string, EventSoundWarning>();
+    for (const row of rows) {
+      const warning = getEventSoundWarning(row.event, soundsById);
+      if (warning) {
+        map.set(row.key, warning);
+      }
+    }
+    return map;
+  }, [rows, soundsById]);
 
   const categoryOptions = useMemo(() => {
     const values = new Set<string>(["Default"]);
@@ -793,6 +879,7 @@ export function EventsPage() {
 
   const activeRow = rows.find((row) => row.key === activeRowKey) ?? pageRows[0] ?? null;
   const activeRowMissingWarnings = activeRow ? (rowMissingWarningsByKey.get(activeRow.key) ?? []) : [];
+  const activeRowSoundWarning = activeRow ? (rowSoundWarningsByKey.get(activeRow.key) ?? null) : null;
   const missingReferenceCount = missingReferencesAudit.length;
 
   const existingIds = useMemo(() => {
@@ -812,6 +899,97 @@ export function EventsPage() {
       events: nextEvents,
     });
   }, [project, updateProjectJson]);
+
+  const saveEventSounds = useCallback((nextSounds: EventSound[]) => {
+    updateProjectJson({
+      ...project,
+      eventSounds: nextSounds,
+    });
+  }, [project, updateProjectJson]);
+
+  const testSound = useCallback(async (soundId: string) => {
+    const selectedSoundId = soundId.trim();
+    if (!selectedSoundId) {
+      setStatusText("Select a sound first.");
+      return;
+    }
+    const result = await eventSoundPlayer.playSound(selectedSoundId, sounds);
+    if (!result.ok) {
+      setStatusText(result.message);
+      return;
+    }
+    setStatusText(`Playing sound: ${selectedSoundId}`);
+  }, [sounds]);
+
+  const enableSounds = useCallback(async () => {
+    const result = await eventSoundPlayer.enableSoundsWithUserGesture();
+    if (!result.ok) {
+      setStatusText(result.message);
+      return;
+    }
+    setStatusText("Sounds are enabled for this browser session.");
+  }, []);
+
+  const uploadSound = useCallback(async (file: File) => {
+    if (!isSupportedSoundFile(file)) {
+      setStatusText("Invalid sound file. Supported extensions: mp3, wav, ogg.");
+      return;
+    }
+    setSoundLibraryBusy(true);
+    try {
+      const uploaded = await api.uploadEventSound(file);
+      saveEventSounds([...sounds, uploaded]);
+      setStatusText(`Uploaded sound: ${uploaded.name}`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Failed to upload sound";
+      setStatusText(text);
+    } finally {
+      setSoundLibraryBusy(false);
+    }
+  }, [saveEventSounds, sounds]);
+
+  const renameSound = useCallback(async (sound: EventSound) => {
+    if (sound.kind !== "custom" || isDefaultEventSoundId(sound.id)) {
+      setStatusText("Only custom sounds can be renamed.");
+      return;
+    }
+    const nextName = window.prompt("Rename sound", sound.name)?.trim() ?? "";
+    if (!nextName || nextName === sound.name) {
+      return;
+    }
+    setSoundLibraryBusy(true);
+    try {
+      const updated = await api.renameEventSound(sound.id, nextName);
+      saveEventSounds(sounds.map((item) => (item.id === updated.id ? updated : item)));
+      setStatusText(`Renamed sound: ${updated.name}`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Failed to rename sound";
+      setStatusText(text);
+    } finally {
+      setSoundLibraryBusy(false);
+    }
+  }, [saveEventSounds, sounds]);
+
+  const deleteSound = useCallback(async (sound: EventSound) => {
+    if (sound.kind !== "custom" || isDefaultEventSoundId(sound.id)) {
+      setStatusText("Only custom sounds can be deleted.");
+      return;
+    }
+    if (!window.confirm(`Delete sound '${sound.name}'?`)) {
+      return;
+    }
+    setSoundLibraryBusy(true);
+    try {
+      await api.deleteEventSound(sound.id);
+      saveEventSounds(sounds.filter((item) => item.id !== sound.id));
+      setStatusText(`Deleted sound: ${sound.name}`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Failed to delete sound";
+      setStatusText(text);
+    } finally {
+      setSoundLibraryBusy(false);
+    }
+  }, [saveEventSounds, sounds]);
 
   const openAdd = () => {
     setDraftEvent(createDefaultDraft(existingIds));
@@ -1014,6 +1192,22 @@ export function EventsPage() {
     return getEventTagWarnings(preview, projectTagIndex);
   }, [draftEvent, editorMode, editingIndex, events, projectTagIndex]);
 
+  const draftSoundWarning = useMemo(() => {
+    if (!draftEvent) {
+      return null;
+    }
+    const preview = buildEventFromDraft(
+      {
+        ...draftEvent,
+        categoryName: draftEvent.categoryName.trim() || "Default",
+        priority: clampPriority(draftEvent.priority),
+        conditionMode: draftEvent.conditionMode === "word" ? "word" : "bit",
+      },
+      editorMode === "edit" && editingIndex !== null ? events[editingIndex] : undefined,
+    );
+    return getEventSoundWarning(preview, soundsById);
+  }, [draftEvent, editorMode, editingIndex, events, soundsById]);
+
   const draftWarningsByField = useMemo(() => {
     const map = new Map<EventTagReferenceField, EventTagWarning[]>();
     for (const warning of draftEventWarnings) {
@@ -1200,9 +1394,11 @@ export function EventsPage() {
 
         const nextEvents = [...events];
         const importErrors: string[] = [];
+        const importWarnings: string[] = [];
         let created = 0;
         let updated = 0;
         let autoDisabledForMissingRequiredTags = 0;
+        let missingSoundWarnings = 0;
 
         for (let rowIndex = 1; rowIndex < rowsFromCsv.length; rowIndex += 1) {
           const rowCells = rowsFromCsv[rowIndex] ?? [];
@@ -1329,6 +1525,12 @@ export function EventsPage() {
             autoDisabledForMissingRequiredTags += 1;
           }
 
+          const mergedSoundWarning = getEventSoundWarning(merged, soundsById);
+          if (mergedSoundWarning) {
+            importWarnings.push(`Row ${rowIndex + 1}: ${mergedSoundWarning.message}`);
+            missingSoundWarnings += 1;
+          }
+
           if (targetIndex >= 0) {
             nextEvents[targetIndex] = merged;
             updated += 1;
@@ -1344,13 +1546,21 @@ export function EventsPage() {
         const disabledSummary = autoDisabledTotal > 0
           ? `, auto-disabled ${autoDisabledTotal} event(s) due to missing source/security tags`
           : "";
-        const summary = `CSV import finished: created ${created}, updated ${updated}${disabledSummary}`;
+        const soundSummary = missingSoundWarnings > 0 ? `, sound warnings ${missingSoundWarnings}` : "";
+        const summary = `CSV import finished: created ${created}, updated ${updated}${disabledSummary}${soundSummary}`;
         setStatusText(summary);
 
         if (importErrors.length > 0) {
           const preview = importErrors.slice(0, 15).join("\n");
           const suffix = importErrors.length > 15 ? `\n... and ${importErrors.length - 15} more` : "";
-          window.alert(`${summary}\n\nErrors:\n${preview}${suffix}`);
+          const warningPreview = importWarnings.length > 0
+            ? `\n\nWarnings:\n${importWarnings.slice(0, 10).join("\n")}${importWarnings.length > 10 ? `\n... and ${importWarnings.length - 10} more` : ""}`
+            : "";
+          window.alert(`${summary}\n\nErrors:\n${preview}${suffix}${warningPreview}`);
+        } else if (importWarnings.length > 0) {
+          const preview = importWarnings.slice(0, 10).join("\n");
+          const suffix = importWarnings.length > 10 ? `\n... and ${importWarnings.length - 10} more` : "";
+          window.alert(`${summary}\n\nWarnings:\n${preview}${suffix}`);
         }
       } catch (error) {
         const textError = error instanceof Error ? error.message : "Failed to import CSV";
@@ -1593,12 +1803,89 @@ export function EventsPage() {
               disabled={!draftEvent.soundEnabled}
             >
               <option value="">(none)</option>
+              {draftEvent.soundId.trim() && !soundsById.has(draftEvent.soundId.trim()) ? (
+                <option value={draftEvent.soundId.trim()}>
+                  Missing sound ({draftEvent.soundId.trim()})
+                </option>
+              ) : null}
               {sounds.map((sound) => (
                 <option key={sound.id} value={sound.id}>
-                  {sound.name} ({sound.id})
+                  {sound.name} [{formatSoundKind(sound.kind)}]
                 </option>
               ))}
             </select>
+            {draftSoundWarning ? (
+              <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">{draftSoundWarning.message}</span>
+            ) : null}
+          </label>
+
+          <div className="event-sound-actions-row">
+            <WorkbenchButton onClick={() => void testSound(draftEvent.soundId)} disabled={!draftEvent.soundEnabled || !draftEvent.soundId.trim()}>
+              Test sound
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => setSoundLibraryOpen((open) => !open)}>
+              {soundLibraryOpen ? "Hide sounds" : "Manage sounds"}
+            </WorkbenchButton>
+            <WorkbenchButton onClick={() => void enableSounds()}>
+              Enable sounds
+            </WorkbenchButton>
+          </div>
+
+          {soundLibraryOpen ? (
+            <div className="event-sound-library-panel">
+              <div className="event-sound-library-panel__toolbar">
+                <WorkbenchButton onClick={() => soundUploadInputRef.current?.click()} disabled={soundLibraryBusy}>
+                  Upload sound
+                </WorkbenchButton>
+                <span className="screen-editor-tag-editor__hint">Formats: mp3, wav, ogg</span>
+                <input
+                  ref={soundUploadInputRef}
+                  hidden
+                  type="file"
+                  accept=".mp3,.wav,.ogg,audio/mpeg,audio/wav,audio/ogg"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.currentTarget.value = "";
+                    if (!file) {
+                      return;
+                    }
+                    void uploadSound(file);
+                  }}
+                />
+              </div>
+              <div className="event-sound-library-panel__list">
+                {sounds.map((sound) => {
+                  const canEdit = sound.kind === "custom" && !isDefaultEventSoundId(sound.id);
+                  return (
+                    <div key={sound.id} className="event-sound-library-item">
+                      <div className="event-sound-library-item__meta">
+                        <div className="event-sound-library-item__name">{sound.name}</div>
+                        <div className="event-sound-library-item__info">
+                          <span>{formatSoundKind(sound.kind)}</span>
+                          <span>{sound.fileName ?? "-"}</span>
+                          <span>{formatSoundSize(sound.sizeBytes)}</span>
+                        </div>
+                      </div>
+                      <div className="event-sound-library-item__actions">
+                        <WorkbenchButton onClick={() => void testSound(sound.id)}>Test</WorkbenchButton>
+                        <WorkbenchButton onClick={() => void renameSound(sound)} disabled={!canEdit || soundLibraryBusy}>Rename</WorkbenchButton>
+                        <WorkbenchButton variant="danger" onClick={() => void deleteSound(sound)} disabled={!canEdit || soundLibraryBusy}>Delete</WorkbenchButton>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {eventSoundPlayer.hasAutoplayBlock() ? (
+            <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+              Sound playback was blocked by the browser. Click Enable sounds.
+            </span>
+          ) : null}
+          <label className="workbench-field">
+            <span className="screen-editor-tag-editor__hint">
+              Default sounds are placeholders until real audio files are provided.
+            </span>
           </label>
         </>
       );
@@ -1801,8 +2088,10 @@ export function EventsPage() {
               const checked = selectedRowKeys.has(row.key);
               const rowWarnings = rowWarningsByKey.get(row.key) ?? [];
               const missingWarnings = rowMissingWarningsByKey.get(row.key) ?? [];
-              const hasCriticalMissingTag = missingWarnings.some((warning) => warning.code === "missing_source" || warning.code === "missing_security");
-              const rowWarningTitle = missingWarnings.map((warning) => warning.message).join(" | ");
+              const soundWarning = rowSoundWarningsByKey.get(row.key) ?? null;
+              const hasCriticalMissingTag = missingWarnings.some((warning) => warning.code === "missing_source" || warning.code === "missing_security")
+                || Boolean(soundWarning);
+              const rowWarningTitle = [...missingWarnings.map((warning) => warning.message), ...(soundWarning ? [soundWarning.message] : [])].join(" | ");
 
               return (
                 <div
@@ -1884,7 +2173,21 @@ export function EventsPage() {
                       content = title;
                     } else if (column.id === "soundId") {
                       title = event.soundId ?? "-";
-                      content = title;
+                      if (soundWarning) {
+                        content = (
+                          <span className="screen-editor-event-cell-with-warning">
+                            <span className="screen-editor-event-cell-with-warning__text">{title || "-"}</span>
+                            <span
+                              className="screen-editor-event-warning-marker"
+                              title={soundWarning.message}
+                            >
+                              !
+                            </span>
+                          </span>
+                        );
+                      } else {
+                        content = title;
+                      }
                     } else if (column.id === "requireAck") {
                       title = event.requireAck ? "Yes" : "No";
                       content = title;
@@ -1958,6 +2261,11 @@ export function EventsPage() {
                     <div className="screen-editor-tag-editor__kv"><span>Word Value</span><strong>{getWordValueLabel(activeRow.event)}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Require Ack</span><strong>{activeRow.event.requireAck ? "Yes" : "No"}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Sound</span><strong>{activeRow.event.soundEnabled ? (activeRow.event.soundId ?? "On") : "Off"}</strong></div>
+                    {activeRowSoundWarning ? (
+                      <div className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+                        {activeRowSoundWarning.message}
+                      </div>
+                    ) : null}
                     {activeRowMissingWarnings.length > 0 ? (
                       <div className="screen-editor-tag-editor__warnings">
                         {activeRowMissingWarnings.map((warning, index) => (

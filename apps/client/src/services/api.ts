@@ -10,6 +10,7 @@ import type {
   EventHistoryPage,
   EventHistoryQuery,
   EventOccurrence,
+  EventSound,
   ElementLibrary,
   LibraryImportOptions,
   LibraryImportValidationResult,
@@ -824,6 +825,24 @@ export const api = {
     request<Asset>(`/api/assets/${encodeURIComponent(assetId)}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
+    }),
+  listEventSounds: () => request<EventSound[]>("/api/event-sounds"),
+  uploadEventSound: (file: File, name?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (name?.trim()) {
+      form.append("name", name.trim());
+    }
+    return request<EventSound>("/api/event-sounds/upload", { method: "POST", body: form });
+  },
+  renameEventSound: (soundId: string, name: string) =>
+    request<EventSound>(`/api/event-sounds/${encodeURIComponent(soundId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+  deleteEventSound: (soundId: string) =>
+    request<{ ok: boolean }>(`/api/event-sounds/${encodeURIComponent(soundId)}`, {
+      method: "DELETE",
     }),
 
   listLibraries: () => request<ElementLibrary[]>("/api/libraries"),

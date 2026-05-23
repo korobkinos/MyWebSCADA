@@ -26,6 +26,7 @@ import { ArchiveService } from "../archive/archive-service.js";
 import { AuthService, AuthValidationError } from "../auth/auth-service.js";
 import { AssetService } from "../assets/asset-service.js";
 import { DriverManager } from "../drivers/driver-manager.js";
+import { EventSoundService } from "../events/event-sound-service.js";
 import {
   browseOpcUaNode,
   collectOpcUaSubtreeVariables,
@@ -45,6 +46,7 @@ import { ManualCommandError, toManualCommandStatusCode } from "../runtime/manual
 type ApiDeps = {
   projectService: ProjectService;
   assetService: AssetService;
+  eventSoundService: EventSoundService;
   libraryService: LibraryService;
   tagStore: TagStore;
   driverManager: DriverManager;
@@ -288,6 +290,9 @@ const libraryMacroSchema = z.object({
 const updateAssetSchema = z.object({
   name: z.string().optional(),
   folderPath: z.string().optional(),
+});
+const updateEventSoundSchema = z.object({
+  name: z.string().min(1),
 });
 const opcUaDriverConfigSchema = z.object({
   id: z.string().min(1),
@@ -2181,6 +2186,81 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     const uploaded = await parseUpload(request);
     const asset = await deps.assetService.uploadProjectAsset(uploaded);
     return reply.send(asset);
+  });
+
+  app.get("/api/event-sounds", async () => {
+    return deps.eventSoundService.listProjectEventSounds();
+  });
+
+  app.post("/api/event-sounds/upload", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "assets.write");
+    if (!auth) {
+      return;
+    }
+    try {
+      const uploaded = await parseUpload(request);
+      const sound = await deps.eventSoundService.uploadProjectEventSound(uploaded);
+      return reply.send(sound);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return reply.code(400).send({ error: "Bad Request", message: msg });
+    }
+  });
+
+  app.patch("/api/event-sounds/:soundId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "assets.write");
+    if (!auth) {
+      return;
+    }
+    const { soundId } = request.params as { soundId: string };
+    const payload = updateEventSoundSchema.parse(request.body ?? {});
+    try {
+      const sound = await deps.eventSoundService.renameProjectEventSound(soundId, payload);
+      return reply.send(sound);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message: msg });
+      }
+      return reply.code(400).send({ error: "Bad Request", message: msg });
+    }
+  });
+
+  app.delete("/api/event-sounds/:soundId", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "assets.delete");
+    if (!auth) {
+      return;
+    }
+    const { soundId } = request.params as { soundId: string };
+    try {
+      await deps.eventSoundService.deleteProjectEventSound(soundId);
+      return reply.send({ ok: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message: msg });
+      }
+      return reply.code(400).send({ error: "Bad Request", message: msg });
+    }
+  });
+
+  app.get("/api/event-sounds/:soundId/file", async (request, reply) => {
+    const { soundId } = request.params as { soundId: string };
+    const resolved = deps.eventSoundService.resolveProjectEventSoundFile(soundId);
+    if (!resolved) {
+      const sound = deps.eventSoundService.getProjectEventSound(soundId);
+      if (!sound) {
+        return reply.code(404).send({ message: "Sound not found" });
+      }
+      return reply.code(404).send({ message: "Sound file is not available" });
+    }
+    try {
+      const bytes = await readFile(resolved.absolutePath);
+      reply.header("Content-Type", resolved.sound.mimeType ?? "application/octet-stream");
+      return reply.send(bytes);
+    } catch {
+      return reply.code(404).send({ message: "Sound file is missing" });
+    }
   });
 
   app.get("/api/assets", async () => deps.assetService.listProjectAssets());

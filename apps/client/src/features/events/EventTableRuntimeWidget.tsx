@@ -1,4 +1,6 @@
 import type { EventTableObject } from "@web-scada/shared";
+import { useState } from "react";
+import { eventSoundPlayer } from "./event-sound-player";
 
 type EventTableRuntimeWidgetProps = {
   object: EventTableObject;
@@ -43,6 +45,7 @@ function toFiniteNumber(value: unknown, fallback: number): number {
 }
 
 export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps) {
+  const [soundStatusText, setSoundStatusText] = useState<string>("");
   const title = object.title?.trim() || "Event Table";
   const columns = (object.columns && object.columns.length > 0 ? object.columns : DEFAULT_COLUMNS).slice(0, 12);
   const textColor = object.textColor ?? "#d4d4d4";
@@ -221,7 +224,53 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
           ) : null}
           {object.enableAckButton ? <span style={{ fontSize: Math.max(9, fontSize - 2), opacity: 0.7 }}>Ack (TODO)</span> : null}
           {object.enableAckSelectedButton ? <span style={{ fontSize: Math.max(9, fontSize - 2), opacity: 0.7 }}>Ack Selected (TODO)</span> : null}
-          {object.enableSilenceButton ? <span style={{ fontSize: Math.max(9, fontSize - 2), opacity: 0.7 }}>Silence (TODO)</span> : null}
+          {object.enableSilenceButton ? (
+            <button
+              type="button"
+              style={{
+                height: 20,
+                border: `1px solid ${gridLineColor}`,
+                background: "transparent",
+                color: mutedTextColor,
+                borderRadius: 3,
+                padding: "0 6px",
+                fontSize: Math.max(9, fontSize - 2),
+                cursor: "pointer",
+              }}
+              onClick={() => {
+                eventSoundPlayer.stopAllSounds();
+                setSoundStatusText("Sound playback stopped.");
+              }}
+            >
+              Silence
+            </button>
+          ) : null}
+          {object.enableSoundsButton !== false ? (
+            <button
+              type="button"
+              style={{
+                height: 20,
+                border: `1px solid ${gridLineColor}`,
+                background: "transparent",
+                color: mutedTextColor,
+                borderRadius: 3,
+                padding: "0 6px",
+                fontSize: Math.max(9, fontSize - 2),
+                cursor: "pointer",
+              }}
+              onClick={() => {
+                void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
+                  if (!result.ok) {
+                    setSoundStatusText(result.message);
+                    return;
+                  }
+                  setSoundStatusText("Sounds enabled.");
+                });
+              }}
+            >
+              Enable sounds
+            </button>
+          ) : null}
           {mode === "history" && object.enableCsvExportButton && object.enableCsvExport ? (
             <span style={{ fontSize: Math.max(9, fontSize - 2), opacity: 0.7 }}>CSV Export (TODO)</span>
           ) : null}
@@ -284,6 +333,11 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
           {mode === "history"
             ? "History mode is configured. Archive API is not connected yet."
             : "Event runtime data is not connected yet."}
+          {(soundStatusText || eventSoundPlayer.hasAutoplayBlock()) ? (
+            <div style={{ marginTop: 8, fontSize: Math.max(10, fontSize - 1), color: "#e6b450" }}>
+              {soundStatusText || "Sound playback was blocked by the browser. Click Enable sounds."}
+            </div>
+          ) : null}
         </div>
       </div>
       {showBottomStatus ? renderStatus() : null}

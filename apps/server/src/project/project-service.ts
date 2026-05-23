@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ScadaProject } from "@web-scada/shared";
-import { projectSchema } from "@web-scada/shared";
+import { ensureDefaultEventSounds, projectSchema } from "@web-scada/shared";
 
 export class ProjectService {
   private project: ScadaProject | undefined;
@@ -17,8 +17,9 @@ export class ProjectService {
     const rawJson = JSON.parse(raw);
     const normalized = normalizeLegacyMacroLanguages(rawJson);
     const parsed = projectSchema.parse(normalized);
-    this.project = parsed;
-    return parsed;
+    const withDefaults = withEventSoundDefaults(parsed);
+    this.project = withDefaults;
+    return withDefaults;
   }
 
   public getProject(): ScadaProject {
@@ -29,13 +30,23 @@ export class ProjectService {
   }
 
   public async saveProject(project: ScadaProject): Promise<ScadaProject> {
-    const validated = projectSchema.parse(normalizeLegacyMacroLanguages(project));
+    const validated = withEventSoundDefaults(projectSchema.parse(normalizeLegacyMacroLanguages(project)));
     const dir = path.dirname(this.projectFile);
     await mkdir(dir, { recursive: true });
     await writeFile(this.projectFile, JSON.stringify(validated, null, 2), "utf8");
     this.project = validated;
     return validated;
   }
+}
+
+function withEventSoundDefaults(project: ScadaProject): ScadaProject {
+  if (Array.isArray(project.eventSounds) && project.eventSounds.length > 0) {
+    return project;
+  }
+  return {
+    ...project,
+    eventSounds: ensureDefaultEventSounds(project.eventSounds),
+  };
 }
 
 function normalizeLegacyMacroLanguages(input: unknown): unknown {
