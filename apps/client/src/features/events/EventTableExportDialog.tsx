@@ -53,7 +53,6 @@ export function EventTableExportDialog({
     setOptions((previous) => ({
       ...previous,
       csvSource: mode === "history" ? previous.csvSource : "currentView",
-      selectedOnly: selectedCount > 0 ? previous.selectedOnly : false,
     }));
   }, [mode, open, selectedCount]);
 
@@ -127,7 +126,6 @@ export function EventTableExportDialog({
           <input
             type="checkbox"
             checked={options.selectedOnly}
-            disabled={selectedCount === 0}
             onChange={(event) => setOptions((previous) => ({
               ...previous,
               selectedOnly: event.target.checked,

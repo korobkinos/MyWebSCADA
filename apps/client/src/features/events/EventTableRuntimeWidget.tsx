@@ -171,6 +171,73 @@ function downloadBlobFile(name: string, blob: Blob): void {
   URL.revokeObjectURL(objectUrl);
 }
 
+function printHtmlDocument(content: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof document === "undefined") {
+      reject(new Error("Document is not available."));
+      return;
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.setAttribute("aria-hidden", "true");
+
+    const cleanup = () => {
+      iframe.onload = null;
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
+
+    let completed = false;
+    const finish = (error?: Error) => {
+      if (completed) {
+        return;
+      }
+      completed = true;
+      window.setTimeout(cleanup, 300);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+
+    document.body.appendChild(iframe);
+    const frameDocument = iframe.contentDocument;
+    if (!frameDocument) {
+      finish(new Error("Print frame document is unavailable."));
+      return;
+    }
+    frameDocument.open();
+    frameDocument.write(content);
+    frameDocument.close();
+
+    const targetWindow = iframe.contentWindow;
+    if (!targetWindow) {
+      finish(new Error("Print frame is unavailable."));
+      return;
+    }
+
+    // Give layout engine time to render dynamic table content before printing.
+    window.setTimeout(() => {
+      targetWindow.focus();
+      try {
+        targetWindow.print();
+        finish();
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        finish(new Error(text || "Failed to open print dialog."));
+      }
+    }, 220);
+  });
+}
+
 function buildClientCsv(
   rows: EventOccurrence[],
   columns: EventTableColumnId[],
@@ -815,7 +882,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
     const rows = resolveExportRows(options.selectedOnly);
     if (rows.length === 0) {
-      void message.info("No messages to export.");
+      void message.info(options.selectedOnly ? "No selected rows to export." : "No messages to export.");
       return;
     }
 
@@ -871,18 +938,8 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         return;
       }
 
-      const popup = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
-      if (!popup) {
-        throw new Error("Popup window was blocked by the browser.");
-      }
-      popup.document.open();
-      popup.document.write(html);
-      popup.document.close();
-      popup.focus();
-      window.setTimeout(() => {
-        popup.print();
-      }, 120);
-      void message.success("PDF print preview opened.");
+      await printHtmlDocument(html);
+      void message.success("PDF print dialog opened.");
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       void message.error(`Export failed: ${text}`);
