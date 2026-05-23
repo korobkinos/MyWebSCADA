@@ -9440,6 +9440,30 @@
       "mimeType": "audio/mpeg",
       "createdAt": "2026-05-23T19:53:06.805Z",
       "updatedAt": "2026-05-23T19:53:06.805Z"
+    },
+    {
+      "id": "cd29db2b-ee70-4346-8f36-9c7a3066d34e",
+      "name": "SLA_alarm-1",
+      "kind": "custom",
+      "fileName": "SLA_alarm-1.wav",
+      "url": "/api/event-sounds/cd29db2b-ee70-4346-8f36-9c7a3066d34e/file",
+      "filePath": "data/event-sounds/cd29db2b-ee70-4346-8f36-9c7a3066d34e.wav",
+      "mimeType": "audio/wav",
+      "sizeBytes": 267164,
+      "createdAt": "2026-05-23T20:04:30.150Z",
+      "updatedAt": "2026-05-23T20:04:30.150Z"
+    },
+    {
+      "id": "c090ff56-2df0-4023-8388-4076d0be55f1",
+      "name": "SLA_pred-alarm-1",
+      "kind": "custom",
+      "fileName": "SLA_pred-alarm-1.wav",
+      "url": "/api/event-sounds/c090ff56-2df0-4023-8388-4076d0be55f1/file",
+      "filePath": "data/event-sounds/c090ff56-2df0-4023-8388-4076d0be55f1.wav",
+      "mimeType": "audio/wav",
+      "sizeBytes": 224044,
+      "createdAt": "2026-05-23T20:07:22.196Z",
+      "updatedAt": "2026-05-23T20:07:22.196Z"
     }
   ],
   "variables": [
