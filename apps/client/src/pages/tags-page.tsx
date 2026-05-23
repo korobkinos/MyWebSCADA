@@ -104,17 +104,23 @@ export function TagsPage() {
   const pageRows = filtered.slice(start, start + 50);
   const selectedTag = tags.find((tag) => (tag.id ?? tag.name) === selectedId) ?? pageRows[0] ?? null;
 
-  const saveTags = (nextTags: TagDefinition[]): void => {
+  const saveTags = (nextTags: TagDefinition[]): {
+    deletedTagNames: string[];
+    disabledEventCount: number;
+  } => {
     const previousTagNames = new Set((project.tags ?? []).map((tag) => tag.name));
     const nextTagNames = new Set(nextTags.map((tag) => tag.name));
     const deletedTagNames = [...previousTagNames].filter((name) => !nextTagNames.has(name));
 
     let nextProject = { ...project, tags: nextTags };
+    let disabledEventCount = 0;
     if (deletedTagNames.length > 0) {
       const reconciled = reconcileEventsAfterTagDeletion(nextProject, deletedTagNames);
       nextProject = reconciled.project;
+      disabledEventCount = reconciled.affectedEventCount;
     }
     updateProjectJson(nextProject);
+    return { deletedTagNames, disabledEventCount };
   };
 
   const openAdd = (): void => {
@@ -142,7 +148,14 @@ export function TagsPage() {
     Modal.confirm({
       title: `Delete tag ${tag.name}?`,
       onOk: () => {
-        saveTags(tags.filter((item) => (item.id ?? item.name) !== (tag.id ?? tag.name)));
+        const { deletedTagNames, disabledEventCount } = saveTags(
+          tags.filter((item) => (item.id ?? item.name) !== (tag.id ?? tag.name)),
+        );
+        if (deletedTagNames.length > 0) {
+          void message.warning(
+            `Tag deleted. ${disabledEventCount} event(s) disabled because their source/security tag is missing.`,
+          );
+        }
       },
     });
   };
@@ -298,7 +311,12 @@ export function TagsPage() {
           };
         })
         .filter((tag) => tag.name);
-      saveTags(next);
+      const { deletedTagNames, disabledEventCount } = saveTags(next);
+      if (deletedTagNames.length > 0) {
+        void message.warning(
+          `Tags updated. ${disabledEventCount} event(s) disabled because their source/security tag is missing.`,
+        );
+      }
       void message.success(`Imported ${next.length} tags`);
     };
     reader.readAsText(file);
