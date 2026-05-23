@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
-import { runtimeWsClientMessageSchema, type EventOccurrence, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
+import { runtimeWsClientMessageSchema, type EventOccurrence, type RuntimeAction, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
 import { CommandService } from "../runtime/command-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
 import { logPerf } from "../runtime/perf-logger.js";
@@ -67,12 +67,21 @@ export class WebSocketGateway {
     this.clients.clear();
   }
 
-  public broadcastEventUpdate(kind: "active" | "cleared" | "acknowledged", occurrence: EventOccurrence): void {
+  public broadcastEventUpdate(
+    kind: "active" | "cleared" | "acknowledged",
+    occurrence: EventOccurrence,
+    options?: {
+      actionsToRun?: RuntimeAction[];
+      actionTrigger?: "active" | "cleared" | "ack";
+    },
+  ): void {
     const message: RuntimeWsServerMessage = {
       type: "event-update",
       payload: {
         kind,
         occurrence,
+        actionsToRun: options?.actionsToRun,
+        actionTrigger: options?.actionTrigger,
       },
     };
     this.broadcastSerialized(JSON.stringify(message));

@@ -9408,9 +9408,11 @@
       "requireAck": false,
       "soundEnabled": true,
       "soundId": "cd29db2b-ee70-4346-8f36-9c7a3066d34e",
+      "backgroundBlinkEnabled": true,
+      "backgroundBlinkDurationMs": 1600,
       "securityEnabled": false,
       "createdAt": "2026-05-23T17:56:47.530Z",
-      "updatedAt": "2026-05-23T21:05:28.473Z"
+      "updatedAt": "2026-05-23T23:10:03.344Z"
     },
     {
       "id": "event_ygsij1",
@@ -9426,9 +9428,11 @@
       "requireAck": false,
       "soundEnabled": true,
       "soundId": "c090ff56-2df0-4023-8388-4076d0be55f1",
+      "backgroundBlinkEnabled": true,
+      "backgroundBlinkDurationMs": 1600,
       "securityEnabled": false,
       "createdAt": "2026-05-23T22:11:01.677Z",
-      "updatedAt": "2026-05-23T22:11:01.677Z"
+      "updatedAt": "2026-05-23T23:10:20.007Z"
     }
   ],
   "eventSounds": [
@@ -10472,6 +10476,14 @@
           "title": "Сообщения",
           "showHeader": true,
           "showToolbar": true,
+          "toolbarPosition": "top",
+          "showSearch": true,
+          "showActiveOnlyToggle": true,
+          "showUnackedOnlyToggle": true,
+          "showAckVisibleButton": true,
+          "showSilenceButton": true,
+          "showEnableSoundsButton": true,
+          "showSettingsButton": true,
           "showStatusBar": true,
           "showActiveOnly": false,
           "showUnacknowledgedOnly": false,

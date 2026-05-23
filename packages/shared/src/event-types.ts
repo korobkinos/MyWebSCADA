@@ -1,4 +1,5 @@
 import type { TagScalarValue } from "./tag-types";
+import type { RuntimeAction } from "./hmi-object-types";
 
 export type EventConditionMode = "bit" | "word";
 export type EventBitTrigger = "ON" | "OFF" | "OFF_TO_ON" | "ON_TO_OFF";
@@ -57,6 +58,9 @@ export type EventDefinition = {
   securityEnabled?: boolean;
   securityTagName?: string;
   securityBitValue?: boolean | 0 | 1;
+  onActiveActions?: RuntimeAction[];
+  onClearedActions?: RuntimeAction[];
+  onAckActions?: RuntimeAction[];
   createdAt?: string;
   updatedAt?: string;
 };

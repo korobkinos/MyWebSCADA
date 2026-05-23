@@ -2,6 +2,7 @@ import {
   COMMAND_TIMEOUT_MS,
   type EventOccurrence,
   type ManualCommandMeta,
+  type RuntimeAction,
   type RuntimeWsClientMessage,
   type RuntimeWsServerMessage,
   type TagValue,
@@ -20,6 +21,8 @@ type WsCallbacks = {
   onEventUpdate?: (payload: {
     kind: "active" | "cleared" | "acknowledged";
     occurrence: EventOccurrence;
+    actionsToRun?: RuntimeAction[];
+    actionTrigger?: "active" | "cleared" | "ack";
   }) => void;
   onSocketStateChange?: (state: "connecting" | "open" | "closed" | "error") => void;
 };

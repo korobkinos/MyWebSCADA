@@ -22,7 +22,7 @@ import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime/numeric-input-dialog";
 import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
-import { updateRuntimeTagSubscriptions } from "../services/ws";
+import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
 import { isAbortError } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 import {
@@ -86,6 +86,13 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const runtimeSubscriptionRecalcCountRef = useRef(0);
   const runtimePerfDebugEnabledRef = useRef(false);
   const tagsRef = useRef(tags);
+  const runtimeExecuteActionRef = useRef<(action: RuntimeAction, context: RenderContext) => Promise<void>>(
+    async () => undefined,
+  );
+  const runtimeEventScreenIdRef = useRef<string | undefined>(undefined);
+  const runtimeEventUserRoleLevelRef = useRef<AccessRoleLevel>(userRoleLevel);
+  const runtimeEventIsAuthenticatedRef = useRef<boolean>(Boolean(authUser));
+  const executedEventActionKeysRef = useRef<Set<string>>(new Set());
   const debugActionTiming =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -172,6 +179,18 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   useEffect(() => {
     tagsRef.current = tags;
   }, [tags]);
+
+  useEffect(() => {
+    runtimeEventScreenIdRef.current = screen?.id;
+  }, [screen?.id]);
+
+  useEffect(() => {
+    runtimeEventUserRoleLevelRef.current = userRoleLevel;
+  }, [userRoleLevel]);
+
+  useEffect(() => {
+    runtimeEventIsAuthenticatedRef.current = Boolean(authUser);
+  }, [authUser]);
 
   useEffect(() => {
     if (!import.meta.env.DEV || fullscreen !== true || !screen || typeof window === "undefined") {
@@ -300,6 +319,54 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   useEffect(() => {
     return () => {
       updateRuntimeTagSubscriptions([]);
+    };
+  }, []);
+
+  useEffect(() => {
+    const socket = createRuntimeSocket(
+      {
+        onTagValues: () => undefined,
+        onEventUpdate: (payload) => {
+          const actions = payload.actionsToRun ?? [];
+          if (!payload.actionTrigger || actions.length === 0) {
+            return;
+          }
+          const occurrenceId = String(payload.occurrence.id ?? "").trim();
+          if (!occurrenceId) {
+            return;
+          }
+
+          const dedupeKey = `${payload.actionTrigger}:${occurrenceId}`;
+          if (executedEventActionKeysRef.current.has(dedupeKey)) {
+            return;
+          }
+          if (executedEventActionKeysRef.current.size > 5000) {
+            executedEventActionKeysRef.current.clear();
+          }
+          executedEventActionKeysRef.current.add(dedupeKey);
+
+          const context: RenderContext = {
+            screenId: runtimeEventScreenIdRef.current,
+            userRoleLevel: runtimeEventUserRoleLevelRef.current,
+            isAuthenticated: runtimeEventIsAuthenticatedRef.current,
+          };
+
+          void (async () => {
+            for (const action of actions) {
+              await runtimeExecuteActionRef.current(action, context);
+            }
+          })().catch((error) => {
+            const text = error instanceof Error ? error.message : String(error);
+            // eslint-disable-next-line no-console
+            console.warn(`[RuntimePage] event action execution failed: ${text}`);
+          });
+        },
+      },
+      { participateInGlobalSubscriptions: false },
+    );
+
+    return () => {
+      socket.close();
     };
   }, []);
 
@@ -1331,6 +1398,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       closePopupById(action.popupInstanceId);
     }
   };
+
+  runtimeExecuteActionRef.current = executeAction;
 
   const handleRequestNumericInput = (payload: NumericInputOpenPayload) => {
     const dialogWidth = Number.isFinite(payload.dialogWidth) ? Math.max(220, Math.round(payload.dialogWidth!)) : 300;

@@ -143,7 +143,13 @@ const appRoleSchema = z.enum(["admin", "engineer", "operator", "viewer"]);
 const runtimeActionAccessSchema = z.object({
   requireAuth: z.boolean().optional(),
   requiredRoles: z.array(appRoleSchema).optional(),
-  requiredRoleLevel: z.number().int().min(0).max(4).optional(),
+  requiredRoleLevel: z.union([
+    z.literal(0),
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+  ]).optional(),
 });
 
 export const assetSchema = z.object({
@@ -1312,6 +1318,9 @@ const eventDefinitionSchema = z.object({
   securityEnabled: z.boolean().optional(),
   securityTagName: z.string().optional(),
   securityBitValue: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional(),
+  onActiveActions: z.array(runtimeActionSchema).optional(),
+  onClearedActions: z.array(runtimeActionSchema).optional(),
+  onAckActions: z.array(runtimeActionSchema).optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });

@@ -1,6 +1,7 @@
 import type {
   EventBitTrigger,
   EventDefinition,
+  RuntimeAction,
   EventWordOperator,
   TagScalarValue,
   TagValue,
@@ -27,6 +28,9 @@ export type NormalizedEventDefinition = {
   soundId?: string;
   ackTagName?: string;
   ackValue?: TagScalarValue;
+  onActiveActions?: RuntimeAction[];
+  onClearedActions?: RuntimeAction[];
+  onAckActions?: RuntimeAction[];
 };
 
 export type EventRuntimeState = {
@@ -81,6 +85,9 @@ export function normalizeEventDefinition(definition: EventDefinition): Normalize
     soundId: definition.soundId,
     ackTagName: definition.ackTagName?.trim() || undefined,
     ackValue: definition.ackValue,
+    onActiveActions: definition.onActiveActions?.slice(),
+    onClearedActions: definition.onClearedActions?.slice(),
+    onAckActions: definition.onAckActions?.slice(),
   };
 }
 

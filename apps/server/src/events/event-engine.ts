@@ -9,6 +9,7 @@ import {
   type EventRuntimeState,
   type NormalizedEventDefinition,
 } from "./event-engine-logic.js";
+import { executeEventActions } from "./event-action-executor.js";
 
 type EventEngineLogger = {
   info(message: string): void;
@@ -163,10 +164,21 @@ export class EventEngine {
       }
 
       acknowledged.push(updated);
-      this.websocketGateway.broadcastEventUpdate("acknowledged", updated);
+      const definition = this.definitions.get(updated.eventDefinitionId);
+      const clientActions = await executeEventActions({
+        trigger: "ack",
+        eventDefinitionId: updated.eventDefinitionId,
+        occurrenceId: updated.id,
+        actions: definition?.onAckActions,
+        commandService: this.commandService,
+        logger: this.logger,
+      });
+      this.websocketGateway.broadcastEventUpdate("acknowledged", updated, {
+        actionsToRun: clientActions.length > 0 ? clientActions : undefined,
+        actionTrigger: clientActions.length > 0 ? "ack" : undefined,
+      });
       this.releaseActiveStateAfterAck(updated);
 
-      const definition = this.definitions.get(updated.eventDefinitionId);
       const ackTagName = definition?.ackTagName?.trim();
       if (!ackTagName || definition?.ackValue === undefined || !this.commandService) {
         continue;
@@ -271,11 +283,33 @@ export class EventEngine {
       if (occurrence.state === "active") {
         next.activeOccurrenceId = occurrence.id;
         next.activeSince = occurrence.occurredAt;
-        this.websocketGateway.broadcastEventUpdate("active", occurrence);
+        const clientActions = await executeEventActions({
+          trigger: "active",
+          eventDefinitionId: definition.id,
+          occurrenceId: occurrence.id,
+          actions: definition.onActiveActions,
+          commandService: this.commandService,
+          logger: this.logger,
+        });
+        this.websocketGateway.broadcastEventUpdate("active", occurrence, {
+          actionsToRun: clientActions.length > 0 ? clientActions : undefined,
+          actionTrigger: clientActions.length > 0 ? "active" : undefined,
+        });
       } else {
         next.activeOccurrenceId = undefined;
         next.activeSince = undefined;
-        this.websocketGateway.broadcastEventUpdate("cleared", occurrence);
+        const clientActions = await executeEventActions({
+          trigger: "active",
+          eventDefinitionId: definition.id,
+          occurrenceId: occurrence.id,
+          actions: definition.onActiveActions,
+          commandService: this.commandService,
+          logger: this.logger,
+        });
+        this.websocketGateway.broadcastEventUpdate("cleared", occurrence, {
+          actionsToRun: clientActions.length > 0 ? clientActions : undefined,
+          actionTrigger: clientActions.length > 0 ? "active" : undefined,
+        });
       }
 
       this.eventStates.set(definitionId, next);
@@ -308,7 +342,18 @@ export class EventEngine {
       next.activeOccurrenceId = created.id;
       next.activeSince = created.occurredAt;
       this.eventStates.set(definitionId, next);
-      this.websocketGateway.broadcastEventUpdate("active", created);
+      const clientActions = await executeEventActions({
+        trigger: "active",
+        eventDefinitionId: definition.id,
+        occurrenceId: created.id,
+        actions: definition.onActiveActions,
+        commandService: this.commandService,
+        logger: this.logger,
+      });
+      this.websocketGateway.broadcastEventUpdate("active", created, {
+        actionsToRun: clientActions.length > 0 ? clientActions : undefined,
+        actionTrigger: clientActions.length > 0 ? "active" : undefined,
+      });
       return;
     }
 
@@ -331,7 +376,18 @@ export class EventEngine {
       this.eventStates.set(definitionId, next);
 
       if (cleared) {
-        this.websocketGateway.broadcastEventUpdate("cleared", cleared);
+        const clientActions = await executeEventActions({
+          trigger: "cleared",
+          eventDefinitionId: definition.id,
+          occurrenceId: cleared.id,
+          actions: definition.onClearedActions,
+          commandService: this.commandService,
+          logger: this.logger,
+        });
+        this.websocketGateway.broadcastEventUpdate("cleared", cleared, {
+          actionsToRun: clientActions.length > 0 ? clientActions : undefined,
+          actionTrigger: clientActions.length > 0 ? "cleared" : undefined,
+        });
       }
     }
   }

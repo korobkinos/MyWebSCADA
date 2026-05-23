@@ -21,6 +21,7 @@ import type {
   EventBitTrigger,
   EventDefinition,
   EventSound,
+  RuntimeAction,
   EventWordOperator,
   HmiObject,
   TagScalarValue,
@@ -68,7 +69,7 @@ type EventColumnVisibility = Record<EventColumnId, boolean>;
 
 type EventManagerSection = "events" | "sounds";
 type EventEditorMode = "view" | "add" | "edit";
-type EventEditorTab = "general" | "message" | "statistics" | "security";
+type EventEditorTab = "general" | "message" | "statistics" | "security" | "actions";
 type TagPickerTargetField = Extract<
   EventTagReferenceField,
   | "sourceTagName"
@@ -105,6 +106,9 @@ type EventEditorDraft = {
   securityEnabled: boolean;
   securityTagName: string;
   securityBitValue: "" | "true" | "false" | "1" | "0";
+  onActiveActions: RuntimeAction[];
+  onClearedActions: RuntimeAction[];
+  onAckActions: RuntimeAction[];
 };
 
 type EventDraftErrors = Partial<Record<keyof EventEditorDraft, string>>;
@@ -448,6 +452,9 @@ function toDraft(event: EventDefinition, fallbackId: string): EventEditorDraft {
     securityEnabled: event.securityEnabled === true,
     securityTagName: event.securityTagName ?? "",
     securityBitValue: securityBitValueToText(event.securityBitValue),
+    onActiveActions: (event.onActiveActions ?? []).map((action) => ({ ...action })),
+    onClearedActions: (event.onClearedActions ?? []).map((action) => ({ ...action })),
+    onAckActions: (event.onAckActions ?? []).map((action) => ({ ...action })),
   };
 }
 
@@ -479,6 +486,9 @@ function createDefaultDraft(existingIds: Set<string>): EventEditorDraft {
     securityEnabled: false,
     securityTagName: "",
     securityBitValue: "",
+    onActiveActions: [],
+    onClearedActions: [],
+    onAckActions: [],
   };
 }
 
@@ -606,6 +616,9 @@ function buildEventFromDraft(
     securityBitValue: draft.securityEnabled
       ? parseSecurityBitValue(draft.securityBitValue)
       : undefined,
+    onActiveActions: draft.onActiveActions.length > 0 ? draft.onActiveActions.map((action) => ({ ...action })) : undefined,
+    onClearedActions: draft.onClearedActions.length > 0 ? draft.onClearedActions.map((action) => ({ ...action })) : undefined,
+    onAckActions: draft.onAckActions.length > 0 ? draft.onAckActions.map((action) => ({ ...action })) : undefined,
     createdAt: previous?.createdAt ?? nowIso(),
     updatedAt: nowIso(),
   };
@@ -687,6 +700,169 @@ function parseLooseCsvValue(raw: string): unknown {
     return parsed;
   }
   return text;
+}
+
+const EVENT_ACTION_ROLE_OPTIONS = [
+  { value: "admin", label: "admin" },
+  { value: "engineer", label: "engineer" },
+  { value: "operator", label: "operator" },
+  { value: "viewer", label: "viewer" },
+] as const;
+
+const EVENT_ACTION_LEVEL_OPTIONS = [
+  { value: 0, label: "0" },
+  { value: 1, label: "1" },
+  { value: 2, label: "2" },
+  { value: 3, label: "3" },
+  { value: 4, label: "4" },
+];
+
+function parseRequiredRoleLevel(value: string): RuntimeAction["requiredRoleLevel"] {
+  if (value === "0") {
+    return 0;
+  }
+  if (value === "1") {
+    return 1;
+  }
+  if (value === "2") {
+    return 2;
+  }
+  if (value === "3") {
+    return 3;
+  }
+  if (value === "4") {
+    return 4;
+  }
+  return undefined;
+}
+
+function parseRuntimeActionValue(value: string): boolean | number | string | null {
+  const text = value.trim();
+  if (!text) {
+    return "";
+  }
+  if (text.toLowerCase() === "null") {
+    return null;
+  }
+  if (text.toLowerCase() === "true") {
+    return true;
+  }
+  if (text.toLowerCase() === "false") {
+    return false;
+  }
+  const numeric = Number(text);
+  if (Number.isFinite(numeric)) {
+    return numeric;
+  }
+  return value;
+}
+
+function stringifyRuntimeActionValue(value: boolean | number | string | null): string {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function makeDefaultRuntimeAction(
+  type: RuntimeAction["type"],
+  screenIds: string[],
+  popupIds: string[],
+  macroIds: string[],
+): RuntimeAction {
+  if (type === "write") {
+    return { type: "write", tag: "", value: true };
+  }
+  if (type === "pulse") {
+    return { type: "pulse", tag: "", value: true, durationMs: 500 };
+  }
+  if (type === "toggle") {
+    return { type: "toggle", tag: "" };
+  }
+  if (type === "writeConst") {
+    return { type: "writeConst", target: "tag", name: "", value: 0 };
+  }
+  if (type === "writeNumberPrompt") {
+    return { type: "writeNumberPrompt", target: "tag", name: "" };
+  }
+  if (type === "openScreen") {
+    return { type: "openScreen", screenId: screenIds[0] ?? "" };
+  }
+  if (type === "openPopup") {
+    return { type: "openPopup", popupScreenId: popupIds[0] ?? "" };
+  }
+  if (type === "closePopup") {
+    return { type: "closePopup" };
+  }
+  if (type === "openUrl") {
+    return { type: "openUrl", url: "https://example.com", newTab: true };
+  }
+  if (type === "runMacro") {
+    return { type: "runMacro", macroId: macroIds[0] ?? "" };
+  }
+  if (type === "setLW") {
+    return { type: "setLW", address: 0, value: 0 };
+  }
+  return { type: "setInternalVar", name: "LW.someVar", value: 0 };
+}
+
+function parseActionArgs(value: string): Record<string, unknown> | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function describeRuntimeAction(action: RuntimeAction): string {
+  if (action.type === "write") {
+    return `write ${action.tag}=${stringifyRuntimeActionValue(action.value)}`;
+  }
+  if (action.type === "pulse") {
+    return `pulse ${action.tag} ${action.durationMs}ms`;
+  }
+  if (action.type === "toggle") {
+    return `toggle ${action.tag}`;
+  }
+  if (action.type === "writeConst") {
+    return `writeConst ${action.target}:${action.name}`;
+  }
+  if (action.type === "writeNumberPrompt") {
+    return `writeNumberPrompt ${action.target}:${action.name}`;
+  }
+  if (action.type === "openScreen") {
+    return `openScreen ${action.screenId}`;
+  }
+  if (action.type === "openPopup") {
+    return `openPopup ${action.popupScreenId}`;
+  }
+  if (action.type === "closePopup") {
+    return "closePopup";
+  }
+  if (action.type === "openUrl") {
+    return `openUrl ${action.url}`;
+  }
+  if (action.type === "runMacro") {
+    return `runMacro ${action.macroId}`;
+  }
+  if (action.type === "setLW") {
+    return `setLW ${action.address}`;
+  }
+  return `setInternalVar ${action.name}`;
 }
 
 type EventSoundWarning = {
@@ -988,6 +1164,15 @@ export function EventsPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftEvent, setDraftEvent] = useState<EventEditorDraft | null>(null);
   const [draftErrors, setDraftErrors] = useState<EventDraftErrors>({});
+  const [selectedActionByTrigger, setSelectedActionByTrigger] = useState<{
+    active: number;
+    cleared: number;
+    ack: number;
+  }>({
+    active: 0,
+    cleared: 0,
+    ack: 0,
+  });
   const [tagPickerTargetField, setTagPickerTargetField] =
     useState<TagPickerTargetField | null>(null);
   const [activeSection, setActiveSection] =
@@ -1009,6 +1194,18 @@ export function EventsPage() {
 
   const events = project.events ?? [];
   const categories = project.eventCategories ?? [];
+  const screenIds = useMemo(
+    () => project.screens.filter((screen) => screen.kind === "screen").map((screen) => screen.id),
+    [project.screens],
+  );
+  const popupIds = useMemo(
+    () => project.screens.filter((screen) => screen.kind === "popup").map((screen) => screen.id),
+    [project.screens],
+  );
+  const macroIds = useMemo(
+    () => (project.macros ?? []).map((macro) => macro.id),
+    [project.macros],
+  );
   const sounds = useMemo(
     () => ensureDefaultEventSounds(project.eventSounds),
     [project.eventSounds],
@@ -1441,6 +1638,7 @@ export function EventsPage() {
 
   const openAdd = () => {
     setDraftEvent(createDefaultDraft(existingIds));
+    setSelectedActionByTrigger({ active: 0, cleared: 0, ack: 0 });
     setDraftErrors({});
     setEditorMode("add");
     setEditorTab("general");
@@ -1452,6 +1650,7 @@ export function EventsPage() {
     (row: EventRow) => {
       const fallbackId = row.id || createEventId(existingIds);
       setDraftEvent(toDraft(row.event, fallbackId));
+      setSelectedActionByTrigger({ active: 0, cleared: 0, ack: 0 });
       setDraftErrors({});
       setEditorMode("edit");
       setEditorTab("general");
@@ -1466,6 +1665,7 @@ export function EventsPage() {
     setEditorMode("view");
     setEditingIndex(null);
     setDraftEvent(null);
+    setSelectedActionByTrigger({ active: 0, cleared: 0, ack: 0 });
     setDraftErrors({});
     setTagPickerTargetField(null);
   };
@@ -1653,6 +1853,532 @@ export function EventsPage() {
 
   const setDraftPatch = (patch: Partial<EventEditorDraft>) => {
     setDraftEvent((prev) => (prev ? { ...prev, ...patch } : prev));
+  };
+
+  type EventActionField = "onActiveActions" | "onClearedActions" | "onAckActions";
+  type EventActionSelectionKey = "active" | "cleared" | "ack";
+
+  const getActionSelectionIndex = (selection: EventActionSelectionKey, length: number): number => {
+    const rawIndex = selectedActionByTrigger[selection];
+    if (length <= 0) {
+      return -1;
+    }
+    return Math.max(0, Math.min(length - 1, rawIndex));
+  };
+
+  const patchEventActionList = (field: EventActionField, updater: (list: RuntimeAction[]) => RuntimeAction[]) => {
+    setDraftEvent((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      const current = prev[field] ?? [];
+      return {
+        ...prev,
+        [field]: updater(current),
+      };
+    });
+  };
+
+  const addEventAction = (field: EventActionField, selection: EventActionSelectionKey) => {
+    patchEventActionList(field, (list) => [
+      ...list,
+      makeDefaultRuntimeAction("write", screenIds, popupIds, macroIds),
+    ]);
+    setSelectedActionByTrigger((prev) => ({
+      ...prev,
+      [selection]: (draftEvent?.[field].length ?? 0),
+    }));
+  };
+
+  const updateEventAction = (
+    field: EventActionField,
+    index: number,
+    updater: (action: RuntimeAction) => RuntimeAction,
+  ) => {
+    patchEventActionList(field, (list) =>
+      list.map((action, actionIndex) => (actionIndex === index ? updater(action) : action)),
+    );
+  };
+
+  const removeEventAction = (field: EventActionField, selection: EventActionSelectionKey, index: number) => {
+    patchEventActionList(field, (list) => list.filter((_, actionIndex) => actionIndex !== index));
+    setSelectedActionByTrigger((prev) => ({
+      ...prev,
+      [selection]: Math.max(0, prev[selection] - (index <= prev[selection] ? 1 : 0)),
+    }));
+  };
+
+  const moveEventAction = (
+    field: EventActionField,
+    selection: EventActionSelectionKey,
+    index: number,
+    direction: -1 | 1,
+  ) => {
+    patchEventActionList(field, (list) => {
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= list.length) {
+        return list;
+      }
+      const next = [...list];
+      const current = next[index];
+      const target = next[nextIndex];
+      if (!current || !target) {
+        return list;
+      }
+      next[index] = target;
+      next[nextIndex] = current;
+      return next;
+    });
+    setSelectedActionByTrigger((prev) => ({
+      ...prev,
+      [selection]: Math.max(0, prev[selection] + direction),
+    }));
+  };
+
+  const renderEventActionFields = (
+    field: EventActionField,
+    index: number,
+    action: RuntimeAction,
+  ): ReactNode => {
+    const patch = (nextAction: RuntimeAction) => {
+      updateEventAction(field, index, () => nextAction);
+    };
+
+    return (
+      <div className="event-actions-editor__fields">
+        <label className="workbench-field">
+          <span className="workbench-field__label">Action Type</span>
+          <select
+            className="workbench-select"
+            value={action.type}
+            onChange={(event) =>
+              patch(
+                makeDefaultRuntimeAction(
+                  event.target.value as RuntimeAction["type"],
+                  screenIds,
+                  popupIds,
+                  macroIds,
+                ),
+              )
+            }
+          >
+            <option value="write">write</option>
+            <option value="pulse">pulse</option>
+            <option value="toggle">toggle</option>
+            <option value="writeConst">writeConst</option>
+            <option value="writeNumberPrompt">writeNumberPrompt</option>
+            <option value="openScreen">openScreen</option>
+            <option value="openPopup">openPopup</option>
+            <option value="closePopup">closePopup</option>
+            <option value="openUrl">openUrl</option>
+            <option value="runMacro">runMacro</option>
+            <option value="setLW">setLW</option>
+            <option value="setInternalVar">setInternalVar</option>
+          </select>
+        </label>
+
+        {action.type === "write" || action.type === "toggle" || action.type === "pulse" ? (
+          <label className="workbench-field">
+            <span className="workbench-field__label">Tag</span>
+            <input
+              className="workbench-input"
+              value={action.tag}
+              onChange={(event) => patch({ ...action, tag: event.target.value })}
+            />
+          </label>
+        ) : null}
+
+        {action.type === "write" || action.type === "pulse" ? (
+          <label className="workbench-field">
+            <span className="workbench-field__label">Value</span>
+            <input
+              className="workbench-input"
+              value={stringifyRuntimeActionValue(action.value)}
+              onChange={(event) => patch({ ...action, value: parseRuntimeActionValue(event.target.value) })}
+            />
+          </label>
+        ) : null}
+
+        {action.type === "pulse" ? (
+          <label className="workbench-field">
+            <span className="workbench-field__label">Duration (ms)</span>
+            <input
+              className="workbench-input"
+              type="number"
+              min={1}
+              value={action.durationMs}
+              onChange={(event) => patch({ ...action, durationMs: Math.max(1, Number(event.target.value) || 1) })}
+            />
+          </label>
+        ) : null}
+
+        {action.type === "writeConst" || action.type === "writeNumberPrompt" ? (
+          <label className="workbench-field">
+            <span className="workbench-field__label">Target</span>
+            <select
+              className="workbench-select"
+              value={action.target}
+              onChange={(event) => patch({ ...action, target: event.target.value as "tag" | "variable" })}
+            >
+              <option value="tag">tag</option>
+              <option value="variable">variable</option>
+            </select>
+          </label>
+        ) : null}
+
+        {action.type === "writeConst" || action.type === "writeNumberPrompt" ? (
+          <label className="workbench-field">
+            <span className="workbench-field__label">Name</span>
+            <input
+              className="workbench-input"
+              value={action.name}
+              onChange={(event) => patch({ ...action, name: event.target.value })}
+            />
+          </label>
+        ) : null}
+
+        {action.type === "writeConst" ? (
+          <label className="workbench-field">
+            <span className="workbench-field__label">Value</span>
+            <input
+              className="workbench-input"
+              value={stringifyRuntimeActionValue(action.value)}
+              onChange={(event) => patch({ ...action, value: parseRuntimeActionValue(event.target.value) })}
+            />
+          </label>
+        ) : null}
+
+        {action.type === "writeNumberPrompt" ? (
+          <div className="event-actions-editor__inline-grid">
+            <label className="workbench-field">
+              <span className="workbench-field__label">Min</span>
+              <input
+                className="workbench-input"
+                type="number"
+                value={typeof action.min === "number" ? action.min : ""}
+                onChange={(event) => patch({
+                  ...action,
+                  min: event.target.value.trim() ? Number(event.target.value) : undefined,
+                })}
+              />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Max</span>
+              <input
+                className="workbench-input"
+                type="number"
+                value={typeof action.max === "number" ? action.max : ""}
+                onChange={(event) => patch({
+                  ...action,
+                  max: event.target.value.trim() ? Number(event.target.value) : undefined,
+                })}
+              />
+            </label>
+          </div>
+        ) : null}
+
+        {action.type === "openScreen" ? (
+          <label className="workbench-field">
+            <span className="workbench-field__label">Screen</span>
+            <select
+              className="workbench-select"
+              value={action.screenId}
+              onChange={(event) => patch({ ...action, screenId: event.target.value })}
+            >
+              <option value="">(none)</option>
+              {screenIds.map((screenId) => (
+                <option key={screenId} value={screenId}>
+                  {screenId}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        {action.type === "openPopup" ? (
+          <>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Popup</span>
+              <select
+                className="workbench-select"
+                value={action.popupScreenId}
+                onChange={(event) => patch({ ...action, popupScreenId: event.target.value })}
+              >
+                <option value="">(none)</option>
+                {popupIds.map((popupId) => (
+                  <option key={popupId} value={popupId}>
+                    {popupId}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Title</span>
+              <input
+                className="workbench-input"
+                value={action.title ?? ""}
+                onChange={(event) => patch({ ...action, title: event.target.value || undefined })}
+              />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Tag Prefix</span>
+              <input
+                className="workbench-input"
+                value={action.tagPrefix ?? ""}
+                onChange={(event) => patch({ ...action, tagPrefix: event.target.value || undefined })}
+              />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Args (JSON)</span>
+              <textarea
+                className="workbench-input event-actions-editor__textarea"
+                rows={3}
+                value={JSON.stringify(action.args ?? {}, null, 2)}
+                onChange={(event) => patch({ ...action, args: parseActionArgs(event.target.value) })}
+              />
+            </label>
+          </>
+        ) : null}
+
+        {action.type === "closePopup" ? (
+          <label className="workbench-field">
+            <span className="workbench-field__label">Popup Instance ID (optional)</span>
+            <input
+              className="workbench-input"
+              value={action.popupInstanceId ?? ""}
+              onChange={(event) => patch({ ...action, popupInstanceId: event.target.value || undefined })}
+            />
+          </label>
+        ) : null}
+
+        {action.type === "openUrl" ? (
+          <>
+            <label className="workbench-field">
+              <span className="workbench-field__label">URL</span>
+              <input
+                className="workbench-input"
+                value={action.url}
+                onChange={(event) => patch({ ...action, url: event.target.value })}
+              />
+            </label>
+            <label className="workbench-field">
+              <label className="screen-editor-tags-checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={action.newTab !== false}
+                  onChange={(event) => patch({ ...action, newTab: event.target.checked })}
+                />
+                <span>Open in new tab</span>
+              </label>
+            </label>
+          </>
+        ) : null}
+
+        {action.type === "runMacro" ? (
+          <>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Macro</span>
+              <select
+                className="workbench-select"
+                value={action.macroId}
+                onChange={(event) => patch({ ...action, macroId: event.target.value })}
+              >
+                <option value="">(none)</option>
+                {macroIds.map((macroId) => (
+                  <option key={macroId} value={macroId}>
+                    {macroId}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Args (JSON)</span>
+              <textarea
+                className="workbench-input event-actions-editor__textarea"
+                rows={3}
+                value={JSON.stringify(action.args ?? {}, null, 2)}
+                onChange={(event) => patch({ ...action, args: parseActionArgs(event.target.value) })}
+              />
+            </label>
+            <label className="workbench-field">
+              <label className="screen-editor-tags-checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={action.allowRepeat === true}
+                  onChange={(event) => patch({ ...action, allowRepeat: event.target.checked || undefined })}
+                />
+                <span>Allow Repeat</span>
+              </label>
+            </label>
+          </>
+        ) : null}
+
+        {action.type === "setLW" ? (
+          <>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Address</span>
+              <input
+                className="workbench-input"
+                type="number"
+                min={0}
+                value={action.address}
+                onChange={(event) => patch({ ...action, address: Math.max(0, Number(event.target.value) || 0) })}
+              />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Value</span>
+              <input
+                className="workbench-input"
+                value={stringifyRuntimeActionValue(action.value)}
+                onChange={(event) => patch({ ...action, value: parseRuntimeActionValue(event.target.value) })}
+              />
+            </label>
+          </>
+        ) : null}
+
+        {action.type === "setInternalVar" ? (
+          <>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Variable</span>
+              <input
+                className="workbench-input"
+                value={action.name}
+                onChange={(event) => patch({ ...action, name: event.target.value })}
+              />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Value</span>
+              <input
+                className="workbench-input"
+                value={stringifyRuntimeActionValue(action.value)}
+                onChange={(event) => patch({ ...action, value: parseRuntimeActionValue(event.target.value) })}
+              />
+            </label>
+          </>
+        ) : null}
+
+        <div className="event-actions-editor__inline-grid">
+          <label className="workbench-field">
+            <label className="screen-editor-tags-checkbox-field">
+              <input
+                type="checkbox"
+                checked={action.requireAuth === true}
+                onChange={(event) => patch({ ...action, requireAuth: event.target.checked || undefined })}
+              />
+              <span>Require Auth</span>
+            </label>
+          </label>
+          <label className="workbench-field">
+            <span className="workbench-field__label">Role Level</span>
+            <select
+              className="workbench-select"
+              value={typeof action.requiredRoleLevel === "number" ? String(action.requiredRoleLevel) : ""}
+              onChange={(event) => patch({
+                ...action,
+                requiredRoleLevel: parseRequiredRoleLevel(event.target.value),
+              })}
+            >
+              <option value="">(none)</option>
+              {EVENT_ACTION_LEVEL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <label className="workbench-field">
+          <span className="workbench-field__label">Required Roles</span>
+          <select
+            className="workbench-select"
+            multiple
+            value={action.requiredRoles ?? []}
+            onChange={(event) => {
+              const nextRoles = Array.from(event.target.selectedOptions).map((option) => option.value);
+              patch({
+                ...action,
+                requiredRoles: nextRoles.length > 0 ? (nextRoles as RuntimeAction["requiredRoles"]) : undefined,
+              });
+            }}
+          >
+            {EVENT_ACTION_ROLE_OPTIONS.map((role) => (
+              <option key={role.value} value={role.value}>
+                {role.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    );
+  };
+
+  const renderActionSection = (
+    title: string,
+    field: EventActionField,
+    selection: EventActionSelectionKey,
+  ): ReactNode => {
+    if (!draftEvent) {
+      return null;
+    }
+    const list = draftEvent[field];
+    const selectedIndex = getActionSelectionIndex(selection, list.length);
+    const selectedAction = selectedIndex >= 0 ? list[selectedIndex] : undefined;
+
+    return (
+      <div className="event-actions-editor__section">
+        <div className="event-actions-editor__section-header">
+          <strong>{title}</strong>
+          <WorkbenchButton onClick={() => addEventAction(field, selection)}>Add Action</WorkbenchButton>
+        </div>
+        {list.length === 0 ? (
+          <span className="screen-editor-tag-editor__hint">No actions configured.</span>
+        ) : (
+          <div className="event-actions-editor__list">
+            {list.map((action, index) => (
+              <button
+                key={`${field}-${index}`}
+                type="button"
+                className={[
+                  "event-actions-editor__item",
+                  selectedIndex === index ? "event-actions-editor__item--active" : "",
+                ].join(" ")}
+                onClick={() => setSelectedActionByTrigger((prev) => ({ ...prev, [selection]: index }))}
+              >
+                <span>{index + 1}.</span>
+                <span>{describeRuntimeAction(action)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {selectedAction ? (
+          <div className="event-actions-editor__edit">
+            <div className="event-actions-editor__controls">
+              <WorkbenchButton
+                onClick={() => moveEventAction(field, selection, selectedIndex, -1)}
+                disabled={selectedIndex <= 0}
+              >
+                Up
+              </WorkbenchButton>
+              <WorkbenchButton
+                onClick={() => moveEventAction(field, selection, selectedIndex, 1)}
+                disabled={selectedIndex < 0 || selectedIndex >= list.length - 1}
+              >
+                Down
+              </WorkbenchButton>
+              <WorkbenchButton
+                variant="danger"
+                onClick={() => removeEventAction(field, selection, selectedIndex)}
+              >
+                Delete
+              </WorkbenchButton>
+            </div>
+            {renderEventActionFields(field, selectedIndex, selectedAction)}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   const draftEventWarnings = useMemo(() => {
@@ -2163,6 +2889,7 @@ export function EventsPage() {
     { id: "message", title: "Message" },
     { id: "statistics", title: "Statistics" },
     { id: "security", title: "Security" },
+    { id: "actions", title: "Actions" },
   ];
   const selectedPickerTagName =
     draftEvent && tagPickerTargetField
@@ -2533,6 +3260,16 @@ export function EventsPage() {
             "Elapsed Time Tag Name (optional)",
           )}
         </>
+      );
+    }
+
+    if (editorTab === "actions") {
+      return (
+        <div className="event-actions-editor">
+          {renderActionSection("On Active", "onActiveActions", "active")}
+          {renderActionSection("On Cleared", "onClearedActions", "cleared")}
+          {renderActionSection("On Acknowledge", "onAckActions", "ack")}
+        </div>
       );
     }
 
@@ -3154,7 +3891,7 @@ export function EventsPage() {
 
             <div className="screen-editor-tag-editor__hint">
               {statusText ||
-                "Event Manager editor updates project.events only. Runtime processing is not implemented in this step."}
+                "Event Manager editor updates project.events. Runtime execution is handled by Event Engine."}
             </div>
           </div>
         </div>

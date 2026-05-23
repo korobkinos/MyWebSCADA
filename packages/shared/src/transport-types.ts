@@ -1,5 +1,6 @@
 import type { ManualCommandMeta } from "./runtime-command-types";
 import type { EventOccurrence } from "./event-types";
+import type { RuntimeAction } from "./hmi-object-types";
 
 export type TagUpdateMessage = {
   type: "tag-update";
@@ -24,6 +25,8 @@ export type EventUpdateMessage = {
   payload: {
     kind: "active" | "cleared" | "acknowledged";
     occurrence: EventOccurrence;
+    actionsToRun?: RuntimeAction[];
+    actionTrigger?: "active" | "cleared" | "ack";
   };
 };
 
