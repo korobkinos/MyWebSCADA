@@ -2649,21 +2649,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       liveFollowWindowMsRef.current = Math.max(60_000, normalized.to - normalized.from);
     }
     if (source === "interaction") {
-      if (liveMode) {
-        liveFollowRef.current = false;
-        setLiveFollow(false);
-      }
       const echoPreset = resolveToolbarRangeEchoPreset(normalized);
       if (echoPreset) {
         setRangePreset(echoPreset);
         setToolbarQuickPreset(echoPreset === "5m" || echoPreset === "15m" || echoPreset === "1h" ? echoPreset : null);
         return;
-      } else {
-        toolbarRangeRef.current = null;
-        setRangePreset("custom");
-        setToolbarQuickPreset(null);
-        pendingToolbarPresetRef.current = null;
       }
+      if (liveMode) {
+        liveFollowRef.current = false;
+        setLiveFollow(false);
+      }
+      toolbarRangeRef.current = null;
+      setRangePreset("custom");
+      setToolbarQuickPreset(null);
+      pendingToolbarPresetRef.current = null;
     }
     if (source === "interaction" && liveMode) {
       setLiveAutoStopReason(null);
