@@ -4,7 +4,7 @@ import { clamp, defaultTrendSettings, normalizeTrendTableSettings } from "./tren
 const TREND_RUNTIME_VIEW_STATE_STORAGE_PREFIX = "mywebscada.trends.runtimeViewState";
 const TREND_RUNTIME_VIEW_STATE_VERSION = 2;
 
-const SERIES_COLUMN_IDS: TrendSeriesColumnId[] = ["visible", "tag", "displayName", "description", "color", "value"];
+const SERIES_COLUMN_IDS: TrendSeriesColumnId[] = ["visible", "tag", "displayName", "description", "axis", "color", "value"];
 
 type TrendRuntimeViewStateData = {
   rangePreset: TrendRangePreset;

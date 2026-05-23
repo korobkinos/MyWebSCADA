@@ -6435,7 +6435,8 @@ body {
 }
 .trends-series-table__cell--tag,
 .trends-series-table__cell--display-name,
-.trends-series-table__cell--description {
+.trends-series-table__cell--description,
+.trends-series-table__cell--axis {
   color: var(--trends-series-table-muted, var(--trends-theme-muted, #8a8a8a));
   overflow: hidden;
   text-overflow: ellipsis;

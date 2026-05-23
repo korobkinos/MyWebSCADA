@@ -14,6 +14,7 @@ const defaultWidths: TrendSeriesColumnWidths = {
   tag: 340,
   displayName: 240,
   description: 280,
+  axis: 120,
   color: 270,
   value: 120,
 };

@@ -15,7 +15,7 @@ import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendLiveDataSource, TrendPoint, TrendQueryResponse, TrendQuickPreset, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { buildAxes, clamp, decimateTrendPoints, defaultTrendSettings, formatRangeLabel, isRangeCovered, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendRange, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan, unionTrendRanges } from "./trendUtils";
+import { TREND_DEFAULT_AXIS_ID, buildAxes, clamp, decimateTrendPoints, defaultTrendSettings, formatRangeLabel, isRangeCovered, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendRange, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan, unionTrendRanges } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 import { TrendQueryRateLimiter } from "./trendQueryRateLimiter";
@@ -71,6 +71,7 @@ const DEFAULT_SERIES_COLUMNS: TrendSeriesColumnState[] = [
   { id: "tag", label: "Tag", visible: true },
   { id: "displayName", label: "Display name", visible: true },
   { id: "description", label: "Description", visible: true },
+  { id: "axis", label: "Scale", visible: true },
   { id: "value", label: "Value", visible: true },
 ];
 
@@ -79,6 +80,7 @@ const DEFAULT_SERIES_COLUMN_WIDTHS: TrendSeriesColumnWidths = {
   tag: 180,
   displayName: 200,
   description: 260,
+  axis: 120,
   color: 94,
   value: 96,
 };
@@ -88,6 +90,7 @@ const MIN_SERIES_COLUMN_WIDTHS: Record<TrendSeriesColumnId, number> = {
   tag: 72,
   displayName: 92,
   description: 120,
+  axis: 72,
   color: 56,
   value: 64,
 };
@@ -1089,6 +1092,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const { axes, resolvedAxisIdByTag } = useMemo(
     () => buildAxes(selectedTags, tagInfoMap, settings, manualAxes),
     [manualAxes, selectedTags, settings, tagInfoMap],
+  );
+  const axisLabelById = useMemo(
+    () => new Map(axes.map((axis) => [axis.id, axis.name?.trim() || axis.id])),
+    [axes],
   );
 
   const visibleSpanMs = Math.max(60_000, visibleRange.to - visibleRange.from);
@@ -3641,6 +3648,15 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
                       return (
                         <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--description" title={tagInfoMap.get(tag.tag)?.description || "-"}>
                           {tagInfoMap.get(tag.tag)?.description || "-"}
+                        </div>
+                      );
+                    }
+                    if (column.id === "axis") {
+                      const axisId = resolvedAxisIdByTag.get(tag.tag) ?? tag.axisId ?? TREND_DEFAULT_AXIS_ID;
+                      const axisLabel = axisLabelById.get(axisId) ?? axisId;
+                      return (
+                        <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--axis" title={axisId === axisLabel ? axisId : `${axisLabel} (${axisId})`}>
+                          {axisLabel}
                         </div>
                       );
                     }
