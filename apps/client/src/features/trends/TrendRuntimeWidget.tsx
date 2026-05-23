@@ -190,6 +190,33 @@ function isAuthenticationRequiredErrorMessage(message: string): boolean {
   return text.includes("authentication required") || text.includes("unauthorized");
 }
 
+function isAbortError(error: unknown): boolean {
+  if (typeof error === "string") {
+    const text = error.toLowerCase().trim();
+    return text === "aborted"
+      || text.includes("the operation was aborted")
+      || text.includes("the user aborted a request")
+      || text.includes("aborterror");
+  }
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const source = error as { name?: unknown; message?: unknown; code?: unknown; cause?: unknown };
+  const name = typeof source.name === "string" ? source.name.toLowerCase() : "";
+  if (name === "aborterror") {
+    return true;
+  }
+  if (source.code === 20) {
+    return true;
+  }
+  const message = typeof source.message === "string" ? source.message.toLowerCase().trim() : "";
+  return message === "aborted"
+    || message.includes("the operation was aborted")
+    || message.includes("the user aborted a request")
+    || message.includes("aborterror")
+    || (source.cause !== error && isAbortError(source.cause));
+}
+
 function mergeTrendSeriesPoints(
   base: TrendQueryResponse["series"],
   overlay: TrendQueryResponse["series"],
@@ -1573,7 +1600,17 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       setSeriesLatestValues(nextLatest);
       return { ok: true, response: latestSource };
     } catch (queryError) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || isAbortError(queryError)) {
+        logTrendDiagnostics("query:aborted", {
+          mode,
+          liveMode,
+          liveFollow: liveFollowRef.current,
+          rangeFrom: range.from,
+          rangeTo: range.to,
+          targetMode,
+          ownsGlobalRequest,
+          message: queryError instanceof Error ? queryError.message : String(queryError),
+        });
         return { ok: false, reason: "error" };
       }
       const retryAfterMs = resolveRetryDelayFromError(queryError, "trendsQuery");
@@ -2800,6 +2837,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       logTrendDiagnostics("live:toggle-off", {
         reason: "toolbar",
       });
+      setError(null);
       setLoading(false);
       setLiveMode(false);
       liveFollowRef.current = false;
@@ -2813,6 +2851,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       to: right,
     };
     setLiveAutoStopReason(null);
+    setError(null);
     setLoading(false);
     logTrendDiagnostics("live:toggle-on", {
       from: nextRange.from,
@@ -2850,6 +2889,17 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     () => selectedTags.filter((tag) => (loadedPointCountByTag.get(tag.tag) ?? 0) > 0).length,
     [loadedPointCountByTag, selectedTags],
   );
+  const hasRenderedTrendData = pointCount > 0;
+  const showInitialLoadingOverlay = selectedTags.length > 0
+    && !error
+    && !hasRenderedTrendData
+    && (loading || (liveMode && liveHistoryState === "loading"));
+  const showNoDataOverlay = selectedTags.length > 0
+    && !error
+    && !showInitialLoadingOverlay
+    && Boolean(renderResponse)
+    && pointCount === 0
+    && ((liveMode && liveHistoryState === "empty") || (!liveMode && lastLoadAt !== undefined));
 
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
@@ -3065,79 +3115,93 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           <div className="trends-empty">No tags selected</div>
         ) : error ? (
           <div className="trends-empty trends-empty--error">{error}</div>
+        ) : showInitialLoadingOverlay ? (
+          <div className="trends-loading-overlay">
+            <Spin size="large" />
+            <span>Loading trend data...</span>
+          </div>
+        ) : showNoDataOverlay ? (
+          <div className="trends-empty">No data for selected range</div>
         ) : (
-          <TrendChart
-            key={object.id}
-            data={renderResponse}
-            tags={selectedTags}
-            axes={manualAxes}
-            axisIdByTag={resolvedAxisIdByTag}
-            settings={settings}
-            showLegend={false}
-            showTooltip={false}
-            showDataZoomSlider={false}
-            interactiveZoomEnabled={true}
-            visibleRange={visibleRange}
-            loadedRange={mode === "offline" ? offlineLoadedRange : null}
-            liveMode={chartLiveMode}
-            liveFollow={liveFollow}
-            disableAnimation={liveMode && liveDataSource === "archivePolling"}
-            liveWindowMs={liveWindowMs}
-            liveRetentionMs={liveRetentionMs}
-            onVisibleRangeChange={handleChartRangeChange}
-            onHoverSnapshotChange={(snapshot) => {
-              if (!snapshot) {
-                if (liveMode) {
+          <>
+            <TrendChart
+              key={object.id}
+              data={renderResponse}
+              tags={selectedTags}
+              axes={manualAxes}
+              axisIdByTag={resolvedAxisIdByTag}
+              settings={settings}
+              showLegend={false}
+              showTooltip={false}
+              showDataZoomSlider={false}
+              interactiveZoomEnabled={true}
+              visibleRange={visibleRange}
+              loadedRange={mode === "offline" ? offlineLoadedRange : null}
+              liveMode={chartLiveMode}
+              liveFollow={liveFollow}
+              disableAnimation={liveMode && liveDataSource === "archivePolling"}
+              liveWindowMs={liveWindowMs}
+              liveRetentionMs={liveRetentionMs}
+              onVisibleRangeChange={handleChartRangeChange}
+              onHoverSnapshotChange={(snapshot) => {
+                if (!snapshot) {
+                  if (liveMode) {
+                    return;
+                  }
+                  hoverSnapshotKeyRef.current = "";
+                  hoverTimestampRef.current = null;
+                  setHoverSeriesValues(null);
+                  setHoverTimestamp(null);
                   return;
                 }
-                hoverSnapshotKeyRef.current = "";
-                hoverTimestampRef.current = null;
-                setHoverSeriesValues(null);
-                setHoverTimestamp(null);
-                return;
-              }
-              const next: Record<string, string> = {};
-              for (const [tagName, value] of Object.entries(snapshot.values)) {
-                next[tagName] = formatTrendValue(value);
-              }
-              const key = `${snapshot.timestamp}|${Object.entries(next).sort(([a], [b]) => a.localeCompare(b)).map(([tag, value]) => `${tag}:${value}`).join("|")}`;
-              if (hoverSnapshotKeyRef.current === key && hoverTimestampRef.current === snapshot.timestamp) {
-                return;
-              }
-              hoverSnapshotKeyRef.current = key;
-              hoverTimestampRef.current = snapshot.timestamp;
-              setHoverSeriesValues(next);
-              setHoverTimestamp(snapshot.timestamp);
-            }}
-            onChartApiReady={(api) => {
-              chartApiRef.current = api;
-            }}
-            onAxisManualRangeCommit={(axisId, range) => {
-              setManualAxes((prev) => {
-                let changed = false;
-                const next = prev.map((axis) => {
-                  if (axis.id !== axisId) {
-                    return axis;
-                  }
-                  if (!range) {
-                    const nextMin: TrendAxisConfig["min"] = "auto";
-                    const nextMax: TrendAxisConfig["max"] = "auto";
-                    if (axis.min === nextMin && axis.max === nextMax) {
+                const next: Record<string, string> = {};
+                for (const [tagName, value] of Object.entries(snapshot.values)) {
+                  next[tagName] = formatTrendValue(value);
+                }
+                const key = `${snapshot.timestamp}|${Object.entries(next).sort(([a], [b]) => a.localeCompare(b)).map(([tag, value]) => `${tag}:${value}`).join("|")}`;
+                if (hoverSnapshotKeyRef.current === key && hoverTimestampRef.current === snapshot.timestamp) {
+                  return;
+                }
+                hoverSnapshotKeyRef.current = key;
+                hoverTimestampRef.current = snapshot.timestamp;
+                setHoverSeriesValues(next);
+                setHoverTimestamp(snapshot.timestamp);
+              }}
+              onChartApiReady={(api) => {
+                chartApiRef.current = api;
+              }}
+              onAxisManualRangeCommit={(axisId, range) => {
+                setManualAxes((prev) => {
+                  let changed = false;
+                  const next = prev.map((axis) => {
+                    if (axis.id !== axisId) {
+                      return axis;
+                    }
+                    if (!range) {
+                      const nextMin: TrendAxisConfig["min"] = "auto";
+                      const nextMax: TrendAxisConfig["max"] = "auto";
+                      if (axis.min === nextMin && axis.max === nextMax) {
+                        return axis;
+                      }
+                      changed = true;
+                      return { ...axis, min: nextMin, max: nextMax };
+                    }
+                    if (axis.min === range.min && axis.max === range.max) {
                       return axis;
                     }
                     changed = true;
-                    return { ...axis, min: nextMin, max: nextMax };
-                  }
-                  if (axis.min === range.min && axis.max === range.max) {
-                    return axis;
-                  }
-                  changed = true;
-                  return { ...axis, min: range.min, max: range.max };
+                    return { ...axis, min: range.min, max: range.max };
+                  });
+                  return changed ? next : prev;
                 });
-                return changed ? next : prev;
-              });
-            }}
-          />
+              }}
+            />
+            {loading ? (
+              <div className="trends-chart-refresh-indicator">
+                <Spin size="small" />
+              </div>
+            ) : null}
+          </>
         )}
       </div>
 
