@@ -33,6 +33,7 @@ const LIVE_REALTIME_RESYNC_MAX_SEC = 30;
 const LIVE_PENDING_BUFFER_MULTIPLIER = 2;
 const LIVE_PENDING_BUFFER_MIN = 2000;
 const LIVE_PENDING_BUFFER_MAX = 120_000;
+const LIVE_RETENTION_MIN_MS = 60 * 60 * 1000;
 const RUNTIME_VIEW_STATE_SAVE_DEBOUNCE_MS = 800;
 const TOO_MANY_TAGS_LIMIT = 40;
 const TREND_ZOOM_MIN_SPAN_MS = 15_000;
@@ -178,6 +179,10 @@ function resolveLivePendingBufferCap(tagCount: number, maxLivePointsPerTag: numb
 function resolveTrendCachePointLimit(maxCachedRanges: number): number {
   const safeCacheSize = clamp(Math.round(maxCachedRanges), 8, 256);
   return clamp(safeCacheSize * TREND_CACHE_POINTS_PER_ENTRY, TREND_CACHE_POINTS_MIN, TREND_CACHE_POINTS_MAX);
+}
+
+function resolveLiveRetentionMs(): number {
+  return LIVE_RETENTION_MIN_MS;
 }
 
 function isAuthenticationRequiredErrorMessage(message: string): boolean {
@@ -735,6 +740,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(initialViewState.liveMode);
+  const [liveFollow, setLiveFollow] = useState(initialViewState.liveMode);
   const [lastLoadAt, setLastLoadAt] = useState<number | undefined>(undefined);
   const [statusAggregation, setStatusAggregation] = useState<TrendQueryResponse["aggregation"]>("raw");
   const [rangePreset, setRangePreset] = useState<TrendRangePreset>(initialViewState.rangePreset);
@@ -775,6 +781,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const liveDataSource: TrendLiveDataSource = settings.liveDataSource === "realtimeAppend" ? "realtimeAppend" : DEFAULT_LIVE_DATA_SOURCE;
   const chartLiveMode = liveMode && liveDataSource === "realtimeAppend";
   const chartResponse = mode === "live" ? liveResponse : offlineResponse;
+  const liveRetentionMs = resolveLiveRetentionMs();
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -796,6 +803,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const liveSocketRef = useRef<ReturnType<typeof createRuntimeSocket> | null>(null);
   const liveSocketStateRef = useRef<LiveSocketState>(liveSocketState);
   const liveModeRef = useRef(liveMode);
+  const liveFollowRef = useRef(liveFollow);
   const liveSessionIdRef = useRef(0);
   const liveHistoryLoadedToRef = useRef<number | null>(null);
   const liveHistorySnapshotRef = useRef<TrendQueryResponse | null>(null);
@@ -806,11 +814,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const historyLoadTimerRef = useRef<number | null>(null);
   const offlineLoadedRangeRef = useRef<TrendVisibleRange | null>(null);
   const offlineResponseRef = useRef<TrendQueryResponse | null>(null);
+  const liveResponseRef = useRef<TrendQueryResponse | null>(null);
   const bufferedRequestKeyRef = useRef<string | null>(null);
   const toolbarRangeRef = useRef<{ preset: TrendRangePreset; range: TrendVisibleRange; expiresAt: number } | null>(null);
   const pendingToolbarPresetRef = useRef<Exclude<TrendRangePreset, "custom"> | null>(null);
   const viewStateSaveTimerRef = useRef<number | null>(null);
   const visibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
+  const liveFollowWindowMsRef = useRef(Math.max(60_000, initialViewState.visibleRange.to - initialViewState.visibleRange.from));
   const lastStableVisibleRangeRef = useRef<TrendVisibleRange>(initialViewState.visibleRange);
   const hoverSnapshotKeyRef = useRef<string>("");
   const hoverTimestampRef = useRef<number | null>(null);
@@ -828,7 +838,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     [manualAxes, selectedTags, settings, tagInfoMap],
   );
 
-  const liveWindowMs = Math.max(60_000, visibleRange.to - visibleRange.from);
+  const visibleSpanMs = Math.max(60_000, visibleRange.to - visibleRange.from);
+  const liveWindowMs = liveFollow ? visibleSpanMs : liveFollowWindowMsRef.current;
   const livePollingIntervalMs = useMemo(() => resolveLivePollingIntervalMs(liveWindowMs), [liveWindowMs]);
   const liveResyncIntervalMs = useMemo(() => resolveLiveResyncIntervalMs(settings.liveResyncIntervalSec), [settings.liveResyncIntervalSec]);
   const realtimeAppendFlushMs = useMemo(
@@ -868,6 +879,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   useEffect(() => {
     liveModeRef.current = liveMode;
   }, [liveMode]);
+
+  useEffect(() => {
+    liveFollowRef.current = liveFollow;
+  }, [liveFollow]);
   const selectedTagNames = useMemo(() => selectedTags.map((tag) => tag.tag), [selectedTags]);
   const selectedTagNamesKey = useMemo(() => selectedTagNames.join("|"), [selectedTagNames]);
   const runtimeSettingsButtonVisible = object.showRuntimeSettingsButton !== false;
@@ -973,6 +988,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     offlineResponseRef.current = null;
     bufferedRequestKeyRef.current = null;
     setLiveResponse(null);
+    liveResponseRef.current = null;
     setError(null);
     setLastLoadAt(undefined);
     setSelectedTags(nextViewState.selectedTags ?? object.selectedTags ?? []);
@@ -980,9 +996,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setTagPickerFilters(nextViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
     setSettings(nextViewState.settings ?? resolveSettingsFromObject(object));
     setLiveMode(nextViewState.liveMode);
+    liveFollowRef.current = nextViewState.liveMode;
+    setLiveFollow(nextViewState.liveMode);
     setToolbarQuickPreset(nextViewState.toolbarQuickPreset ?? null);
     setRangePreset(nextViewState.rangePreset);
     setVisibleRange(nextViewState.visibleRange);
+    liveFollowWindowMsRef.current = Math.max(60_000, nextViewState.visibleRange.to - nextViewState.visibleRange.from);
     lastStableVisibleRangeRef.current = nextViewState.visibleRange;
     setCustomFrom(nextViewState.customFrom);
     setCustomTo(nextViewState.customTo);
@@ -1042,6 +1061,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   useEffect(() => {
     offlineResponseRef.current = offlineResponse;
   }, [offlineResponse]);
+
+  useEffect(() => {
+    liveResponseRef.current = liveResponse;
+  }, [liveResponse]);
 
   useEffect(() => {
     if (!liveMode) {
@@ -1120,6 +1143,26 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     return [...byKey.values()].sort((a, b) => a.timestamp - b.timestamp);
   }, []);
 
+  const buildRetainedLiveResponse = useCallback((
+    nextResponse: TrendQueryResponse,
+    range: TrendVisibleRange,
+  ): TrendQueryResponse => {
+    const bounds = getSeriesBounds(nextResponse.series);
+    const right = Math.max(
+      range.to,
+      Date.now(),
+      bounds.lastTs ?? Number.NEGATIVE_INFINITY,
+    );
+    const retentionRange = {
+      from: right - liveRetentionMs,
+      to: right,
+    };
+    return boundResponseSeriesPoints(
+      buildBufferedTrendResponse(liveResponseRef.current, nextResponse, retentionRange, selectedTags),
+      settings.maxLivePointsPerTag,
+    );
+  }, [liveRetentionMs, selectedTags, settings.maxLivePointsPerTag]);
+
   const executeQuery = useCallback(async (
     range: TrendVisibleRange,
     options?: {
@@ -1140,6 +1183,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       offlineLoadedRangeRef.current = null;
       offlineResponseRef.current = null;
       setLiveResponse(null);
+      liveResponseRef.current = null;
       return { ok: false, reason: "error" };
     }
     if (selectedTagNames.length > TOO_MANY_TAGS_LIMIT) {
@@ -1181,6 +1225,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     logTrendDiagnostics("query:start", {
       mode,
       liveMode,
+      liveFollow: liveFollowRef.current,
+      liveRetentionMs,
       aggregation: requestAggregation,
       tagCount: tagNames.length,
       rangeFrom: range.from,
@@ -1219,16 +1265,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
             return { ok: false, reason: "error" };
           }
-          setLiveResponse(boundedCached);
+          const nextLiveResponse = liveDataSource === "archivePolling"
+            ? buildRetainedLiveResponse(boundedCached, range)
+            : boundedCached;
+          liveResponseRef.current = nextLiveResponse;
+          setLiveResponse(nextLiveResponse);
           if (pendingToolbarPresetRef.current) {
             setToolbarQuickPreset(pendingToolbarPresetRef.current);
             pendingToolbarPresetRef.current = null;
           }
-          const cachedPointCount = boundedCached.series.reduce((acc, series) => acc + series.points.length, 0);
+          const cachedPointCount = nextLiveResponse.series.reduce((acc, series) => acc + series.points.length, 0);
           setLiveHistoryPointCount(cachedPointCount);
           setLiveHistoryState(cachedPointCount > 0 ? "loaded" : "empty");
           let cachedLatestTs = Number.NEGATIVE_INFINITY;
-          for (const series of boundedCached.series) {
+          for (const series of nextLiveResponse.series) {
             const tail = series.points[series.points.length - 1];
             if (tail && Number.isFinite(tail.t)) {
               cachedLatestTs = Math.max(cachedLatestTs, tail.t);
@@ -1318,6 +1368,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       logTrendDiagnostics("query:success", {
         mode,
         liveMode,
+        liveFollow: liveFollowRef.current,
+        liveRetentionMs,
         requestedAggregation: requestAggregation,
         aggregation: next.aggregation,
         maxPoints,
@@ -1447,7 +1499,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
           return { ok: false, reason: "error" };
         }
-        setLiveResponse(boundedNext);
+        const nextLiveResponse = liveDataSource === "archivePolling"
+          ? buildRetainedLiveResponse(boundedNext, normalizedRange)
+          : boundedNext;
+        liveResponseRef.current = nextLiveResponse;
+        setLiveResponse(nextLiveResponse);
+        if (liveDataSource === "archivePolling") {
+          const retainedPointCount = nextLiveResponse.series.reduce((acc, series) => acc + series.points.length, 0);
+          setLiveHistoryPointCount(retainedPointCount);
+          setLiveHistoryState(retainedPointCount > 0 ? "loaded" : "empty");
+        }
         if (pendingToolbarPresetRef.current) {
           setToolbarQuickPreset(pendingToolbarPresetRef.current);
           pendingToolbarPresetRef.current = null;
@@ -1480,7 +1541,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
       setLastLoadAt(Date.now());
       const nextLatest: Record<string, string> = {};
-      for (const series of boundedNext.series) {
+      const latestSource = targetMode === "live" && liveDataSource === "archivePolling"
+        ? (liveResponseRef.current ?? boundedNext)
+        : boundedNext;
+      for (const series of latestSource.series) {
         const lastPoint = series.points[series.points.length - 1];
         nextLatest[series.tag] = formatTrendValue(lastPoint?.v);
         if (lastPoint) {
@@ -1495,7 +1559,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         }
       }
       setSeriesLatestValues(nextLatest);
-      return { ok: true, response: boundedNext };
+      return { ok: true, response: latestSource };
     } catch (queryError) {
       if (controller.signal.aborted) {
         return { ok: false, reason: "error" };
@@ -1554,8 +1618,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
     }
   }, [
+    buildRetainedLiveResponse,
     drainLiveBootstrapPointsForMerge,
     liveMode,
+    liveRetentionMs,
     object.id,
     selectedTagNamesKey,
     selectedTags,
@@ -1645,7 +1711,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     liveLastTimestampByTagRef.current.clear();
     liveBufferRef.current = [];
     liveBootstrapBufferRef.current = [];
-    setLiveResponse(buildEmptyTrendResponse(anchoredRange, selectedTags));
+    const emptyResponse = buildEmptyTrendResponse(anchoredRange, selectedTags);
+    liveResponseRef.current = emptyResponse;
+    setLiveResponse(emptyResponse);
     liveBootstrapRangeRef.current = anchoredRange;
     setRangePreset("custom");
     setVisibleRange(anchoredRange);
@@ -1834,6 +1902,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       liveLastTimestampByTagRef.current.clear();
       liveSessionIdRef.current += 1;
       setLiveResponse(null);
+      liveResponseRef.current = null;
       return;
     }
 
@@ -1998,10 +2067,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         const loaded = loadedResult.ok ? loadedResult.response : null;
         const pointCount = loaded?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0;
         if (!disposed && sessionId === liveSessionIdRef.current && loaded) {
-          setVisibleRange(nextRange);
+          if (liveFollowRef.current) {
+            setVisibleRange(nextRange);
+            setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
+            setCustomTo(toLocalDateTimeInputValue(nextRange.to));
+          }
           chartApiRef.current?.notifyLiveHeartbeat?.(nextRange.to);
           logTrendDiagnostics("livePolling:tick-success", {
             sessionId,
+            liveFollow: liveFollowRef.current,
+            liveRetentionMs,
             intervalMs: livePollingIntervalMs,
             plannedAt,
             startedAt: requestStartedAt,
@@ -2434,8 +2509,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   useEffect(() => {
     if (!liveMode) {
+      liveFollowRef.current = false;
+      setLiveFollow(false);
       return;
     }
+    liveFollowRef.current = true;
+    setLiveFollow(true);
+    liveFollowWindowMsRef.current = Math.max(60_000, visibleRangeRef.current.to - visibleRangeRef.current.from);
     setLiveAutoStopReason(null);
     setLiveBatchCount(0);
     setLivePointCount(0);
@@ -2461,7 +2541,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     return null;
   };
 
-  const applyRangeAndQuery = (next: TrendVisibleRange, options?: { keepLive?: boolean; preset?: TrendRangePreset }) => {
+  const applyRangeAndQuery = (next: TrendVisibleRange, options?: { keepLive?: boolean; preset?: TrendRangePreset; followLive?: boolean }) => {
     const normalized = normalizeTrendRange(next);
     const nextPreset = options?.preset ?? "custom";
     rememberToolbarRange(nextPreset, normalized);
@@ -2469,6 +2549,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     pendingToolbarPresetRef.current = null;
     if (liveMode && options?.keepLive) {
       setLiveAutoStopReason(null);
+      if (options.followLive) {
+        liveFollowRef.current = true;
+        setLiveFollow(true);
+        liveFollowWindowMsRef.current = Math.max(60_000, normalized.to - normalized.from);
+      }
       setRangePreset(nextPreset);
       setVisibleRange(normalized);
       setCustomFrom(toLocalDateTimeInputValue(normalized.from));
@@ -2508,7 +2593,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     });
     setTimeRangeDraftFrom(toLocalDateTimeInputValue(next.from));
     setTimeRangeDraftTo(toLocalDateTimeInputValue(next.to));
-    applyRangeAndQuery(next, { preset, keepLive: liveMode });
+    applyRangeAndQuery(next, { preset, keepLive: liveMode, followLive: liveMode });
   };
 
   const openTimeRangeDialog = () => {
@@ -2521,7 +2606,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     const next = resolveRangeForPresetInBuffer(preset, liveMode ? null : offlineLoadedRangeRef.current);
     setTimeRangeDraftFrom(toLocalDateTimeInputValue(next.from));
     setTimeRangeDraftTo(toLocalDateTimeInputValue(next.to));
-    applyRangeAndQuery(next, { preset, keepLive: liveMode });
+    applyRangeAndQuery(next, { preset, keepLive: liveMode, followLive: liveMode });
     setTimeRangeDialogOpen(false);
   };
 
@@ -2554,10 +2639,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const handleChartRangeChange = (range: TrendVisibleRange, source: "interaction" | "live") => {
     const normalized = normalizeTrendRange(range);
+    if (source === "live" && liveMode && !liveFollowRef.current) {
+      return;
+    }
     setVisibleRange(normalized);
     setCustomFrom(toLocalDateTimeInputValue(normalized.from));
     setCustomTo(toLocalDateTimeInputValue(normalized.to));
+    if (source === "live" && liveMode) {
+      liveFollowWindowMsRef.current = Math.max(60_000, normalized.to - normalized.from);
+    }
     if (source === "interaction") {
+      if (liveMode) {
+        liveFollowRef.current = false;
+        setLiveFollow(false);
+      }
       const echoPreset = resolveToolbarRangeEchoPreset(normalized);
       if (echoPreset) {
         setRangePreset(echoPreset);
@@ -2571,13 +2666,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
     }
     if (source === "interaction" && liveMode) {
-      setLiveMode(false);
-      setLiveAutoStopReason("Stopped by zoom/pan interaction");
-      if (selectedTags.length > 0) {
-        if (!isRangeCovered(offlineLoadedRangeRef.current, normalized)) {
-          void requestBufferedRange(resolveInitialLoadedRange(normalized), { force: true, replace: true });
-        }
-      }
+      setLiveAutoStopReason(null);
       return;
     }
     if (source === "interaction" && !liveMode && selectedTags.length > 0) {
@@ -2593,6 +2682,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         from: now - span,
         to: now,
       };
+      liveFollowRef.current = true;
+      setLiveFollow(true);
+      liveFollowWindowMsRef.current = span;
       setRangePreset(resolveQuickPresetFromRangeSpan(nextRange));
       setVisibleRange(nextRange);
       setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
@@ -2650,10 +2742,34 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       return;
     }
     if (liveMode) {
+      if (!liveFollow) {
+        const span = Math.max(60_000, visibleRange.to - visibleRange.from);
+        const right = Date.now();
+        const nextRange: TrendVisibleRange = {
+          from: right - span,
+          to: right,
+        };
+        liveFollowWindowMsRef.current = span;
+        liveFollowRef.current = true;
+        setLiveFollow(true);
+        setLiveAutoStopReason(null);
+        setVisibleRange(nextRange);
+        setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
+        setCustomTo(toLocalDateTimeInputValue(nextRange.to));
+        logTrendDiagnostics("live:follow-resume", {
+          reason: "toolbar",
+          from: nextRange.from,
+          to: nextRange.to,
+          spanMs: span,
+        });
+        return;
+      }
       logTrendDiagnostics("live:toggle-off", {
         reason: "toolbar",
       });
       setLiveMode(false);
+      liveFollowRef.current = false;
+      setLiveFollow(false);
       return;
     }
     const span = Math.max(60_000, visibleRange.to - visibleRange.from);
@@ -2669,6 +2785,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       selectedTags: selectedTags.map((item) => item.tag),
     });
     setRangePreset(resolveQuickPresetFromRangeSpan(nextRange));
+    liveFollowRef.current = true;
+    setLiveFollow(true);
+    liveFollowWindowMsRef.current = span;
     setVisibleRange(nextRange);
     setCustomFrom(toLocalDateTimeInputValue(nextRange.from));
     setCustomTo(toLocalDateTimeInputValue(nextRange.to));
@@ -2799,6 +2918,8 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     const payload = exportTrendDiagnostics({
       objectId: object.id,
       liveMode,
+      liveFollow,
+      liveRetentionMs,
       rangePreset,
       visibleRange,
       loadedRange: mode === "offline" ? offlineLoadedRange : null,
@@ -2835,11 +2956,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           ) : null}
           {settings.showToolbarLiveButton ? (
             <WorkbenchIconButton
-              title={liveMode ? "Pause Live" : "Start Live"}
+              title={liveMode ? (liveFollow ? "Pause Live" : "Resume Follow") : "Start Live"}
               active={liveMode}
               onClick={toggleLiveMode}
               disabled={!hasSelection}
-              icon={liveMode ? <ToolbarGlyph path="M8 6v12M16 6v12" /> : <ToolbarGlyph path="M9 7l9 5-9 5z" />}
+              icon={liveMode && liveFollow ? <ToolbarGlyph path="M8 6v12M16 6v12" /> : <ToolbarGlyph path="M9 7l9 5-9 5z" />}
             />
           ) : null}
           {settings.showToolbarTimeRangeButton ? (
@@ -2920,12 +3041,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             showLegend={false}
             showTooltip={false}
             showDataZoomSlider={false}
-            interactiveZoomEnabled={!liveMode}
+            interactiveZoomEnabled={true}
             visibleRange={visibleRange}
             loadedRange={mode === "offline" ? offlineLoadedRange : null}
             liveMode={chartLiveMode}
+            liveFollow={liveFollow}
             disableAnimation={liveMode && liveDataSource === "archivePolling"}
             liveWindowMs={liveWindowMs}
+            liveRetentionMs={liveRetentionMs}
             onVisibleRangeChange={handleChartRangeChange}
             onHoverSnapshotChange={(snapshot) => {
               if (!snapshot) {
@@ -3077,7 +3200,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             onClick={() => runMenuAction(toggleLiveMode)}
             disabled={selectedTags.length === 0}
           >
-            {liveMode ? "Pause Live" : "Start Live"}
+            {liveMode ? (liveFollow ? "Pause Live" : "Resume Follow") : "Start Live"}
           </button>
           <button type="button" className="trends-context-menu__item" onClick={() => runMenuAction(refresh)} disabled={selectedTags.length === 0}>Refresh</button>
           <button

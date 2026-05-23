@@ -44,8 +44,10 @@ type TrendChartProps = {
   visibleRange: TrendVisibleRange;
   loadedRange?: TrendVisibleRange | null;
   liveMode: boolean;
+  liveFollow?: boolean;
   disableAnimation?: boolean;
   liveWindowMs: number;
+  liveRetentionMs?: number;
   onVisibleRangeChange: (range: TrendVisibleRange, source: "interaction" | "live") => void;
   onHoverSnapshotChange?: (snapshot: { timestamp: number; values: Record<string, number | boolean | string | null> } | null) => void;
   onChartApiReady?: (api: TrendChartApi) => void;
@@ -97,8 +99,10 @@ export function TrendChart({
   visibleRange,
   loadedRange = null,
   liveMode,
+  liveFollow = true,
   disableAnimation = false,
   liveWindowMs,
+  liveRetentionMs = 60 * 60 * 1000,
   onVisibleRangeChange,
   onHoverSnapshotChange,
   onChartApiReady,
@@ -118,7 +122,9 @@ export function TrendChart({
   const liveLastEmittedRightRef = useRef<number | null>(null);
   const liveNowRef = useRef<number>(Date.now());
   const liveModeRef = useRef(liveMode);
+  const liveFollowRef = useRef(liveFollow);
   const liveWindowMsRef = useRef(liveWindowMs);
+  const liveRetentionMsRef = useRef(liveRetentionMs);
   const onVisibleRangeChangeRef = useRef(onVisibleRangeChange);
   const onHoverSnapshotChangeRef = useRef(onHoverSnapshotChange);
   const onAxisManualRangeCommitRef = useRef(onAxisManualRangeCommit);
@@ -221,6 +227,24 @@ export function TrendChart({
   };
   const resolveCachedGapBreakMs = (tagName: string, points: TrendPoint[]): number => {
     return gapBreakMsByTagRef.current.get(tagName) ?? cacheGapBreakMsForTag(tagName, points);
+  };
+  const resolveSeriesTimeBounds = (): TrendVisibleRange | null => {
+    let minTs = Number.POSITIVE_INFINITY;
+    let maxTs = Number.NEGATIVE_INFINITY;
+    for (const points of seriesPointsRef.current.values()) {
+      const first = points[0];
+      const last = points[points.length - 1];
+      if (first && Number.isFinite(first.t) && first.t < minTs) {
+        minTs = first.t;
+      }
+      if (last && Number.isFinite(last.t) && last.t > maxTs) {
+        maxTs = last.t;
+      }
+    }
+    if (!Number.isFinite(minTs) || !Number.isFinite(maxTs) || maxTs <= minTs) {
+      return null;
+    }
+    return { from: minTs, to: maxTs };
   };
   const setRootCursor = (nextCursor: string): void => {
     const normalizedCursor = nextCursor || "default";
@@ -558,8 +582,16 @@ export function TrendChart({
   }, [liveMode]);
 
   useEffect(() => {
+    liveFollowRef.current = liveFollow;
+  }, [liveFollow]);
+
+  useEffect(() => {
     liveWindowMsRef.current = liveWindowMs;
   }, [liveWindowMs]);
+
+  useEffect(() => {
+    liveRetentionMsRef.current = Math.max(60 * 60 * 1000, Math.round(liveRetentionMs));
+  }, [liveRetentionMs]);
 
   useEffect(() => {
     if (!liveMode) {
@@ -1411,10 +1443,14 @@ export function TrendChart({
         renderRangePointCount,
         liveAppendedPointCount: liveAppendedPointCountRef.current,
         liveBufferPointCount: liveModeRef.current ? totalPointCount : null,
+        liveMode: liveModeRef.current,
+        liveFollow: liveFollowRef.current,
+        liveRetentionMs: liveRetentionMsRef.current,
         cachedGapBreakMsCount: gapBreakMsByTagRef.current.size,
         sourcePointCount: totalPointCount,
         echartsPointCount,
         domain: fullRangeRef.current,
+        fullRange: fullRangeRef.current,
         visibleRange,
         loadedRange: loadedRange ?? null,
         renderRange,
@@ -1489,7 +1525,6 @@ export function TrendChart({
       }
       lastZoomRangeRef.current = nextRange;
       if (liveModeRef.current) {
-        // Stop live immediately on user zoom/pan to prevent jitter.
         onVisibleRangeChangeRef.current(nextRange, "interaction");
         return;
       }
@@ -1901,7 +1936,7 @@ export function TrendChart({
         }
 
         const trimRightTs = Number.isFinite(maxUpdateTs) ? maxUpdateTs : Date.now();
-        const trimFromTs = trimRightTs - liveWindowMsRef.current - LIVE_TRIM_GRACE_MS;
+        const trimFromTs = trimRightTs - liveRetentionMsRef.current - LIVE_TRIM_GRACE_MS;
         const seriesPointCap = liveSeriesPointCapRef.current;
         for (const tagName of updatedTags) {
           const points = seriesPointsRef.current.get(tagName);
@@ -1945,16 +1980,34 @@ export function TrendChart({
           const now = Date.now();
           const newestTs = Number.isFinite(maxUpdateTs) ? maxUpdateTs : now;
           const clampedNewestTs = Math.min(newestTs, now + LIVE_RIGHT_DRIFT_LIMIT_MS);
-          const previousRight = liveLastEmittedRightRef.current ?? clampedNewestTs;
-          const right = Math.max(previousRight, clampedNewestTs);
-          const left = right - liveWindowMsRef.current;
-          liveLastEmittedRightRef.current = right;
-          fullRangeRef.current = {
-            from: left - LIVE_DOMAIN_GRACE_MS,
-            to: right + LIVE_DOMAIN_GRACE_MS,
-          };
-          skipNextVisibleRangeRenderInLiveRef.current = true;
-          onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
+          const seriesBounds = resolveSeriesTimeBounds();
+          if (liveFollowRef.current) {
+            const previousRight = liveLastEmittedRightRef.current ?? clampedNewestTs;
+            const right = Math.max(previousRight, clampedNewestTs);
+            const left = right - liveWindowMsRef.current;
+            liveLastEmittedRightRef.current = right;
+            fullRangeRef.current = seriesBounds
+              ? {
+                  from: Math.min(seriesBounds.from, left - LIVE_DOMAIN_GRACE_MS),
+                  to: Math.max(seriesBounds.to, right + LIVE_DOMAIN_GRACE_MS),
+                }
+              : {
+                  from: left - LIVE_DOMAIN_GRACE_MS,
+                  to: right + LIVE_DOMAIN_GRACE_MS,
+                };
+            skipNextVisibleRangeRenderInLiveRef.current = true;
+            onVisibleRangeChangeRef.current({ from: left, to: right }, "live");
+          } else {
+            fullRangeRef.current = seriesBounds
+              ? {
+                  from: Math.min(fullRangeRef.current.from, seriesBounds.from),
+                  to: Math.max(fullRangeRef.current.to, seriesBounds.to, clampedNewestTs + LIVE_DOMAIN_GRACE_MS),
+                }
+              : {
+                  from: Math.min(fullRangeRef.current.from, clampedNewestTs),
+                  to: Math.max(fullRangeRef.current.to, clampedNewestTs + LIVE_DOMAIN_GRACE_MS),
+                };
+          }
         } else if (Number.isFinite(minUpdateTs) && Number.isFinite(maxUpdateTs)) {
           fullRangeRef.current = {
             from: Math.min(fullRangeRef.current.from, minUpdateTs),
@@ -1968,6 +2021,9 @@ export function TrendChart({
             updatedTagCount: updatedTags.size,
             liveAppendedPointCount: liveAppendedPointCountRef.current,
             liveBufferPointCount: [...seriesPointsRef.current.values()].reduce((acc, points) => acc + points.length, 0),
+            liveFollow: liveFollowRef.current,
+            liveRetentionMs: liveRetentionMsRef.current,
+            fullRange: fullRangeRef.current,
             cachedGapBreakMsCount: gapBreakMsByTagRef.current.size,
             minUpdateTs: Number.isFinite(minUpdateTs) ? minUpdateTs : null,
             maxUpdateTs: Number.isFinite(maxUpdateTs) ? maxUpdateTs : null,
