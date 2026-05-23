@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { EventBitTrigger, EventDefinition, EventWordOperator, TagScalarValue } from "@web-scada/shared";
 import { WorkbenchButton, WorkbenchTabs } from "../components/workbench";
+import { TagPickerDialog } from "../components/tag-picker-dialog";
+import { createProjectTagIndex, findMissingEventTagReferences, getEventTagWarnings, reconcileEventsWithProjectTags, tagExists, type EventTagReferenceField, type EventTagWarning } from "../features/events/event-tag-utils";
 import { useScadaStore } from "../store/scada-store";
 
 type EventColumnId =
@@ -28,6 +30,7 @@ type EventColumnVisibility = Record<EventColumnId, boolean>;
 
 type EventEditorMode = "view" | "add" | "edit";
 type EventEditorTab = "general" | "message" | "statistics" | "security";
+type TagPickerTargetField = Extract<EventTagReferenceField, "sourceTagName" | "ackTagName" | "notificationTagName" | "elapsedTimeTagName" | "securityTagName">;
 
 type EventEditorDraft = {
   id: string;
@@ -619,6 +622,7 @@ export function EventsPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftEvent, setDraftEvent] = useState<EventEditorDraft | null>(null);
   const [draftErrors, setDraftErrors] = useState<EventDraftErrors>({});
+  const [tagPickerTargetField, setTagPickerTargetField] = useState<TagPickerTargetField | null>(null);
   const [statusText, setStatusText] = useState<string>("");
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -635,6 +639,8 @@ export function EventsPage() {
   const events = project.events ?? [];
   const categories = project.eventCategories ?? [];
   const sounds = project.eventSounds ?? [];
+  const projectTagIndex = useMemo(() => createProjectTagIndex(project), [project]);
+  const missingReferencesAudit = useMemo(() => findMissingEventTagReferences(project), [project]);
 
   const rows = useMemo<EventRow[]>(() => {
     const seenKeys = new Map<string, number>();
@@ -647,6 +653,14 @@ export function EventsPage() {
       return { key, index, id, event };
     });
   }, [events]);
+
+  const rowWarningsByKey = useMemo(() => {
+    const map = new Map<string, EventTagWarning[]>();
+    for (const row of rows) {
+      map.set(row.key, getEventTagWarnings(row.event, projectTagIndex));
+    }
+    return map;
+  }, [projectTagIndex, rows]);
 
   const categoryOptions = useMemo(() => {
     const values = new Set<string>(["Default"]);
@@ -765,6 +779,8 @@ export function EventsPage() {
   const selectedFilteredCount = [...selectedRowKeys].filter((key) => filteredKeys.has(key)).length;
 
   const activeRow = rows.find((row) => row.key === activeRowKey) ?? pageRows[0] ?? null;
+  const activeRowWarnings = activeRow ? (rowWarningsByKey.get(activeRow.key) ?? []) : [];
+  const missingReferenceCount = missingReferencesAudit.length;
 
   const existingIds = useMemo(() => {
     const values = new Set<string>();
@@ -790,6 +806,7 @@ export function EventsPage() {
     setEditorMode("add");
     setEditorTab("general");
     setEditingIndex(null);
+    setTagPickerTargetField(null);
   };
 
   const openEdit = useCallback((row: EventRow) => {
@@ -800,6 +817,7 @@ export function EventsPage() {
     setEditorTab("general");
     setEditingIndex(row.index);
     setActiveRowKey(row.key);
+    setTagPickerTargetField(null);
   }, [existingIds]);
 
   const cancelEditor = () => {
@@ -807,6 +825,7 @@ export function EventsPage() {
     setEditingIndex(null);
     setDraftEvent(null);
     setDraftErrors({});
+    setTagPickerTargetField(null);
   };
 
   const duplicateRow = useCallback((row: EventRow) => {
@@ -966,12 +985,117 @@ export function EventsPage() {
     setDraftEvent((prev) => (prev ? { ...prev, ...patch } : prev));
   };
 
+  const draftEventWarnings = useMemo(() => {
+    if (!draftEvent) {
+      return [];
+    }
+    const preview = buildEventFromDraft(
+      {
+        ...draftEvent,
+        categoryName: draftEvent.categoryName.trim() || "Default",
+        priority: clampPriority(draftEvent.priority),
+        conditionMode: draftEvent.conditionMode === "word" ? "word" : "bit",
+      },
+      editorMode === "edit" && editingIndex !== null ? events[editingIndex] : undefined,
+    );
+    return getEventTagWarnings(preview, projectTagIndex);
+  }, [draftEvent, editorMode, editingIndex, events, projectTagIndex]);
+
+  const draftWarningsByField = useMemo(() => {
+    const map = new Map<EventTagReferenceField, EventTagWarning[]>();
+    for (const warning of draftEventWarnings) {
+      const existing = map.get(warning.field) ?? [];
+      existing.push(warning);
+      map.set(warning.field, existing);
+    }
+    return map;
+  }, [draftEventWarnings]);
+
   const renderFieldError = (field: keyof EventEditorDraft) => {
     const error = draftErrors[field];
     if (!error) {
       return null;
     }
     return <span className="workbench-field__error">{error}</span>;
+  };
+
+  const renderFieldWarnings = (field: EventTagReferenceField) => {
+    const warnings = draftWarningsByField.get(field) ?? [];
+    if (warnings.length === 0) {
+      return null;
+    }
+    return (
+      <>
+        {warnings.map((warning, index) => (
+          <span key={`${field}-${warning.code}-${index}`} className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+            {warning.message}
+          </span>
+        ))}
+      </>
+    );
+  };
+
+  const renderTagNotFoundWarning = (field: EventTagReferenceField) => {
+    if (!draftEvent) {
+      return null;
+    }
+    const value = draftEvent[field].trim();
+    if (!value) {
+      return null;
+    }
+    if (tagExists(project, value)) {
+      return null;
+    }
+    return (
+      <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+        Tag not found in project
+      </span>
+    );
+  };
+
+  const openTagPickerForField = (field: TagPickerTargetField) => {
+    setTagPickerTargetField(field);
+  };
+
+  const applyTagPickerSelection = (tagName: string | undefined) => {
+    if (!tagPickerTargetField) {
+      return;
+    }
+    setDraftPatch({ [tagPickerTargetField]: tagName ?? "" } as Partial<EventEditorDraft>);
+  };
+
+  const renderTagReferenceInput = (
+    field: TagPickerTargetField,
+    label: string,
+    options?: { disabled?: boolean; requiredErrorField?: keyof EventEditorDraft },
+  ) => {
+    if (!draftEvent) {
+      return null;
+    }
+    return (
+      <label className="workbench-field">
+        <span className="workbench-field__label">{label}</span>
+        <div className="event-tag-reference-field">
+          <input
+            className="workbench-input event-tag-reference-field__input"
+            value={draftEvent[field]}
+            onChange={(event) => setDraftPatch({ [field]: event.target.value } as Partial<EventEditorDraft>)}
+            disabled={options?.disabled}
+          />
+          <button
+            type="button"
+            className="workbench-button"
+            onClick={() => openTagPickerForField(field)}
+            disabled={options?.disabled}
+          >
+            <span className="workbench-button__label">Select...</span>
+          </button>
+        </div>
+        {options?.requiredErrorField ? renderFieldError(options.requiredErrorField) : null}
+        {renderTagNotFoundWarning(field)}
+        {renderFieldWarnings(field)}
+      </label>
+    );
   };
 
   const saveDraft = () => {
@@ -997,18 +1121,27 @@ export function EventsPage() {
     if (editorMode === "edit" && editingIndex !== null) {
       const nextEvents = [...events];
       nextEvents[editingIndex] = nextEvent;
-      saveEvents(nextEvents);
-      setStatusText(`Updated event ${nextEvent.id}`);
+      const reconciled = reconcileEventsWithProjectTags(nextEvents, project);
+      saveEvents(reconciled.nextEvents);
+      const autoDisabledText = reconciled.changed
+        ? " Source/security tag is missing, event was disabled."
+        : "";
+      setStatusText(`Updated event ${nextEvent.id}.${autoDisabledText}`);
     } else {
       const nextEvents = [...events, nextEvent];
-      saveEvents(nextEvents);
-      setStatusText(`Added event ${nextEvent.id}`);
+      const reconciled = reconcileEventsWithProjectTags(nextEvents, project);
+      saveEvents(reconciled.nextEvents);
+      const autoDisabledText = reconciled.changed
+        ? " Source/security tag is missing, event was disabled."
+        : "";
+      setStatusText(`Added event ${nextEvent.id}.${autoDisabledText}`);
     }
 
     setEditorMode("view");
     setEditingIndex(null);
     setDraftEvent(null);
     setDraftErrors({});
+    setTagPickerTargetField(null);
   };
 
   const exportCsv = () => {
@@ -1201,8 +1334,12 @@ export function EventsPage() {
           }
         }
 
-        saveEvents(nextEvents);
-        const summary = `CSV import finished: created ${created}, updated ${updated}`;
+        const reconciled = reconcileEventsWithProjectTags(nextEvents, project);
+        saveEvents(reconciled.nextEvents);
+        const disabledSummary = reconciled.changed
+          ? `, auto-disabled ${reconciled.affectedEventCount} event(s) due to missing source/security tags`
+          : "";
+        const summary = `CSV import finished: created ${created}, updated ${updated}${disabledSummary}`;
         setStatusText(summary);
 
         if (importErrors.length > 0) {
@@ -1226,6 +1363,7 @@ export function EventsPage() {
     { id: "statistics", title: "Statistics" },
     { id: "security", title: "Security" },
   ];
+  const selectedPickerTagName = draftEvent && tagPickerTargetField ? draftEvent[tagPickerTargetField] : undefined;
 
   const renderEditorSection = (): ReactNode => {
     if (!draftEvent) {
@@ -1313,15 +1451,7 @@ export function EventsPage() {
             />
           </label>
 
-          <label className="workbench-field">
-            <span className="workbench-field__label">Source Tag Name</span>
-            <input
-              className="workbench-input"
-              value={draftEvent.sourceTagName}
-              onChange={(event) => setDraftPatch({ sourceTagName: event.target.value })}
-            />
-            {renderFieldError("sourceTagName")}
-          </label>
+          {renderTagReferenceInput("sourceTagName", "Source Tag Name", { requiredErrorField: "sourceTagName" })}
 
           <label className="workbench-field">
             <span className="workbench-field__label">Condition Mode</span>
@@ -1472,32 +1602,9 @@ export function EventsPage() {
     if (editorTab === "statistics") {
       return (
         <>
-          <label className="workbench-field">
-            <span className="workbench-field__label">Ack Tag Name</span>
-            <input
-              className="workbench-input"
-              value={draftEvent.ackTagName}
-              onChange={(event) => setDraftPatch({ ackTagName: event.target.value })}
-            />
-          </label>
-
-          <label className="workbench-field">
-            <span className="workbench-field__label">Notification Tag Name</span>
-            <input
-              className="workbench-input"
-              value={draftEvent.notificationTagName}
-              onChange={(event) => setDraftPatch({ notificationTagName: event.target.value })}
-            />
-          </label>
-
-          <label className="workbench-field">
-            <span className="workbench-field__label">Elapsed Time Tag Name (optional)</span>
-            <input
-              className="workbench-input"
-              value={draftEvent.elapsedTimeTagName}
-              onChange={(event) => setDraftPatch({ elapsedTimeTagName: event.target.value })}
-            />
-          </label>
+          {renderTagReferenceInput("ackTagName", "Ack Tag Name")}
+          {renderTagReferenceInput("notificationTagName", "Notification Tag Name")}
+          {renderTagReferenceInput("elapsedTimeTagName", "Elapsed Time Tag Name (optional)")}
         </>
       );
     }
@@ -1515,15 +1622,7 @@ export function EventsPage() {
           </label>
         </label>
 
-        <label className="workbench-field">
-          <span className="workbench-field__label">Security Tag Name</span>
-          <input
-            className="workbench-input"
-            value={draftEvent.securityTagName}
-            onChange={(event) => setDraftPatch({ securityTagName: event.target.value })}
-            disabled={!draftEvent.securityEnabled}
-          />
-        </label>
+        {renderTagReferenceInput("securityTagName", "Security Tag Name", { disabled: !draftEvent.securityEnabled })}
 
         <label className="workbench-field">
           <span className="workbench-field__label">Security Bit Value</span>
@@ -1640,7 +1739,7 @@ export function EventsPage() {
         </select>
 
         <div className="screen-editor-tags-window__toolbar-meta">
-          Total: {events.length} | Enabled: {totalEnabledCount} | Disabled: {totalDisabledCount} | Filtered: {filteredRows.length} | Selected: {selectedFilteredCount}
+          Total: {events.length} | Enabled: {totalEnabledCount} | Disabled: {totalDisabledCount} | Filtered: {filteredRows.length} | Selected: {selectedFilteredCount} | Missing refs: {missingReferenceCount}
         </div>
       </div>
 
@@ -1695,13 +1794,21 @@ export function EventsPage() {
               const event = row.event;
               const selected = row.key === activeRow?.key;
               const checked = selectedRowKeys.has(row.key);
+              const rowWarnings = rowWarningsByKey.get(row.key) ?? [];
+              const hasCriticalMissingTag = rowWarnings.some((warning) => warning.code === "missing_source" || warning.code === "missing_security");
+              const rowWarningTitle = rowWarnings.map((warning) => warning.message).join(" | ");
 
               return (
                 <div
                   key={row.key}
-                  className={["screen-editor-tags-row", selected ? "screen-editor-tags-row--selected" : ""].filter(Boolean).join(" ")}
+                  className={[
+                    "screen-editor-tags-row",
+                    selected ? "screen-editor-tags-row--selected" : "",
+                    hasCriticalMissingTag ? "screen-editor-event-row--warning" : "",
+                  ].filter(Boolean).join(" ")}
                   style={{ gridTemplateColumns: tableGridTemplateColumns }}
                   onClick={() => setActiveRowKey(row.key)}
+                  title={rowWarningTitle || undefined}
                 >
                   <div className="screen-editor-tags-cell" onClick={(eventCell) => eventCell.stopPropagation()}>
                     <input
@@ -1736,7 +1843,23 @@ export function EventsPage() {
                       content = title;
                     } else if (column.id === "sourceTagName") {
                       title = event.sourceTagName?.trim() || "-";
-                      content = title;
+                      const sourceWarnings = rowWarnings.filter((warning) => warning.code === "missing_source");
+                      if (sourceWarnings.length > 0) {
+                        title = `${title} | ${sourceWarnings.map((warning) => warning.message).join(" | ")}`;
+                        content = (
+                          <span className="screen-editor-event-cell-with-warning">
+                            <span className="screen-editor-event-cell-with-warning__text">{event.sourceTagName?.trim() || "-"}</span>
+                            <span
+                              className="screen-editor-event-warning-marker"
+                              title={sourceWarnings.map((warning) => warning.message).join(" | ")}
+                            >
+                              !
+                            </span>
+                          </span>
+                        );
+                      } else {
+                        content = title;
+                      }
                     } else if (column.id === "wordValue") {
                       title = getWordValueLabel(event);
                       content = title;
@@ -1819,6 +1942,15 @@ export function EventsPage() {
                     <div className="screen-editor-tag-editor__kv"><span>Word Value</span><strong>{getWordValueLabel(activeRow.event)}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Require Ack</span><strong>{activeRow.event.requireAck ? "Yes" : "No"}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Sound</span><strong>{activeRow.event.soundEnabled ? (activeRow.event.soundId ?? "On") : "Off"}</strong></div>
+                    {activeRowWarnings.length > 0 ? (
+                      <div className="screen-editor-tag-editor__warnings">
+                        {activeRowWarnings.map((warning, index) => (
+                          <div key={`${warning.field}-${warning.code}-${index}`} className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+                            {warning.message}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
 
                     <div className="screen-editor-tag-editor-actions">
                       <WorkbenchButton onClick={() => openEdit(activeRow)}>Edit</WorkbenchButton>
@@ -1860,6 +1992,14 @@ export function EventsPage() {
           </div>
         </div>
       </div>
+
+      <TagPickerDialog
+        open={Boolean(draftEvent && tagPickerTargetField)}
+        project={project}
+        selectedTagName={selectedPickerTagName}
+        onClose={() => setTagPickerTargetField(null)}
+        onSelect={applyTagPickerSelection}
+      />
 
       <div className="screen-editor-tags-pagination">
         <span>Rows: {totalRows} | Page {safePage} / {totalPages}</span>

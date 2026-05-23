@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { TagDefinition, TagScalarValue, TagSimulationProfile, TagSimulationSettings, TagSourceType } from "@web-scada/shared";
 import { message, Modal } from "antd";
 import { WorkbenchButton, WorkbenchWindow, type WorkbenchWindowRect } from "../../../components/workbench";
+import { reconcileEventsAfterTagDeletion } from "../../events/event-tag-utils";
 import { api, type OpcUaBrowseItem } from "../../../services/api";
 import { useScadaStore } from "../../../store/scada-store";
 
@@ -1388,10 +1389,26 @@ export function ScreenEditorTagsWindow() {
   }, [tags]);
 
   const saveTags = (nextTags: TagDefinition[]): void => {
-    updateProjectJson({
+    const previousTagNames = new Set((project.tags ?? []).map((tag) => tag.name));
+    const nextTagNames = new Set(nextTags.map((tag) => tag.name));
+    const deletedTagNames = [...previousTagNames].filter((name) => !nextTagNames.has(name));
+
+    let nextProject = {
       ...project,
       tags: nextTags,
-    });
+    };
+
+    if (deletedTagNames.length > 0) {
+      const reconciled = reconcileEventsAfterTagDeletion(nextProject, deletedTagNames);
+      nextProject = reconciled.project;
+      if (reconciled.changed) {
+        void message.warning(
+          `Event Manager: disabled ${reconciled.affectedEventCount} event(s) due to deleted source/security tags.`,
+        );
+      }
+    }
+
+    updateProjectJson(nextProject);
   };
 
   const browseOpcUaNodes = async (

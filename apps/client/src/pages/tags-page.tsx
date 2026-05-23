@@ -5,6 +5,7 @@ import { Button, Card, Form, Input, InputNumber, List, Modal, Select, Space, Swi
 import { FloatingPanel } from "../components/floating-panel";
 import { useResizableTableColumns, type ResizableColumn } from "../components/resizable-table";
 import { ResizableDockPanel } from "../components/resizable-dock-panel";
+import { reconcileEventsAfterTagDeletion } from "../features/events/event-tag-utils";
 import { useDockLayout } from "../hooks/use-dock-layout";
 import { useScadaStore } from "../store/scada-store";
 
@@ -104,7 +105,16 @@ export function TagsPage() {
   const selectedTag = tags.find((tag) => (tag.id ?? tag.name) === selectedId) ?? pageRows[0] ?? null;
 
   const saveTags = (nextTags: TagDefinition[]): void => {
-    updateProjectJson({ ...project, tags: nextTags });
+    const previousTagNames = new Set((project.tags ?? []).map((tag) => tag.name));
+    const nextTagNames = new Set(nextTags.map((tag) => tag.name));
+    const deletedTagNames = [...previousTagNames].filter((name) => !nextTagNames.has(name));
+
+    let nextProject = { ...project, tags: nextTags };
+    if (deletedTagNames.length > 0) {
+      const reconciled = reconcileEventsAfterTagDeletion(nextProject, deletedTagNames);
+      nextProject = reconciled.project;
+    }
+    updateProjectJson(nextProject);
   };
 
   const openAdd = (): void => {
