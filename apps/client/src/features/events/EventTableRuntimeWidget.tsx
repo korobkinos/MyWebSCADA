@@ -1,62 +1,35 @@
-import type { EventHistoryQuery, EventOccurrence, EventTableObject } from "@web-scada/shared";
+import type { EventOccurrence, EventTableObject } from "@web-scada/shared";
 import { message } from "antd";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useScadaStore } from "../../store/scada-store";
+import {
+  DEFAULT_EVENT_TABLE_COLUMN_LABELS,
+  normalizeEventTableColumns,
+} from "./event-table-columns";
+import {
+  buildEventTableHistoryQuery,
+  hasMultiValueHistoryFilters,
+  resolveEventTableHistoryRange,
+} from "./event-table-history-query";
+import {
+  downloadCsvFile,
+  formatDbSizeLabel,
+  formatRecordCountLabel,
+  formatStatusClockTime,
+  getEventCellText,
+  getOccurrenceRowColor,
+} from "./event-table-formatters";
+import {
+  filterOnlineEventRows,
+  matchesCommonEventFilters,
+  sortEventRows,
+} from "./event-table-filters";
 import { eventSoundPlayer } from "./event-sound-player";
 import { eventRuntimeStore } from "./event-runtime-store";
 
 type EventTableRuntimeWidgetProps = {
   object: EventTableObject;
 };
-
-type EventTableColumnId = "timestamp" | "priority" | "category" | "message" | "source" | "value" | "state" | "ack";
-
-const DEFAULT_COLUMNS: EventTableColumnId[] = ["timestamp", "priority", "category", "message", "source", "value", "state", "ack"];
-const DEFAULT_COLUMN_LABELS: Record<EventTableColumnId, string> = {
-  timestamp: "Timestamp",
-  priority: "Priority",
-  category: "Category",
-  message: "Message",
-  source: "Source",
-  value: "Value",
-  state: "State",
-  ack: "Ack",
-};
-
-const LEGACY_COLUMN_MAP: Record<string, EventTableColumnId> = {
-  time: "timestamp",
-  occurredAt: "timestamp",
-  date: "timestamp",
-  pri: "priority",
-  prioritySnapshot: "priority",
-  categoryName: "category",
-  cat: "category",
-  msg: "message",
-  text: "message",
-  sourceTagName: "source",
-  sourceTagNameSnapshot: "source",
-  tag: "source",
-  status: "state",
-  acknowledged: "ack",
-  acknowledgedAt: "ack",
-};
-
-function formatHistoryPreset(preset: EventTableObject["historyPeriodPreset"]): string {
-  switch (preset) {
-    case "lastHour":
-      return "last hour";
-    case "shift":
-      return "shift";
-    case "day":
-      return "day";
-    case "week":
-      return "week";
-    case "custom":
-      return "custom";
-    default:
-      return "last hour";
-  }
-}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -67,356 +40,11 @@ function toFiniteNumber(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function normalizeColumns(columns: string[] | undefined): EventTableColumnId[] {
-  const input = columns && columns.length > 0 ? columns : DEFAULT_COLUMNS;
-  const normalized: EventTableColumnId[] = [];
-
-  for (const raw of input) {
-    const candidate = (raw ?? "").trim();
-    if (!candidate) {
-      continue;
-    }
-    const mapped = (DEFAULT_COLUMN_LABELS as Record<string, string>)[candidate]
-      ? (candidate as EventTableColumnId)
-      : LEGACY_COLUMN_MAP[candidate];
-    if (!mapped || normalized.includes(mapped)) {
-      continue;
-    }
-    normalized.push(mapped);
+function toSingleFilterValues<T extends string | number>(values: T[] | undefined): T[] {
+  if (!values || values.length === 0) {
+    return [];
   }
-
-  return normalized.length > 0 ? normalized.slice(0, 12) : [...DEFAULT_COLUMNS];
-}
-
-function formatCellDateTime(iso: string | null | undefined): string {
-  if (!iso) {
-    return "-";
-  }
-  const parsed = Date.parse(iso);
-  if (!Number.isFinite(parsed)) {
-    return "-";
-  }
-  return new Date(parsed).toLocaleString("ru-RU", {
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatStatusTime(timestamp: number | null): string {
-  if (!timestamp) {
-    return "--:--:--";
-  }
-  return new Date(timestamp).toLocaleTimeString("ru-RU", {
-    hour12: false,
-  });
-}
-
-function formatDbSize(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "--";
-  }
-  return `${value.toFixed(2)} MB`;
-}
-
-function formatRecordCount(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "--";
-  }
-  return Math.max(0, Math.round(value)).toLocaleString("ru-RU");
-}
-
-function toText(value: unknown): string {
-  if (value === null || typeof value === "undefined") {
-    return "";
-  }
-  return String(value);
-}
-
-function formatEventValue(value: unknown): string {
-  if (value === null || typeof value === "undefined") {
-    return "-";
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? String(value) : "-";
-  }
-  if (typeof value === "boolean") {
-    return value ? "true" : "false";
-  }
-  const text = String(value).trim();
-  return text || "-";
-}
-
-function isCleared(item: EventOccurrence): boolean {
-  return Boolean(item.clearedAt);
-}
-
-function isAcknowledged(item: EventOccurrence): boolean {
-  return Boolean(item.acknowledgedAt);
-}
-
-function buildSearchText(item: EventOccurrence): string {
-  return [
-    item.messageTextSnapshot,
-    item.sourceTagNameSnapshot,
-    item.categoryNameSnapshot,
-    item.eventDefinitionId,
-    item.id,
-  ]
-    .map((candidate) => toText(candidate).trim().toLowerCase())
-    .filter(Boolean)
-    .join(" |");
-}
-
-function matchesCommonFilters(item: EventOccurrence, object: EventTableObject): boolean {
-  if (object.categoryFilter && object.categoryFilter.length > 0) {
-    const category = (item.categoryNameSnapshot ?? item.categoryIdSnapshot ?? "").trim();
-    if (!object.categoryFilter.some((candidate) => candidate.trim() === category)) {
-      return false;
-    }
-  }
-
-  if (object.priorityFilter && object.priorityFilter.length > 0) {
-    const priority = typeof item.prioritySnapshot === "number" ? item.prioritySnapshot : null;
-    if (priority === null || !object.priorityFilter.includes(priority)) {
-      return false;
-    }
-  }
-
-  const sourceFilter = object.sourceTagFilter?.trim().toLowerCase();
-  if (sourceFilter) {
-    const source = (item.sourceTagNameSnapshot ?? "").toLowerCase();
-    if (!source.includes(sourceFilter)) {
-      return false;
-    }
-  }
-
-  const searchText = object.searchText?.trim().toLowerCase();
-  if (searchText && !buildSearchText(item).includes(searchText)) {
-    return false;
-  }
-
-  return true;
-}
-
-function filterOnlineRows(rows: EventOccurrence[], object: EventTableObject): EventOccurrence[] {
-  return rows.filter((item) => {
-    if (!matchesCommonFilters(item, object)) {
-      return false;
-    }
-
-    if (object.showActiveOnly !== false && isCleared(item)) {
-      return false;
-    }
-
-    if (object.showUnacknowledgedOnly && isAcknowledged(item)) {
-      return false;
-    }
-
-    if (object.showCleared === false && isCleared(item)) {
-      return false;
-    }
-
-    return true;
-  });
-}
-
-function compareNullableNumbers(a: number | null, b: number | null): number {
-  if (a === null && b === null) {
-    return 0;
-  }
-  if (a === null) {
-    return 1;
-  }
-  if (b === null) {
-    return -1;
-  }
-  return a - b;
-}
-
-function compareText(a: string | null | undefined, b: string | null | undefined): number {
-  return (a ?? "").localeCompare(b ?? "", undefined, { sensitivity: "base" });
-}
-
-function sortRows(rows: EventOccurrence[], object: EventTableObject): EventOccurrence[] {
-  const direction = object.sortDirection === "asc" ? 1 : -1;
-  const sortBy = object.sortBy ?? "time";
-  return [...rows].sort((left, right) => {
-    let result = 0;
-
-    if (sortBy === "priority") {
-      result = compareNullableNumbers(
-        typeof left.prioritySnapshot === "number" ? left.prioritySnapshot : null,
-        typeof right.prioritySnapshot === "number" ? right.prioritySnapshot : null,
-      );
-    } else if (sortBy === "category") {
-      result = compareText(left.categoryNameSnapshot, right.categoryNameSnapshot);
-    } else if (sortBy === "message") {
-      result = compareText(left.messageTextSnapshot, right.messageTextSnapshot);
-    } else if (sortBy === "sourceTagName") {
-      result = compareText(left.sourceTagNameSnapshot, right.sourceTagNameSnapshot);
-    } else {
-      const leftTs = Date.parse(left.occurredAt);
-      const rightTs = Date.parse(right.occurredAt);
-      const safeLeft = Number.isFinite(leftTs) ? leftTs : 0;
-      const safeRight = Number.isFinite(rightTs) ? rightTs : 0;
-      result = safeLeft - safeRight;
-    }
-
-    if (result === 0) {
-      result = compareText(left.id, right.id);
-    }
-
-    return result * direction;
-  });
-}
-
-function resolveHistoryRange(object: EventTableObject): { from?: string; to?: string; label: string } {
-  const preset = object.historyPeriodPreset ?? "lastHour";
-  const now = Date.now();
-  const hourMs = 60 * 60 * 1000;
-
-  let fromMs = now - hourMs;
-  let toMs = now;
-
-  if (preset === "shift") {
-    fromMs = now - 8 * hourMs;
-  } else if (preset === "day") {
-    fromMs = now - 24 * hourMs;
-  } else if (preset === "week") {
-    fromMs = now - 7 * 24 * hourMs;
-  } else if (preset === "custom") {
-    const customFrom = typeof object.historyFrom === "number" ? object.historyFrom : NaN;
-    const customTo = typeof object.historyTo === "number" ? object.historyTo : NaN;
-    if (Number.isFinite(customFrom)) {
-      fromMs = customFrom;
-    }
-    if (Number.isFinite(customTo)) {
-      toMs = customTo;
-    }
-    if (!Number.isFinite(customFrom) && !Number.isFinite(customTo)) {
-      fromMs = now - hourMs;
-      toMs = now;
-    }
-  }
-
-  if (toMs < fromMs) {
-    const swap = fromMs;
-    fromMs = toMs;
-    toMs = swap;
-  }
-
-  return {
-    from: new Date(fromMs).toISOString(),
-    to: new Date(toMs).toISOString(),
-    label: formatHistoryPreset(preset),
-  };
-}
-
-function buildHistoryQuery(args: {
-  object: EventTableObject;
-  page: number;
-  pageSize: number;
-  maxRows: number;
-}): EventHistoryQuery {
-  const { object, page, pageSize, maxRows } = args;
-  const period = resolveHistoryRange(object);
-  const sourceTagName = object.sourceTagFilter?.trim();
-  const category = object.categoryFilter && object.categoryFilter.length > 0 ? object.categoryFilter[0] : undefined;
-  const priority = object.priorityFilter && object.priorityFilter.length > 0 ? object.priorityFilter[0] : undefined;
-  const serverSidePagination = object.serverSidePagination !== false;
-
-  const query: EventHistoryQuery = {
-    from: period.from,
-    to: period.to,
-    category: category?.trim() || undefined,
-    priority: typeof priority === "number" ? priority : undefined,
-    sourceTagName: sourceTagName || undefined,
-    search: object.searchText?.trim() || undefined,
-  };
-
-  if (serverSidePagination) {
-    query.limit = pageSize;
-    query.offset = Math.max(0, (page - 1) * pageSize);
-  } else {
-    query.limit = Math.max(pageSize, Math.min(1000, maxRows));
-    query.offset = 0;
-  }
-
-  return query;
-}
-
-function getRowStateLabel(item: EventOccurrence): string {
-  if (!isCleared(item)) {
-    return isAcknowledged(item) ? "active (ack)" : "active";
-  }
-  return isAcknowledged(item) ? "cleared (ack)" : "cleared";
-}
-
-function getRowValue(item: EventOccurrence): unknown {
-  return isCleared(item) ? item.valueAtClear : item.valueAtTrigger;
-}
-
-function getRowColor(item: EventOccurrence, object: EventTableObject, fallback: string): string {
-  if (isCleared(item)) {
-    return isAcknowledged(item)
-      ? (object.acknowledgedColor ?? "#73c991")
-      : (object.clearedColor ?? "#8b949e");
-  }
-
-  const priority = typeof item.prioritySnapshot === "number" ? item.prioritySnapshot : 0;
-  if (priority >= 3) {
-    return object.criticalColor ?? "#f48771";
-  }
-  if (priority >= 2) {
-    return object.warningColor ?? "#e6b450";
-  }
-  return object.activeAlarmColor ?? fallback;
-}
-
-function getCellText(column: EventTableColumnId, item: EventOccurrence): string {
-  if (column === "timestamp") {
-    return formatCellDateTime(item.occurredAt);
-  }
-  if (column === "priority") {
-    return typeof item.prioritySnapshot === "number" ? String(item.prioritySnapshot) : "-";
-  }
-  if (column === "category") {
-    return item.categoryNameSnapshot?.trim() || item.categoryIdSnapshot?.trim() || "-";
-  }
-  if (column === "message") {
-    return item.messageTextSnapshot?.trim() || "-";
-  }
-  if (column === "source") {
-    return item.sourceTagNameSnapshot?.trim() || "-";
-  }
-  if (column === "value") {
-    return formatEventValue(getRowValue(item));
-  }
-  if (column === "state") {
-    return getRowStateLabel(item);
-  }
-  if (!item.acknowledgedAt) {
-    return "-";
-  }
-  const who = item.acknowledgedBy?.trim();
-  return who ? `${formatCellDateTime(item.acknowledgedAt)} | ${who}` : formatCellDateTime(item.acknowledgedAt);
-}
-
-function makeDownloadFile(name: string, content: string): void {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = objectUrl;
-  link.download = name;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
+  return [values[0] as T];
 }
 
 export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps) {
@@ -433,7 +61,7 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const title = object.title?.trim() || "Event Table";
-  const columns = useMemo(() => normalizeColumns(object.columns), [object.columns]);
+  const columns = useMemo(() => normalizeEventTableColumns(object.columns), [object.columns]);
   const textColor = object.textColor ?? "#d4d4d4";
   const mutedTextColor = object.mutedTextColor ?? "#9ea6ad";
   const backgroundColor = object.backgroundColor ?? "#1f2328";
@@ -447,7 +75,7 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   const borderRadius = clamp(toFiniteNumber(object.borderRadius, 6), 0, 24);
   const borderWidth = clamp(toFiniteNumber(object.borderWidth, 1), 0, 4);
   const mode = object.mode ?? (object.enableHistoryMode ? "history" : "online");
-  const historyPreset = resolveHistoryRange(object);
+  const historyPreset = resolveEventTableHistoryRange(object);
   const statusPosition = object.statusPosition ?? "bottom";
   const statusStyle = object.statusStyle ?? "archiveLike";
   const showStatus = object.showStatusBar !== false && statusStyle !== "hidden" && statusPosition !== "hidden";
@@ -474,16 +102,25 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
     updatedAt: null as number | null,
   };
 
+  const historyFilterObject = useMemo(
+    () => ({
+      ...object,
+      categoryFilter: toSingleFilterValues(object.categoryFilter),
+      priorityFilter: toSingleFilterValues(object.priorityFilter),
+    }),
+    [object],
+  );
+
   const onlineRows = useMemo(() => {
-    const filtered = filterOnlineRows(runtimeEvents.activeEvents, object);
-    const sorted = sortRows(filtered, object);
+    const filtered = filterOnlineEventRows(runtimeEvents.activeEvents, object);
+    const sorted = sortEventRows(filtered, object);
     return sorted.slice(0, maxRows);
   }, [maxRows, object, runtimeEvents.activeEvents]);
 
   const historySortedRows = useMemo(() => {
-    const filtered = historyBucket.items.filter((item) => matchesCommonFilters(item, object));
-    return sortRows(filtered, object);
-  }, [historyBucket.items, object]);
+    const filtered = historyBucket.items.filter((item) => matchesCommonEventFilters(item, historyFilterObject));
+    return sortEventRows(filtered, object);
+  }, [historyBucket.items, historyFilterObject, object]);
 
   const historyTotalRows = object.serverSidePagination !== false
     ? historyBucket.total
@@ -549,7 +186,7 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   }, [maxRows, mode]);
 
   const historyQuery = useMemo(
-    () => buildHistoryQuery({ object, page: historyPage, pageSize, maxRows }),
+    () => buildEventTableHistoryQuery({ object, page: historyPage, pageSize, maxRows }),
     [historyPage, maxRows, object, pageSize],
   );
 
@@ -561,10 +198,8 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
     void eventRuntimeStore.loadArchiveStatus();
   }, [historyQuery, mode, object.id]);
 
-  useEffect(() => {
-    return () => {
-      eventRuntimeStore.clearHistory(object.id);
-    };
+  useEffect(() => () => {
+    eventRuntimeStore.clearHistory(object.id);
   }, [object.id]);
 
   const toggleRowSelection = useCallback((occurrenceId: string) => {
@@ -623,7 +258,9 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   }, []);
 
   const handleAcknowledgeVisible = useCallback(() => {
-    const ids = visibleRows.filter((item) => !item.acknowledgedAt).map((item) => String(item.id));
+    const ids = visibleRows
+      .filter((item) => !item.acknowledgedAt)
+      .map((item) => String(item.id));
     void acknowledgeRows(ids);
   }, [acknowledgeRows, visibleRows]);
 
@@ -640,11 +277,12 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
       void message.info("CSV export is available in history mode only.");
       return;
     }
+
     setBusyCsv(true);
     try {
       const csvText = await eventRuntimeStore.exportHistoryCsv(historyQuery);
       const timestamp = new Date().toISOString().replaceAll(":", "-");
-      makeDownloadFile(`event-history-${timestamp}.csv`, csvText);
+      downloadCsvFile(`event-history-${timestamp}.csv`, csvText);
       void message.success("CSV export started.");
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
@@ -660,12 +298,12 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
     }
 
     const onlineStatusLabel = runtimeEvents.onlineStatus === "open" ? "online" : runtimeEvents.onlineStatus;
-    const onlineLineOne = `Event status: ${onlineStatusLabel} | active ${runtimeEvents.activeCount} | unacked ${runtimeEvents.unacknowledgedCount} | last update ${object.showLastUpdate === false ? "--:--:--" : formatStatusTime(runtimeEvents.lastUpdateAt)}`;
+    const onlineLineOne = `Event status: ${onlineStatusLabel} | active ${runtimeEvents.activeCount} | unacked ${runtimeEvents.unacknowledgedCount} | last update ${object.showLastUpdate === false ? "--:--:--" : formatStatusClockTime(runtimeEvents.lastUpdateAt)}`;
     const onlineLineTwo = `Mode: ${object.showModeIndicator === false ? "--" : "online"} | Rows: ${object.showRecordCount === false ? "--" : String(onlineRows.length)}`;
 
     const historyState = historyBucket.loading ? "loading" : historyBucket.error ? "error" : "ready";
     const historyLineOne = `Event archive: ${historyState} | period: ${historyPreset.label} | records ${historyTotalRows}`;
-    const historyLineTwo = `DB: ${formatDbSize(runtimeEvents.archiveStatus?.dbSizeMb)} | Records: ${formatRecordCount(runtimeEvents.archiveStatus?.recordsCount)}`;
+    const historyLineTwo = `DB: ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)} | Records: ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`;
 
     const lineOne = mode === "history" ? historyLineOne : onlineLineOne;
     const lineTwo = mode === "history"
@@ -730,9 +368,13 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
     [columns, object.columnWidths],
   );
 
-  const statusNote = soundStatusText
+  const hasSoundNote = soundStatusText
     || runtimeEvents.soundStatusMessage
     || (eventSoundPlayer.hasAutoplayBlock() ? "Sound playback was blocked by the browser. Click Enable sounds." : "");
+  const historyFilterNote = mode === "history" && hasMultiValueHistoryFilters(object)
+    ? "History filter uses single category and single priority value; extra values are ignored."
+    : "";
+  const statusNote = [hasSoundNote, historyFilterNote].filter(Boolean).join(" | ");
 
   const historyCanPrev = historyPage > 1;
   const historyCanNext = historyPage < totalPages;
@@ -815,8 +457,8 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
           ) : null}
 
           {object.enableActiveOnlyToggle !== false ? (
-            <span style={{ fontSize: Math.max(9, fontSize - 2), color: object.showActiveOnly !== false ? (object.activeAlarmColor ?? "#4ec94e") : mutedTextColor }}>
-              Active {object.showActiveOnly !== false ? "on" : "off"}
+            <span style={{ fontSize: Math.max(9, fontSize - 2), color: object.showActiveOnly === true ? (object.activeAlarmColor ?? "#4ec94e") : mutedTextColor }}>
+              Active {object.showActiveOnly === true ? "on" : "off"}
             </span>
           ) : null}
 
@@ -1022,7 +664,7 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
                 }}
                 title={column}
               >
-                {object.columnLabels?.[column]?.trim() || DEFAULT_COLUMN_LABELS[column] || column}
+                {object.columnLabels?.[column]?.trim() || DEFAULT_EVENT_TABLE_COLUMN_LABELS[column] || column}
               </div>
             ))}
           </div>
@@ -1034,7 +676,9 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
             minHeight: 0,
             display: "flex",
             flexDirection: "column",
-            background: object.zebraRows ? "linear-gradient(180deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0) 100%)" : "transparent",
+            background: object.zebraRows
+              ? "linear-gradient(180deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0) 100%)"
+              : "transparent",
             overflow: "hidden",
           }}
         >
@@ -1055,25 +699,13 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
           ) : null}
 
           {(mode === "online" && runtimeEvents.onlineLoading) || (mode === "history" && historyBucket.loading) ? (
-            <div
-              style={{
-                padding: 12,
-                color: mutedTextColor,
-                fontSize: Math.max(10, fontSize - 1),
-              }}
-            >
+            <div style={{ padding: 12, color: mutedTextColor, fontSize: Math.max(10, fontSize - 1) }}>
               {mode === "history" ? "Loading history events..." : "Loading online events..."}
             </div>
           ) : null}
 
           {(mode === "online" && runtimeEvents.onlineError) || (mode === "history" && historyBucket.error) ? (
-            <div
-              style={{
-                padding: 12,
-                color: object.criticalColor ?? "#f48771",
-                fontSize: Math.max(10, fontSize - 1),
-              }}
-            >
+            <div style={{ padding: 12, color: object.criticalColor ?? "#f48771", fontSize: Math.max(10, fontSize - 1) }}>
               {mode === "history" ? historyBucket.error : runtimeEvents.onlineError}
             </div>
           ) : null}
@@ -1098,7 +730,8 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
                 {visibleRows.map((row, rowIndex) => {
                   const rowId = String(row.id);
                   const selected = selectedIds.has(rowId);
-                  const baseColor = getRowColor(row, object, textColor);
+                  const rowColor = getOccurrenceRowColor(row, object, textColor);
+
                   return (
                     <div
                       key={rowId}
@@ -1121,26 +754,29 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
                           : (object.zebraRows && rowIndex % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"),
                         borderBottom: `1px solid ${gridLineColor}`,
                         cursor: "pointer",
-                        color: baseColor,
+                        color: rowColor,
                         fontSize: Math.max(9, fontSize - 1),
                       }}
                     >
-                      {columns.map((column, index) => (
-                        <div
-                          key={`${rowId}-${column}`}
-                          style={{
-                            padding: "2px 8px",
-                            borderRight: showGridLines && index < columns.length - 1 ? `1px solid ${gridLineColor}` : "none",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            userSelect: "none",
-                          }}
-                          title={getCellText(column, row)}
-                        >
-                          {getCellText(column, row)}
-                        </div>
-                      ))}
+                      {columns.map((column, index) => {
+                        const cellText = getEventCellText(column, row);
+                        return (
+                          <div
+                            key={`${rowId}-${column}`}
+                            style={{
+                              padding: "2px 8px",
+                              borderRight: showGridLines && index < columns.length - 1 ? `1px solid ${gridLineColor}` : "none",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              userSelect: "none",
+                            }}
+                            title={cellText}
+                          >
+                            {cellText}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}

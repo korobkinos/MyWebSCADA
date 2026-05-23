@@ -4108,19 +4108,18 @@ function SpecificPropertyFields({
     ];
     const visibleColumns = object.columns ?? defaultColumns.map((item) => item.key);
     const columnRows = Array.from(new Set([...defaultColumns.map((item) => item.key), ...visibleColumns]));
-    const updateStringList = (raw: string, onDone: (items: string[]) => void) => {
-      const next = raw
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-      onDone(next);
+    const updateSingleStringValue = (raw: string, onDone: (items: string[]) => void) => {
+      const value = raw.trim();
+      onDone(value ? [value] : []);
     };
-    const updateNumberList = (raw: string, onDone: (items: number[]) => void) => {
-      const next = raw
-        .split(",")
-        .map((item) => Number(item.trim()))
-        .filter((value) => Number.isFinite(value));
-      onDone(next);
+    const updateSingleNumberValue = (raw: string, onDone: (items: number[]) => void) => {
+      const value = raw.trim();
+      if (!value) {
+        onDone([]);
+        return;
+      }
+      const parsed = Number(value);
+      onDone(Number.isFinite(parsed) ? [parsed] : []);
     };
 
     return (
@@ -4145,7 +4144,7 @@ function SpecificPropertyFields({
         <div className="object-property-panel__switch-list">
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Show Active Only</span>
-            <Switch checked={object.showActiveOnly ?? true} onChange={(checked) => onPatch({ showActiveOnly: checked } as Partial<HmiObject>)} />
+            <Switch checked={object.showActiveOnly ?? false} onChange={(checked) => onPatch({ showActiveOnly: checked } as Partial<HmiObject>)} />
           </div>
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Show Unacknowledged Only</span>
@@ -4153,7 +4152,7 @@ function SpecificPropertyFields({
           </div>
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Show Cleared</span>
-            <Switch checked={object.showCleared ?? true} onChange={(checked) => onPatch({ showCleared: checked } as Partial<HmiObject>)} />
+            <Switch checked={object.showCleared ?? false} onChange={(checked) => onPatch({ showCleared: checked } as Partial<HmiObject>)} />
           </div>
         </div>
         <Form.Item label="Max Rows">
@@ -4165,16 +4164,16 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ maxRows: Math.max(1, Math.min(5000, Number(value ?? 100))) } as Partial<HmiObject>)}
           />
         </Form.Item>
-        <Form.Item label="Category Filter (comma-separated)">
+        <Form.Item label="Category Filter (single value)">
           <Input
-            value={(object.categoryFilter ?? []).join(", ")}
-            onChange={(event) => updateStringList(event.target.value, (next) => onPatch({ categoryFilter: next } as Partial<HmiObject>))}
+            value={object.categoryFilter?.[0] ?? ""}
+            onChange={(event) => updateSingleStringValue(event.target.value, (next) => onPatch({ categoryFilter: next } as Partial<HmiObject>))}
           />
         </Form.Item>
-        <Form.Item label="Priority Filter (comma-separated)">
+        <Form.Item label="Priority Filter (single value)">
           <Input
-            value={(object.priorityFilter ?? []).join(", ")}
-            onChange={(event) => updateNumberList(event.target.value, (next) => onPatch({ priorityFilter: next } as Partial<HmiObject>))}
+            value={typeof object.priorityFilter?.[0] === "number" ? String(object.priorityFilter[0]) : ""}
+            onChange={(event) => updateSingleNumberValue(event.target.value, (next) => onPatch({ priorityFilter: next } as Partial<HmiObject>))}
           />
         </Form.Item>
         <Form.Item label="Source Tag Filter">
@@ -5110,5 +5109,4 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
-
 

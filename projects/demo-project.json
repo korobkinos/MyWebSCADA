@@ -9407,10 +9407,10 @@
       "startupDelayMs": 0,
       "requireAck": false,
       "soundEnabled": true,
-      "soundId": "default_warning",
+      "soundId": "cd29db2b-ee70-4346-8f36-9c7a3066d34e",
       "securityEnabled": false,
       "createdAt": "2026-05-23T17:56:47.530Z",
-      "updatedAt": "2026-05-23T19:55:41.360Z"
+      "updatedAt": "2026-05-23T21:05:28.473Z"
     }
   ],
   "eventSounds": [
