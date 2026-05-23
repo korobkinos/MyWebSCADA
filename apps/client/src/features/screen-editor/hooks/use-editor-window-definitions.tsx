@@ -15,6 +15,7 @@ import type {
 import { WorkbenchButton, type WorkbenchWindowDefinition } from "../../../components/workbench";
 import { ObjectPropertyPanel } from "../../../components/object-property-panel";
 import { ArchivePage } from "../../../pages/archive-page";
+import { EventsPage } from "../../../pages/events-page";
 import { getAssetDisplayPath } from "../../../utils/asset-path";
 import { findLibraryOriginForObject } from "../utils/library-origin";
 import {
@@ -326,6 +327,14 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
         minWidth: 720,
         minHeight: 420,
         render: () => <ArchivePage />,
+      },
+      {
+        id: "events",
+        title: "Event Manager / Менеджер событий",
+        defaultRect: { x: 140, y: 90, width: 1100, height: 680 },
+        minWidth: 720,
+        minHeight: 420,
+        render: () => <EventsPage />,
       },
       {
         id: "macros",

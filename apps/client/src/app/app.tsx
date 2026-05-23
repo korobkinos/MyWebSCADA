@@ -1,7 +1,6 @@
 import { Component, lazy, Suspense, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
-  AlertOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
@@ -32,7 +31,6 @@ const ProjectPage = lazy(() => import("../pages/project-page").then((m) => ({ de
 const ScreensPage = lazy(() => import("../pages/screens-page").then((m) => ({ default: m.ScreensPage })));
 const AssetsPage = lazy(() => import("../pages/assets-page").then((m) => ({ default: m.AssetsPage })));
 const ArchivePage = lazy(() => import("../pages/archive-page").then((m) => ({ default: m.ArchivePage })));
-const EventsPage = lazy(() => import("../pages/events-page").then((m) => ({ default: m.EventsPage })));
 const LibrariesPage = lazy(() => import("../pages/libraries-page").then((m) => ({ default: m.LibrariesPage })));
 const MacrosPage = lazy(() => import("../pages/macros-page").then((m) => ({ default: m.MacrosPage })));
 const ElementEditorPage = lazy(() => import("../pages/element-editor-page").then((m) => ({ default: m.ElementEditorPage })));
@@ -408,7 +406,6 @@ export function App() {
     hasPermission("editor.view") ? { key: "/editor", icon: <EditOutlined />, label: <Link to="/editor">Editor</Link> } : null,
     hasPermission("screens.view") ? { key: "/screens", icon: <DashboardOutlined />, label: <Link to="/screens">Screens</Link> } : null,
     hasPermission("tags.view") ? { key: "/tags", icon: <TagsOutlined />, label: <Link to="/tags">Tags</Link> } : null,
-    hasPermission("events.view") ? { key: "/events", icon: <AlertOutlined />, label: <Link to="/events">Event Manager / Журнал событий</Link> } : null,
     hasPermission("drivers.view") ? { key: "/drivers", icon: <HddOutlined />, label: <Link to="/drivers">Drivers</Link> } : null,
     hasPermission("tags.view") ? { key: "/archive", icon: <DatabaseOutlined />, label: <Link to="/archive">Archive</Link> } : null,
     hasPermission("assets.view") ? { key: "/assets", icon: <FileImageOutlined />, label: <Link to="/assets">Assets</Link> } : null,
@@ -481,7 +478,6 @@ export function App() {
                 />
                 <Route path="/screens" element={<RequirePermission permission="screens.view"><ScrollPage><ScreensPage /></ScrollPage></RequirePermission>} />
                 <Route path="/tags" element={<RequirePermission permission="tags.view"><FillPage><TagsPage /></FillPage></RequirePermission>} />
-                <Route path="/events" element={<RequirePermission permission="events.view"><ScrollPage><EventsPage /></ScrollPage></RequirePermission>} />
                 <Route path="/drivers" element={<RequirePermission permission="drivers.view"><FillPage><DriversPage /></FillPage></RequirePermission>} />
                 <Route path="/archive" element={<RequirePermission permission="tags.view"><ScrollPage><ArchivePage /></ScrollPage></RequirePermission>} />
                 <Route path="/assets" element={<RequirePermission permission="assets.view"><FillPage><AssetsPage /></FillPage></RequirePermission>} />

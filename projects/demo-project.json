@@ -9884,133 +9884,6 @@
           }
         },
         {
-          "id": "val_27zk4t",
-          "type": "value-display",
-          "x": 1509.7423777434867,
-          "y": 723.8452656041352,
-          "width": 180,
-          "height": 40,
-          "minWidth": 80,
-          "minHeight": 28,
-          "visibleTag": "",
-          "tag": "Application.GVL_UDP.udp_cfg.udp_cfg[0].local_port",
-          "suffix": "",
-          "badQualityText": "BAD",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 16,
-            "fontStyle": "normal",
-            "color": "#ffd666",
-            "horizontalAlign": "right",
-            "verticalAlign": "middle",
-            "padding": 4
-          }
-        },
-        {
-          "id": "value-display_92ahtl",
-          "type": "value-display",
-          "x": 1041.1773447928676,
-          "y": 831.9630814228886,
-          "width": 855.6969195579992,
-          "height": 190.15487101288852,
-          "rotation": 0,
-          "minWidth": 80,
-          "minHeight": 28,
-          "visibleTag": "",
-          "tagIndexingByField": {
-            "disabledTag": {
-              "enabled": false,
-              "template": "",
-              "bindings": []
-            },
-            "tag": {
-              "enabled": true,
-              "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.packet_count",
-              "bindings": [
-                {
-                  "key": "INDEX_1",
-                  "slotIndex": 0,
-                  "baseValue": 0,
-                  "source": "tag",
-                  "sourceName": "Counter",
-                  "constantValue": 0,
-                  "offset": 0
-                }
-              ]
-            }
-          },
-          "tagIndexing": {
-            "enabled": true,
-            "template": "ns=2;s=Application.GVL_UDP.udp_channel_modbus[0].state.packet_count",
-            "bindings": [
-              {
-                "key": "INDEX_1",
-                "slotIndex": 0,
-                "baseValue": 0,
-                "source": "tag",
-                "sourceName": "Counter",
-                "constantValue": 0,
-                "offset": 0
-              }
-            ]
-          },
-          "tag": "Application.GVL_UDP.udp_channel_modbus.udp_channel_modbus[0].state.packet_count",
-          "suffix": "",
-          "badQualityText": "BAD",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 200,
-            "fontStyle": "normal",
-            "color": "#ffd666",
-            "horizontalAlign": "right",
-            "verticalAlign": "middle",
-            "padding": 4
-          }
-        },
-        {
-          "id": "value-display_ddvf3n",
-          "type": "value-display",
-          "x": 1269.2431769240684,
-          "y": 723.0540948392885,
-          "width": 180,
-          "height": 40,
-          "minWidth": 80,
-          "minHeight": 28,
-          "visibleTag": "",
-          "tag": "Application.GVL_UDP.udp_cfg.udp_cfg[1].local_port",
-          "suffix": "",
-          "badQualityText": "BAD",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 16,
-            "fontStyle": "normal",
-            "color": "#ffd666",
-            "horizontalAlign": "right",
-            "verticalAlign": "middle",
-            "padding": 4
-          }
-        },
-        {
-          "id": "chk_fhcjyg",
-          "type": "checkbox",
-          "name": "чекбокс_пзк",
-          "x": 811.654251642977,
-          "y": 750.791630766377,
-          "width": 153.79343252357168,
-          "height": 49.65764172199869,
-          "rotation": 0,
-          "shadowEnabled": false,
-          "minWidth": 60,
-          "minHeight": 24,
-          "label": "Checkbox",
-          "tag": "Counter2",
-          "writeTag": "Counter2",
-          "checkedText": "On",
-          "uncheckedText": "Off",
-          "checkedColor": "#0e639c",
-          "uncheckedColor": "#2d2d2d"
-        },
-        {
           "id": "sel_88zyo1",
           "type": "select",
           "x": 1498.926435743365,
@@ -10241,130 +10114,6 @@
           "dialogTitle": "ЗАЛУПА",
           "dialogPlacement": "top",
           "dialogOffset": 20
-        },
-        {
-          "id": "group_m1tqiy",
-          "type": "group",
-          "x": 742.110683354601,
-          "y": 836.7235716527009,
-          "width": 85.09811133892268,
-          "height": 93.24937025527166,
-          "rotation": 0,
-          "rotationAnimation": {
-            "enabled": true,
-            "triggerTag": "speed",
-            "speedSource": "tag",
-            "speedTag": "speed",
-            "maxSpeedDegPerSec": 10000
-          },
-          "visible": true,
-          "locked": false,
-          "minWidth": 8,
-          "minHeight": 8,
-          "objects": [
-            {
-              "id": "line_uk6yyz",
-              "type": "line",
-              "x": 47.77784391695389,
-              "y": 29.400444807338307,
-              "width": 45.82224889391107,
-              "height": 10.848772736122429,
-              "rotation": 90,
-              "minWidth": 10.848772736122363,
-              "minHeight": 5.424386368061187,
-              "points": [
-                0,
-                5.4243863680612145,
-                45.82224889391107,
-                5.4243863680612145
-              ],
-              "stroke": "#262626",
-              "strokeWidth": 4.339509094448948,
-              "closed": false,
-              "activeValue": 1,
-              "inactiveStroke": "#d9d9d9",
-              "activeStroke": "#0e639c",
-              "gradientEnabled": false,
-              "gradientDirection": "horizontal"
-            },
-            {
-              "id": "circle_yiqmmm",
-              "type": "rectangle",
-              "x": 18.63326328275656,
-              "y": 0,
-              "width": 48.81947731255063,
-              "height": 48.81947731255068,
-              "opacity": 1,
-              "minWidth": 10.848772736122363,
-              "minHeight": 10.848772736122374,
-              "fill": "#262626",
-              "stroke": "#8c8c8c",
-              "strokeWidth": 1.084877273612237,
-              "cornerRadius": 45
-            },
-            {
-              "id": "group_1enwuq",
-              "type": "group",
-              "x": 0,
-              "y": 52.02403385800664,
-              "width": 85.09811133892268,
-              "height": 41.225336397265025,
-              "visible": true,
-              "locked": false,
-              "minWidth": 4.339509094448945,
-              "minHeight": 4.33950909444895,
-              "objects": [
-                {
-                  "id": "tri_mmzejl",
-                  "type": "line",
-                  "x": 43.39509094448975,
-                  "y": 0,
-                  "width": 48.81947731255064,
-                  "height": 43.395090944489795,
-                  "rotation": 90,
-                  "opacity": 1,
-                  "minWidth": 10.848772736122363,
-                  "minHeight": 10.848772736122374,
-                  "points": [
-                    24.40973865627532,
-                    0,
-                    48.81947731255064,
-                    43.395090944489795,
-                    0,
-                    43.395090944489795
-                  ],
-                  "stroke": "#8c8c8c",
-                  "strokeWidth": 1.084877273612237,
-                  "closed": true,
-                  "fill": "#262626"
-                },
-                {
-                  "id": "line_mjhned",
-                  "type": "line",
-                  "x": 41.703020394432926,
-                  "y": 48.81947731255068,
-                  "width": 48.81947731255064,
-                  "height": 43.395090944489795,
-                  "rotation": 270,
-                  "opacity": 1,
-                  "minWidth": 10.848772736122363,
-                  "minHeight": 10.848772736122374,
-                  "points": [
-                    24.40973865627532,
-                    0,
-                    48.81947731255064,
-                    43.395090944489795,
-                    0,
-                    43.395090944489795
-                  ],
-                  "stroke": "#8c8c8c",
-                  "strokeWidth": 1.084877273612237,
-                  "closed": true,
-                  "fill": "#262626"
-                }
-              ]
-            }
-          ]
         },
         {
           "id": "slider_ypm3wv",
@@ -10618,6 +10367,43 @@
             "triggerTag": "Counter2",
             "effectType": "arrows"
           }
+        },
+        {
+          "id": "event_table_h6snjl",
+          "type": "eventTable",
+          "x": 34.44053819638266,
+          "y": 821.8321495787325,
+          "width": 1859.313142125548,
+          "height": 183.18317170909577,
+          "rotation": 0,
+          "minWidth": 220,
+          "minHeight": 140,
+          "title": "Сообщения",
+          "showHeader": true,
+          "showToolbar": true,
+          "showActiveOnly": true,
+          "showUnacknowledgedOnly": false,
+          "maxRows": 100,
+          "categoryFilter": [],
+          "priorityFilter": [],
+          "columns": [
+            "timestamp",
+            "priority",
+            "category",
+            "message",
+            "source",
+            "ack"
+          ],
+          "fontSize": 12,
+          "rowHeight": 28,
+          "textColor": "#d4d4d4",
+          "backgroundColor": "#1e1e1e",
+          "headerBackgroundColor": "#2d2d30",
+          "borderColor": "#3c3c3c",
+          "showGridLines": true,
+          "zebraRows": true,
+          "enableAckButton": true,
+          "enableSilenceButton": true
         }
       ]
     },
