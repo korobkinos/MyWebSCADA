@@ -1,4 +1,5 @@
 import type { EventTableObject } from "@web-scada/shared";
+import { ColorPicker } from "antd";
 import { useMemo, useState } from "react";
 import { DEFAULT_EVENT_TABLE_COLUMN_LABELS, type EventTableColumnId } from "./event-table-columns";
 import { resolveEventTableConfig } from "./event-table-config";
@@ -56,6 +57,45 @@ function parseOptionalMillis(value: string): number | undefined {
     return undefined;
   }
   return Math.max(0, Math.round(parsed));
+}
+
+type EventTableColorButtonProps = {
+  value?: string;
+  fallback: string;
+  title: string;
+  onChange: (value: string) => void;
+};
+
+function normalizeHexColor(value: string | undefined, fallback: string): string {
+  const trimmed = (value ?? "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    const body = trimmed.slice(1);
+    return `#${body[0]}${body[0]}${body[1]}${body[1]}${body[2]}${body[2]}`;
+  }
+  return fallback;
+}
+
+function EventTableColorButton({ value, fallback, title, onChange }: EventTableColorButtonProps) {
+  const colorValue = normalizeHexColor(value, fallback);
+  return (
+    <ColorPicker
+      value={colorValue}
+      trigger="click"
+      onChangeComplete={(color) => onChange(color.toHexString())}
+    >
+      <button
+        type="button"
+        className="trends-settings-color-button"
+        title={`${title}: ${colorValue}`}
+        aria-label={title}
+      >
+        <span className="trends-settings-color-button__swatch" style={{ backgroundColor: colorValue }} />
+      </button>
+    </ColorPicker>
+  );
 }
 
 export function EventTableSettingsDialog({ open, object, onClose, onPatch }: EventTableSettingsDialogProps) {
@@ -204,29 +244,79 @@ export function EventTableSettingsDialog({ open, object, onClose, onPatch }: Eve
 
     if (activeTab === "appearance") {
       return (
-        <div className="event-table-settings-fields event-table-settings-fields--three-col">
-          <label className="workbench-field"><span className="workbench-field__label">Font Size</span><input className="workbench-input" type="number" min={8} max={28} value={object.fontSize ?? 12} onChange={(event) => onPatch({ fontSize: normalizeNumber(event.target.value, 12, 8, 28) })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Title Font Size</span><input className="workbench-input" type="number" min={8} max={28} value={object.titleFontSize ?? 13} onChange={(event) => onPatch({ titleFontSize: normalizeNumber(event.target.value, 13, 8, 28) })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Title Height</span><input className="workbench-input" type="number" min={16} max={80} value={object.titleHeight ?? 28} onChange={(event) => onPatch({ titleHeight: normalizeNumber(event.target.value, 28, 16, 80) })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Row Height</span><input className="workbench-input" type="number" min={18} max={80} value={object.rowHeight ?? 26} onChange={(event) => onPatch({ rowHeight: normalizeNumber(event.target.value, 26, 18, 80) })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Header Height</span><input className="workbench-input" type="number" min={18} max={80} value={object.headerHeight ?? 28} onChange={(event) => onPatch({ headerHeight: normalizeNumber(event.target.value, 28, 18, 80) })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Cell Padding</span><input className="workbench-input" type="number" min={2} max={24} value={object.cellPadding ?? 8} onChange={(event) => onPatch({ cellPadding: normalizeNumber(event.target.value, 8, 2, 24) })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Text Align</span><select className="workbench-select" value={object.cellTextAlign ?? "left"} onChange={(event) => onPatch({ cellTextAlign: event.target.value as EventTableObject["cellTextAlign"] })}><option value="left">left</option><option value="center">center</option><option value="right">right</option></select></label>
-          <label className="workbench-field"><span className="workbench-field__label">Border Width</span><input className="workbench-input" type="number" min={0} max={6} value={object.borderWidth ?? 1} onChange={(event) => onPatch({ borderWidth: normalizeNumber(event.target.value, 1, 0, 6) })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Border Radius</span><input className="workbench-input" type="number" min={0} max={32} value={object.borderRadius ?? 6} onChange={(event) => onPatch({ borderRadius: normalizeNumber(event.target.value, 6, 0, 32) })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Background</span><input className="workbench-input" value={object.backgroundColor ?? "#1f2328"} onChange={(event) => onPatch({ backgroundColor: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Header Background</span><input className="workbench-input" value={object.headerBackgroundColor ?? "#2a3038"} onChange={(event) => onPatch({ headerBackgroundColor: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Header Text</span><input className="workbench-input" value={object.headerTextColor ?? "#ced8df"} onChange={(event) => onPatch({ headerTextColor: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Text Color</span><input className="workbench-input" value={object.textColor ?? "#d6d6d6"} onChange={(event) => onPatch({ textColor: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Muted Text</span><input className="workbench-input" value={object.mutedTextColor ?? "#9ea6ad"} onChange={(event) => onPatch({ mutedTextColor: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Grid Line</span><input className="workbench-input" value={object.gridLineColor ?? "#30363d"} onChange={(event) => onPatch({ gridLineColor: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Title Text</span><input className="workbench-input" value={object.titleTextColor ?? "#ced8df"} onChange={(event) => onPatch({ titleTextColor: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Title Background</span><input className="workbench-input" value={object.titleBackgroundColor ?? "#2a3038"} onChange={(event) => onPatch({ titleBackgroundColor: event.target.value })} /></label>
-          <label className="screen-editor-settings-check"><input type="checkbox" checked={object.showHeader !== false} onChange={(event) => onPatch({ showHeader: event.target.checked })} /><span>Show header</span></label>
-          <label className="screen-editor-settings-check"><input type="checkbox" checked={object.showGridLines !== false} onChange={(event) => onPatch({ showGridLines: event.target.checked })} /><span>Show grid lines</span></label>
-          <label className="screen-editor-settings-check"><input type="checkbox" checked={object.zebraRows !== false} onChange={(event) => onPatch({ zebraRows: event.target.checked })} /><span>Zebra rows</span></label>
-          <label className="screen-editor-settings-check"><input type="checkbox" checked={object.compactMode === true} onChange={(event) => onPatch({ compactMode: event.target.checked })} /><span>Compact mode</span></label>
-          <label className="screen-editor-settings-check"><input type="checkbox" checked={object.transparentBackground === true} onChange={(event) => onPatch({ transparentBackground: event.target.checked })} /><span>Transparent background</span></label>
+        <div className="event-table-settings-appearance">
+          <div className="event-table-settings-fields event-table-settings-fields--three-col">
+            <label className="workbench-field"><span className="workbench-field__label">Font Size</span><input className="workbench-input" type="number" min={8} max={28} value={object.fontSize ?? 12} onChange={(event) => onPatch({ fontSize: normalizeNumber(event.target.value, 12, 8, 28) })} /></label>
+            <label className="workbench-field"><span className="workbench-field__label">Title Font Size</span><input className="workbench-input" type="number" min={8} max={28} value={object.titleFontSize ?? 13} onChange={(event) => onPatch({ titleFontSize: normalizeNumber(event.target.value, 13, 8, 28) })} /></label>
+            <label className="workbench-field"><span className="workbench-field__label">Title Height</span><input className="workbench-input" type="number" min={16} max={80} value={object.titleHeight ?? 28} onChange={(event) => onPatch({ titleHeight: normalizeNumber(event.target.value, 28, 16, 80) })} /></label>
+            <label className="workbench-field"><span className="workbench-field__label">Row Height</span><input className="workbench-input" type="number" min={18} max={80} value={object.rowHeight ?? 26} onChange={(event) => onPatch({ rowHeight: normalizeNumber(event.target.value, 26, 18, 80) })} /></label>
+            <label className="workbench-field"><span className="workbench-field__label">Header Height</span><input className="workbench-input" type="number" min={18} max={80} value={object.headerHeight ?? 28} onChange={(event) => onPatch({ headerHeight: normalizeNumber(event.target.value, 28, 18, 80) })} /></label>
+            <label className="workbench-field"><span className="workbench-field__label">Cell Padding</span><input className="workbench-input" type="number" min={2} max={24} value={object.cellPadding ?? 8} onChange={(event) => onPatch({ cellPadding: normalizeNumber(event.target.value, 8, 2, 24) })} /></label>
+            <label className="workbench-field"><span className="workbench-field__label">Text Align</span><select className="workbench-select" value={object.cellTextAlign ?? "left"} onChange={(event) => onPatch({ cellTextAlign: event.target.value as EventTableObject["cellTextAlign"] })}><option value="left">left</option><option value="center">center</option><option value="right">right</option></select></label>
+            <label className="workbench-field"><span className="workbench-field__label">Border Width</span><input className="workbench-input" type="number" min={0} max={6} value={object.borderWidth ?? 1} onChange={(event) => onPatch({ borderWidth: normalizeNumber(event.target.value, 1, 0, 6) })} /></label>
+            <label className="workbench-field"><span className="workbench-field__label">Border Radius</span><input className="workbench-input" type="number" min={0} max={32} value={object.borderRadius ?? 6} onChange={(event) => onPatch({ borderRadius: normalizeNumber(event.target.value, 6, 0, 32) })} /></label>
+            <label className="screen-editor-settings-check"><input type="checkbox" checked={object.showHeader !== false} onChange={(event) => onPatch({ showHeader: event.target.checked })} /><span>Show header</span></label>
+            <label className="screen-editor-settings-check"><input type="checkbox" checked={object.showGridLines !== false} onChange={(event) => onPatch({ showGridLines: event.target.checked })} /><span>Show grid lines</span></label>
+            <label className="screen-editor-settings-check"><input type="checkbox" checked={object.zebraRows !== false} onChange={(event) => onPatch({ zebraRows: event.target.checked })} /><span>Zebra rows</span></label>
+            <label className="screen-editor-settings-check"><input type="checkbox" checked={object.compactMode === true} onChange={(event) => onPatch({ compactMode: event.target.checked })} /><span>Compact mode</span></label>
+            <label className="screen-editor-settings-check"><input type="checkbox" checked={object.transparentBackground === true} onChange={(event) => onPatch({ transparentBackground: event.target.checked })} /><span>Transparent background</span></label>
+          </div>
+
+          <section className="workbench-section">
+            <div className="workbench-section__header"><span className="workbench-section__title">Colors</span></div>
+            <div className="workbench-section__content">
+              <div className="event-table-settings-color-list">
+                <label className="workbench-field">
+                  <div className="trends-settings-color-field">
+                    <EventTableColorButton value={object.backgroundColor} fallback="#1f2328" title="Background" onChange={(value) => onPatch({ backgroundColor: value })} />
+                    <span className="event-table-settings-color-label">Background</span>
+                  </div>
+                </label>
+                <label className="workbench-field">
+                  <div className="trends-settings-color-field">
+                    <EventTableColorButton value={object.headerBackgroundColor} fallback="#2a3038" title="Header background" onChange={(value) => onPatch({ headerBackgroundColor: value })} />
+                    <span className="event-table-settings-color-label">Header background</span>
+                  </div>
+                </label>
+                <label className="workbench-field">
+                  <div className="trends-settings-color-field">
+                    <EventTableColorButton value={object.headerTextColor} fallback="#ced8df" title="Header text" onChange={(value) => onPatch({ headerTextColor: value })} />
+                    <span className="event-table-settings-color-label">Header text</span>
+                  </div>
+                </label>
+                <label className="workbench-field">
+                  <div className="trends-settings-color-field">
+                    <EventTableColorButton value={object.textColor} fallback="#d6d6d6" title="Text color" onChange={(value) => onPatch({ textColor: value })} />
+                    <span className="event-table-settings-color-label">Text</span>
+                  </div>
+                </label>
+                <label className="workbench-field">
+                  <div className="trends-settings-color-field">
+                    <EventTableColorButton value={object.mutedTextColor} fallback="#9ea6ad" title="Muted text" onChange={(value) => onPatch({ mutedTextColor: value })} />
+                    <span className="event-table-settings-color-label">Muted text</span>
+                  </div>
+                </label>
+                <label className="workbench-field">
+                  <div className="trends-settings-color-field">
+                    <EventTableColorButton value={object.gridLineColor} fallback="#30363d" title="Grid line" onChange={(value) => onPatch({ gridLineColor: value })} />
+                    <span className="event-table-settings-color-label">Grid line</span>
+                  </div>
+                </label>
+                <label className="workbench-field">
+                  <div className="trends-settings-color-field">
+                    <EventTableColorButton value={object.titleTextColor} fallback="#ced8df" title="Title text" onChange={(value) => onPatch({ titleTextColor: value })} />
+                    <span className="event-table-settings-color-label">Title text</span>
+                  </div>
+                </label>
+                <label className="workbench-field">
+                  <div className="trends-settings-color-field">
+                    <EventTableColorButton value={object.titleBackgroundColor} fallback="#2a3038" title="Title background" onChange={(value) => onPatch({ titleBackgroundColor: value })} />
+                    <span className="event-table-settings-color-label">Title background</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </section>
         </div>
       );
     }

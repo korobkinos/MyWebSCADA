@@ -6,6 +6,7 @@ import {
   SoundOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
+import { ColorPicker } from "antd";
 import {
   useCallback,
   useEffect,
@@ -21,6 +22,7 @@ import type {
   EventDefinition,
   EventSound,
   EventWordOperator,
+  HmiObject,
   TagScalarValue,
 } from "@web-scada/shared";
 import {
@@ -761,6 +763,143 @@ function formatSoundSize(sizeBytes: number | undefined): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function normalizeHexColor(value: string | undefined, fallback: string): string {
+  const trimmed = (value ?? "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    const body = trimmed.slice(1);
+    return `#${body[0]}${body[0]}${body[1]}${body[1]}${body[2]}${body[2]}`;
+  }
+  return fallback;
+}
+
+type EventManagerColorFieldProps = {
+  label: string;
+  value: string;
+  fallback: string;
+  onChange: (next: string) => void;
+  onClear: () => void;
+};
+
+function EventManagerColorField({
+  label,
+  value,
+  fallback,
+  onChange,
+  onClear,
+}: EventManagerColorFieldProps) {
+  const normalized = normalizeHexColor(value, fallback);
+  const hasCustom = value.trim().length > 0;
+  return (
+    <label className="workbench-field">
+      <span className="workbench-field__label">{label}</span>
+      <div className="event-manager-color-field">
+        <ColorPicker
+          value={normalized}
+          trigger="click"
+          onChangeComplete={(color) => onChange(color.toHexString())}
+        >
+          <button
+            type="button"
+            className="trends-settings-color-button"
+            title={`${label}: ${normalized}`}
+            aria-label={label}
+          >
+            <span
+              className="trends-settings-color-button__swatch"
+              style={{ backgroundColor: normalized }}
+            />
+          </button>
+        </ColorPicker>
+        <span className="event-manager-color-field__value">
+          {hasCustom ? value.trim() : "(auto)"}
+        </span>
+        <WorkbenchButton
+          onClick={onClear}
+          disabled={!hasCustom}
+          title="Reset to default"
+        >
+          Reset
+        </WorkbenchButton>
+      </div>
+    </label>
+  );
+}
+
+type EventTableSoundRuntimeSettings = {
+  soundPlaybackMode: "once" | "loopUntilAcknowledged";
+  soundRepeatIntervalMs: number;
+  stopSoundOnAck: boolean;
+  stopSoundOnSilence: boolean;
+};
+
+const DEFAULT_EVENT_TABLE_SOUND_RUNTIME_SETTINGS: EventTableSoundRuntimeSettings =
+  {
+    soundPlaybackMode: "once",
+    soundRepeatIntervalMs: 5000,
+    stopSoundOnAck: true,
+    stopSoundOnSilence: true,
+  };
+
+function findFirstEventTableSoundSettings(
+  objects: HmiObject[],
+): EventTableSoundRuntimeSettings | null {
+  for (const object of objects) {
+    if (object.type === "eventTable") {
+      return {
+        soundPlaybackMode:
+          object.soundPlaybackMode === "loopUntilAcknowledged"
+            ? "loopUntilAcknowledged"
+            : "once",
+        soundRepeatIntervalMs: Math.max(
+          1000,
+          Math.min(60000, Math.round(object.soundRepeatIntervalMs ?? 5000)),
+        ),
+        stopSoundOnAck: object.stopSoundOnAck !== false,
+        stopSoundOnSilence: object.stopSoundOnSilence !== false,
+      };
+    }
+    if (object.type === "group") {
+      const nested = findFirstEventTableSoundSettings(object.objects);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+  return null;
+}
+
+function patchEventTableSoundSettingsInObjects(
+  objects: HmiObject[],
+  patch: Partial<EventTableSoundRuntimeSettings>,
+): { objects: HmiObject[]; updatedCount: number } {
+  let updatedCount = 0;
+  const next = objects.map((object) => {
+    if (object.type === "eventTable") {
+      updatedCount += 1;
+      return {
+        ...object,
+        ...patch,
+      };
+    }
+    if (object.type === "group") {
+      const nested = patchEventTableSoundSettingsInObjects(object.objects, patch);
+      updatedCount += nested.updatedCount;
+      if (nested.updatedCount === 0) {
+        return object;
+      }
+      return {
+        ...object,
+        objects: nested.objects,
+      };
+    }
+    return object;
+  });
+  return { objects: next, updatedCount };
+}
+
 function isSupportedSoundFile(file: File): boolean {
   const extension = file.name.split(".").at(-1)?.trim().toLowerCase() ?? "";
   return SUPPORTED_SOUND_FILE_EXTENSIONS.has(extension);
@@ -858,6 +997,15 @@ export function EventsPage() {
     () => new Map(sounds.map((sound) => [sound.id, sound])),
     [sounds],
   );
+  const eventTableSoundSettings = useMemo(() => {
+    for (const screen of project.screens) {
+      const found = findFirstEventTableSoundSettings(screen.objects);
+      if (found) {
+        return found;
+      }
+    }
+    return DEFAULT_EVENT_TABLE_SOUND_RUNTIME_SETTINGS;
+  }, [project.screens]);
   const projectTagIndex = useMemo(
     () => createProjectTagIndex(project),
     [project],
@@ -1108,6 +1256,36 @@ export function EventsPage() {
         ...project,
         eventSounds: nextSounds,
       });
+    },
+    [project, updateProjectJson],
+  );
+
+  const applyEventTableSoundSettings = useCallback(
+    (patch: Partial<EventTableSoundRuntimeSettings>) => {
+      let updatedCount = 0;
+      const nextScreens = project.screens.map((screen) => {
+        const patched = patchEventTableSoundSettingsInObjects(
+          screen.objects,
+          patch,
+        );
+        updatedCount += patched.updatedCount;
+        if (patched.updatedCount === 0) {
+          return screen;
+        }
+        return {
+          ...screen,
+          objects: patched.objects,
+        };
+      });
+      if (updatedCount === 0) {
+        setStatusText("No EventTable objects found in project screens.");
+        return;
+      }
+      updateProjectJson({
+        ...project,
+        screens: nextScreens,
+      });
+      setStatusText(`Updated EventTable sound mode in ${updatedCount} object(s).`);
     },
     [project, updateProjectJson],
   );
@@ -2154,29 +2332,21 @@ export function EventsPage() {
             {renderFieldError("message")}
           </label>
 
-          <label className="workbench-field">
-            <span className="workbench-field__label">Text Color</span>
-            <input
-              className="workbench-input"
-              value={draftEvent.textColor}
-              onChange={(event) =>
-                setDraftPatch({ textColor: event.target.value })
-              }
-              placeholder="#ffffff"
-            />
-          </label>
+          <EventManagerColorField
+            label="Text Color"
+            value={draftEvent.textColor}
+            fallback="#ffffff"
+            onChange={(next) => setDraftPatch({ textColor: next })}
+            onClear={() => setDraftPatch({ textColor: "" })}
+          />
 
-          <label className="workbench-field">
-            <span className="workbench-field__label">Background Color</span>
-            <input
-              className="workbench-input"
-              value={draftEvent.backgroundColor}
-              onChange={(event) =>
-                setDraftPatch({ backgroundColor: event.target.value })
-              }
-              placeholder="#ff0000"
-            />
-          </label>
+          <EventManagerColorField
+            label="Background Color"
+            value={draftEvent.backgroundColor}
+            fallback="#ff0000"
+            onChange={(next) => setDraftPatch({ backgroundColor: next })}
+            onClear={() => setDraftPatch({ backgroundColor: "" })}
+          />
 
           <label className="workbench-field">
             <label className="screen-editor-tags-checkbox-field">
@@ -2267,6 +2437,80 @@ export function EventsPage() {
             <WorkbenchButton onClick={() => void enableSounds()}>
               Enable sounds
             </WorkbenchButton>
+          </div>
+
+          <div className="event-manager-runtime-sound-mode">
+            <div className="event-manager-runtime-sound-mode__title">
+              EventTable Runtime Sound Mode
+            </div>
+            <div className="event-manager-runtime-sound-mode__grid">
+              <label className="workbench-field">
+                <span className="workbench-field__label">Playback mode</span>
+                <select
+                  className="workbench-select"
+                  value={eventTableSoundSettings.soundPlaybackMode}
+                  onChange={(event) =>
+                    applyEventTableSoundSettings({
+                      soundPlaybackMode: event.target.value as
+                        | "once"
+                        | "loopUntilAcknowledged",
+                    })
+                  }
+                >
+                  <option value="once">once</option>
+                  <option value="loopUntilAcknowledged">
+                    loopUntilAcknowledged
+                  </option>
+                </select>
+              </label>
+              <label className="workbench-field">
+                <span className="workbench-field__label">
+                  Repeat interval (ms)
+                </span>
+                <input
+                  className="workbench-input"
+                  type="number"
+                  min={1000}
+                  max={60000}
+                  value={eventTableSoundSettings.soundRepeatIntervalMs}
+                  onChange={(event) =>
+                    applyEventTableSoundSettings({
+                      soundRepeatIntervalMs: Math.max(
+                        1000,
+                        Math.min(60000, Math.round(Number(event.target.value) || 5000)),
+                      ),
+                    })
+                  }
+                />
+              </label>
+              <label className="screen-editor-tags-checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={eventTableSoundSettings.stopSoundOnAck}
+                  onChange={(event) =>
+                    applyEventTableSoundSettings({
+                      stopSoundOnAck: event.target.checked,
+                    })
+                  }
+                />
+                <span>Stop sound on Ack</span>
+              </label>
+              <label className="screen-editor-tags-checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={eventTableSoundSettings.stopSoundOnSilence}
+                  onChange={(event) =>
+                    applyEventTableSoundSettings({
+                      stopSoundOnSilence: event.target.checked,
+                    })
+                  }
+                />
+                <span>Stop sound on Silence</span>
+              </label>
+            </div>
+            <div className="screen-editor-tag-editor__hint">
+              These settings are applied to all EventTable widgets in project screens.
+            </div>
           </div>
           {eventSoundPlayer.hasAutoplayBlock() ? (
             <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
