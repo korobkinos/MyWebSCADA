@@ -637,12 +637,14 @@ type TrendContextMenuState = {
 
 type LiveSocketState = "idle" | "connecting" | "open" | "closed" | "error";
 type LiveHistoryState = "idle" | "loading" | "loaded" | "empty" | "error";
+type OfflineLoadState = "idle" | "loading" | "loaded" | "empty" | "error";
 type TrendMode = "live" | "offline";
 type LiveIncomingPoint = { tag: string; value: number | boolean | string | null; quality?: string; timestamp: number; sessionId: number };
 type BackoffError = Error & { reason?: string; retryAfterMs?: number };
 type ExecuteQueryResult =
   | { ok: true; response: TrendQueryResponse }
   | { ok: false; reason: "backoff"; retryAfterMs: number }
+  | { ok: false; reason: "aborted" }
   | { ok: false; reason: "error" };
 const DEFAULT_LIVE_DATA_SOURCE: TrendLiveDataSource = "archivePolling";
 
@@ -771,6 +773,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [error, setError] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(initialViewState.liveMode);
   const [liveFollow, setLiveFollow] = useState(initialViewState.liveMode);
+  const [offlineLoadState, setOfflineLoadState] = useState<OfflineLoadState>("idle");
   const [lastLoadAt, setLastLoadAt] = useState<number | undefined>(undefined);
   const [statusAggregation, setStatusAggregation] = useState<TrendQueryResponse["aggregation"]>("raw");
   const [rangePreset, setRangePreset] = useState<TrendRangePreset>(initialViewState.rangePreset);
@@ -815,6 +818,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const requestTargetModeRef = useRef<TrendMode | null>(null);
   const trendQueryRateLimiterRef = useRef(new TrendQueryRateLimiter<ExecuteQueryResult>(MIN_TRENDS_QUERY_INTERVAL_MS));
   const trendQueryInFlightCountRef = useRef(0);
   const trendQueryLastStartedAtRef = useRef<number | null>(null);
@@ -845,6 +849,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const historyLoadTimerRef = useRef<number | null>(null);
   const offlineLoadedRangeRef = useRef<TrendVisibleRange | null>(null);
   const offlineResponseRef = useRef<TrendQueryResponse | null>(null);
+  const offlineLoadSeqRef = useRef(0);
   const liveResponseRef = useRef<TrendQueryResponse | null>(null);
   const bufferedRequestKeyRef = useRef<string | null>(null);
   const toolbarRangeRef = useRef<{ preset: TrendRangePreset; range: TrendVisibleRange; expiresAt: number } | null>(null);
@@ -861,6 +866,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     startX: 0,
     startWidth: 0,
   });
+
+  const invalidateOfflineLoadState = useCallback((nextState: OfflineLoadState = "idle") => {
+    offlineLoadSeqRef.current += 1;
+    setOfflineLoadState(nextState);
+  }, []);
 
   const tagInfoMap = useMemo(() => new Map(allTags.map((tag) => [tag.name, tag])), [allTags]);
 
@@ -1015,6 +1025,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     });
     setOfflineResponse(null);
     setOfflineLoadedRange(null);
+    invalidateOfflineLoadState();
     offlineLoadedRangeRef.current = null;
     offlineResponseRef.current = null;
     bufferedRequestKeyRef.current = null;
@@ -1059,7 +1070,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     hoverTimestampRef.current = null;
     setHistoryWarning(null);
     setScreenRevision((prev) => prev + 1);
-  }, [object.id, objectDefaultsSignature]);
+  }, [invalidateOfflineLoadState, object.id, objectDefaultsSignature]);
 
   const persistRuntimeViewState = useCallback((rangeForStorage: TrendVisibleRange) => {
     writeRuntimeViewState({
@@ -1212,6 +1223,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     if (selectedTagNames.length === 0) {
       setOfflineResponse(null);
       setOfflineLoadedRange(null);
+      invalidateOfflineLoadState();
       offlineLoadedRangeRef.current = null;
       offlineResponseRef.current = null;
       setLiveResponse(null);
@@ -1297,7 +1309,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         );
         if (targetMode === "live") {
           if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
-            return { ok: false, reason: "error" };
+            return { ok: false, reason: "aborted" };
           }
           const nextLiveResponse = liveDataSource === "archivePolling"
             ? buildRetainedLiveResponse(boundedCached, range, { mergeWithPrevious: !liveFollowRef.current })
@@ -1359,6 +1371,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     const requestId = requestIdRef.current;
     const controller = new AbortController();
     requestControllerRef.current = controller;
+    requestTargetModeRef.current = targetMode;
 
     if (!options?.skipLoadingState) {
       setLoading(true);
@@ -1397,10 +1410,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         inFlightKey: `trendsQuery:${object.id}`,
       });
       if (ownsGlobalRequest && requestId !== requestIdRef.current) {
-        return { ok: false, reason: "error" };
+        return { ok: false, reason: "aborted" };
       }
       if (targetMode === "live" && liveSessionId !== liveSessionIdRef.current) {
-        return { ok: false, reason: "error" };
+        return { ok: false, reason: "aborted" };
       }
       logTrendDiagnostics("query:success", {
         mode,
@@ -1536,7 +1549,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
       if (targetMode === "live") {
         if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
-          return { ok: false, reason: "error" };
+          return { ok: false, reason: "aborted" };
         }
         const nextLiveResponse = liveDataSource === "archivePolling"
           ? buildRetainedLiveResponse(boundedNext, normalizedRange, { mergeWithPrevious: !liveFollowRef.current })
@@ -1611,7 +1624,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           ownsGlobalRequest,
           message: queryError instanceof Error ? queryError.message : String(queryError),
         });
-        return { ok: false, reason: "error" };
+        return { ok: false, reason: "aborted" };
       }
       const retryAfterMs = resolveRetryDelayFromError(queryError, "trendsQuery");
       if ((queryError as BackoffError | null)?.reason === "backoff" || retryAfterMs !== null) {
@@ -1665,10 +1678,15 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       if (ownsGlobalRequest && requestId === requestIdRef.current) {
         setLoading(false);
       }
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null;
+        requestTargetModeRef.current = null;
+      }
     }
   }, [
     buildRetainedLiveResponse,
     drainLiveBootstrapPointsForMerge,
+    invalidateOfflineLoadState,
     liveMode,
     liveRetentionMs,
     object.id,
@@ -1697,6 +1715,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       return { ok: false, reason: "error" };
     }
     bufferedRequestKeyRef.current = requestKey;
+    const tracksOfflineLoadState = options?.skipLoadingState !== true;
+    const offlineLoadSeq = tracksOfflineLoadState ? offlineLoadSeqRef.current + 1 : null;
+    if (offlineLoadSeq !== null) {
+      offlineLoadSeqRef.current = offlineLoadSeq;
+      setOfflineLoadState("loading");
+    }
     const result = await executeQuery(normalized, {
       force: options?.force,
       context: "history",
@@ -1706,6 +1730,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     });
     if (bufferedRequestKeyRef.current === requestKey) {
       bufferedRequestKeyRef.current = null;
+    }
+    if (offlineLoadSeq !== null && offlineLoadSeqRef.current === offlineLoadSeq) {
+      if (result.ok) {
+        const totalPointCount = result.response.series.reduce((acc, series) => acc + series.points.length, 0);
+        setOfflineLoadState(totalPointCount > 0 ? "loaded" : "empty");
+      } else if (result.reason === "aborted") {
+        setOfflineLoadState("idle");
+      } else {
+        setOfflineLoadState("error");
+      }
     }
     if (result.ok) {
       const nextLoadedRange = options?.replace
@@ -1907,7 +1941,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   useEffect(() => () => {
     requestControllerRef.current?.abort();
-    trendQueryRateLimiterRef.current.cancel({ ok: false, reason: "error" });
+    trendQueryRateLimiterRef.current.cancel({ ok: false, reason: "aborted" });
     liveSocketRef.current?.close();
     if (historyLoadTimerRef.current) {
       window.clearTimeout(historyLoadTimerRef.current);
@@ -1932,6 +1966,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     offlineResponseRef.current = buildEmptyTrendResponse(initialLoadedRange, selectedTags);
     setOfflineLoadedRange(initialLoadedRange);
     setOfflineResponse(offlineResponseRef.current);
+    setOfflineLoadState("loading");
     void requestBufferedRange(initialLoadedRange, { force: true, replace: true });
   }, [liveMode, requestBufferedRange, screenRevision, selectedTagNamesKey, selectedTags]);
 
@@ -1955,8 +1990,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       liveLastTimestampByTagRef.current.clear();
       liveSessionIdRef.current += 1;
       if (wasLive) {
-        trendQueryRateLimiterRef.current.cancel({ ok: false, reason: "error" });
-        requestControllerRef.current?.abort();
+        trendQueryRateLimiterRef.current.cancel({ ok: false, reason: "aborted" });
+        if (requestTargetModeRef.current === "live") {
+          requestControllerRef.current?.abort();
+        }
       }
       setLiveResponse(null);
       liveResponseRef.current = null;
@@ -2634,6 +2671,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       return;
     }
     if (!options?.keepLive && liveMode) {
+      invalidateOfflineLoadState("loading");
       setLiveMode(false);
       setLiveAutoStopReason("Stopped by toolbar history navigation");
     }
@@ -2778,6 +2816,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setOfflineLoadedRange(refreshRange);
     setOfflineResponse(buildEmptyTrendResponse(refreshRange, selectedTags));
     offlineResponseRef.current = buildEmptyTrendResponse(refreshRange, selectedTags);
+    setOfflineLoadState("loading");
     void requestBufferedRange(refreshRange, { force: true, replace: true });
   };
 
@@ -2839,6 +2878,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       });
       setError(null);
       setLoading(false);
+      invalidateOfflineLoadState("loading");
       setLiveMode(false);
       liveFollowRef.current = false;
       setLiveFollow(false);
@@ -2853,6 +2893,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setLiveAutoStopReason(null);
     setError(null);
     setLoading(false);
+    invalidateOfflineLoadState();
     logTrendDiagnostics("live:toggle-on", {
       from: nextRange.from,
       to: nextRange.to,
@@ -2893,13 +2934,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const showInitialLoadingOverlay = selectedTags.length > 0
     && !error
     && !hasRenderedTrendData
-    && (loading || (liveMode && liveHistoryState === "loading"));
+    && (loading || (liveMode && liveHistoryState === "loading") || (!liveMode && offlineLoadState === "loading"));
   const showNoDataOverlay = selectedTags.length > 0
     && !error
     && !showInitialLoadingOverlay
     && Boolean(renderResponse)
     && pointCount === 0
-    && ((liveMode && liveHistoryState === "empty") || (!liveMode && lastLoadAt !== undefined));
+    && ((liveMode && liveHistoryState === "empty") || (!liveMode && offlineLoadState === "empty"));
 
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
@@ -3309,6 +3350,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
               setSelectedTags([]);
               setOfflineResponse(null);
               setOfflineLoadedRange(null);
+              invalidateOfflineLoadState();
               offlineLoadedRangeRef.current = null;
               offlineResponseRef.current = null;
               setLiveResponse(null);
