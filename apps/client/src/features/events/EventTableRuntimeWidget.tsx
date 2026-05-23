@@ -2,9 +2,9 @@ import type { EventDefinition, EventOccurrence, EventTableObject, HmiObject } fr
 import {
   AudioMutedOutlined,
   CheckCircleOutlined,
-  DownloadOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
+  FileExcelOutlined,
   LeftOutlined,
   RightOutlined,
   SearchOutlined,
@@ -140,6 +140,28 @@ function parseColorToRgba(color: string, alpha: number): string | null {
   }
 
   return null;
+}
+
+function escapeCsvCell(value: string): string {
+  const normalized = value.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  return `"${normalized.replaceAll("\"", "\"\"")}"`;
+}
+
+function buildClientCsv(
+  rows: EventOccurrence[],
+  columns: EventTableColumnId[],
+  columnLabels: Partial<Record<EventTableColumnId, string>> | undefined,
+): string {
+  const header = columns.map((column) => {
+    const label = columnLabels?.[column]?.trim() || DEFAULT_EVENT_TABLE_COLUMN_LABELS[column] || column;
+    return escapeCsvCell(label);
+  }).join(",");
+
+  const lines = rows.map((row) => columns
+    .map((column) => escapeCsvCell(getEventCellText(column, row)))
+    .join(","));
+
+  return `\uFEFF${[header, ...lines].join("\n")}`;
 }
 
 function resolveEventMessageVisual(definition: EventDefinition | undefined): {
@@ -680,8 +702,20 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   }, [acknowledgeRows, busyAck]);
 
   const handleExportCsv = useCallback(async () => {
+    if (object.enableCsvExport === false) {
+      void message.info("CSV export is disabled in widget settings.");
+      return;
+    }
+
     if (mode !== "history") {
-      void message.info("CSV export is available in history mode only.");
+      if (visibleRows.length === 0) {
+        void message.info("No messages to export.");
+        return;
+      }
+      const csvText = buildClientCsv(visibleRows, columns, object.columnLabels);
+      const timestamp = new Date().toISOString().replaceAll(":", "-");
+      downloadCsvFile(`event-online-${timestamp}.csv`, csvText);
+      void message.success(`Exported ${visibleRows.length} message${visibleRows.length === 1 ? "" : "s"} to CSV.`);
       return;
     }
 
@@ -697,7 +731,30 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     } finally {
       setBusyCsv(false);
     }
-  }, [historyQuery, mode]);
+  }, [columns, historyQuery, mode, object.columnLabels, object.enableCsvExport, visibleRows]);
+
+  const muteSounds = useCallback(() => {
+    eventSoundPlayer.stopSeamlessLoop();
+    eventSoundPlayer.stopAllSounds();
+    setSoundSilenced(true);
+    silenceBlockedRef.current = true;
+    silenceSnapshotActiveIdsRef.current = new Set(
+      runtimeEvents.activeEvents
+        .filter((item) => !item.acknowledgedAt && !item.clearedAt)
+        .map((item) => normalizeOccurrenceId(item))
+        .filter(Boolean),
+    );
+    setSoundStatusText("Sound playback stopped.");
+    eventRuntimeStore.setSoundStatusMessage(null);
+  }, [runtimeEvents.activeEvents]);
+
+  const unsilenceSounds = useCallback(() => {
+    silenceBlockedRef.current = false;
+    silenceSnapshotActiveIdsRef.current.clear();
+    setSoundSilenced(false);
+    setSoundStatusText("Sounds enabled.");
+    eventRuntimeStore.setSoundStatusMessage(null);
+  }, []);
 
   const renderStatus = () => {
     if (!showStatus) {
@@ -816,6 +873,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
   const historyCanPrev = historyPage > 1;
   const historyCanNext = historyPage < totalPages;
+  const csvTooltipTitle = `${mode === "history" ? "Export history records" : "Export online messages"}${object.enableCsvExport === false ? " (disabled)" : ""}`;
 
   const startColumnResize = (event: ReactMouseEvent<HTMLDivElement>, column: EventTableColumnId) => {
     event.preventDefault();
@@ -909,22 +967,14 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
       {config.showSilenceButton ? (
         <WorkbenchIconButton
-          title={soundSilenced ? "Silenced" : "Silence sounds"}
+          title={soundSilenced ? "Silence off" : "Silence sounds"}
           active={soundSilenced}
           onClick={() => {
-            eventSoundPlayer.stopSeamlessLoop();
-            eventSoundPlayer.stopAllSounds();
-            setSoundSilenced(true);
-            // Explicit operator mute: stay muted until operator turns sound back on.
-            silenceBlockedRef.current = true;
-            silenceSnapshotActiveIdsRef.current = new Set(
-              runtimeEvents.activeEvents
-                .filter((item) => !item.acknowledgedAt && !item.clearedAt)
-                .map((item) => normalizeOccurrenceId(item))
-                .filter(Boolean),
-            );
-            setSoundStatusText("Sound playback stopped.");
-            eventRuntimeStore.setSoundStatusMessage(null);
+            if (soundSilenced) {
+              unsilenceSounds();
+              return;
+            }
+            muteSounds();
           }}
           icon={<AudioMutedOutlined />}
         />
@@ -935,17 +985,16 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
           title={soundSilenced ? "Enable sounds" : "Sounds enabled"}
           active={!soundSilenced}
           onClick={() => {
+            if (!soundSilenced) {
+              return;
+            }
             void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
               if (!result.ok) {
                 setSoundStatusText(result.message);
                 eventRuntimeStore.setSoundStatusMessage(result.message);
                 return;
               }
-              silenceBlockedRef.current = false;
-              silenceSnapshotActiveIdsRef.current.clear();
-              setSoundSilenced(false);
-              setSoundStatusText("Sounds enabled.");
-              eventRuntimeStore.setSoundStatusMessage(null);
+              unsilenceSounds();
             });
           }}
           icon={<SoundOutlined />}
@@ -960,14 +1009,14 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         />
       ) : null}
 
-      {config.showCsvExportButton && object.enableCsvExport ? (
+      {config.showCsvExportButton ? (
         <WorkbenchIconButton
-          title="CSV export"
+          title={csvTooltipTitle}
           onClick={() => {
             void handleExportCsv();
           }}
-          disabled={busyCsv}
-          icon={<DownloadOutlined />}
+          disabled={busyCsv || object.enableCsvExport === false}
+          icon={<FileExcelOutlined />}
         />
       ) : null}
 

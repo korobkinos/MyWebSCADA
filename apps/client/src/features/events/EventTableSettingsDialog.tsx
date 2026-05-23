@@ -1,10 +1,12 @@
-import type { EventTableObject } from "@web-scada/shared";
+import type { EventSound, EventTableObject } from "@web-scada/shared";
+import { ensureDefaultEventSounds } from "@web-scada/shared";
 import { ColorPicker } from "antd";
 import { useMemo, useState } from "react";
 import { DEFAULT_EVENT_TABLE_COLUMN_LABELS, type EventTableColumnId } from "./event-table-columns";
 import { resolveEventTableConfig } from "./event-table-config";
 import { TrendWorkbenchDialog } from "../trends/TrendWorkbenchDialog";
 import { WorkbenchButton } from "../../components/workbench";
+import { useScadaStore } from "../../store/scada-store";
 
 type EventTableSettingsDialogProps = {
   open: boolean;
@@ -59,6 +61,19 @@ function parseOptionalMillis(value: string): number | undefined {
   return Math.max(0, Math.round(parsed));
 }
 
+function formatSoundKind(kind: EventSound["kind"]): string {
+  if (kind === "notification") {
+    return "Notification";
+  }
+  if (kind === "warning") {
+    return "Warning";
+  }
+  if (kind === "alarm") {
+    return "Alarm";
+  }
+  return "Custom";
+}
+
 type EventTableColorButtonProps = {
   value?: string;
   fallback: string;
@@ -101,11 +116,41 @@ function EventTableColorButton({ value, fallback, title, onChange }: EventTableC
 export function EventTableSettingsDialog({ open, object, onClose, onPatch }: EventTableSettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const resolved = resolveEventTableConfig(object);
+  const projectEventSounds = useScadaStore((store) => store.project?.eventSounds ?? []);
+  const sounds = useMemo(() => ensureDefaultEventSounds(projectEventSounds), [projectEventSounds]);
+  const soundsById = useMemo(() => new Map(sounds.map((sound) => [sound.id, sound])), [sounds]);
   const visibleColumns = resolved.columns;
   const allColumns = useMemo(
     () => Array.from(new Set([...DEFAULT_COLUMNS, ...visibleColumns])) as EventTableColumnId[],
     [visibleColumns],
   );
+
+  const renderFallbackSoundField = (
+    label: string,
+    value: string | undefined,
+    key: "fallbackNotificationSoundId" | "fallbackWarningSoundId" | "fallbackAlarmSoundId",
+  ) => {
+    const trimmed = (value ?? "").trim();
+    const missing = trimmed && !soundsById.has(trimmed);
+    return (
+      <label className="workbench-field">
+        <span className="workbench-field__label">{label}</span>
+        <select
+          className="workbench-select"
+          value={value ?? ""}
+          onChange={(event) => onPatch({ [key]: event.target.value } as Partial<EventTableObject>)}
+        >
+          <option value="">(none)</option>
+          {missing ? <option value={trimmed}>Missing sound ({trimmed})</option> : null}
+          {sounds.map((sound) => (
+            <option key={sound.id} value={sound.id}>
+              {sound.name || sound.id} [{formatSoundKind(sound.kind)}]
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  };
 
   const patchColumnVisibility = (column: EventTableColumnId, visible: boolean) => {
     const current = object.columns && object.columns.length > 0 ? object.columns : [...DEFAULT_COLUMNS];
@@ -346,9 +391,9 @@ export function EventTableSettingsDialog({ open, object, onClose, onPatch }: Eve
           <label className="screen-editor-settings-check"><input type="checkbox" checked={object.stopSoundOnAck !== false} onChange={(event) => onPatch({ stopSoundOnAck: event.target.checked })} /><span>Stop sound on Ack</span></label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={object.stopSoundOnSilence !== false} onChange={(event) => onPatch({ stopSoundOnSilence: event.target.checked })} /><span>Stop sound on Silence</span></label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={object.enableSoundFallbackByPriority !== false} onChange={(event) => onPatch({ enableSoundFallbackByPriority: event.target.checked })} /><span>Enable fallback by priority</span></label>
-          <label className="workbench-field"><span className="workbench-field__label">Fallback notification sound id</span><input className="workbench-input" value={object.fallbackNotificationSoundId ?? ""} onChange={(event) => onPatch({ fallbackNotificationSoundId: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Fallback warning sound id</span><input className="workbench-input" value={object.fallbackWarningSoundId ?? ""} onChange={(event) => onPatch({ fallbackWarningSoundId: event.target.value })} /></label>
-          <label className="workbench-field"><span className="workbench-field__label">Fallback alarm sound id</span><input className="workbench-input" value={object.fallbackAlarmSoundId ?? ""} onChange={(event) => onPatch({ fallbackAlarmSoundId: event.target.value })} /></label>
+          {renderFallbackSoundField("Fallback notification sound", object.fallbackNotificationSoundId, "fallbackNotificationSoundId")}
+          {renderFallbackSoundField("Fallback warning sound", object.fallbackWarningSoundId, "fallbackWarningSoundId")}
+          {renderFallbackSoundField("Fallback alarm sound", object.fallbackAlarmSoundId, "fallbackAlarmSoundId")}
         </div>
       );
     }
