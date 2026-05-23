@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { type EventSound, type ScadaProject, ensureDefaultEventSounds, isDefaultEventSoundId } from "@web-scada/shared";
+import {
+  type EventSound,
+  type ScadaProject,
+  ensureDefaultEventSounds,
+  isDefaultEventSoundId,
+} from "@web-scada/shared";
 import { ProjectService } from "../project/project-service.js";
 
 type UploadInput = {
@@ -13,13 +18,24 @@ type UploadInput = {
 };
 
 const ALLOWED_EXTENSIONS = new Set(["mp3", "wav", "ogg"]);
-const ALLOWED_MIME_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/wave", "audio/x-wav", "audio/ogg"]);
+const ALLOWED_MIME_TYPES = new Set([
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/wave",
+  "audio/x-wav",
+  "audio/ogg",
+]);
 
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-function normalizeSoundName(value: string | undefined, fallbackFileName: string, fallbackId: string): string {
+function normalizeSoundName(
+  value: string | undefined,
+  fallbackFileName: string,
+  fallbackId: string,
+): string {
   const direct = (value ?? "").trim();
   if (direct) {
     return direct.slice(0, 120);
@@ -64,7 +80,9 @@ export class EventSoundService {
     return this.listProjectEventSounds().find((item) => item.id === soundId);
   }
 
-  public resolveProjectEventSoundFile(soundId: string): { sound: EventSound; absolutePath: string } | undefined {
+  public resolveProjectEventSoundFile(
+    soundId: string,
+  ): { sound: EventSound; absolutePath: string } | undefined {
     const sound = this.getProjectEventSound(soundId);
     if (!sound) {
       return undefined;
@@ -79,13 +97,19 @@ export class EventSoundService {
     };
   }
 
-  public async uploadProjectEventSound(input: UploadInput): Promise<EventSound> {
+  public async uploadProjectEventSound(
+    input: UploadInput,
+  ): Promise<EventSound> {
     const extension = fileExtensionFromName(input.fileName);
     if (!ALLOWED_EXTENSIONS.has(extension)) {
-      throw new Error("Unsupported sound file extension. Supported: mp3, wav, ogg.");
+      throw new Error(
+        "Unsupported sound file extension. Supported: mp3, wav, ogg.",
+      );
     }
     if (!ALLOWED_MIME_TYPES.has(input.mimeType)) {
-      throw new Error("Unsupported sound MIME type. Supported: audio/mpeg, audio/wav, audio/ogg.");
+      throw new Error(
+        "Unsupported sound MIME type. Supported: audio/mpeg, audio/wav, audio/ogg.",
+      );
     }
 
     await mkdir(this.storageDir, { recursive: true });
@@ -117,7 +141,10 @@ export class EventSoundService {
     return sound;
   }
 
-  public async renameProjectEventSound(soundId: string, patch: { name: string }): Promise<EventSound> {
+  public async renameProjectEventSound(
+    soundId: string,
+    patch: { name: string },
+  ): Promise<EventSound> {
     const nextName = patch.name.trim().slice(0, 120);
     if (!nextName) {
       throw new Error("Sound name is required.");

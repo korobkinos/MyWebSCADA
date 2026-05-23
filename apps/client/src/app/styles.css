@@ -1061,12 +1061,12 @@ body {
   width: 1200px;
   height: 720px;
   background:
-    linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 20px 20px;
   background-color: #111111;
   border: 1px solid #3c3c3c;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
 }
 
 .workbench-demo-object {
@@ -2308,7 +2308,8 @@ body {
   border-top: 1px solid #2d2d2d;
 }
 
-.screen-editor-archive-window__search-row .screen-editor-tags-window__toolbar-input {
+.screen-editor-archive-window__search-row
+  .screen-editor-tags-window__toolbar-input {
   flex: 1 1 340px;
   max-width: none;
   width: 100% !important;
@@ -2874,7 +2875,10 @@ body {
 
 .screen-editor-library-interface__object-io-dialog {
   display: grid;
-  grid-template-columns: var(--object-io-left-width, 320px) 8px minmax(380px, 1fr);
+  grid-template-columns: var(--object-io-left-width, 320px) 8px minmax(
+      380px,
+      1fr
+    );
   gap: 0;
   height: 100%;
   min-height: 0;
@@ -4490,7 +4494,10 @@ body {
 
 .screen-editor-opc-browser-row {
   display: grid;
-  grid-template-columns: 36px 160px 180px 110px 110px 80px minmax(240px, 1fr) 96px;
+  grid-template-columns: 36px 160px 180px 110px 110px 80px minmax(
+      240px,
+      1fr
+    ) 96px;
   min-height: 26px;
   border-bottom: 1px solid #2d2d2d;
   cursor: pointer;
@@ -4980,7 +4987,10 @@ body {
 .screen-editor-asset-grid {
   --screen-editor-asset-scale: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(112px * var(--screen-editor-asset-scale)), 1fr));
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(calc(112px * var(--screen-editor-asset-scale)), 1fr)
+  );
   gap: 6px;
   padding: 6px;
   box-sizing: border-box;
@@ -5554,7 +5564,9 @@ body {
 }
 
 .object-property-tabs--main .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn,
-.object-property-tabs--numeric .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+.object-property-tabs--numeric
+  .ant-tabs-tab.ant-tabs-tab-active
+  .ant-tabs-tab-btn {
   color: #ffffff;
 }
 
@@ -5828,7 +5840,11 @@ body {
   height: 100vh;
   overflow: hidden;
   background:
-    radial-gradient(circle at 18% 20%, rgba(26, 58, 108, 0.25), transparent 38%),
+    radial-gradient(
+      circle at 18% 20%,
+      rgba(26, 58, 108, 0.25),
+      transparent 38%
+    ),
     radial-gradient(circle at 82% 80%, rgba(13, 39, 67, 0.3), transparent 34%),
     #1b1d1f;
 }
@@ -6272,10 +6288,6 @@ body {
   border-top: 1px solid #3c3c3c;
 }
 
-
-
-
-
 .screen-editor-library-origin-note {
   margin: 4px 8px 8px;
   padding: 8px;
@@ -6370,8 +6382,12 @@ body {
 }
 
 .trends-series-table-wrap {
-  border: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
-  background: var(--trends-series-table-bg, var(--trends-theme-table-bg, #252526));
+  border: 1px solid
+    var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
+  background: var(
+    --trends-series-table-bg,
+    var(--trends-theme-table-bg, #252526)
+  );
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -6380,7 +6396,8 @@ body {
 .trends-series-table__summary {
   min-height: 26px;
   padding: 2px 4px;
-  border-bottom: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
+  border-bottom: 1px solid
+    var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -6409,15 +6426,20 @@ body {
   overflow: auto;
 }
 .trends-series-table .screen-editor-tags-row {
-  border-bottom: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
+  border-bottom: 1px solid
+    var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
   color: var(--trends-series-table-text, var(--trends-theme-text, #d4d4d4));
   min-height: var(--trends-series-table-row-height, 30px);
 }
 .trends-series-table .screen-editor-tags-row--header {
-  background: var(--trends-series-table-header-bg, var(--trends-theme-panel, #252526));
+  background: var(
+    --trends-series-table-header-bg,
+    var(--trends-theme-panel, #252526)
+  );
   min-height: var(--trends-series-table-header-height, 30px);
 }
-.trends-series-table .screen-editor-tags-row:not(.screen-editor-tags-row--header):hover {
+.trends-series-table
+  .screen-editor-tags-row:not(.screen-editor-tags-row--header):hover {
   background: var(--trends-series-table-hover-bg, transparent);
 }
 
@@ -6433,8 +6455,10 @@ body {
 
 .trends-series-table__cell {
   min-width: 0;
-  padding: var(--trends-series-table-cell-padding-y, 3px) var(--trends-series-table-cell-padding-x, 6px);
-  border-right: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
+  padding: var(--trends-series-table-cell-padding-y, 3px)
+    var(--trends-series-table-cell-padding-x, 6px);
+  border-right: 1px solid
+    var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
 }
 .trends-series-table__cell:last-child {
   border-right: 0;
@@ -6504,13 +6528,15 @@ body {
   box-sizing: border-box;
 }
 
-.trends-series-table__visibility-all--all .trends-series-table__visibility-all-box {
+.trends-series-table__visibility-all--all
+  .trends-series-table__visibility-all-box {
   background: var(--trends-theme-accent, #007acc);
   border-color: var(--trends-theme-accent, #007acc);
   color: #ffffff;
 }
 
-.trends-series-table__visibility-all--all .trends-series-table__visibility-all-box::after {
+.trends-series-table__visibility-all--all
+  .trends-series-table__visibility-all-box::after {
   content: "";
   position: absolute;
   left: 3px;
@@ -6522,12 +6548,14 @@ body {
   transform: rotate(45deg);
 }
 
-.trends-series-table__visibility-all--mixed .trends-series-table__visibility-all-box {
+.trends-series-table__visibility-all--mixed
+  .trends-series-table__visibility-all-box {
   border-color: var(--trends-theme-accent, #007acc);
   color: var(--trends-theme-accent, #007acc);
 }
 
-.trends-series-table__visibility-all--mixed .trends-series-table__visibility-all-box::after {
+.trends-series-table__visibility-all--mixed
+  .trends-series-table__visibility-all-box::after {
   content: "";
   position: absolute;
   left: 2px;
@@ -6547,7 +6575,8 @@ body {
 }
 
 .trends-series-table__cell--color {
-  padding: var(--trends-series-table-cell-padding-y, 3px) var(--trends-series-table-cell-padding-x, 6px);
+  padding: var(--trends-series-table-cell-padding-y, 3px)
+    var(--trends-series-table-cell-padding-x, 6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6566,7 +6595,8 @@ body {
   min-width: 20px;
   height: 20px;
   padding: 0;
-  border: 1px solid var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
+  border: 1px solid
+    var(--trends-series-table-border, var(--trends-theme-table-border, #3c3c3c));
   border-radius: 2px;
   display: flex;
   align-items: center;
@@ -6581,7 +6611,10 @@ body {
 
 .trends-series-table__cell--value {
   text-align: right;
-  color: var(--trends-series-table-value-text, var(--trends-series-table-text, var(--trends-theme-text, #d4d4d4)));
+  color: var(
+    --trends-series-table-value-text,
+    var(--trends-series-table-text, var(--trends-theme-text, #d4d4d4))
+  );
 }
 .trends-series-table__cell--tag,
 .trends-series-table__cell--display-name,
@@ -6685,8 +6718,17 @@ body {
 
 .trends-history-warning,
 .trends-policy-warning {
-  border: 1px solid color-mix(in srgb, var(--trends-theme-accent, #007acc) 45%, var(--trends-theme-border, #3c3c3c));
-  background: color-mix(in srgb, var(--trends-theme-accent, #007acc) 12%, var(--trends-theme-panel, #252526));
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--trends-theme-accent, #007acc) 45%,
+      var(--trends-theme-border, #3c3c3c)
+    );
+  background: color-mix(
+    in srgb,
+    var(--trends-theme-accent, #007acc) 12%,
+    var(--trends-theme-panel, #252526)
+  );
   color: var(--trends-theme-text, #d4d4d4);
   font-size: 12px;
   line-height: 1.35;

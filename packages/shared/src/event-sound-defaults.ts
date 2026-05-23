@@ -42,7 +42,10 @@ function createDefaultEventSounds(timestamp: string): EventSound[] {
   ];
 }
 
-export function ensureDefaultEventSounds(sounds: EventSound[] | undefined, timestamp: string = nowIso()): EventSound[] {
+export function ensureDefaultEventSounds(
+  sounds: EventSound[] | undefined,
+  timestamp: string = nowIso(),
+): EventSound[] {
   if (Array.isArray(sounds) && sounds.length > 0) {
     return sounds;
   }
@@ -51,7 +54,9 @@ export function ensureDefaultEventSounds(sounds: EventSound[] | undefined, times
 }
 
 export function isDefaultEventSoundId(soundId: string): boolean {
-  return Object.values(DEFAULT_EVENT_SOUND_IDS).includes(soundId as (typeof DEFAULT_EVENT_SOUND_IDS)[keyof typeof DEFAULT_EVENT_SOUND_IDS]);
+  return Object.values(DEFAULT_EVENT_SOUND_IDS).includes(
+    soundId as (typeof DEFAULT_EVENT_SOUND_IDS)[keyof typeof DEFAULT_EVENT_SOUND_IDS],
+  );
 }
 
 export { DEFAULT_EVENT_SOUND_IDS };
