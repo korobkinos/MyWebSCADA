@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import type { EventBitTrigger, EventDefinition, EventWordOperator, TagScalarValue } from "@web-scada/shared";
 import { WorkbenchButton, WorkbenchTabs } from "../components/workbench";
 import { TagPickerDialog } from "../components/tag-picker-dialog";
-import { createProjectTagIndex, findMissingEventTagReferences, getEventTagWarnings, reconcileEventsWithProjectTags, tagExists, type EventTagReferenceField, type EventTagWarning } from "../features/events/event-tag-utils";
+import { createProjectTagIndex, findMissingEventTagReferences, getEventTagWarnings, reconcileEventsWithProjectTags, type EventTagReferenceField, type EventTagWarning } from "../features/events/event-tag-utils";
 import { useScadaStore } from "../store/scada-store";
 
 type EventColumnId =
@@ -662,6 +662,19 @@ export function EventsPage() {
     return map;
   }, [projectTagIndex, rows]);
 
+  const rowMissingWarningsByKey = useMemo(() => {
+    const map = new Map<string, EventTagWarning[]>();
+    for (const [key, warnings] of rowWarningsByKey.entries()) {
+      map.set(
+        key,
+        warnings.filter((warning) =>
+          warning.code === "missing_source" || warning.code === "missing_security" || warning.code === "missing_reference",
+        ),
+      );
+    }
+    return map;
+  }, [rowWarningsByKey]);
+
   const categoryOptions = useMemo(() => {
     const values = new Set<string>(["Default"]);
     for (const category of categories) {
@@ -779,7 +792,7 @@ export function EventsPage() {
   const selectedFilteredCount = [...selectedRowKeys].filter((key) => filteredKeys.has(key)).length;
 
   const activeRow = rows.find((row) => row.key === activeRowKey) ?? pageRows[0] ?? null;
-  const activeRowWarnings = activeRow ? (rowWarningsByKey.get(activeRow.key) ?? []) : [];
+  const activeRowMissingWarnings = activeRow ? (rowMissingWarningsByKey.get(activeRow.key) ?? []) : [];
   const missingReferenceCount = missingReferencesAudit.length;
 
   const existingIds = useMemo(() => {
@@ -1035,24 +1048,6 @@ export function EventsPage() {
     );
   };
 
-  const renderTagNotFoundWarning = (field: EventTagReferenceField) => {
-    if (!draftEvent) {
-      return null;
-    }
-    const value = draftEvent[field].trim();
-    if (!value) {
-      return null;
-    }
-    if (tagExists(project, value)) {
-      return null;
-    }
-    return (
-      <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
-        Tag not found in project
-      </span>
-    );
-  };
-
   const openTagPickerForField = (field: TagPickerTargetField) => {
     setTagPickerTargetField(field);
   };
@@ -1092,7 +1087,6 @@ export function EventsPage() {
           </button>
         </div>
         {options?.requiredErrorField ? renderFieldError(options.requiredErrorField) : null}
-        {renderTagNotFoundWarning(field)}
         {renderFieldWarnings(field)}
       </label>
     );
@@ -1208,6 +1202,7 @@ export function EventsPage() {
         const importErrors: string[] = [];
         let created = 0;
         let updated = 0;
+        let autoDisabledForMissingRequiredTags = 0;
 
         for (let rowIndex = 1; rowIndex < rowsFromCsv.length; rowIndex += 1) {
           const rowCells = rowsFromCsv[rowIndex] ?? [];
@@ -1299,6 +1294,7 @@ export function EventsPage() {
           };
 
           const rowErrors = validateDraft(draft, nextEvents, targetIndex >= 0 ? targetIndex : null);
+          delete rowErrors.sourceTagName;
           if (Object.keys(rowErrors).length > 0) {
             const firstError = Object.values(rowErrors)[0] ?? "validation error";
             importErrors.push(`Row ${rowIndex + 1}: ${firstError}`);
@@ -1325,6 +1321,14 @@ export function EventsPage() {
             ...normalized,
           } as EventDefinition;
 
+          const hasMissingSourceTagName = !(merged.sourceTagName ?? "").trim();
+          const hasMissingSecurityTagName = merged.securityEnabled === true && !(merged.securityTagName ?? "").trim();
+          if (hasMissingSourceTagName || hasMissingSecurityTagName) {
+            merged.enabled = false;
+            merged.updatedAt = nowIso();
+            autoDisabledForMissingRequiredTags += 1;
+          }
+
           if (targetIndex >= 0) {
             nextEvents[targetIndex] = merged;
             updated += 1;
@@ -1336,8 +1340,9 @@ export function EventsPage() {
 
         const reconciled = reconcileEventsWithProjectTags(nextEvents, project);
         saveEvents(reconciled.nextEvents);
-        const disabledSummary = reconciled.changed
-          ? `, auto-disabled ${reconciled.affectedEventCount} event(s) due to missing source/security tags`
+        const autoDisabledTotal = autoDisabledForMissingRequiredTags + (reconciled.changed ? reconciled.affectedEventCount : 0);
+        const disabledSummary = autoDisabledTotal > 0
+          ? `, auto-disabled ${autoDisabledTotal} event(s) due to missing source/security tags`
           : "";
         const summary = `CSV import finished: created ${created}, updated ${updated}${disabledSummary}`;
         setStatusText(summary);
@@ -1795,8 +1800,9 @@ export function EventsPage() {
               const selected = row.key === activeRow?.key;
               const checked = selectedRowKeys.has(row.key);
               const rowWarnings = rowWarningsByKey.get(row.key) ?? [];
-              const hasCriticalMissingTag = rowWarnings.some((warning) => warning.code === "missing_source" || warning.code === "missing_security");
-              const rowWarningTitle = rowWarnings.map((warning) => warning.message).join(" | ");
+              const missingWarnings = rowMissingWarningsByKey.get(row.key) ?? [];
+              const hasCriticalMissingTag = missingWarnings.some((warning) => warning.code === "missing_source" || warning.code === "missing_security");
+              const rowWarningTitle = missingWarnings.map((warning) => warning.message).join(" | ");
 
               return (
                 <div
@@ -1831,7 +1837,17 @@ export function EventsPage() {
                       content = title;
                     } else if (column.id === "message") {
                       title = event.message?.trim() || "-";
-                      content = title;
+                      content = missingWarnings.length > 0 ? (
+                        <span className="screen-editor-event-cell-with-warning">
+                          <span className="screen-editor-event-cell-with-warning__text">{title}</span>
+                          <span
+                            className="screen-editor-event-warning-marker"
+                            title={missingWarnings.map((warning) => warning.message).join(" | ")}
+                          >
+                            !
+                          </span>
+                        </span>
+                      ) : title;
                     } else if (column.id === "priority") {
                       title = `${getPriorityLabel(event.priority)} (${clampPriority(typeof event.priority === "number" ? event.priority : 0)})`;
                       content = title;
@@ -1942,9 +1958,9 @@ export function EventsPage() {
                     <div className="screen-editor-tag-editor__kv"><span>Word Value</span><strong>{getWordValueLabel(activeRow.event)}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Require Ack</span><strong>{activeRow.event.requireAck ? "Yes" : "No"}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Sound</span><strong>{activeRow.event.soundEnabled ? (activeRow.event.soundId ?? "On") : "Off"}</strong></div>
-                    {activeRowWarnings.length > 0 ? (
+                    {activeRowMissingWarnings.length > 0 ? (
                       <div className="screen-editor-tag-editor__warnings">
-                        {activeRowWarnings.map((warning, index) => (
+                        {activeRowMissingWarnings.map((warning, index) => (
                           <div key={`${warning.field}-${warning.code}-${index}`} className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
                             {warning.message}
                           </div>

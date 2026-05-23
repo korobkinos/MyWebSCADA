@@ -26,6 +26,9 @@ export type EventTagAudit = {
 };
 
 const NUMERIC_DATA_TYPES = new Set<TagDefinition["dataType"]>(["INT", "UINT", "DINT", "UDINT", "REAL"]);
+const MISSING_SOURCE_MESSAGE = "Source tag not found in project";
+const MISSING_SECURITY_MESSAGE = "Security tag not found in project";
+const MISSING_REFERENCE_MESSAGE = "Referenced tag not found in project";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -73,22 +76,18 @@ export function getEventTagWarnings(
       field: "sourceTagName",
       tagName: sourceTagName,
       code: "missing_source",
-      message: event.enabled === false
-        ? "Source tag is missing. Event was disabled."
-        : "Source tag is missing.",
+      message: MISSING_SOURCE_MESSAGE,
     });
   }
 
   const securityTagName = normalizeTagName(event.securityTagName);
   const securityTag = securityTagName ? tagIndex.get(securityTagName) : undefined;
-  if (event.securityEnabled && securityTagName && !securityTag) {
+  if (event.securityEnabled && (!securityTagName || !securityTag)) {
     warnings.push({
       field: "securityTagName",
       tagName: securityTagName,
       code: "missing_security",
-      message: event.enabled === false
-        ? "Security tag is missing. Event was disabled."
-        : "Security tag is missing.",
+      message: MISSING_SECURITY_MESSAGE,
     });
   }
 
@@ -103,7 +102,7 @@ export function getEventTagWarnings(
         field,
         tagName,
         code: "missing_reference",
-        message: "Referenced tag is missing.",
+        message: MISSING_REFERENCE_MESSAGE,
       });
     }
   }
@@ -129,14 +128,26 @@ export function getEventTagWarnings(
   return warnings;
 }
 
+function getMissingWarningsFromIndex(event: EventDefinition, tagIndex: Map<string, TagDefinition>): EventTagWarning[] {
+  return getEventTagWarnings(event, tagIndex).filter((item) =>
+    item.code === "missing_source" || item.code === "missing_security" || item.code === "missing_reference",
+  );
+}
+
+export function getMissingEventTagReferences(
+  project: Pick<ScadaProject, "tags">,
+  event: EventDefinition,
+): EventTagWarning[] {
+  const tagIndex = createProjectTagIndex(project);
+  return getMissingWarningsFromIndex(event, tagIndex);
+}
+
 export function findMissingEventTagReferences(project: Pick<ScadaProject, "events" | "tags">): EventTagAudit[] {
   const tagIndex = createProjectTagIndex(project);
   const audits: EventTagAudit[] = [];
 
   for (const [index, event] of (project.events ?? []).entries()) {
-    const warnings = getEventTagWarnings(event, tagIndex).filter((item) =>
-      item.code === "missing_source" || item.code === "missing_security" || item.code === "missing_reference",
-    );
+    const warnings = getMissingWarningsFromIndex(event, tagIndex);
     if (warnings.length === 0) {
       continue;
     }
@@ -162,6 +173,7 @@ function reconcileEventsInternal(
   events: EventDefinition[],
   missingSourceTags: Set<string>,
   missingSecurityTags: Set<string>,
+  options?: { includeEmptySource?: boolean; includeEmptySecurity?: boolean; touchUpdatedAtWhenAlreadyDisabled?: boolean },
 ): ReconcileEventsResult {
   let changed = false;
   let affectedEventCount = 0;
@@ -172,8 +184,17 @@ function reconcileEventsInternal(
     const sourceTagName = normalizeTagName(event.sourceTagName);
     const securityTagName = normalizeTagName(event.securityTagName);
 
-    const missingSource = sourceTagName && missingSourceTags.has(sourceTagName);
-    const missingSecurity = Boolean(event.securityEnabled && securityTagName && missingSecurityTags.has(securityTagName));
+    const missingSource = Boolean(
+      (sourceTagName && missingSourceTags.has(sourceTagName))
+      || (options?.includeEmptySource && !sourceTagName),
+    );
+    const missingSecurity = Boolean(
+      event.securityEnabled
+      && (
+        (securityTagName && missingSecurityTags.has(securityTagName))
+        || (options?.includeEmptySecurity && !securityTagName)
+      ),
+    );
 
     if (!missingSource && !missingSecurity) {
       return event;
@@ -187,11 +208,11 @@ function reconcileEventsInternal(
       disabledBySecurityCount += 1;
     }
 
-    const nextEvent: EventDefinition = {
-      ...event,
-      enabled: false,
-      updatedAt: nowIso(),
-    };
+    if (event.enabled === false && !options?.touchUpdatedAtWhenAlreadyDisabled) {
+      return event;
+    }
+
+    const nextEvent: EventDefinition = { ...event, enabled: false, updatedAt: nowIso() };
 
     if (
       nextEvent.enabled !== event.enabled
@@ -237,7 +258,9 @@ export function reconcileEventsAfterTagDeletion(
   }
 
   const deletedSet = new Set(deletedNames);
-  const result = reconcileEventsInternal(project.events ?? [], deletedSet, deletedSet);
+  const result = reconcileEventsInternal(project.events ?? [], deletedSet, deletedSet, {
+    touchUpdatedAtWhenAlreadyDisabled: true,
+  });
   if (!result.changed) {
     return {
       project,

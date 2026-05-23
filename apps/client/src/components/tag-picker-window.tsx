@@ -15,7 +15,7 @@ export type TagPickerWindowTag = {
   nodeOrAddress: string;
 };
 
-export type TagPickerColumnId = "name" | "source" | "dataType" | "driver" | "address" | "writable" | "group";
+export type TagPickerColumnId = "name" | "source" | "dataType" | "driver" | "address" | "description" | "writable" | "group";
 
 export type TagPickerColumnConfig = {
   id: TagPickerColumnId;
@@ -72,6 +72,7 @@ const TAG_PICKER_COLUMNS: TagPickerColumnConfig[] = [
   { id: "dataType", title: "Type", defaultWidth: 80, minWidth: 60 },
   { id: "driver", title: "Driver", defaultWidth: 140, minWidth: 80 },
   { id: "address", title: "Node / Address", defaultWidth: 360, minWidth: 120 },
+  { id: "description", title: "Description", defaultWidth: 240, minWidth: 120 },
   { id: "writable", title: "Writable", defaultWidth: 70, minWidth: 50 },
   { id: "group", title: "Group", defaultWidth: 120, minWidth: 80 },
 ];
@@ -91,6 +92,8 @@ function getTagColumnValue(columnId: TagPickerColumnId, tag: TagPickerWindowTag)
       return tag.driverId ?? "-";
     case "address":
       return tag.nodeOrAddress;
+    case "description":
+      return tag.description ?? "-";
     case "writable":
       return tag.writable === false ? "N" : "Y";
     case "group":
@@ -244,6 +247,7 @@ export function WorkbenchTagPickerWindow({
         tag.name.toLowerCase().includes(query) ||
         (tag.description ?? "").toLowerCase().includes(query) ||
         tag.dataType.toLowerCase().includes(query) ||
+        SOURCE_LABELS[tag.sourceType].toLowerCase().includes(query) ||
         (tag.driverId ?? "").toLowerCase().includes(query) ||
         (tag.group ?? "").toLowerCase().includes(query) ||
         tag.nodeOrAddress.toLowerCase().includes(query)
@@ -253,6 +257,7 @@ export function WorkbenchTagPickerWindow({
 
   const totalPages = Math.max(1, Math.ceil(filteredTags.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(page, 1), totalPages);
+  const hasAnyTags = tags.length > 0;
   const pageRows = useMemo(() => {
     const start = (safePage - 1) * PAGE_SIZE;
     return filteredTags.slice(start, start + PAGE_SIZE);
@@ -367,7 +372,7 @@ export function WorkbenchTagPickerWindow({
             <input
               className="workbench-input"
               value={search}
-              placeholder="Search name / description / node / driver / group"
+              placeholder="Search name / address / description / source / driver"
               onChange={(event) => setSearch(event.target.value)}
             />
             <select
@@ -561,7 +566,11 @@ export function WorkbenchTagPickerWindow({
                   </div>
                 );
               })}
-              {pageRows.length === 0 ? <div className="tag-picker-window__empty">No tags match the filters</div> : null}
+              {pageRows.length === 0 ? (
+                <div className="tag-picker-window__empty">
+                  {hasAnyTags ? "No tags match the filters" : "No project tags found. Create tags in TAGS first."}
+                </div>
+              ) : null}
             </div>
           </div>
 
