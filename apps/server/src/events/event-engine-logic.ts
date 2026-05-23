@@ -1,4 +1,10 @@
-import type { EventBitTrigger, EventDefinition, EventWordOperator, TagScalarValue, TagValue } from "@web-scada/shared";
+import type {
+  EventBitTrigger,
+  EventDefinition,
+  EventWordOperator,
+  TagScalarValue,
+  TagValue,
+} from "@web-scada/shared";
 
 export type NormalizedEventDefinition = {
   id: string;
@@ -53,6 +59,7 @@ export function normalizeEventDefinition(definition: EventDefinition): Normalize
   const bitTrigger = definition.bitTrigger ?? "ON";
   const wordOperator = definition.wordOperator ?? ">";
   const startupDelayMs = Math.max(0, Math.trunc(definition.startupDelayMs ?? 0));
+
   return {
     id: definition.id,
     sourceTagName: (definition.sourceTagName ?? "").trim(),
@@ -81,6 +88,7 @@ export function coerceBitValue(value: TagScalarValue): boolean | null {
   if (typeof value === "boolean") {
     return value;
   }
+
   if (typeof value === "number") {
     if (Number.isNaN(value)) {
       return null;
@@ -93,6 +101,7 @@ export function coerceBitValue(value: TagScalarValue): boolean | null {
     }
     return null;
   }
+
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
     if (normalized === "1" || normalized === "true" || normalized === "on") {
@@ -102,6 +111,7 @@ export function coerceBitValue(value: TagScalarValue): boolean | null {
       return false;
     }
   }
+
   return null;
 }
 
@@ -109,6 +119,7 @@ export function coerceNumericValue(value: TagScalarValue): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
   }
+
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) {
@@ -117,9 +128,11 @@ export function coerceNumericValue(value: TagScalarValue): number | null {
     const parsed = Number(trimmed);
     return Number.isFinite(parsed) ? parsed : null;
   }
+
   if (typeof value === "boolean") {
     return value ? 1 : 0;
   }
+
   return null;
 }
 
@@ -144,9 +157,7 @@ export function evaluateWordOperator(operator: EventWordOperator, left: number, 
 
 export function evaluateTransition(input: EvaluateTransitionInput): EvaluateTransitionResult {
   const { definition, state, nowMs, sourceValue, securityValue } = input;
-  const nextState: EventRuntimeState = {
-    ...state,
-  };
+  const nextState: EventRuntimeState = { ...state };
 
   if (nowMs < state.startupReadyAt) {
     return {
@@ -187,10 +198,13 @@ export function evaluateTransition(input: EvaluateTransitionInput): EvaluateTran
         nextState,
       };
     }
+
     conditionActive = securitySatisfied && evaluateWordOperator(definition.wordOperator, numeric, definition.wordValue);
   } else {
     const currentBit = coerceBitValue(sourceValue.value);
-    if (definition.bitTrigger === "OFF_TO_ON" || definition.bitTrigger === "ON_TO_OFF") {
+    const isEdgeTrigger = definition.bitTrigger === "OFF_TO_ON" || definition.bitTrigger === "ON_TO_OFF";
+
+    if (isEdgeTrigger) {
       const previousBit = coerceBitValue(state.previousRawValue ?? null);
       if (currentBit !== null && previousBit !== null && securitySatisfied) {
         if (definition.bitTrigger === "OFF_TO_ON") {
@@ -214,6 +228,7 @@ export function evaluateTransition(input: EvaluateTransitionInput): EvaluateTran
           nextState,
         };
       }
+
       conditionActive = securitySatisfied && (definition.bitTrigger === "ON" ? currentBit : !currentBit);
     }
   }
@@ -243,16 +258,21 @@ export function normalizeSecurityBitValue(value: EventDefinition["securityBitVal
   return true;
 }
 
-function evaluateSecurityGate(definition: NormalizedEventDefinition, securityValue: TagValue | undefined): boolean {
+function evaluateSecurityGate(
+  definition: NormalizedEventDefinition,
+  securityValue: TagValue | undefined,
+): boolean {
   if (!definition.securityEnabled) {
     return true;
   }
   if (!securityValue) {
     return false;
   }
+
   const securityBit = coerceBitValue(securityValue.value);
   if (securityBit === null) {
     return false;
   }
+
   return securityBit === definition.securityBitValue;
 }

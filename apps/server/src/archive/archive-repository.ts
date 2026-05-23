@@ -1054,7 +1054,17 @@ export class ArchiveRepository {
   }
 
   public async listActiveEventOccurrences(limit = 200): Promise<EventOccurrence[]> {
-    return this.queryEventOccurrences({ state: "active", limit, offset: 0 }).then((page) => page.items);
+    return this.listEventOccurrencesByClause("cleared_at IS NULL", limit);
+  }
+
+  public async listOnlineEventOccurrences(
+    limit = 200,
+    includeClearedUnacknowledged = false,
+  ): Promise<EventOccurrence[]> {
+    const whereClause = includeClearedUnacknowledged
+      ? "(cleared_at IS NULL OR (cleared_at IS NOT NULL AND acknowledged_at IS NULL))"
+      : "cleared_at IS NULL";
+    return this.listEventOccurrencesByClause(whereClause, limit);
   }
 
   public async createEventOccurrence(input: {
@@ -1200,7 +1210,7 @@ export class ArchiveRepository {
           cleared_at = COALESCE(cleared_at, $2),
           value_at_clear = COALESCE(value_at_clear, $3),
           state = CASE
-              WHEN state = 'acknowledged' THEN state
+              WHEN acknowledged_at IS NOT NULL THEN 'acknowledged'
               ELSE 'cleared'
           END,
           updated_at = now()
@@ -1266,7 +1276,10 @@ export class ArchiveRepository {
       SET
           acknowledged_at = COALESCE(acknowledged_at, $2),
           acknowledged_by = COALESCE(acknowledged_by, $3),
-          state = 'acknowledged',
+          state = CASE
+              WHEN cleared_at IS NULL THEN 'active'
+              ELSE 'acknowledged'
+          END,
           updated_at = now()
       WHERE id = $1::bigint
       RETURNING
@@ -2663,5 +2676,59 @@ export class ArchiveRepository {
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
     };
+  }
+
+  private async listEventOccurrencesByClause(whereClause: string, limit = 200): Promise<EventOccurrence[]> {
+    const boundedLimit = Math.max(1, Math.min(5000, limit));
+    const rows = await this.pool.query<{
+      id: number;
+      event_definition_id: string;
+      occurred_at: Date;
+      cleared_at: Date | null;
+      acknowledged_at: Date | null;
+      acknowledged_by: string | null;
+      state: string;
+      source_tag_name_snapshot: string | null;
+      category_id_snapshot: string | null;
+      category_name_snapshot: string | null;
+      priority_snapshot: number | null;
+      message_text_snapshot: string | null;
+      value_at_trigger: string | null;
+      value_at_clear: string | null;
+      quality: string | null;
+      runtime_source: string | null;
+      service_data: Record<string, unknown> | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      SELECT
+          id,
+          event_definition_id,
+          occurred_at,
+          cleared_at,
+          acknowledged_at,
+          acknowledged_by,
+          state,
+          source_tag_name_snapshot,
+          category_id_snapshot,
+          category_name_snapshot,
+          priority_snapshot,
+          message_text_snapshot,
+          value_at_trigger,
+          value_at_clear,
+          quality,
+          runtime_source,
+          service_data,
+          created_at,
+          updated_at
+      FROM event_occurrences
+      WHERE ${whereClause}
+      ORDER BY occurred_at DESC, id DESC
+      LIMIT $1
+      `,
+      [boundedLimit],
+    );
+    return rows.rows.map((row) => this.mapEventOccurrenceRow(row));
   }
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { evaluateTransition, normalizeEventDefinition, type EventRuntimeState } from "./event-engine-logic";
+import {
+  evaluateTransition,
+  normalizeEventDefinition,
+  type EventRuntimeState,
+} from "./event-engine-logic";
 
 function createBaseDefinition(overrides?: Partial<ReturnType<typeof normalizeEventDefinition>>) {
   return {
@@ -14,7 +18,10 @@ function createBaseDefinition(overrides?: Partial<ReturnType<typeof normalizeEve
   };
 }
 
-function evaluateLevelAction(previous: EventRuntimeState, nextConditionActive: boolean): "activate" | "clear" | "none" {
+function evaluateLevelAction(
+  previous: EventRuntimeState,
+  nextConditionActive: boolean,
+): "activate" | "clear" | "none" {
   if (!previous.previousConditionActive && nextConditionActive) {
     return "activate";
   }
@@ -31,7 +38,13 @@ describe("event engine condition evaluation", () => {
       definition,
       state: { previousConditionActive: false, startupReadyAt: 0 },
       nowMs: 1,
-      sourceValue: { name: "Tag1", value: true, quality: "Good", timestamp: 1, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: true,
+        quality: "Good",
+        timestamp: 1,
+        source: "test",
+      },
     });
 
     expect(result.conditionActive).toBe(true);
@@ -43,7 +56,13 @@ describe("event engine condition evaluation", () => {
       definition,
       state: { previousConditionActive: false, startupReadyAt: 0 },
       nowMs: 1,
-      sourceValue: { name: "Tag1", value: false, quality: "Good", timestamp: 1, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: false,
+        quality: "Good",
+        timestamp: 1,
+        source: "test",
+      },
     });
 
     expect(result.conditionActive).toBe(true);
@@ -53,9 +72,19 @@ describe("event engine condition evaluation", () => {
     const definition = createBaseDefinition({ bitTrigger: "OFF_TO_ON" });
     const result = evaluateTransition({
       definition,
-      state: { previousConditionActive: false, previousRawValue: false, startupReadyAt: 0 },
+      state: {
+        previousConditionActive: false,
+        previousRawValue: false,
+        startupReadyAt: 0,
+      },
       nowMs: 1,
-      sourceValue: { name: "Tag1", value: true, quality: "Good", timestamp: 1, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: true,
+        quality: "Good",
+        timestamp: 1,
+        source: "test",
+      },
     });
 
     expect(result.edgeTriggered).toBe(true);
@@ -65,9 +94,19 @@ describe("event engine condition evaluation", () => {
     const definition = createBaseDefinition({ bitTrigger: "ON_TO_OFF" });
     const result = evaluateTransition({
       definition,
-      state: { previousConditionActive: false, previousRawValue: true, startupReadyAt: 0 },
+      state: {
+        previousConditionActive: false,
+        previousRawValue: true,
+        startupReadyAt: 0,
+      },
       nowMs: 1,
-      sourceValue: { name: "Tag1", value: false, quality: "Good", timestamp: 1, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: false,
+        quality: "Good",
+        timestamp: 1,
+        source: "test",
+      },
     });
 
     expect(result.edgeTriggered).toBe(true);
@@ -84,12 +123,23 @@ describe("event engine condition evaluation", () => {
     ];
 
     for (const [op, value, threshold, expected] of cases) {
-      const definition = createBaseDefinition({ conditionMode: "word", wordOperator: op, wordValue: threshold });
+      const definition = createBaseDefinition({
+        conditionMode: "word",
+        wordOperator: op,
+        wordValue: threshold,
+      });
+
       const result = evaluateTransition({
         definition,
         state: { previousConditionActive: false, startupReadyAt: 0 },
         nowMs: 1,
-        sourceValue: { name: "Tag1", value, quality: "Good", timestamp: 1, source: "test" },
+        sourceValue: {
+          name: "Tag1",
+          value,
+          quality: "Good",
+          timestamp: 1,
+          source: "test",
+        },
       });
 
       expect(result.conditionActive).toBe(expected);
@@ -98,19 +148,35 @@ describe("event engine condition evaluation", () => {
 
   it("does not duplicate activation while condition remains active", () => {
     const definition = createBaseDefinition({ bitTrigger: "ON" });
-    const firstState: EventRuntimeState = { previousConditionActive: false, startupReadyAt: 0 };
+    const firstState: EventRuntimeState = {
+      previousConditionActive: false,
+      startupReadyAt: 0,
+    };
 
     const first = evaluateTransition({
       definition,
       state: firstState,
       nowMs: 1,
-      sourceValue: { name: "Tag1", value: true, quality: "Good", timestamp: 1, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: true,
+        quality: "Good",
+        timestamp: 1,
+        source: "test",
+      },
     });
+
     const second = evaluateTransition({
       definition,
       state: first.nextState,
       nowMs: 2,
-      sourceValue: { name: "Tag1", value: true, quality: "Good", timestamp: 2, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: true,
+        quality: "Good",
+        timestamp: 2,
+        source: "test",
+      },
     });
 
     expect(evaluateLevelAction(firstState, first.conditionActive)).toBe("activate");
@@ -119,17 +185,31 @@ describe("event engine condition evaluation", () => {
 
   it("clears when level condition becomes false", () => {
     const definition = createBaseDefinition({ bitTrigger: "ON" });
+
     const first = evaluateTransition({
       definition,
       state: { previousConditionActive: false, startupReadyAt: 0 },
       nowMs: 1,
-      sourceValue: { name: "Tag1", value: true, quality: "Good", timestamp: 1, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: true,
+        quality: "Good",
+        timestamp: 1,
+        source: "test",
+      },
     });
+
     const second = evaluateTransition({
       definition,
       state: first.nextState,
       nowMs: 2,
-      sourceValue: { name: "Tag1", value: false, quality: "Good", timestamp: 2, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: false,
+        quality: "Good",
+        timestamp: 2,
+        source: "test",
+      },
     });
 
     expect(evaluateLevelAction(first.nextState, second.conditionActive)).toBe("clear");
@@ -142,12 +222,25 @@ describe("event engine condition evaluation", () => {
       securityBitValue: true,
       bitTrigger: "ON",
     });
+
     const result = evaluateTransition({
       definition,
       state: { previousConditionActive: false, startupReadyAt: 0 },
       nowMs: 1,
-      sourceValue: { name: "Tag1", value: true, quality: "Good", timestamp: 1, source: "test" },
-      securityValue: { name: "Security", value: false, quality: "Good", timestamp: 1, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: true,
+        quality: "Good",
+        timestamp: 1,
+        source: "test",
+      },
+      securityValue: {
+        name: "Security",
+        value: false,
+        quality: "Good",
+        timestamp: 1,
+        source: "test",
+      },
     });
 
     expect(result.conditionActive).toBe(false);
@@ -159,7 +252,13 @@ describe("event engine condition evaluation", () => {
       definition,
       state: { previousConditionActive: false, startupReadyAt: 1000 },
       nowMs: 500,
-      sourceValue: { name: "Tag1", value: true, quality: "Good", timestamp: 500, source: "test" },
+      sourceValue: {
+        name: "Tag1",
+        value: true,
+        quality: "Good",
+        timestamp: 500,
+        source: "test",
+      },
     });
 
     expect(result.skipped).toBe(true);

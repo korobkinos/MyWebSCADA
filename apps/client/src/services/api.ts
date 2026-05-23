@@ -199,7 +199,11 @@ export type EventAcknowledgeResponse = {
   acknowledged: EventOccurrence[];
   alreadyAcknowledgedIds: string[];
   notFoundIds: string[];
-  ackTagWriteFailures: Array<{ occurrenceId: string; tagName: string; message: string }>;
+  ackTagWriteFailures: Array<{
+    occurrenceId: string;
+    tagName: string;
+    message: string;
+  }>;
 };
 
 export type TrendDataType = "number" | "boolean" | "string" | "enum";
@@ -584,9 +588,12 @@ export const api = {
     }),
   previewArchivePurge: () => request<ArchivePurgePreview>("/api/archive/purge/preview", { method: "POST" }),
   runArchivePurge: () => request<ArchivePurgeResult>("/api/archive/purge/run", { method: "POST" }),
-  getActiveEvents: (query?: Pick<EventHistoryQuery, "limit">) =>
+  getActiveEvents: (query?: Pick<EventHistoryQuery, "limit"> & { includeClearedUnacknowledged?: boolean }) =>
     request<EventOccurrence[]>(
-      `/api/events/active${toQueryString({ limit: query?.limit })}`,
+      `/api/events/active${toQueryString({
+        limit: query?.limit,
+        includeClearedUnacknowledged: query?.includeClearedUnacknowledged,
+      })}`,
     ),
   getEventHistory: (query?: EventHistoryQuery) =>
     request<EventHistoryPage>(

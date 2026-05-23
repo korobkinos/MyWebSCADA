@@ -190,6 +190,13 @@ const eventArchiveSettingsSchema = z.object({
 const eventAckSchema = z.object({
   ids: z.array(z.union([z.string().min(1), z.number().int().positive()])).min(1).max(1000),
 });
+const eventActiveQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(5000).optional(),
+  includeClearedUnacknowledged: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .optional()
+    .transform((value) => value === true || value === "true"),
+});
 const EVENT_HISTORY_EXPORT_PAGE_SIZE = 5000;
 const EVENT_HISTORY_EXPORT_MAX_ROWS = 200_000;
 const permissionSchema: z.ZodType<AppPermission> = z.custom<AppPermission>((value) => typeof value === "string");
@@ -1083,9 +1090,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     if (!deps.archiveService?.isEnabled()) {
       return reply.code(503).send({ message: "Event archive database is not configured" });
     }
-    const parsed = eventHistoryQuerySchema.parse(request.query ?? {});
+    const parsed = eventActiveQuerySchema.parse(request.query ?? {});
     const limit = parsed.limit ?? 200;
-    return reply.send(await deps.archiveService.listActiveEvents(limit));
+    const includeClearedUnacknowledged = parsed.includeClearedUnacknowledged === true;
+    return reply.send(await deps.archiveService.listOnlineEvents(limit, includeClearedUnacknowledged));
   });
 
   app.get("/api/events/history", async (request, reply) => {

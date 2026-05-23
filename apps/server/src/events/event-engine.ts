@@ -26,7 +26,11 @@ type AcknowledgeEventsResult = {
   acknowledged: EventOccurrence[];
   alreadyAcknowledgedIds: string[];
   notFoundIds: string[];
-  ackTagWriteFailures: Array<{ occurrenceId: string; tagName: string; message: string }>;
+  ackTagWriteFailures: Array<{
+    occurrenceId: string;
+    tagName: string;
+    message: string;
+  }>;
 };
 
 export class EventEngine {
@@ -35,12 +39,13 @@ export class EventEngine {
   private readonly eventStates = new Map<string, EventRuntimeState>();
   private readonly definitions = new Map<string, NormalizedEventDefinition>();
   private readonly definitionsByTag = new Map<string, Set<string>>();
+  private readonly isRuntimeRunning: () => boolean;
+
   private unsubscribeTagChange: (() => void) | undefined;
   private evaluationTimer: NodeJS.Timeout | undefined;
   private evaluationChain = Promise.resolve();
   private running = false;
   private archiveEnabled = true;
-  private readonly isRuntimeRunning: () => boolean;
 
   public constructor(
     private readonly tagStore: TagStore,
@@ -75,19 +80,24 @@ export class EventEngine {
       await this.evaluateAll(Date.now());
     });
 
-    this.logger.info(`[EventEngine] started intervalMs=${this.evaluationIntervalMs} definitions=${this.definitions.size}`);
+    this.logger.info(
+      `[EventEngine] started intervalMs=${this.evaluationIntervalMs} definitions=${this.definitions.size}`,
+    );
   }
 
   public async stop(): Promise<void> {
     this.running = false;
+
     if (this.unsubscribeTagChange) {
       this.unsubscribeTagChange();
       this.unsubscribeTagChange = undefined;
     }
+
     if (this.evaluationTimer) {
       clearInterval(this.evaluationTimer);
       this.evaluationTimer = undefined;
     }
+
     this.evaluationChain = Promise.resolve();
     this.logger.info("[EventEngine] stopped");
   }
@@ -103,7 +113,10 @@ export class EventEngine {
     this.archiveEnabled = enabled;
   }
 
-  public async acknowledgeOccurrences(ids: Array<string | number>, acknowledgedBy?: string): Promise<AcknowledgeEventsResult> {
+  public async acknowledgeOccurrences(
+    ids: Array<string | number>,
+    acknowledgedBy?: string,
+  ): Promise<AcknowledgeEventsResult> {
     if (!this.archiveService?.isEnabled()) {
       return {
         acknowledged: [],
@@ -137,15 +150,18 @@ export class EventEngine {
       if (!current) {
         continue;
       }
+
       if (current.acknowledgedAt) {
         alreadyAcknowledgedIds.push(id);
         continue;
       }
+
       const updated = await this.archiveService.acknowledgeEventOccurrence(id, acknowledgedAt, acknowledgedBy ?? null);
       if (!updated) {
         notFoundIds.push(id);
         continue;
       }
+
       acknowledged.push(updated);
       this.websocketGateway.broadcastEventUpdate("acknowledged", updated);
       this.releaseActiveStateAfterAck(updated);
@@ -155,6 +171,7 @@ export class EventEngine {
       if (!ackTagName || definition?.ackValue === undefined || !this.commandService) {
         continue;
       }
+
       try {
         await this.commandService.writeTag(ackTagName, definition.ackValue);
       } catch (error) {
@@ -175,18 +192,17 @@ export class EventEngine {
   }
 
   private enqueueEvaluation(run: () => Promise<void>): void {
-    this.evaluationChain = this.evaluationChain
-      .then(run)
-      .catch((error) => {
-        const text = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`[EventEngine] evaluation error: ${text}`);
-      });
+    this.evaluationChain = this.evaluationChain.then(run).catch((error) => {
+      const text = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`[EventEngine] evaluation error: ${text}`);
+    });
   }
 
   private async evaluateAll(nowMs: number): Promise<void> {
     if (!this.running || !this.isRuntimeRunning() || !this.archiveEnabled || this.definitions.size === 0) {
       return;
     }
+
     for (const definitionId of this.definitions.keys()) {
       await this.evaluateDefinition(definitionId, nowMs);
     }
@@ -196,10 +212,12 @@ export class EventEngine {
     if (!this.running || !this.isRuntimeRunning() || !this.archiveEnabled) {
       return;
     }
+
     const ids = this.definitionsByTag.get(tagName);
     if (!ids || ids.size === 0) {
       return;
     }
+
     for (const definitionId of ids) {
       await this.evaluateDefinition(definitionId, nowMs);
     }
@@ -217,7 +235,9 @@ export class EventEngine {
     };
 
     const sourceValue = this.tagStore.getValue(definition.sourceTagName);
-    const securityValue = definition.securityTagName ? this.tagStore.getValue(definition.securityTagName) : undefined;
+    const securityValue = definition.securityTagName
+      ? this.tagStore.getValue(definition.securityTagName)
+      : undefined;
 
     const evaluated = evaluateTransition({
       definition,
@@ -234,14 +254,20 @@ export class EventEngine {
       return;
     }
 
-    if (definition.conditionMode === "bit" && (definition.bitTrigger === "OFF_TO_ON" || definition.bitTrigger === "ON_TO_OFF")) {
+    const isEdgeTrigger =
+      definition.conditionMode === "bit" &&
+      (definition.bitTrigger === "OFF_TO_ON" || definition.bitTrigger === "ON_TO_OFF");
+
+    if (isEdgeTrigger) {
       if (!evaluated.edgeTriggered) {
         return;
       }
+
       const occurrence = await this.createEdgeOccurrence(definition, sourceValue, nowMs);
       if (!occurrence) {
         return;
       }
+
       if (occurrence.state === "active") {
         next.activeOccurrenceId = occurrence.id;
         next.activeSince = occurrence.occurredAt;
@@ -251,6 +277,7 @@ export class EventEngine {
         next.activeSince = undefined;
         this.websocketGateway.broadcastEventUpdate("cleared", occurrence);
       }
+
       this.eventStates.set(definitionId, next);
       return;
     }
@@ -262,6 +289,7 @@ export class EventEngine {
       if (next.activeOccurrenceId) {
         return;
       }
+
       const created = await this.archiveService.createEventOccurrence({
         eventDefinitionId: definition.id,
         occurredAt: new Date(nowMs),
@@ -276,6 +304,7 @@ export class EventEngine {
         runtimeSource: sourceValue.source,
         serviceData: this.buildServiceData(definition, false),
       });
+
       next.activeOccurrenceId = created.id;
       next.activeSince = created.occurredAt;
       this.eventStates.set(definitionId, next);
@@ -290,10 +319,17 @@ export class EventEngine {
         this.eventStates.set(definitionId, next);
         return;
       }
-      const cleared = await this.archiveService.clearEventOccurrence(previous.activeOccurrenceId, new Date(nowMs), sourceValue.value);
+
+      const cleared = await this.archiveService.clearEventOccurrence(
+        previous.activeOccurrenceId,
+        new Date(nowMs),
+        sourceValue.value,
+      );
+
       next.activeOccurrenceId = undefined;
       next.activeSince = undefined;
       this.eventStates.set(definitionId, next);
+
       if (cleared) {
         this.websocketGateway.broadcastEventUpdate("cleared", cleared);
       }
@@ -312,8 +348,9 @@ export class EventEngine {
     const occurredAt = new Date(nowMs);
     const clearImmediately = !definition.requireAck;
 
-    // Edge events are instantaneous. For non-acknowledged edges we persist an already-cleared occurrence.
-    // For requireAck=true we persist as active with clearedAt set, and it stays active until acknowledged.
+    // Edge events are instantaneous.
+    // - requireAck=false: persist directly as cleared.
+    // - requireAck=true: persist as active with clearedAt set, then keep until ack.
     return this.archiveService.createEventOccurrence({
       eventDefinitionId: definition.id,
       occurredAt,
@@ -332,7 +369,10 @@ export class EventEngine {
     });
   }
 
-  private buildServiceData(definition: NormalizedEventDefinition, edge: boolean): Record<string, unknown> {
+  private buildServiceData(
+    definition: NormalizedEventDefinition,
+    edge: boolean,
+  ): Record<string, unknown> {
     return {
       soundId: definition.soundEnabled && definition.soundId ? definition.soundId : null,
       requireAck: definition.requireAck,
@@ -363,7 +403,11 @@ export class EventEngine {
       if (!this.tagStore.getDefinition(normalized.sourceTagName)) {
         continue;
       }
-      if (normalized.securityEnabled && normalized.securityTagName && !this.tagStore.getDefinition(normalized.securityTagName)) {
+      if (
+        normalized.securityEnabled &&
+        normalized.securityTagName &&
+        !this.tagStore.getDefinition(normalized.securityTagName)
+      ) {
         continue;
       }
 
@@ -394,19 +438,20 @@ export class EventEngine {
 
     for (const [id, definition] of this.definitions.entries()) {
       const existing = this.eventStates.get(id);
-      if (existing) {
+      if (!existing) {
         this.eventStates.set(id, {
-          ...existing,
-          startupReadyAt: nowMs + definition.startupDelayMs,
           previousConditionActive: false,
-          activeOccurrenceId: undefined,
-          activeSince: undefined,
+          startupReadyAt: nowMs + definition.startupDelayMs,
         });
         continue;
       }
+
       this.eventStates.set(id, {
-        previousConditionActive: false,
+        ...existing,
         startupReadyAt: nowMs + definition.startupDelayMs,
+        previousConditionActive: false,
+        activeOccurrenceId: undefined,
+        activeSince: undefined,
       });
     }
   }
@@ -415,22 +460,23 @@ export class EventEngine {
     if (!this.archiveService?.isEnabled()) {
       return;
     }
+
     const active = await this.archiveService.listActiveEvents(5000);
     if (active.length === 0) {
       return;
     }
+
     for (const occurrence of active) {
       const definition = this.definitions.get(occurrence.eventDefinitionId);
       if (!definition) {
         continue;
       }
+
       const state = this.eventStates.get(definition.id);
-      if (!state) {
+      if (!state || state.activeOccurrenceId) {
         continue;
       }
-      if (state.activeOccurrenceId) {
-        continue;
-      }
+
       state.activeOccurrenceId = occurrence.id;
       state.activeSince = occurrence.occurredAt;
       this.eventStates.set(definition.id, state);
@@ -438,12 +484,13 @@ export class EventEngine {
   }
 
   private async resolveArchiveEnabled(project: ScadaProject): Promise<boolean> {
-    if (project.eventArchiveSettings && project.eventArchiveSettings.enabled === false) {
+    if (project.eventArchiveSettings?.enabled === false) {
       return false;
     }
     if (!this.archiveService?.isEnabled()) {
       return false;
     }
+
     try {
       const settings = await this.archiveService.getEventArchiveSettings();
       return settings.enabled;
@@ -457,9 +504,11 @@ export class EventEngine {
     if (!state || state.activeOccurrenceId !== occurrence.id) {
       return;
     }
+
     if (!occurrence.clearedAt) {
       return;
     }
+
     state.activeOccurrenceId = undefined;
     state.activeSince = undefined;
     this.eventStates.set(occurrence.eventDefinitionId, state);

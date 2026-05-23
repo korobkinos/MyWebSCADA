@@ -266,6 +266,13 @@ export class ArchiveService {
     return this.repository.listActiveEventOccurrences(limit);
   }
 
+  public async listOnlineEvents(
+    limit?: number,
+    includeClearedUnacknowledged = false,
+  ): Promise<EventOccurrence[]> {
+    return this.repository.listOnlineEventOccurrences(limit, includeClearedUnacknowledged);
+  }
+
   public async createEventOccurrence(input: {
     eventDefinitionId: string;
     occurredAt: Date;
@@ -287,7 +294,11 @@ export class ArchiveService {
     return this.repository.createEventOccurrence(input);
   }
 
-  public async clearEventOccurrence(id: string | number, clearedAt: Date, valueAtClear?: TagScalarValue): Promise<EventOccurrence | null> {
+  public async clearEventOccurrence(
+    id: string | number,
+    clearedAt: Date,
+    valueAtClear?: TagScalarValue,
+  ): Promise<EventOccurrence | null> {
     return this.repository.clearEventOccurrence(id, clearedAt, valueAtClear);
   }
 
