@@ -1,11 +1,28 @@
-import type { EventOccurrence, EventTableObject } from "@web-scada/shared";
-import { message } from "antd";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import type { EventOccurrence, EventTableObject, HmiObject } from "@web-scada/shared";
+import {
+  CheckCircleOutlined,
+  DownloadOutlined,
+  LeftOutlined,
+  RightOutlined,
+  SearchOutlined,
+  SettingOutlined,
+  SoundOutlined,
+  StopOutlined,
+  FilterOutlined,
+} from "@ant-design/icons";
+import { message, Spin } from "antd";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
+import { WorkbenchIconButton } from "../../components/workbench";
 import { useScadaStore } from "../../store/scada-store";
 import {
   DEFAULT_EVENT_TABLE_COLUMN_LABELS,
-  normalizeEventTableColumns,
+  type EventTableColumnId,
 } from "./event-table-columns";
+import {
+  resolveEventTableConfig,
+  resolveEventOccurrenceSoundId,
+} from "./event-table-config";
+import { EventTableSettingsDialog } from "./EventTableSettingsDialog";
 import {
   buildEventTableHistoryQuery,
   hasMultiValueHistoryFilters,
@@ -29,7 +46,14 @@ import { eventRuntimeStore } from "./event-runtime-store";
 
 type EventTableRuntimeWidgetProps = {
   object: EventTableObject;
+  screenId?: string;
 };
+
+type ColumnResizeState = {
+  column: EventTableColumnId;
+  startX: number;
+  startWidth: number;
+} | null;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -47,21 +71,74 @@ function toSingleFilterValues<T extends string | number>(values: T[] | undefined
   return [values[0] as T];
 }
 
-export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps) {
+function normalizeOccurrenceId(input: Pick<EventOccurrence, "id">): string {
+  return String(input.id ?? "").trim();
+}
+
+function findObjectScreenId(project: ReturnType<typeof useScadaStore.getState>["project"], objectId: string): string | undefined {
+  if (!project) {
+    return undefined;
+  }
+  const visit = (items: HmiObject[]): boolean => {
+    for (const item of items) {
+      if (item.id === objectId) {
+        return true;
+      }
+      if (item.type === "group" && visit(item.objects)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const screen of project.screens) {
+    if (visit(screen.objects)) {
+      return screen.id;
+    }
+  }
+  return undefined;
+}
+
+function resolveTitleAlign(value: EventTableObject["titleAlign"]): "flex-start" | "center" | "flex-end" {
+  if (value === "center") {
+    return "center";
+  }
+  if (value === "right") {
+    return "flex-end";
+  }
+  return "flex-start";
+}
+
+export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeWidgetProps) {
   const runtimeEvents = useSyncExternalStore(
     eventRuntimeStore.subscribe,
     eventRuntimeStore.getSnapshot,
     eventRuntimeStore.getSnapshot,
   );
+  const project = useScadaStore((store) => store.project);
+  const currentScreenId = useScadaStore((store) => store.currentScreenId);
+  const updateObjectDeep = useScadaStore((store) => store.updateObjectDeep);
   const projectEventSounds = useScadaStore((store) => store.project?.eventSounds ?? []);
+
   const [soundStatusText, setSoundStatusText] = useState<string>("");
   const [busyAck, setBusyAck] = useState(false);
   const [busyCsv, setBusyCsv] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [runtimeColumnWidths, setRuntimeColumnWidths] = useState<Record<string, number>>({});
+
+  const oncePlayedIdsRef = useRef<Set<string>>(new Set());
+  const silenceBlockedRef = useRef(false);
+  const silenceSnapshotActiveIdsRef = useRef<Set<string>>(new Set());
+  const soundLoopTimerRef = useRef<number | null>(null);
+  const soundLoopInFlightRef = useRef(false);
+  const columnResizeRef = useRef<ColumnResizeState>(null);
+  const persistenceWarningShownRef = useRef(false);
+
+  const config = useMemo(() => resolveEventTableConfig(object), [object]);
 
   const title = object.title?.trim() || "Event Table";
-  const columns = useMemo(() => normalizeEventTableColumns(object.columns), [object.columns]);
+  const columns = config.columns;
   const textColor = object.textColor ?? "#d4d4d4";
   const mutedTextColor = object.mutedTextColor ?? "#9ea6ad";
   const backgroundColor = object.backgroundColor ?? "#1f2328";
@@ -72,6 +149,8 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   const fontSize = clamp(toFiniteNumber(object.fontSize, 12), 10, 24);
   const rowHeight = clamp(toFiniteNumber(object.rowHeight, 26), 20, 52);
   const headerHeight = clamp(toFiniteNumber(object.headerHeight, 28), 20, 60);
+  const titleHeight = clamp(toFiniteNumber(object.titleHeight, object.headerHeight ?? 28), 16, 80);
+  const titleFontSize = clamp(toFiniteNumber(object.titleFontSize, fontSize + 1), 8, 32);
   const borderRadius = clamp(toFiniteNumber(object.borderRadius, 6), 0, 24);
   const borderWidth = clamp(toFiniteNumber(object.borderWidth, 1), 0, 4);
   const mode = object.mode ?? (object.enableHistoryMode ? "history" : "online");
@@ -81,15 +160,35 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   const showStatus = object.showStatusBar !== false && statusStyle !== "hidden" && statusPosition !== "hidden";
   const showTopStatus = showStatus && statusPosition === "top";
   const showBottomStatus = showStatus && statusPosition === "bottom";
-  const showToolbar = object.showToolbar !== false;
   const showHeader = object.showHeader !== false;
-  const showTitle = object.showTitle !== false;
   const maxRows = Math.max(1, Math.round(object.maxRows ?? 100));
   const pageSize = Math.max(1, Math.round(object.pageSize ?? 50));
   const compactMode = object.compactMode ?? false;
   const showGridLines = object.showGridLines !== false;
   const transparentBackground = object.transparentBackground === true;
   const tableBackground = transparentBackground ? "transparent" : backgroundColor;
+
+  const showTitleTop = config.titlePosition === "top";
+  const showTitleBottom = config.titlePosition === "bottom";
+  const showToolbarTop = config.showToolbar && config.toolbarPosition === "top";
+  const showToolbarBottom = config.showToolbar && config.toolbarPosition === "bottom";
+
+  const resolvedScreenId = useMemo(
+    () => screenId ?? currentScreenId ?? findObjectScreenId(project, object.id),
+    [currentScreenId, object.id, project, screenId],
+  );
+
+  const patchObject = useCallback((patch: Partial<EventTableObject>) => {
+    if (!project || !resolvedScreenId) {
+      // TODO(event-table): provide a dedicated runtime object-config persistence API for overlay contexts without screen binding.
+      if (!persistenceWarningShownRef.current) {
+        persistenceWarningShownRef.current = true;
+        void message.warning("EventTable runtime persistence is unavailable in this context.");
+      }
+      return;
+    }
+    updateObjectDeep(resolvedScreenId, object.id, patch as Partial<HmiObject>);
+  }, [object.id, project, resolvedScreenId, updateObjectDeep]);
 
   const historyBucket = runtimeEvents.historyByWidget[object.id] ?? {
     items: [] as EventOccurrence[],
@@ -169,8 +268,8 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   ]);
 
   useEffect(() => {
-    eventRuntimeStore.setSoundCatalog(projectEventSounds, { enablePriorityFallback: true });
-  }, [projectEventSounds]);
+    setRuntimeColumnWidths(object.columnWidths ?? {});
+  }, [object.columnWidths, object.id]);
 
   useEffect(() => {
     eventRuntimeStore.setRecentBufferLimit(Math.max(1000, maxRows));
@@ -202,6 +301,53 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
     eventRuntimeStore.clearHistory(object.id);
   }, [object.id]);
 
+  useEffect(() => {
+    const handleMove = (event: MouseEvent) => {
+      const state = columnResizeRef.current;
+      if (!state) {
+        return;
+      }
+      const delta = event.clientX - state.startX;
+      const nextWidth = clamp(Math.round(state.startWidth + delta), 40, 1400);
+      setRuntimeColumnWidths((previous) => ({
+        ...previous,
+        [state.column]: nextWidth,
+      }));
+    };
+
+    const handleUp = () => {
+      const state = columnResizeRef.current;
+      if (!state) {
+        return;
+      }
+      columnResizeRef.current = null;
+      if (typeof document !== "undefined") {
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      }
+      const width = Number(runtimeColumnWidths[state.column]);
+      if (!Number.isFinite(width)) {
+        return;
+      }
+      patchObject({
+        columnWidths: {
+          ...(object.columnWidths ?? {}),
+          [state.column]: clamp(Math.round(width), 40, 1400),
+        },
+      });
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("blur", handleUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("blur", handleUp);
+    };
+  }, [object.columnWidths, patchObject, runtimeColumnWidths]);
+
   const toggleRowSelection = useCallback((occurrenceId: string) => {
     setSelectedIds((previous) => {
       const next = new Set(previous);
@@ -213,6 +359,149 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
       return next;
     });
   }, []);
+
+  const playSoundForOccurrence = useCallback(async (occurrence: EventOccurrence) => {
+    const soundId = resolveEventOccurrenceSoundId(occurrence, object, projectEventSounds);
+    if (!soundId) {
+      return;
+    }
+
+    const result = await eventSoundPlayer.playSound(soundId, projectEventSounds);
+    if (!result.ok) {
+      if (result.reason === "autoplay_blocked") {
+        const autoplayText = "Sound playback was blocked by the browser. Click Enable sounds.";
+        setSoundStatusText(autoplayText);
+        eventRuntimeStore.setSoundStatusMessage(autoplayText);
+        return;
+      }
+      setSoundStatusText(result.message);
+      eventRuntimeStore.setSoundStatusMessage(result.message);
+      return;
+    }
+
+    if (runtimeEvents.soundStatusMessage) {
+      eventRuntimeStore.setSoundStatusMessage(null);
+    }
+    if (soundStatusText) {
+      setSoundStatusText("");
+    }
+  }, [object, projectEventSounds, runtimeEvents.soundStatusMessage, soundStatusText]);
+
+  useEffect(() => {
+    if (mode !== "online" || config.soundPlaybackMode !== "once") {
+      return;
+    }
+
+    const newActive = runtimeEvents.activeEvents
+      .filter((item) => !item.clearedAt)
+      .filter((item) => {
+        const id = normalizeOccurrenceId(item);
+        return id && !oncePlayedIdsRef.current.has(id);
+      })
+      .sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
+
+    if (newActive.length === 0) {
+      return;
+    }
+
+    for (const item of newActive) {
+      const id = normalizeOccurrenceId(item);
+      if (id) {
+        oncePlayedIdsRef.current.add(id);
+      }
+    }
+
+    if (oncePlayedIdsRef.current.size > 20000) {
+      const trimmed = [...oncePlayedIdsRef.current].slice(-10000);
+      oncePlayedIdsRef.current = new Set(trimmed);
+    }
+
+    const newest = newActive[newActive.length - 1];
+    if (newest) {
+      void playSoundForOccurrence(newest);
+    }
+  }, [config.soundPlaybackMode, mode, playSoundForOccurrence, runtimeEvents.activeEvents]);
+
+  const stopSoundLoopTimer = useCallback(() => {
+    if (soundLoopTimerRef.current !== null) {
+      window.clearInterval(soundLoopTimerRef.current);
+      soundLoopTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "online" || config.soundPlaybackMode !== "loopUntilAcknowledged") {
+      stopSoundLoopTimer();
+      return;
+    }
+
+    const unackedActiveIds = new Set(
+      runtimeEvents.activeEvents
+        .filter((item) => !item.acknowledgedAt && !item.clearedAt)
+        .map((item) => normalizeOccurrenceId(item))
+        .filter(Boolean),
+    );
+
+    if (silenceBlockedRef.current) {
+      const hasNewUnackedActive = [...unackedActiveIds].some((id) => !silenceSnapshotActiveIdsRef.current.has(id));
+      if (hasNewUnackedActive) {
+        silenceBlockedRef.current = false;
+        silenceSnapshotActiveIdsRef.current.clear();
+      }
+    }
+
+    const loopCandidates = runtimeEvents.activeEvents
+      .filter((item) => !item.acknowledgedAt)
+      .filter((item) => !item.clearedAt || Boolean(item.clearedAt));
+
+    if (loopCandidates.length === 0) {
+      stopSoundLoopTimer();
+      if (config.stopSoundOnAck) {
+        eventSoundPlayer.stopCurrentSound();
+      }
+      return;
+    }
+
+    if (silenceBlockedRef.current) {
+      stopSoundLoopTimer();
+      return;
+    }
+
+    const pickCurrentCandidate = () => {
+      const sorted = [...loopCandidates].sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
+      return sorted[0] ?? null;
+    };
+
+    const tick = () => {
+      if (soundLoopInFlightRef.current) {
+        return;
+      }
+      const candidate = pickCurrentCandidate();
+      if (!candidate) {
+        return;
+      }
+      soundLoopInFlightRef.current = true;
+      void playSoundForOccurrence(candidate).finally(() => {
+        soundLoopInFlightRef.current = false;
+      });
+    };
+
+    tick();
+    stopSoundLoopTimer();
+    soundLoopTimerRef.current = window.setInterval(tick, config.soundRepeatIntervalMs);
+
+    return () => {
+      stopSoundLoopTimer();
+    };
+  }, [
+    config.soundPlaybackMode,
+    config.soundRepeatIntervalMs,
+    config.stopSoundOnAck,
+    mode,
+    playSoundForOccurrence,
+    runtimeEvents.activeEvents,
+    stopSoundLoopTimer,
+  ]);
 
   const acknowledgeRows = useCallback(async (ids: string[]) => {
     const unique = [...new Set(ids.map((item) => item.trim()).filter(Boolean))];
@@ -239,6 +528,11 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
           void message.warning(`Acknowledge completed with partial issues (${details}).`);
         }
       }
+
+      if (config.stopSoundOnAck) {
+        eventSoundPlayer.stopAllSounds();
+      }
+
       setSelectedIds((previous) => {
         if (previous.size === 0) {
           return previous;
@@ -255,7 +549,7 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
     } finally {
       setBusyAck(false);
     }
-  }, []);
+  }, [config.stopSoundOnAck]);
 
   const handleAcknowledgeVisible = useCallback(() => {
     const ids = visibleRows
@@ -273,7 +567,6 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
 
   const handleExportCsv = useCallback(async () => {
     if (mode !== "history") {
-      // Simpler and safer behavior: online mode export is intentionally not implemented server-side.
       void message.info("CSV export is available in history mode only.");
       return;
     }
@@ -298,41 +591,54 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
     }
 
     const onlineStatusLabel = runtimeEvents.onlineStatus === "open" ? "online" : runtimeEvents.onlineStatus;
-    const onlineLineOne = `Event status: ${onlineStatusLabel} | active ${runtimeEvents.activeCount} | unacked ${runtimeEvents.unacknowledgedCount} | last update ${object.showLastUpdate === false ? "--:--:--" : formatStatusClockTime(runtimeEvents.lastUpdateAt)}`;
-    const onlineLineTwo = `Mode: ${object.showModeIndicator === false ? "--" : "online"} | Rows: ${object.showRecordCount === false ? "--" : String(onlineRows.length)}`;
+    const onlineSegments = [
+      `Event status: ${onlineStatusLabel}`,
+      `active ${runtimeEvents.activeCount}`,
+      `unacked ${runtimeEvents.unacknowledgedCount}`,
+      object.showLastUpdate === false ? "update --:--:--" : `update ${formatStatusClockTime(runtimeEvents.lastUpdateAt)}`,
+      object.showModeIndicator === false ? "mode --" : "mode online",
+      object.showRecordCount === false ? "rows --" : `rows ${onlineRows.length}`,
+    ];
 
     const historyState = historyBucket.loading ? "loading" : historyBucket.error ? "error" : "ready";
-    const historyLineOne = `Event archive: ${historyState} | period: ${historyPreset.label} | records ${historyTotalRows}`;
-    const historyLineTwo = `DB: ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)} | Records: ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`;
+    const historySegments = [
+      `Event archive: ${historyState}`,
+      `period ${historyPreset.label}`,
+      `records ${historyTotalRows}`,
+      object.showDatabaseStatus === false ? "DB --" : `DB ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)}`,
+      object.showDatabaseStatus === false ? "total --" : `total ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`,
+    ];
 
-    const lineOne = mode === "history" ? historyLineOne : onlineLineOne;
-    const lineTwo = mode === "history"
-      ? (object.showDatabaseStatus === false ? "DB: -- | Records: --" : historyLineTwo)
-      : onlineLineTwo;
+    const text = mode === "history" ? historySegments.join(" | ") : onlineSegments.join(" | ");
+    const tone = mode === "history" ? (object.warningColor ?? "#e6b450") : (object.activeAlarmColor ?? "#4ec94e");
 
-    const statusTone = mode === "history"
-      ? (object.warningColor ?? "#e6b450")
-      : (object.activeAlarmColor ?? "#4ec94e");
-
-    if (statusStyle === "compact") {
+    if (config.statusSingleLine || statusStyle === "compact") {
       return (
         <div
+          className="event-table-status"
           style={{
             minHeight: Math.max(20, rowHeight - 2),
-            padding: "4px 8px",
+            padding: compactMode ? "3px 8px" : "4px 8px",
             borderTop: showBottomStatus ? `1px solid ${gridLineColor}` : "none",
             borderBottom: showTopStatus ? `1px solid ${gridLineColor}` : "none",
-            color: mutedTextColor,
+            color: tone,
             fontSize: Math.max(10, fontSize - 1),
-            overflow: "hidden",
-            whiteSpace: "nowrap",
-            textOverflow: "ellipsis",
           }}
+          title={text}
         >
-          {lineOne}
+          {text}
         </div>
       );
     }
+
+    const lineOne = mode === "history"
+      ? `Event archive: ${historyState} | period ${historyPreset.label} | records ${historyTotalRows}`
+      : `Event status: ${onlineStatusLabel} | active ${runtimeEvents.activeCount} | unacked ${runtimeEvents.unacknowledgedCount}`;
+    const lineTwo = mode === "history"
+      ? (object.showDatabaseStatus === false
+        ? "DB -- | total --"
+        : `DB ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)} | total ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`)
+      : `${object.showLastUpdate === false ? "update --:--:--" : `update ${formatStatusClockTime(runtimeEvents.lastUpdateAt)}`} | ${object.showRecordCount === false ? "rows --" : `rows ${onlineRows.length}`}`;
 
     return (
       <div
@@ -348,7 +654,7 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
           overflow: "hidden",
         }}
       >
-        <div style={{ color: statusTone, fontSize: Math.max(10, fontSize - 1), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ color: tone, fontSize: Math.max(10, fontSize - 1), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {lineOne}
         </div>
         <div style={{ color: mutedTextColor, opacity: 0.9, fontSize: Math.max(9, fontSize - 2), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -358,14 +664,19 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
     );
   };
 
+  const effectiveColumnWidths = useMemo(() => ({
+    ...(object.columnWidths ?? {}),
+    ...runtimeColumnWidths,
+  }), [object.columnWidths, runtimeColumnWidths]);
+
   const gridTemplateColumns = useMemo(
     () => columns
       .map((column) => {
-        const width = Number(object.columnWidths?.[column]);
-        return Number.isFinite(width) && width > 32 ? `${width}px` : "minmax(70px, 1fr)";
+        const width = Number(effectiveColumnWidths[column]);
+        return Number.isFinite(width) && width > 32 ? `${width}px` : "minmax(80px, 1fr)";
       })
       .join(" "),
-    [columns, object.columnWidths],
+    [columns, effectiveColumnWidths],
   );
 
   const hasSoundNote = soundStatusText
@@ -379,414 +690,382 @@ export function EventTableRuntimeWidget({ object }: EventTableRuntimeWidgetProps
   const historyCanPrev = historyPage > 1;
   const historyCanNext = historyPage < totalPages;
 
-  return (
+  const startColumnResize = (event: ReactMouseEvent<HTMLDivElement>, column: EventTableColumnId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const current = Number(effectiveColumnWidths[column]);
+    const startWidth = Number.isFinite(current) && current > 32 ? current : 120;
+    columnResizeRef.current = {
+      column,
+      startX: event.clientX,
+      startWidth,
+    };
+    if (typeof document !== "undefined") {
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+    }
+  };
+
+  const titleBlock = (
     <div
       style={{
-        width: "100%",
-        height: "100%",
+        minHeight: compactMode ? Math.max(20, titleHeight - 4) : titleHeight,
         display: "flex",
-        flexDirection: "column",
-        border: `${borderWidth}px solid ${borderColor}`,
-        borderRadius,
-        background: tableBackground,
-        color: textColor,
-        boxSizing: "border-box",
-        fontFamily: "Segoe UI, Tahoma, sans-serif",
-        fontSize,
+        alignItems: "center",
+        justifyContent: resolveTitleAlign(config.titleAlign),
+        padding: "0 10px",
+        background: object.titleBackgroundColor ?? headerBackgroundColor,
+        color: object.titleTextColor ?? headerTextColor,
+        borderBottom: showTitleTop ? `1px solid ${gridLineColor}` : "none",
+        borderTop: showTitleBottom ? `1px solid ${gridLineColor}` : "none",
+        fontWeight: 600,
+        letterSpacing: 0.2,
+        fontSize: titleFontSize,
+        whiteSpace: "nowrap",
         overflow: "hidden",
+        textOverflow: "ellipsis",
       }}
+      title={title}
     >
-      {showTitle ? (
-        <div
-          style={{
-            minHeight: compactMode ? Math.max(20, headerHeight - 4) : headerHeight,
-            display: "flex",
-            alignItems: "center",
-            padding: "0 10px",
-            background: headerBackgroundColor,
-            color: headerTextColor,
-            borderBottom: `1px solid ${gridLineColor}`,
-            fontWeight: 600,
-            letterSpacing: 0.2,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+      {title}
+    </div>
+  );
+
+  const toolbarNode = (
+    <div className="event-table-toolbar">
+      {config.showSearch ? (
+        <label className="event-table-toolbar__search" title="Search">
+          <SearchOutlined />
+          <input
+            value={object.searchText ?? ""}
+            onChange={(event) => patchObject({ searchText: event.target.value })}
+            placeholder="Search..."
+          />
+        </label>
+      ) : null}
+
+      {config.showActiveOnlyToggle ? (
+        <WorkbenchIconButton
+          title={`Active only (${object.showActiveOnly === true ? "on" : "off"})`}
+          active={object.showActiveOnly === true}
+          onClick={() => patchObject({ showActiveOnly: object.showActiveOnly !== true })}
+          icon={<FilterOutlined />}
+        />
+      ) : null}
+
+      {config.showUnackedOnlyToggle ? (
+        <WorkbenchIconButton
+          title={`Unacknowledged only (${object.showUnacknowledgedOnly === true ? "on" : "off"})`}
+          active={object.showUnacknowledgedOnly === true}
+          onClick={() => patchObject({ showUnacknowledgedOnly: object.showUnacknowledgedOnly !== true })}
+          icon={<StopOutlined />}
+        />
+      ) : null}
+
+      {config.showAckVisibleButton ? (
+        <WorkbenchIconButton
+          title="Acknowledge visible"
+          onClick={handleAcknowledgeVisible}
+          disabled={busyAck}
+          icon={<CheckCircleOutlined />}
+        />
+      ) : null}
+
+      {object.enableAckSelectedButton ? (
+        <WorkbenchIconButton
+          title={`Acknowledge selected (${selectedIds.size})`}
+          onClick={handleAcknowledgeSelected}
+          disabled={busyAck}
+          icon={<span>{selectedIds.size}</span>}
+        />
+      ) : null}
+
+      {config.showSilenceButton ? (
+        <WorkbenchIconButton
+          title="Silence"
+          onClick={() => {
+            eventSoundPlayer.stopAllSounds();
+            if (config.stopSoundOnSilence) {
+              silenceBlockedRef.current = true;
+              silenceSnapshotActiveIdsRef.current = new Set(
+                runtimeEvents.activeEvents
+                  .filter((item) => !item.acknowledgedAt && !item.clearedAt)
+                  .map((item) => normalizeOccurrenceId(item))
+                  .filter(Boolean),
+              );
+            }
+            setSoundStatusText("Sound playback stopped.");
+            eventRuntimeStore.setSoundStatusMessage(null);
           }}
-        >
-          {title}
+          icon={<StopOutlined />}
+        />
+      ) : null}
+
+      {config.showEnableSoundsButton ? (
+        <WorkbenchIconButton
+          title="Enable sounds"
+          onClick={() => {
+            void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
+              if (!result.ok) {
+                setSoundStatusText(result.message);
+                eventRuntimeStore.setSoundStatusMessage(result.message);
+                return;
+              }
+              setSoundStatusText("Sounds enabled.");
+              eventRuntimeStore.setSoundStatusMessage(null);
+            });
+          }}
+          icon={<SoundOutlined />}
+        />
+      ) : null}
+
+      {config.showSettingsButton ? (
+        <WorkbenchIconButton
+          title="Settings"
+          onClick={() => setSettingsOpen(true)}
+          icon={<SettingOutlined />}
+        />
+      ) : null}
+
+      {config.showCsvExportButton && object.enableCsvExport ? (
+        <WorkbenchIconButton
+          title="CSV export"
+          onClick={() => {
+            void handleExportCsv();
+          }}
+          disabled={busyCsv}
+          icon={<DownloadOutlined />}
+        />
+      ) : null}
+
+      {mode === "history" && object.showHistoryToolbar !== false ? (
+        <>
+          <WorkbenchIconButton
+            title="Previous page"
+            onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+            disabled={!historyCanPrev}
+            icon={<LeftOutlined />}
+          />
+          <WorkbenchIconButton
+            title="Next page"
+            onClick={() => setHistoryPage((prev) => Math.min(totalPages, prev + 1))}
+            disabled={!historyCanNext}
+            icon={<RightOutlined />}
+          />
+        </>
+      ) : null}
+
+      {mode === "history" && object.showHistoryToolbar !== false ? (
+        <div className="event-table-toolbar__meta" title={`Period ${historyPreset.label} | Page ${historyPage}/${totalPages}`}>
+          Period {historyPreset.label} | Page {historyPage}/{totalPages}
         </div>
       ) : null}
 
-      {showTopStatus ? renderStatus() : null}
+      {busyAck || busyCsv ? <Spin size="small" /> : null}
+    </div>
+  );
 
-      {showToolbar ? (
-        <div
-          style={{
-            minHeight: compactMode ? Math.max(20, rowHeight - 4) : rowHeight,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "3px 8px",
-            borderBottom: `1px solid ${gridLineColor}`,
-            color: mutedTextColor,
-            flexWrap: "wrap",
-            overflow: "hidden",
-            alignContent: "center",
-          }}
-        >
-          {object.enableSearchInToolbar !== false ? (
-            <div
-              style={{
-                minWidth: 110,
-                maxWidth: 200,
-                height: 20,
-                border: `1px solid ${gridLineColor}`,
-                borderRadius: 3,
-                padding: "0 6px",
-                color: mutedTextColor,
-                display: "flex",
-                alignItems: "center",
-                fontSize: Math.max(9, fontSize - 2),
-                overflow: "hidden",
-                whiteSpace: "nowrap",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {object.searchText?.trim() ? object.searchText : "Search..."}
-            </div>
-          ) : null}
+  return (
+    <>
+      <div
+        className="event-table-widget"
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          border: `${borderWidth}px solid ${borderColor}`,
+          borderRadius,
+          background: tableBackground,
+          color: textColor,
+          boxSizing: "border-box",
+          fontFamily: "Segoe UI, Tahoma, sans-serif",
+          fontSize,
+          overflow: "hidden",
+        }}
+      >
+        {showTitleTop ? titleBlock : null}
+        {showTopStatus ? renderStatus() : null}
 
-          {object.enableActiveOnlyToggle !== false ? (
-            <span style={{ fontSize: Math.max(9, fontSize - 2), color: object.showActiveOnly === true ? (object.activeAlarmColor ?? "#4ec94e") : mutedTextColor }}>
-              Active {object.showActiveOnly === true ? "on" : "off"}
-            </span>
-          ) : null}
-
-          {object.enableUnackedOnlyToggle !== false ? (
-            <span style={{ fontSize: Math.max(9, fontSize - 2), color: object.showUnacknowledgedOnly ? (object.warningColor ?? "#e6b450") : mutedTextColor }}>
-              Unacked {object.showUnacknowledgedOnly ? "on" : "off"}
-            </span>
-          ) : null}
-
-          {mode === "history" && object.showHistoryToolbar !== false ? (
-            <span style={{ fontSize: Math.max(9, fontSize - 2) }}>
-              Period {historyPreset.label} | Page size {pageSize} | Page {historyPage}/{totalPages}
-            </span>
-          ) : null}
-
-          {mode === "history" && object.showHistoryToolbar !== false ? (
-            <>
-              <button
-                type="button"
-                style={{
-                  height: 20,
-                  border: `1px solid ${gridLineColor}`,
-                  background: "transparent",
-                  color: mutedTextColor,
-                  borderRadius: 3,
-                  padding: "0 6px",
-                  fontSize: Math.max(9, fontSize - 2),
-                  cursor: historyCanPrev ? "pointer" : "default",
-                  opacity: historyCanPrev ? 1 : 0.45,
-                }}
-                onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
-                disabled={!historyCanPrev}
-              >
-                Prev
-              </button>
-              <button
-                type="button"
-                style={{
-                  height: 20,
-                  border: `1px solid ${gridLineColor}`,
-                  background: "transparent",
-                  color: mutedTextColor,
-                  borderRadius: 3,
-                  padding: "0 6px",
-                  fontSize: Math.max(9, fontSize - 2),
-                  cursor: historyCanNext ? "pointer" : "default",
-                  opacity: historyCanNext ? 1 : 0.45,
-                }}
-                onClick={() => setHistoryPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={!historyCanNext}
-              >
-                Next
-              </button>
-            </>
-          ) : null}
-
-          {object.enableAckButton ? (
-            <button
-              type="button"
-              style={{
-                height: 20,
-                border: `1px solid ${gridLineColor}`,
-                background: "transparent",
-                color: mutedTextColor,
-                borderRadius: 3,
-                padding: "0 6px",
-                fontSize: Math.max(9, fontSize - 2),
-                cursor: busyAck ? "default" : "pointer",
-                opacity: busyAck ? 0.6 : 1,
-              }}
-              onClick={handleAcknowledgeVisible}
-              disabled={busyAck}
-            >
-              Ack visible
-            </button>
-          ) : null}
-
-          {object.enableAckSelectedButton ? (
-            <button
-              type="button"
-              style={{
-                height: 20,
-                border: `1px solid ${gridLineColor}`,
-                background: "transparent",
-                color: mutedTextColor,
-                borderRadius: 3,
-                padding: "0 6px",
-                fontSize: Math.max(9, fontSize - 2),
-                cursor: busyAck ? "default" : "pointer",
-                opacity: busyAck ? 0.6 : 1,
-              }}
-              onClick={handleAcknowledgeSelected}
-              disabled={busyAck}
-            >
-              Ack selected ({selectedIds.size})
-            </button>
-          ) : null}
-
-          {object.enableSilenceButton ? (
-            <button
-              type="button"
-              style={{
-                height: 20,
-                border: `1px solid ${gridLineColor}`,
-                background: "transparent",
-                color: mutedTextColor,
-                borderRadius: 3,
-                padding: "0 6px",
-                fontSize: Math.max(9, fontSize - 2),
-                cursor: "pointer",
-              }}
-              onClick={() => {
-                eventSoundPlayer.stopAllSounds();
-                setSoundStatusText("Sound playback stopped.");
-                eventRuntimeStore.setSoundStatusMessage(null);
-              }}
-            >
-              Silence
-            </button>
-          ) : null}
-
-          {object.enableSoundsButton !== false ? (
-            <button
-              type="button"
-              style={{
-                height: 20,
-                border: `1px solid ${gridLineColor}`,
-                background: "transparent",
-                color: mutedTextColor,
-                borderRadius: 3,
-                padding: "0 6px",
-                fontSize: Math.max(9, fontSize - 2),
-                cursor: "pointer",
-              }}
-              onClick={() => {
-                void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
-                  if (!result.ok) {
-                    setSoundStatusText(result.message);
-                    eventRuntimeStore.setSoundStatusMessage(result.message);
-                    return;
-                  }
-                  setSoundStatusText("Sounds enabled.");
-                  eventRuntimeStore.setSoundStatusMessage(null);
-                });
-              }}
-            >
-              Enable sounds
-            </button>
-          ) : null}
-
-          {object.enableCsvExportButton && object.enableCsvExport ? (
-            <button
-              type="button"
-              style={{
-                height: 20,
-                border: `1px solid ${gridLineColor}`,
-                background: "transparent",
-                color: mutedTextColor,
-                borderRadius: 3,
-                padding: "0 6px",
-                fontSize: Math.max(9, fontSize - 2),
-                cursor: busyCsv ? "default" : "pointer",
-                opacity: busyCsv ? 0.6 : 1,
-              }}
-              onClick={() => {
-                void handleExportCsv();
-              }}
-              disabled={busyCsv}
-            >
-              CSV Export
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        {showHeader ? (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns,
-              alignItems: "center",
-              minHeight: headerHeight,
-              background: headerBackgroundColor,
-              color: headerTextColor,
-              borderBottom: `1px solid ${gridLineColor}`,
-              fontWeight: 600,
-              fontSize: Math.max(9, fontSize - 1),
-              textTransform: "uppercase",
-              letterSpacing: 0.45,
-              overflow: "hidden",
-            }}
-          >
-            {columns.map((column, index) => (
-              <div
-                key={column}
-                style={{
-                  padding: "0 8px",
-                  borderRight: showGridLines && index < columns.length - 1 ? `1px solid ${gridLineColor}` : "none",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-                title={column}
-              >
-                {object.columnLabels?.[column]?.trim() || DEFAULT_EVENT_TABLE_COLUMN_LABELS[column] || column}
-              </div>
-            ))}
+        {showToolbarTop ? (
+          <div style={{ borderBottom: `1px solid ${gridLineColor}` }}>
+            {toolbarNode}
           </div>
         ) : null}
 
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: "flex",
-            flexDirection: "column",
-            background: object.zebraRows
-              ? "linear-gradient(180deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0) 100%)"
-              : "transparent",
-            overflow: "hidden",
-          }}
-        >
-          {statusNote ? (
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          {showHeader ? (
             <div
               style={{
-                padding: "6px 10px",
+                display: "grid",
+                gridTemplateColumns,
+                alignItems: "center",
+                minHeight: headerHeight,
+                background: headerBackgroundColor,
+                color: headerTextColor,
                 borderBottom: `1px solid ${gridLineColor}`,
-                color: object.warningColor ?? "#e6b450",
-                fontSize: Math.max(10, fontSize - 1),
-                whiteSpace: "nowrap",
-                textOverflow: "ellipsis",
+                fontWeight: 600,
+                fontSize: Math.max(9, fontSize - 1),
+                letterSpacing: 0.25,
                 overflow: "hidden",
               }}
             >
-              {statusNote}
+              {columns.map((column, index) => (
+                <div
+                  key={column}
+                  style={{
+                    padding: `0 ${config.cellPadding}px`,
+                    borderRight: showGridLines && index < columns.length - 1 ? `1px solid ${gridLineColor}` : "none",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    position: "relative",
+                  }}
+                  title={column}
+                >
+                  {object.columnLabels?.[column]?.trim() || DEFAULT_EVENT_TABLE_COLUMN_LABELS[column] || column}
+                  {index < columns.length - 1 ? (
+                    <div className="event-table-column-resize-handle" onMouseDown={(event) => startColumnResize(event, column)} />
+                  ) : null}
+                </div>
+              ))}
             </div>
           ) : null}
 
-          {(mode === "online" && runtimeEvents.onlineLoading) || (mode === "history" && historyBucket.loading) ? (
-            <div style={{ padding: 12, color: mutedTextColor, fontSize: Math.max(10, fontSize - 1) }}>
-              {mode === "history" ? "Loading history events..." : "Loading online events..."}
-            </div>
-          ) : null}
-
-          {(mode === "online" && runtimeEvents.onlineError) || (mode === "history" && historyBucket.error) ? (
-            <div style={{ padding: 12, color: object.criticalColor ?? "#f48771", fontSize: Math.max(10, fontSize - 1) }}>
-              {mode === "history" ? historyBucket.error : runtimeEvents.onlineError}
-            </div>
-          ) : null}
-
-          <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-            {visibleRows.length === 0 ? (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              background: object.zebraRows
+                ? "linear-gradient(180deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0) 100%)"
+                : "transparent",
+              overflow: "hidden",
+            }}
+          >
+            {statusNote ? (
               <div
                 style={{
-                  minHeight: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: mutedTextColor,
-                  textAlign: "center",
-                  padding: 12,
+                  padding: "4px 10px",
+                  borderBottom: `1px solid ${gridLineColor}`,
+                  color: object.warningColor ?? "#e6b450",
+                  fontSize: Math.max(10, fontSize - 2),
+                  whiteSpace: "nowrap",
+                  textOverflow: "ellipsis",
+                  overflow: "hidden",
                 }}
               >
-                {mode === "history" ? "No history records for the selected period." : "No online events."}
+                {statusNote}
               </div>
-            ) : (
-              <div style={{ minWidth: "100%" }}>
-                {visibleRows.map((row, rowIndex) => {
-                  const rowId = String(row.id);
-                  const selected = selectedIds.has(rowId);
-                  const rowColor = getOccurrenceRowColor(row, object, textColor);
+            ) : null}
 
-                  return (
-                    <div
-                      key={rowId}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => toggleRowSelection(rowId)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          toggleRowSelection(rowId);
-                        }
-                      }}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns,
-                        alignItems: "center",
-                        minHeight: rowHeight,
-                        background: selected
-                          ? (object.selectedRowColor ?? "#223248")
-                          : (object.zebraRows && rowIndex % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"),
-                        borderBottom: `1px solid ${gridLineColor}`,
-                        cursor: "pointer",
-                        color: rowColor,
-                        fontSize: Math.max(9, fontSize - 1),
-                      }}
-                    >
-                      {columns.map((column, index) => {
-                        const cellText = getEventCellText(column, row);
-                        return (
-                          <div
-                            key={`${rowId}-${column}`}
-                            style={{
-                              padding: "2px 8px",
-                              borderRight: showGridLines && index < columns.length - 1 ? `1px solid ${gridLineColor}` : "none",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              userSelect: "none",
-                            }}
-                            title={cellText}
-                          >
-                            {cellText}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+            {(mode === "online" && runtimeEvents.onlineLoading) || (mode === "history" && historyBucket.loading) ? (
+              <div style={{ padding: 12, color: mutedTextColor, fontSize: Math.max(10, fontSize - 1) }}>
+                {mode === "history" ? "Loading history events..." : "Loading online events..."}
               </div>
-            )}
+            ) : null}
+
+            {(mode === "online" && runtimeEvents.onlineError) || (mode === "history" && historyBucket.error) ? (
+              <div style={{ padding: 12, color: object.criticalColor ?? "#f48771", fontSize: Math.max(10, fontSize - 1) }}>
+                {mode === "history" ? historyBucket.error : runtimeEvents.onlineError}
+              </div>
+            ) : null}
+
+            <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+              {visibleRows.length === 0 ? (
+                <div
+                  style={{
+                    minHeight: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: mutedTextColor,
+                    textAlign: "center",
+                    padding: 12,
+                  }}
+                >
+                  {mode === "history" ? "No history records for the selected period." : "No online events."}
+                </div>
+              ) : (
+                <div style={{ minWidth: "100%" }}>
+                  {visibleRows.map((row, rowIndex) => {
+                    const rowId = String(row.id);
+                    const selected = selectedIds.has(rowId);
+                    const rowColor = getOccurrenceRowColor(row, object, textColor);
+
+                    return (
+                      <div
+                        key={rowId}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => toggleRowSelection(rowId)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            toggleRowSelection(rowId);
+                          }
+                        }}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns,
+                          alignItems: "center",
+                          minHeight: rowHeight,
+                          background: selected
+                            ? (object.selectedRowColor ?? "#223248")
+                            : (object.zebraRows && rowIndex % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"),
+                          borderBottom: `1px solid ${gridLineColor}`,
+                          cursor: "pointer",
+                          color: rowColor,
+                          fontSize: Math.max(9, fontSize - 1),
+                        }}
+                      >
+                        {columns.map((column, index) => {
+                          const cellText = getEventCellText(column, row);
+                          const textAlign = config.columnAlignments[column];
+                          return (
+                            <div
+                              key={`${rowId}-${column}`}
+                              style={{
+                                padding: `2px ${config.cellPadding}px`,
+                                borderRight: showGridLines && index < columns.length - 1 ? `1px solid ${gridLineColor}` : "none",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                userSelect: "none",
+                                textAlign,
+                              }}
+                              title={cellText}
+                            >
+                              {cellText}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+
+        {showToolbarBottom ? (
+          <div style={{ borderTop: `1px solid ${gridLineColor}` }}>
+            {toolbarNode}
+          </div>
+        ) : null}
+
+        {showTitleBottom ? titleBlock : null}
+        {showBottomStatus ? renderStatus() : null}
       </div>
 
-      {showBottomStatus ? renderStatus() : null}
-    </div>
+      <EventTableSettingsDialog
+        open={settingsOpen}
+        object={object}
+        onClose={() => setSettingsOpen(false)}
+        onPatch={patchObject}
+      />
+    </>
   );
 }

@@ -4128,6 +4128,28 @@ function SpecificPropertyFields({
         <Form.Item label="Title">
           <Input value={object.title ?? ""} onChange={(e) => onPatch({ title: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Title Position">
+          <Select
+            value={object.titlePosition ?? (object.showTitle === false ? "hidden" : "top")}
+            options={[
+              { value: "top", label: "top" },
+              { value: "bottom", label: "bottom" },
+              { value: "hidden", label: "hidden" },
+            ]}
+            onChange={(value) => onPatch({ titlePosition: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Title Align">
+          <Select
+            value={object.titleAlign ?? "left"}
+            options={[
+              { value: "left", label: "left" },
+              { value: "center", label: "center" },
+              { value: "right", label: "right" },
+            ]}
+            onChange={(value) => onPatch({ titleAlign: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
         <Form.Item label="Mode">
           <Select
             value={mode}
@@ -4253,6 +4275,22 @@ function SpecificPropertyFields({
                     }}
                   />
                 </Form.Item>
+                <Form.Item label="Align" style={{ marginTop: 8, marginBottom: 0 }}>
+                  <Select
+                    value={object.columnAlignments?.[column] ?? object.cellTextAlign ?? "left"}
+                    options={[
+                      { value: "left", label: "left" },
+                      { value: "center", label: "center" },
+                      { value: "right", label: "right" },
+                    ]}
+                    onChange={(value) => onPatch({
+                      columnAlignments: {
+                        ...(object.columnAlignments ?? {}),
+                        [column]: value,
+                      },
+                    } as Partial<HmiObject>)}
+                  />
+                </Form.Item>
               </div>
             );
           })}
@@ -4263,7 +4301,15 @@ function SpecificPropertyFields({
         <div className="object-property-panel__switch-list">
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Show Title</span>
-            <Switch checked={object.showTitle ?? true} onChange={(checked) => onPatch({ showTitle: checked } as Partial<HmiObject>)} />
+            <Switch
+              checked={(object.titlePosition ?? (object.showTitle === false ? "hidden" : "top")) !== "hidden"}
+              onChange={(checked) => onPatch({
+                showTitle: checked,
+                titlePosition: checked
+                  ? ((object.titlePosition === "hidden" ? "top" : object.titlePosition) ?? "top")
+                  : "hidden",
+              } as Partial<HmiObject>)}
+            />
           </div>
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Show Header</span>
@@ -4295,6 +4341,26 @@ function SpecificPropertyFields({
         <Form.Item label="Header Height">
           <InputNumber style={{ width: "100%" }} min={18} max={80} value={object.headerHeight ?? 28} onChange={(v) => onPatch({ headerHeight: Number(v ?? 28) } as Partial<HmiObject>)} />
         </Form.Item>
+        <Form.Item label="Title Font Size">
+          <InputNumber style={{ width: "100%" }} min={8} max={32} value={object.titleFontSize ?? 13} onChange={(v) => onPatch({ titleFontSize: Number(v ?? 13) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Title Height">
+          <InputNumber style={{ width: "100%" }} min={16} max={80} value={object.titleHeight ?? 28} onChange={(v) => onPatch({ titleHeight: Number(v ?? 28) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Cell Padding">
+          <InputNumber style={{ width: "100%" }} min={2} max={24} value={object.cellPadding ?? 8} onChange={(v) => onPatch({ cellPadding: Number(v ?? 8) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Cell Text Align">
+          <Select
+            value={object.cellTextAlign ?? "left"}
+            options={[
+              { value: "left", label: "left" },
+              { value: "center", label: "center" },
+              { value: "right", label: "right" },
+            ]}
+            onChange={(value) => onPatch({ cellTextAlign: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
         <Form.Item label="Border Radius">
           <InputNumber style={{ width: "100%" }} min={0} max={32} value={object.borderRadius ?? 6} onChange={(v) => onPatch({ borderRadius: Number(v ?? 6) } as Partial<HmiObject>)} />
         </Form.Item>
@@ -4306,6 +4372,8 @@ function SpecificPropertyFields({
         <ColorField label="Muted Text Color" value={object.mutedTextColor ?? "#9ea6ad"} fallback="#9ea6ad" onChange={(next) => onPatch({ mutedTextColor: next } as Partial<HmiObject>)} />
         <ColorField label="Header Background" value={object.headerBackgroundColor ?? "#2a3038"} fallback="#2a3038" onChange={(next) => onPatch({ headerBackgroundColor: next } as Partial<HmiObject>)} />
         <ColorField label="Header Text Color" value={object.headerTextColor ?? "#ced8df"} fallback="#ced8df" onChange={(next) => onPatch({ headerTextColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Title Text Color" value={object.titleTextColor ?? object.headerTextColor ?? "#ced8df"} fallback="#ced8df" onChange={(next) => onPatch({ titleTextColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Title Background" value={object.titleBackgroundColor ?? object.headerBackgroundColor ?? "#2a3038"} fallback="#2a3038" onChange={(next) => onPatch({ titleBackgroundColor: next } as Partial<HmiObject>)} />
         <ColorField label="Border Color" value={object.borderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
         <ColorField label="Grid Line Color" value={object.gridLineColor ?? "#30363d"} fallback="#30363d" onChange={(next) => onPatch({ gridLineColor: next } as Partial<HmiObject>)} />
         <ColorField label="Selected Row Color" value={object.selectedRowColor ?? "#223248"} fallback="#223248" onChange={(next) => onPatch({ selectedRowColor: next } as Partial<HmiObject>)} />
@@ -4327,6 +4395,17 @@ function SpecificPropertyFields({
             <Switch checked={object.showStatusBar ?? true} onChange={(checked) => onPatch({ showStatusBar: checked } as Partial<HmiObject>)} />
           </div>
         </div>
+        <Form.Item label="Toolbar Position">
+          <Select
+            value={object.toolbarPosition ?? (object.showToolbar === false ? "hidden" : "top")}
+            options={[
+              { value: "top", label: "top" },
+              { value: "bottom", label: "bottom" },
+              { value: "hidden", label: "hidden" },
+            ]}
+            onChange={(value) => onPatch({ toolbarPosition: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
         <Form.Item label="Status Position">
           <Select
             value={object.statusPosition ?? "bottom"}
@@ -4349,6 +4428,10 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ statusStyle: value } as Partial<HmiObject>)}
           />
         </Form.Item>
+        <div className="object-property-panel__switch-item">
+          <span className="object-property-panel__switch-label">Status Single Line</span>
+          <Switch checked={object.statusSingleLine !== false} onChange={(checked) => onPatch({ statusSingleLine: checked } as Partial<HmiObject>)} />
+        </div>
         <div className="object-property-panel__switch-list">
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Show Last Update</span>
@@ -4392,18 +4475,89 @@ function SpecificPropertyFields({
             <Switch checked={object.enableSearchInToolbar ?? true} onChange={(checked) => onPatch({ enableSearchInToolbar: checked } as Partial<HmiObject>)} />
           </div>
           <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Search</span>
+            <Switch checked={object.showSearch ?? object.enableSearchInToolbar ?? true} onChange={(checked) => onPatch({ showSearch: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Enable Active Only Toggle</span>
             <Switch checked={object.enableActiveOnlyToggle ?? true} onChange={(checked) => onPatch({ enableActiveOnlyToggle: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Active Only Toggle</span>
+            <Switch checked={object.showActiveOnlyToggle ?? object.enableActiveOnlyToggle ?? true} onChange={(checked) => onPatch({ showActiveOnlyToggle: checked } as Partial<HmiObject>)} />
           </div>
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Enable Unacked Only Toggle</span>
             <Switch checked={object.enableUnackedOnlyToggle ?? true} onChange={(checked) => onPatch({ enableUnackedOnlyToggle: checked } as Partial<HmiObject>)} />
           </div>
           <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Unacked Toggle</span>
+            <Switch checked={object.showUnackedOnlyToggle ?? object.enableUnackedOnlyToggle ?? true} onChange={(checked) => onPatch({ showUnackedOnlyToggle: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Enable CSV Export Button</span>
             <Switch checked={object.enableCsvExportButton ?? true} onChange={(checked) => onPatch({ enableCsvExportButton: checked } as Partial<HmiObject>)} />
           </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Ack Visible Button</span>
+            <Switch checked={object.showAckVisibleButton ?? object.enableAckButton ?? true} onChange={(checked) => onPatch({ showAckVisibleButton: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Silence Button</span>
+            <Switch checked={object.showSilenceButton ?? object.enableSilenceButton ?? true} onChange={(checked) => onPatch({ showSilenceButton: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Enable Sounds Button</span>
+            <Switch checked={object.showEnableSoundsButton ?? object.enableSoundsButton ?? true} onChange={(checked) => onPatch({ showEnableSoundsButton: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Settings Button</span>
+            <Switch checked={object.showSettingsButton ?? true} onChange={(checked) => onPatch({ showSettingsButton: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show CSV Export Button</span>
+            <Switch checked={object.showCsvExportButton ?? object.enableCsvExportButton ?? true} onChange={(checked) => onPatch({ showCsvExportButton: checked } as Partial<HmiObject>)} />
+          </div>
         </div>
+
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Sound</Typography.Text>
+        <Form.Item label="Playback Mode">
+          <Select
+            value={object.soundPlaybackMode ?? "once"}
+            options={[
+              { value: "once", label: "once" },
+              { value: "loopUntilAcknowledged", label: "loopUntilAcknowledged" },
+            ]}
+            onChange={(value) => onPatch({ soundPlaybackMode: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Repeat Interval (ms)">
+          <InputNumber style={{ width: "100%" }} min={1000} max={60000} value={object.soundRepeatIntervalMs ?? 5000} onChange={(value) => onPatch({ soundRepeatIntervalMs: Math.max(1000, Math.min(60000, Number(value ?? 5000))) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <div className="object-property-panel__switch-list">
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Stop Sound on Ack</span>
+            <Switch checked={object.stopSoundOnAck !== false} onChange={(checked) => onPatch({ stopSoundOnAck: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Stop Sound on Silence</span>
+            <Switch checked={object.stopSoundOnSilence !== false} onChange={(checked) => onPatch({ stopSoundOnSilence: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Fallback by Priority</span>
+            <Switch checked={object.enableSoundFallbackByPriority !== false} onChange={(checked) => onPatch({ enableSoundFallbackByPriority: checked } as Partial<HmiObject>)} />
+          </div>
+        </div>
+        <Form.Item label="Fallback Notification Sound Id">
+          <Input value={object.fallbackNotificationSoundId ?? ""} onChange={(event) => onPatch({ fallbackNotificationSoundId: event.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Fallback Warning Sound Id">
+          <Input value={object.fallbackWarningSoundId ?? ""} onChange={(event) => onPatch({ fallbackWarningSoundId: event.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Fallback Alarm Sound Id">
+          <Input value={object.fallbackAlarmSoundId ?? ""} onChange={(event) => onPatch({ fallbackAlarmSoundId: event.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
 
         <Divider style={{ margin: "10px 0" }} />
         <Typography.Text strong>History</Typography.Text>
@@ -5109,4 +5263,3 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
-

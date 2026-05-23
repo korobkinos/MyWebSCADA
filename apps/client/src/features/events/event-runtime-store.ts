@@ -1,7 +1,6 @@
-import { ensureDefaultEventSounds, type EventHistoryQuery, type EventOccurrence, type EventSound } from "@web-scada/shared";
+import { type EventHistoryQuery, type EventOccurrence } from "@web-scada/shared";
 import { api, type EventAcknowledgeResponse, type EventArchiveStatus } from "../../services/api";
 import { createRuntimeSocket } from "../../services/ws";
-import { eventSoundPlayer } from "./event-sound-player";
 
 type SocketState = "connecting" | "open" | "closed" | "error";
 
@@ -38,11 +37,6 @@ type EventHistoryLoadOptions = {
   query: EventHistoryQuery;
 };
 
-type SoundConfig = {
-  sounds: EventSound[];
-  enablePriorityFallback: boolean;
-};
-
 type RuntimeSocketController = ReturnType<typeof createRuntimeSocket>;
 
 type Listener = () => void;
@@ -50,23 +44,15 @@ type Listener = () => void;
 const DEFAULT_RECENT_BUFFER_LIMIT = 1000;
 const DEFAULT_ONLINE_LIMIT = 200;
 const DEFAULT_ONLINE_RETENTION_LIMIT = 5000;
-const SOUND_BLOCKED_MESSAGE = "Sound playback was blocked by the browser. Click Enable sounds.";
 
 const historyRequestSequence = new Map<string, number>();
 const listeners = new Set<Listener>();
 const onlineMap = new Map<string, EventOccurrence>();
-const acknowledgedSeenIds: string[] = [];
-const acknowledgedSeenLookup = new Set<string>();
 
 let socket: RuntimeSocketController | null = null;
 let started = false;
 let recentBufferLimit = DEFAULT_RECENT_BUFFER_LIMIT;
 let onlineRetentionLimit = DEFAULT_ONLINE_RETENTION_LIMIT;
-let soundConfig: SoundConfig = {
-  sounds: [],
-  enablePriorityFallback: true,
-};
-
 let state: EventRuntimeState = {
   activeEvents: [],
   recentEvents: [],
@@ -107,36 +93,6 @@ function patchState(patch: Partial<EventRuntimeState>): void {
     ...patch,
   };
   emit();
-}
-
-function getPrioritySoundKind(priority: number | null | undefined): EventSound["kind"] {
-  if (priority === 2) {
-    return "warning";
-  }
-  if (priority === 3) {
-    return "alarm";
-  }
-  return "notification";
-}
-
-function resolveOccurrenceSoundId(occurrence: EventOccurrence): string | undefined {
-  const direct = occurrence.soundId;
-  if (typeof direct === "string" && direct.trim()) {
-    return direct.trim();
-  }
-
-  const fromServiceData = occurrence.serviceData?.soundId;
-  if (typeof fromServiceData === "string" && fromServiceData.trim()) {
-    return fromServiceData.trim();
-  }
-
-  if (!soundConfig.enablePriorityFallback) {
-    return undefined;
-  }
-
-  const expectedKind = getPrioritySoundKind(occurrence.prioritySnapshot ?? null);
-  const fallback = soundConfig.sounds.find((item) => item.kind === expectedKind && item.enabled !== false);
-  return fallback?.id?.trim() || undefined;
 }
 
 function updateRecentBuffer(occurrence: EventOccurrence): void {
@@ -221,45 +177,7 @@ function recalculateOnlineSnapshot(): void {
   };
 }
 
-async function playOccurrenceSoundIfNeeded(occurrence: EventOccurrence): Promise<void> {
-  const occurrenceId = normalizeOccurrenceId(occurrence);
-  if (!occurrenceId) {
-    return;
-  }
-  if (acknowledgedSeenLookup.has(occurrenceId)) {
-    return;
-  }
-
-  acknowledgedSeenLookup.add(occurrenceId);
-  acknowledgedSeenIds.push(occurrenceId);
-  if (acknowledgedSeenIds.length > onlineRetentionLimit) {
-    const dropped = acknowledgedSeenIds.shift();
-    if (dropped) {
-      acknowledgedSeenLookup.delete(dropped);
-    }
-  }
-
-  const soundId = resolveOccurrenceSoundId(occurrence);
-  if (!soundId) {
-    return;
-  }
-
-  const result = await eventSoundPlayer.playSound(soundId, soundConfig.sounds);
-  if (!result.ok) {
-    if (result.reason === "autoplay_blocked") {
-      patchState({ soundStatusMessage: SOUND_BLOCKED_MESSAGE });
-      return;
-    }
-    patchState({ soundStatusMessage: result.message });
-    return;
-  }
-
-  if (state.soundStatusMessage) {
-    patchState({ soundStatusMessage: null });
-  }
-}
-
-function mergeOccurrence(kind: "active" | "cleared" | "acknowledged", occurrence: EventOccurrence): void {
+function mergeOccurrence(_kind: "active" | "cleared" | "acknowledged", occurrence: EventOccurrence): void {
   const id = normalizeOccurrenceId(occurrence);
   if (!id) {
     return;
@@ -279,9 +197,7 @@ function mergeOccurrence(kind: "active" | "cleared" | "acknowledged", occurrence
   };
   emit();
 
-  if (kind === "active" && !previous) {
-    void playOccurrenceSoundIfNeeded(next);
-  }
+  void _kind;
 }
 
 function ensureSocket(): void {
@@ -374,13 +290,6 @@ export const eventRuntimeStore = {
     emit();
   },
 
-  setSoundCatalog(sounds: EventSound[], options?: { enablePriorityFallback?: boolean }): void {
-    soundConfig = {
-      sounds: ensureDefaultEventSounds(sounds ?? []),
-      enablePriorityFallback: options?.enablePriorityFallback !== false,
-    };
-  },
-
   setSoundStatusMessage(messageText: string | null): void {
     patchState({ soundStatusMessage: messageText });
   },
@@ -416,8 +325,6 @@ export const eventRuntimeStore = {
       });
 
       onlineMap.clear();
-      acknowledgedSeenIds.length = 0;
-      acknowledgedSeenLookup.clear();
       for (const item of active) {
         const id = normalizeOccurrenceId(item);
         if (!id) {
