@@ -5492,6 +5492,27 @@ body {
   margin-bottom: 8px;
 }
 
+.object-property-panel__switch-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.object-property-panel__switch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+}
+
+.object-property-panel__switch-label {
+  color: #d7d7d7;
+  font-size: 12px;
+  line-height: 1.35;
+  min-width: 0;
+}
+
 .object-property-panel__runtime-hint {
   display: block;
   margin-top: 6px;

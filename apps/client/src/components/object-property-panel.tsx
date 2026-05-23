@@ -4239,38 +4239,40 @@ function SpecificPropertyFields({
 
         <Divider style={{ margin: "10px 0" }} />
         <Typography.Text strong>Visibility / Behavior</Typography.Text>
-        <Space className="object-property-panel__runtime-switch-row">
-          <span>Show Header</span>
-          <Switch checked={object.showHeader ?? true} onChange={(checked) => onPatch({ showHeader: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space className="object-property-panel__runtime-switch-row">
-          <span>Show Toolbar</span>
-          <Switch checked={object.showToolbar ?? true} onChange={(checked) => onPatch({ showToolbar: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space className="object-property-panel__runtime-switch-row">
-          <span>Show Active Only</span>
-          <Switch checked={object.showActiveOnly ?? true} onChange={(checked) => onPatch({ showActiveOnly: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space className="object-property-panel__runtime-switch-row">
-          <span>Show Unacknowledged Only</span>
-          <Switch checked={object.showUnacknowledgedOnly ?? false} onChange={(checked) => onPatch({ showUnacknowledgedOnly: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space className="object-property-panel__runtime-switch-row">
-          <span>Show Grid Lines</span>
-          <Switch checked={object.showGridLines ?? true} onChange={(checked) => onPatch({ showGridLines: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space className="object-property-panel__runtime-switch-row">
-          <span>Zebra Rows</span>
-          <Switch checked={object.zebraRows ?? true} onChange={(checked) => onPatch({ zebraRows: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space className="object-property-panel__runtime-switch-row">
-          <span>Enable Ack Button</span>
-          <Switch checked={object.enableAckButton ?? true} onChange={(checked) => onPatch({ enableAckButton: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space className="object-property-panel__runtime-switch-row">
-          <span>Enable Silence Button</span>
-          <Switch checked={object.enableSilenceButton ?? true} onChange={(checked) => onPatch({ enableSilenceButton: checked } as Partial<HmiObject>)} />
-        </Space>
+        <div className="object-property-panel__switch-list">
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Header</span>
+            <Switch checked={object.showHeader ?? true} onChange={(checked) => onPatch({ showHeader: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Toolbar</span>
+            <Switch checked={object.showToolbar ?? true} onChange={(checked) => onPatch({ showToolbar: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Active Only</span>
+            <Switch checked={object.showActiveOnly ?? true} onChange={(checked) => onPatch({ showActiveOnly: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Unacknowledged Only</span>
+            <Switch checked={object.showUnacknowledgedOnly ?? false} onChange={(checked) => onPatch({ showUnacknowledgedOnly: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Show Grid Lines</span>
+            <Switch checked={object.showGridLines ?? true} onChange={(checked) => onPatch({ showGridLines: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Zebra Rows</span>
+            <Switch checked={object.zebraRows ?? true} onChange={(checked) => onPatch({ zebraRows: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Enable Ack Button</span>
+            <Switch checked={object.enableAckButton ?? true} onChange={(checked) => onPatch({ enableAckButton: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Enable Silence Button</span>
+            <Switch checked={object.enableSilenceButton ?? true} onChange={(checked) => onPatch({ enableSilenceButton: checked } as Partial<HmiObject>)} />
+          </div>
+        </div>
 
         <Divider style={{ margin: "10px 0" }} />
         <Typography.Text strong>Colors</Typography.Text>
@@ -4918,7 +4920,6 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
-
 
 
 
