@@ -6504,6 +6504,27 @@ body {
   pointer-events: none;
 }
 
+.trends-history-warning,
+.trends-policy-warning {
+  border: 1px solid color-mix(in srgb, var(--trends-theme-accent, #007acc) 45%, var(--trends-theme-border, #3c3c3c));
+  background: color-mix(in srgb, var(--trends-theme-accent, #007acc) 12%, var(--trends-theme-panel, #252526));
+  color: var(--trends-theme-text, #d4d4d4);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.trends-history-warning {
+  padding: 5px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trends-policy-warning {
+  padding: 6px 8px;
+  margin-top: 6px;
+}
+
 .trends-dialog-layer {
   position: fixed;
   inset: 0;

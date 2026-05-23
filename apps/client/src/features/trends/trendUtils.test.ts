@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { appendLiveCarryForwardPoint, applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, decimateTrendPoints, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings, resolveQuickPresetFromRangeSpan, sliceTrendPointsByRangeWithCarryForward } from "./trendUtils";
+import { appendLiveCarryForwardPoint, applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, decimateTrendPoints, defaultTrendSettings, formatTrendArchivePolicy, getSparseTrendArchivePolicyWarning, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings, resolveQuickPresetFromRangeSpan, sliceTrendPointsByRangeWithCarryForward } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -143,6 +143,18 @@ describe("normalizeTrendTableSettings", () => {
     });
 
     expect(normalized).toBeUndefined();
+  });
+});
+
+describe("trend archive policy helpers", () => {
+  it("formats archive mode and period", () => {
+    expect(formatTrendArchivePolicy("on_change_with_periodic", 5000)).toBe("on_change_with_periodic, 5000 ms");
+  });
+
+  it("warns for sparse archive policies", () => {
+    expect(getSparseTrendArchivePolicyWarning("on_change")).toBe("History may be incomplete unless periodic samples are written.");
+    expect(getSparseTrendArchivePolicyWarning("on_change_with_periodic")).toBe("History may be incomplete unless periodic samples are written.");
+    expect(getSparseTrendArchivePolicyWarning("periodic")).toBeNull();
   });
 });
 

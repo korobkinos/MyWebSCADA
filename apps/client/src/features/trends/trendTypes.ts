@@ -48,6 +48,8 @@ export type TrendTagSelection = {
   step?: boolean;
   axisMode?: "auto" | "manual";
   axisId?: string;
+  archiveMode?: string;
+  archivePeriodMs?: number;
 };
 
 export type TrendTagPickerSelectionFilter = "all" | "added";

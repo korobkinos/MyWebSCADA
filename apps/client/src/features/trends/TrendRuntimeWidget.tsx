@@ -15,7 +15,7 @@ import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendLiveDataSource, TrendPoint, TrendQueryResponse, TrendQuickPreset, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { TREND_DEFAULT_AXIS_ID, buildAxes, clamp, decimateTrendPoints, defaultTrendSettings, formatRangeLabel, isRangeCovered, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendRange, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan, unionTrendRanges } from "./trendUtils";
+import { TREND_DEFAULT_AXIS_ID, buildAxes, clamp, decimateTrendPoints, defaultTrendSettings, formatRangeLabel, formatTrendArchivePolicy, getSparseTrendArchivePolicyWarning, isRangeCovered, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendRange, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan, unionTrendRanges } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 import { TrendQueryRateLimiter } from "./trendQueryRateLimiter";
@@ -269,6 +269,9 @@ function mergeTrendSeriesPoints(
     if (series.displayName) {
       existing.displayName = series.displayName;
     }
+    if (series.diagnostics) {
+      existing.diagnostics = series.diagnostics;
+    }
   }
   return [...mergedByTag.values()];
 }
@@ -345,6 +348,13 @@ function getSeriesBounds(series: TrendQueryResponse["series"]): { firstTs: numbe
 
 function countTrendResponsePoints(response: TrendQueryResponse | null | undefined): number {
   return response?.series.reduce((acc, series) => acc + series.points.length, 0) ?? 0;
+}
+
+function formatTrendHistoryTimestamp(timestamp: number | null | undefined): string {
+  if (!Number.isFinite(timestamp ?? Number.NaN)) {
+    return "-";
+  }
+  return new Date(timestamp as number).toLocaleString();
 }
 
 function lowerBoundTrendPointIndex(points: TrendPoint[], timestamp: number): number {
@@ -597,7 +607,7 @@ function normalizeTrendResponseForRange(
         insertedPointCount: insertedFromBeforeRangeCount,
       });
     }
-    return {
+    const normalizedSeriesItem: TrendQueryResponse["series"][number] = {
       tag: selection.tag,
       displayName: source?.displayName || selection.displayName || selection.tag,
       unit: source?.unit ?? selection.unit,
@@ -605,6 +615,10 @@ function normalizeTrendResponseForRange(
       axisId: source?.axisId ?? selection.axisId,
       points: normalizeTrendPoints(normalizedPoints),
     };
+    if (source?.diagnostics) {
+      normalizedSeriesItem.diagnostics = source.diagnostics;
+    }
+    return normalizedSeriesItem;
   });
   return {
     from: new Date(safeFrom).toISOString(),
@@ -3296,6 +3310,35 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     }
     return map;
   }, [chartResponse]);
+  const seriesDiagnosticsByTag = useMemo(() => {
+    const map = new Map<string, NonNullable<TrendQueryResponse["series"][number]["diagnostics"]>>();
+    for (const series of chartResponse?.series ?? []) {
+      if (series.diagnostics) {
+        map.set(series.tag, series.diagnostics);
+      }
+    }
+    return map;
+  }, [chartResponse]);
+  const missingHistoryWarnings = useMemo(() => selectedTags
+    .filter((tag) => tag.visible !== false)
+    .map((tag) => {
+      const diagnostics = seriesDiagnosticsByTag.get(tag.tag);
+      if (!diagnostics?.missingHistoryBeforeRange) {
+        return null;
+      }
+      const firstPointLabel = formatTrendHistoryTimestamp(diagnostics.firstPointTs);
+      return {
+        tag: tag.tag,
+        message: `${tag.displayName || tag.tag}: no archived value before range start; line starts at first archived sample${firstPointLabel === "-" ? "." : ` (${firstPointLabel}).`}`,
+        diagnostics,
+      };
+    })
+    .filter((item): item is { tag: string; message: string; diagnostics: NonNullable<TrendQueryResponse["series"][number]["diagnostics"]> } => item !== null),
+  [selectedTags, seriesDiagnosticsByTag]);
+  const missingHistoryWarningSummary = missingHistoryWarnings.map((item) => item.message).join(" ");
+  const missingHistoryWarningKey = missingHistoryWarnings
+    .map((item) => `${item.tag}:${item.diagnostics.rangeFrom}:${item.diagnostics.firstPointTs ?? "-"}`)
+    .join("|");
   const loadedSeriesCount = useMemo(
     () => selectedTags.filter((tag) => (loadedPointCountByTag.get(tag.tag) ?? 0) > 0).length,
     [loadedPointCountByTag, selectedTags],
@@ -3323,6 +3366,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     && Boolean(renderResponse)
     && pointCount === 0
     && ((liveMode && liveHistoryState === "empty") || (!liveMode && offlineLoadState === "empty"));
+
+  useEffect(() => {
+    for (const warning of missingHistoryWarnings) {
+      logTrendDiagnostics("trend:series-missing-history", {
+        ...warning.diagnostics,
+      });
+    }
+  }, [missingHistoryWarningKey, missingHistoryWarnings]);
 
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
@@ -3635,6 +3686,12 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         )}
       </div>
 
+      {missingHistoryWarningSummary ? (
+        <div className="trends-history-warning" title={missingHistoryWarningSummary}>
+          {missingHistoryWarningSummary}
+        </div>
+      ) : null}
+
       {settings.showSeriesTable ? (
         <div className={["trends-series-table-wrap", seriesTableCollapsed ? "trends-series-table-wrap--collapsed" : ""].filter(Boolean).join(" ")}>
           <div className="trends-series-table__summary">
@@ -3694,9 +3751,22 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
                       );
                     }
                     if (column.id === "tag") {
+                      const diagnostics = seriesDiagnosticsByTag.get(tag.tag);
+                      const archiveWarning = getSparseTrendArchivePolicyWarning(tag.archiveMode ?? tagInfoMap.get(tag.tag)?.archiveMode);
                       return (
-                        <div key={column.id} className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--tag" title={tag.displayName || tag.tag}>
-                          {tag.tag}
+                        <div
+                          key={column.id}
+                          className="screen-editor-tags-cell trends-series-table__cell trends-series-table__cell--tag"
+                          title={[
+                            tag.displayName || tag.tag,
+                            diagnostics?.missingHistoryBeforeRange ? "No archived value before range start; line starts at first archived sample." : "",
+                            tag.archiveMode || tagInfoMap.get(tag.tag)?.archiveMode
+                              ? `Archive: ${formatTrendArchivePolicy(tag.archiveMode ?? tagInfoMap.get(tag.tag)?.archiveMode, tag.archivePeriodMs ?? tagInfoMap.get(tag.tag)?.archivePeriodMs)}`
+                              : "",
+                            archiveWarning ?? "",
+                          ].filter(Boolean).join("\n")}
+                        >
+                          {tag.tag}{diagnostics?.missingHistoryBeforeRange || archiveWarning ? " !" : ""}
                         </div>
                       );
                     }
@@ -3813,6 +3883,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           <span>Last load: {lastLoadAt ? new Date(lastLoadAt).toLocaleTimeString() : "-"}</span>
           <span>Live WS: {liveSocketState}</span>
           <span>Live history: {liveMode ? `${liveHistoryState} (${liveHistoryPointCount.toLocaleString()} pts)` : "-"}</span>
+          {missingHistoryWarningSummary ? <span title={missingHistoryWarningSummary}>History: {missingHistoryWarningSummary}</span> : null}
           {historyWarning ? <span>History: {historyWarning}</span> : null}
         </div>
       ) : null}

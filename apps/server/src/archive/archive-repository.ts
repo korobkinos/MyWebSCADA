@@ -135,6 +135,8 @@ export type TrendTagInfoRow = {
   max?: number;
   sourceType?: string;
   driverType?: string;
+  archiveMode?: string;
+  archivePeriodMs?: number;
 };
 
 export type TrendPointRow = {
@@ -143,11 +145,26 @@ export type TrendPointRow = {
   q?: TrendQuality;
 };
 
+export type TrendSeriesDiagnosticsRow = {
+  tag: string;
+  policyMode: string;
+  policyPeriodMs: number;
+  rangeFrom: string;
+  rangeTo: string;
+  pointsInRange: number;
+  firstPointTs: number | null;
+  lastPointTs: number | null;
+  previousPointBeforeRangeTs: number | null;
+  hasPreviousBeforeRange: boolean;
+  missingHistoryBeforeRange: boolean;
+};
+
 export type TrendSeriesRow = {
   tag: string;
   displayName?: string;
   unit?: string;
   points: TrendPointRow[];
+  diagnostics?: TrendSeriesDiagnosticsRow;
 };
 
 export type TrendQueryRow = {
@@ -170,6 +187,8 @@ type TrendTagMetaRow = {
   sourceTypeCode: string | null;
   driverType: string | null;
   archiveEnabled: boolean;
+  policyMode: string;
+  policyPeriodMs: number;
 };
 
 type TrendQueryParams = {
@@ -399,6 +418,8 @@ export class ArchiveRepository {
       max: row.max ?? undefined,
       sourceType: row.sourceTypeCode ?? undefined,
       driverType: row.driverType ?? undefined,
+      archiveMode: row.policyMode,
+      archivePeriodMs: row.policyPeriodMs,
     }));
   }
 
@@ -459,7 +480,8 @@ export class ArchiveRepository {
 
     for (const meta of metaRows) {
       const dataType = this.mapTrendDataType(meta.dataTypeCode);
-      const rawCount = await this.estimateTrendCount(meta.id, requestedFrom, requestedTo);
+      const rangeStats = await this.queryTrendRangeStats(meta.id, requestedFrom, requestedTo, dataType);
+      const rawCount = rangeStats.pointsInRange;
       const effectiveAggregation = this.resolveTrendAggregation({
         requested: params.aggregation,
         dataType,
@@ -484,6 +506,24 @@ export class ArchiveRepository {
       }
       const carryForwardPoint = await this.queryTrendPointAtOrBefore(meta.id, requestedFrom, dataType);
       const fromTs = requestedFrom.getTime();
+      const previousPointBeforeRangeTs = carryForwardPoint?.t ?? null;
+      const missingHistoryBeforeRange = rangeStats.firstPointTs !== null && previousPointBeforeRangeTs === null && rangeStats.firstPointTs > fromTs;
+      const seriesDiagnostics: TrendSeriesDiagnosticsRow = {
+        tag: meta.name,
+        policyMode: meta.policyMode,
+        policyPeriodMs: meta.policyPeriodMs,
+        rangeFrom: requestedFrom.toISOString(),
+        rangeTo: requestedTo.toISOString(),
+        pointsInRange: rangeStats.pointsInRange,
+        firstPointTs: rangeStats.firstPointTs,
+        lastPointTs: rangeStats.lastPointTs,
+        previousPointBeforeRangeTs,
+        hasPreviousBeforeRange: previousPointBeforeRangeTs !== null,
+        missingHistoryBeforeRange,
+      };
+      if (missingHistoryBeforeRange) {
+        this.logger.info(`trend:series-missing-history ${JSON.stringify(seriesDiagnostics)}`);
+      }
       const normalizedBeforeCarryForward = this.normalizeTrendPointRows(points)
         .filter((point) => point.t >= fromTs && point.t <= requestedTo.getTime());
       const insertsCarryForwardFromBeforeRange = Boolean(
@@ -524,6 +564,7 @@ export class ArchiveRepository {
         displayName: meta.displayName || meta.name,
         unit: meta.unit ?? undefined,
         points: this.enforceTrendPointLimit(pointsWithCarryForward, hardLimit),
+        diagnostics: seriesDiagnostics,
       });
     }
 
@@ -1081,6 +1122,8 @@ export class ArchiveRepository {
       source_type_code: string | null;
       driver_type: string | null;
       archive_enabled: boolean;
+      policy_mode: string | null;
+      policy_period_ms: number | null;
     }>(
       `
       SELECT
@@ -1095,7 +1138,9 @@ export class ArchiveRepository {
           NULL::double precision AS max_value,
           st.code AS source_type_code,
           drv.type AS driver_type,
-          COALESCE(o.enabled, p.enabled, false) AS archive_enabled
+          COALESCE(o.enabled, p.enabled, false) AS archive_enabled,
+          COALESCE(o.mode, p.mode, 'on_change_with_periodic') AS policy_mode,
+          COALESCE(o.period_ms, p.period_ms, 1000) AS policy_period_ms
       FROM tags t
       JOIN tag_data_types dt ON dt.id = t.data_type_id
       LEFT JOIN tag_source_types st ON st.id = t.source_type_id
@@ -1131,23 +1176,55 @@ export class ArchiveRepository {
       sourceTypeCode: row.source_type_code,
       driverType: row.driver_type,
       archiveEnabled: row.archive_enabled,
+      policyMode: row.policy_mode ?? "on_change_with_periodic",
+      policyPeriodMs: Math.max(1, Number(row.policy_period_ms ?? 1000)),
     }));
   }
 
-  private async estimateTrendCount(tagId: number, from: Date, to: Date): Promise<number> {
-    const result = await this.pool.query<{ cnt: string | number }>(
+  private trendValueSql(dataType: TrendDataType): { numericTextExpr: string; valueExpr: string; valueFilter: string } {
+    const numericTextExpr = "CASE WHEN s.value_text ~ '^\\s*[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][-+]?\\d+)?\\s*$' THEN s.value_text::double precision ELSE NULL END";
+    const valueExpr = dataType === "boolean"
+      ? "CASE WHEN s.value_bool IS NULL THEN NULL WHEN s.value_bool THEN 1::double precision ELSE 0::double precision END"
+      : dataType === "string"
+        ? `COALESCE(${numericTextExpr}, s.value_double)`
+        : `COALESCE(s.value_double, ${numericTextExpr})`;
+    const valueFilter = dataType === "boolean"
+      ? "s.value_bool IS NOT NULL"
+      : dataType === "string"
+        ? `(${numericTextExpr} IS NOT NULL OR s.value_double IS NOT NULL)`
+        : `(s.value_double IS NOT NULL OR ${numericTextExpr} IS NOT NULL)`;
+    return { numericTextExpr, valueExpr, valueFilter };
+  }
+
+  private async queryTrendRangeStats(
+    tagId: number,
+    from: Date,
+    to: Date,
+    dataType: TrendDataType,
+  ): Promise<{ pointsInRange: number; firstPointTs: number | null; lastPointTs: number | null }> {
+    const { valueFilter } = this.trendValueSql(dataType);
+    const result = await this.pool.query<{ cnt: string | number; first_time: Date | null; last_time: Date | null }>(
       `
-      SELECT COUNT(*)::bigint AS cnt
+      SELECT
+          COUNT(*)::bigint AS cnt,
+          MIN(s.time) AS first_time,
+          MAX(s.time) AS last_time
       FROM archive_samples s
       WHERE s.tag_id = $1
         AND s.time >= $2
         AND s.time <= $3
+        AND ${valueFilter}
       `,
       [tagId, from, to],
     );
     const raw = result.rows[0]?.cnt ?? 0;
     const numeric = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
-    return Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+    const row = result.rows[0];
+    return {
+      pointsInRange: Number.isFinite(numeric) ? Math.max(0, numeric) : 0,
+      firstPointTs: row?.first_time ? row.first_time.getTime() : null,
+      lastPointTs: row?.last_time ? row.last_time.getTime() : null,
+    };
   }
 
   private resolveTrendAggregation(input: {
@@ -1267,17 +1344,7 @@ export class ArchiveRepository {
   }
 
   private async queryTrendPointAtOrBefore(tagId: number, at: Date, dataType: TrendDataType): Promise<TrendPointRow | null> {
-    const numericTextExpr = "CASE WHEN s.value_text ~ '^\\s*[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][-+]?\\d+)?\\s*$' THEN s.value_text::double precision ELSE NULL END";
-    const valueExpr = dataType === "boolean"
-      ? "CASE WHEN s.value_bool IS NULL THEN NULL WHEN s.value_bool THEN 1::double precision ELSE 0::double precision END"
-      : dataType === "string"
-        ? `COALESCE(${numericTextExpr}, s.value_double)`
-        : `COALESCE(s.value_double, ${numericTextExpr})`;
-    const valueFilter = dataType === "boolean"
-      ? "s.value_bool IS NOT NULL"
-      : dataType === "string"
-        ? `(${numericTextExpr} IS NOT NULL OR s.value_double IS NOT NULL)`
-        : `(s.value_double IS NOT NULL OR ${numericTextExpr} IS NOT NULL)`;
+    const { valueExpr, valueFilter } = this.trendValueSql(dataType);
     const result = await this.pool.query<{
       time: Date;
       value: number | null;
@@ -1316,17 +1383,7 @@ export class ArchiveRepository {
     limit: number,
     dataType: TrendDataType,
   ): Promise<TrendPointRow[]> {
-    const numericTextExpr = "CASE WHEN s.value_text ~ '^\\s*[-+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[eE][-+]?\\d+)?\\s*$' THEN s.value_text::double precision ELSE NULL END";
-    const valueExpr = dataType === "boolean"
-      ? "CASE WHEN s.value_bool IS NULL THEN NULL WHEN s.value_bool THEN 1::double precision ELSE 0::double precision END"
-      : dataType === "string"
-        ? `COALESCE(${numericTextExpr}, s.value_double)`
-        : `COALESCE(s.value_double, ${numericTextExpr})`;
-    const valueFilter = dataType === "boolean"
-      ? "s.value_bool IS NOT NULL"
-      : dataType === "string"
-        ? `(${numericTextExpr} IS NOT NULL OR s.value_double IS NOT NULL)`
-        : `(s.value_double IS NOT NULL OR ${numericTextExpr} IS NOT NULL)`;
+    const { valueExpr, valueFilter } = this.trendValueSql(dataType);
 
     const result = await this.pool.query<{
       time: Date;
@@ -1737,6 +1794,9 @@ export class ArchiveRepository {
       return periodicDue;
     }
     if (tag.mode === "on_change_with_periodic") {
+      // This mode can only write the periodic leg when fresh TagValue samples
+      // keep arriving. It does not create archive rows from a server-side clock
+      // by itself, so quiet runtime sources can still produce sparse history.
       return changed || periodicDue;
     }
     return changed || periodicDue;

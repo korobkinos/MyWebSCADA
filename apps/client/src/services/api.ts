@@ -189,11 +189,26 @@ export type TrendTagInfo = {
   max?: number;
   sourceType?: string;
   driverType?: string;
+  archiveMode?: string;
+  archivePeriodMs?: number;
 };
 export type TrendPoint = {
   t: number;
   v: number | null;
   q?: "good" | "bad" | "uncertain";
+};
+export type TrendSeriesDiagnostics = {
+  tag: string;
+  policyMode: string;
+  policyPeriodMs: number;
+  rangeFrom: string;
+  rangeTo: string;
+  pointsInRange: number;
+  firstPointTs: number | null;
+  lastPointTs: number | null;
+  previousPointBeforeRangeTs: number | null;
+  hasPreviousBeforeRange: boolean;
+  missingHistoryBeforeRange: boolean;
 };
 export type TrendSeriesResponse = {
   tag: string;
@@ -202,6 +217,7 @@ export type TrendSeriesResponse = {
   color?: string;
   axisId?: string;
   points: TrendPoint[];
+  diagnostics?: TrendSeriesDiagnostics;
 };
 export type TrendQueryRequest = {
   tags: string[];

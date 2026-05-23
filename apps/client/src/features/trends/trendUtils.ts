@@ -85,6 +85,27 @@ export function normalizeTrendTableSettings(value: TrendTableSettings | undefine
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+export function formatTrendArchivePolicy(mode: string | undefined, periodMs: number | undefined): string {
+  const normalizedMode = (mode ?? "").trim() || "unknown";
+  const period = Number(periodMs);
+  if (!Number.isFinite(period) || period <= 0) {
+    return normalizedMode;
+  }
+  return `${normalizedMode}, ${Math.round(period)} ms`;
+}
+
+export function hasSparseTrendArchivePolicy(mode: string | undefined): boolean {
+  const normalizedMode = (mode ?? "").trim().toLowerCase();
+  return normalizedMode === "on_change" || normalizedMode === "on_change_with_periodic";
+}
+
+export function getSparseTrendArchivePolicyWarning(mode: string | undefined): string | null {
+  if (!hasSparseTrendArchivePolicy(mode)) {
+    return null;
+  }
+  return "History may be incomplete unless periodic samples are written.";
+}
+
 export function defaultTrendSettings(): TrendSettings {
   return {
     renderer: "echarts",

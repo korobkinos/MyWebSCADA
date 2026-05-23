@@ -3,7 +3,7 @@ import { ColorPicker } from "antd";
 import { WorkbenchButton } from "../../components/workbench";
 import type { TrendAxisConfig, TrendAxisTitleMode, TrendSettings, TrendTagSelection } from "./trendTypes";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
-import { TREND_DEFAULT_AXIS_ID, createTrendAxisConfig, normalizeTrendAxes } from "./trendUtils";
+import { TREND_DEFAULT_AXIS_ID, createTrendAxisConfig, formatTrendArchivePolicy, getSparseTrendArchivePolicyWarning, normalizeTrendAxes } from "./trendUtils";
 import { resolveTrendTheme } from "./trendTheme";
 
 type TrendSettingsPanelProps = {
@@ -854,7 +854,17 @@ export function TrendSettingsPanel({
                       <div className="screen-editor-tags-cell trends-settings-table__cell">
                         <input type="checkbox" checked={tag.visible !== false} onChange={(event) => updateSeries(tag.tag, { visible: event.target.checked })} />
                       </div>
-                      <div className="screen-editor-tags-cell trends-settings-table__cell" title={tag.tag}>{tag.tag}</div>
+                      <div
+                        className="screen-editor-tags-cell trends-settings-table__cell"
+                        title={[
+                          tag.tag,
+                          tag.archiveMode ? `Archive: ${formatTrendArchivePolicy(tag.archiveMode, tag.archivePeriodMs)}` : "",
+                          getSparseTrendArchivePolicyWarning(tag.archiveMode) ?? "",
+                        ].filter(Boolean).join("\n")}
+                      >
+                        {tag.tag}
+                        {getSparseTrendArchivePolicyWarning(tag.archiveMode) ? " !" : ""}
+                      </div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell">
                         <input className="workbench-input" value={tag.displayName ?? ""} onChange={(event) => updateSeries(tag.tag, { displayName: event.target.value })} />
                       </div>

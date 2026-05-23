@@ -2,7 +2,7 @@ import { type CSSProperties, type MouseEvent as ReactMouseEvent, useEffect, useM
 import { ColorPicker, Input, Space } from "antd";
 import { WorkbenchButton } from "../../components/workbench";
 import type { TrendAxisConfig, TrendTagInfo, TrendTagPickerFilters, TrendTagSelection } from "./trendTypes";
-import { TREND_DEFAULT_AXIS_ID, pickSeriesColor } from "./trendUtils";
+import { TREND_DEFAULT_AXIS_ID, formatTrendArchivePolicy, getSparseTrendArchivePolicyWarning, pickSeriesColor } from "./trendUtils";
 import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 
 type TrendTagPickerDialogProps = {
@@ -250,6 +250,8 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
       mode: tag.dataType === "boolean" ? "step" : "line",
       step: tag.dataType === "boolean",
       axisMode: "auto",
+      archiveMode: tag.archiveMode,
+      archivePeriodMs: tag.archivePeriodMs,
     };
     setDraftTags([...draftTags, next]);
     setSelectedTagName(tag.name);
@@ -320,6 +322,8 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
         mode: tag.dataType === "boolean" ? "step" : "line",
         step: tag.dataType === "boolean",
         axisMode: "auto",
+        archiveMode: tag.archiveMode,
+        archivePeriodMs: tag.archivePeriodMs,
       });
     }
     setDraftTags(Array.from(map.values()));
@@ -385,10 +389,12 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
         visible: false,
         lineWidth: 1,
         lineType: "solid",
-        mode: tag.dataType === "boolean" ? "step" : "line",
-        step: tag.dataType === "boolean",
-        axisMode: "auto",
-      });
+      mode: tag.dataType === "boolean" ? "step" : "line",
+      step: tag.dataType === "boolean",
+      axisMode: "auto",
+      archiveMode: tag.archiveMode,
+      archivePeriodMs: tag.archivePeriodMs,
+    });
     }
     setDraftTags(Array.from(nextMap.values()));
   };
@@ -598,6 +604,15 @@ export function TrendTagPickerDialog({ open, tags, selectedTags, axes, initialFi
                 <div className="screen-editor-tag-editor__title">Tag Details</div>
                 {currentInfo ? (
                   <>
+                    {(() => {
+                      const archiveWarning = getSparseTrendArchivePolicyWarning(currentInfo.archiveMode);
+                      return (
+                        <>
+                          <div className="screen-editor-tag-editor__kv"><span>Archive</span><strong>{formatTrendArchivePolicy(currentInfo.archiveMode, currentInfo.archivePeriodMs)}</strong></div>
+                          {archiveWarning ? <div className="trends-policy-warning">{archiveWarning}</div> : null}
+                        </>
+                      );
+                    })()}
                     <div className="screen-editor-tag-editor__kv"><span>Tag</span><strong>{currentInfo.name}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>ID</span><strong>{currentInfo.id}</strong></div>
                     <div className="screen-editor-tag-editor__kv"><span>Display name</span><strong>{currentInfo.displayName || "-"}</strong></div>
