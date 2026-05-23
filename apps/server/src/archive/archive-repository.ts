@@ -483,7 +483,24 @@ export class ArchiveRepository {
         points = await this.queryBucketedAvgTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
       }
       const carryForwardPoint = await this.queryTrendPointAtOrBefore(meta.id, requestedFrom, dataType);
+      const fromTs = requestedFrom.getTime();
+      const normalizedBeforeCarryForward = this.normalizeTrendPointRows(points)
+        .filter((point) => point.t >= fromTs && point.t <= requestedTo.getTime());
+      const insertsCarryForwardFromBeforeRange = Boolean(
+        carryForwardPoint
+        && carryForwardPoint.t < fromTs
+        && (normalizedBeforeCarryForward.length === 0 || normalizedBeforeCarryForward[0]!.t > fromTs),
+      );
       const pointsWithCarryForward = this.applyTrendCarryForward(points, carryForwardPoint, requestedFrom, requestedTo);
+      if (insertsCarryForwardFromBeforeRange && carryForwardPoint) {
+        this.logger.info(`trend:carry-forward-from-before-range ${JSON.stringify({
+          tag: meta.name,
+          from: requestedFrom.toISOString(),
+          to: requestedTo.toISOString(),
+          previousPointTimestamp: carryForwardPoint.t,
+          insertedPointCount: 1,
+        })}`);
+      }
 
       series.push({
         tag: meta.name,
@@ -1221,20 +1238,10 @@ export class ArchiveRepository {
       if (!carryForwardPoint) {
         return normalized;
       }
-      if (toTs <= fromTs) {
-        return [{ t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q }];
-      }
-      return [
-        { t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q },
-        { t: toTs, v: carryForwardPoint.v, q: carryForwardPoint.q },
-      ];
+      return [{ t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q }];
     }
     if (carryForwardPoint && normalized[0]!.t > fromTs) {
       normalized.unshift({ t: fromTs, v: carryForwardPoint.v, q: carryForwardPoint.q });
-    }
-    const last = normalized[normalized.length - 1]!;
-    if (last.t < toTs) {
-      normalized.push({ t: toTs, v: last.v, q: last.q });
     }
     return this.normalizeTrendPointRows(normalized);
   }

@@ -527,7 +527,7 @@ function normalizeTrendResponseForRange(
   const sourceByTag = new Map(response.series.map((series) => [series.tag, series]));
   const normalizedSeries = selectedTags.map((selection) => {
     const source = sourceByTag.get(selection.tag);
-    const normalizedPoints = normalizeTrendPoints(
+    const sourcePoints = normalizeTrendPoints(
       (source?.points ?? [])
         .map((point): TrendPoint | null => {
           const timestamp = normalizeTimestampMs(point?.t);
@@ -541,7 +541,21 @@ function normalizeTrendResponseForRange(
           };
         })
         .filter((point): point is TrendPoint => point !== null),
-    ).filter((point) => point.t >= safeFrom && point.t <= safeTo);
+    );
+    const normalizedPoints = sourcePoints.filter((point) => point.t >= safeFrom && point.t <= safeTo);
+    let insertedFromBeforeRangeCount = 0;
+    let previousPoint: TrendPoint | undefined;
+    for (let index = sourcePoints.length - 1; index >= 0; index -= 1) {
+      const candidate = sourcePoints[index];
+      if (candidate && candidate.t < safeFrom) {
+        previousPoint = candidate;
+        break;
+      }
+    }
+    if (previousPoint && (normalizedPoints.length === 0 || normalizedPoints[0]!.t > safeFrom)) {
+      normalizedPoints.unshift({ t: safeFrom, v: previousPoint.v, q: previousPoint.q });
+      insertedFromBeforeRangeCount += 1;
+    }
     if (carryForwardToRangeEnd && normalizedPoints.length > 0) {
       const last = normalizedPoints[normalizedPoints.length - 1];
       if (last && last.t < safeTo) {
@@ -561,6 +575,15 @@ function normalizeTrendResponseForRange(
       ) {
         normalizedPoints.pop();
       }
+    }
+    if (insertedFromBeforeRangeCount > 0) {
+      logTrendDiagnostics("trend:carry-forward-from-before-range", {
+        tag: selection.tag,
+        from: safeFrom,
+        to: safeTo,
+        previousPointTimestamp: previousPoint?.t ?? null,
+        insertedPointCount: insertedFromBeforeRangeCount,
+      });
     }
     return {
       tag: selection.tag,
