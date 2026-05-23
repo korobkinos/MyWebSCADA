@@ -379,7 +379,90 @@ export function sliceTrendPointsByRange(points: TrendPoint[], range: TrendVisibl
   return points.slice(start, low);
 }
 
+export type TrendRenderPointSlice = {
+  points: TrendPoint[];
+  insertedPointCount: number;
+  previousPointTimestamp: number | null;
+};
+
+export function sliceTrendPointsByRangeWithCarryForward(points: TrendPoint[], range: TrendVisibleRange): TrendRenderPointSlice {
+  if (points.length === 0) {
+    return { points, insertedPointCount: 0, previousPointTimestamp: null };
+  }
+  const normalizedRange = normalizeTrendRange(range);
+  const normalized = normalizeTrendPoints(points);
+  if (normalized.length === 0) {
+    return { points: normalized, insertedPointCount: 0, previousPointTimestamp: null };
+  }
+
+  let low = 0;
+  let high = normalized.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const point = normalized[mid];
+    if (point && point.t < normalizedRange.from) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  const start = low;
+
+  low = start;
+  high = normalized.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const point = normalized[mid];
+    if (point && point.t <= normalizedRange.to) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  const end = low;
+  const previousPoint = start > 0 ? normalized[start - 1] : undefined;
+  const sliced = normalized.slice(start, end);
+  let insertedPointCount = 0;
+
+  if (sliced.length === 0) {
+    if (!previousPoint) {
+      return { points: sliced, insertedPointCount: 0, previousPointTimestamp: null };
+    }
+    const carried = [
+      { t: normalizedRange.from, v: previousPoint.v, q: previousPoint.q },
+      { t: normalizedRange.to, v: previousPoint.v, q: previousPoint.q },
+    ];
+    return {
+      points: normalizeTrendPoints(carried),
+      insertedPointCount: carried[0]!.t === carried[1]!.t ? 1 : 2,
+      previousPointTimestamp: previousPoint.t,
+    };
+  }
+
+  const result = [...sliced];
+  const first = result[0];
+  if (previousPoint && first && first.t > normalizedRange.from) {
+    result.unshift({ t: normalizedRange.from, v: previousPoint.v, q: previousPoint.q });
+    insertedPointCount += 1;
+  }
+
+  const last = result[result.length - 1];
+  if (last && last.t < normalizedRange.to) {
+    result.push({ t: normalizedRange.to, v: last.v, q: last.q });
+    insertedPointCount += 1;
+  }
+
+  return {
+    points: normalizeTrendPoints(result),
+    insertedPointCount,
+    previousPointTimestamp: previousPoint?.t ?? null,
+  };
+}
+
 export function decimateTrendPoints(points: TrendPoint[], maxPoints: number): TrendPoint[] {
+  if (points.length <= 2) {
+    return points;
+  }
   if (points.length <= maxPoints) {
     return points;
   }

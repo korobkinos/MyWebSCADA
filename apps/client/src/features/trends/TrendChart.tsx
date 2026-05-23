@@ -7,7 +7,7 @@ import type { ECharts, EChartsCoreOption } from "echarts/core";
 import type { TrendAxisConfig, TrendAxisTitleMode, TrendChartApi, TrendPoint, TrendQueryResponse, TrendSettings, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
 import { isTrendPerfDebugEnabled, logTrendDiagnostics } from "./trendDiagnostics";
 import { resolveTrendTheme } from "./trendTheme";
-import { appendLiveCarryForwardPoint, clamp, decimateTrendPoints, insertTrendGapBreaks, normalizeTrendPoints, resolveTrendGapBreakMs, resolveTrendRenderRange, sliceTrendPointsByRange } from "./trendUtils";
+import { appendLiveCarryForwardPoint, clamp, decimateTrendPoints, insertTrendGapBreaks, normalizeTrendPoints, resolveTrendGapBreakMs, resolveTrendRenderRange, sliceTrendPointsByRangeWithCarryForward } from "./trendUtils";
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, GraphicComponent, CanvasRenderer]);
 const LIVE_GAP_MIN_BREAK_MS = 10_000;
@@ -1016,9 +1016,21 @@ export function TrendChart({
 
     const series: any[] = activeTags.map((tag) => {
       const bufferedPoints = seriesPointsRef.current.get(tag.tag) ?? [];
-      const rangePoints = renderRange
-        ? sliceTrendPointsByRange(bufferedPoints, renderRange)
-        : bufferedPoints;
+      const renderSlice = renderRange
+        ? sliceTrendPointsByRangeWithCarryForward(bufferedPoints, renderRange)
+        : null;
+      if (renderRange && renderSlice && renderSlice.insertedPointCount > 0) {
+        logTrendDiagnostics("trend:render-carry-forward-constant-span", {
+          tag: tag.tag,
+          renderFrom: renderRange.from,
+          renderTo: renderRange.to,
+          previousPointTimestamp: renderSlice.previousPointTimestamp,
+          insertedPointCount: renderSlice.insertedPointCount,
+          sourcePointCount: bufferedPoints.length,
+          renderPointCount: renderSlice.points.length,
+        });
+      }
+      const rangePoints = renderSlice?.points ?? bufferedPoints;
       renderRangePointCount += rangePoints.length;
       const sourcePoints = renderRange
         ? decimateTrendPoints(rangePoints, maxRenderedPointsPerSeries)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTrendTheme } from "./trendTheme";
-import { appendLiveCarryForwardPoint, applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings, resolveQuickPresetFromRangeSpan } from "./trendUtils";
+import { appendLiveCarryForwardPoint, applyTrendVisualHolds, buildAxes, buildTrendDataMatrixWithGaps, createTrendAxisConfig, decimateTrendPoints, defaultTrendSettings, insertTrendGapBreaks, normalizeTrendAxes, normalizeTrendTableSettings, resolveQuickPresetFromRangeSpan, sliceTrendPointsByRangeWithCarryForward } from "./trendUtils";
 import type { TrendTagInfo, TrendTagSelection } from "./trendTypes";
 
 describe("trend defaults", () => {
@@ -196,6 +196,77 @@ describe("insertTrendGapBreaks", () => {
       [11_500, 11],
     ]);
     expect(result.gaps).toHaveLength(0);
+  });
+});
+
+describe("sliceTrendPointsByRangeWithCarryForward", () => {
+  it("returns a two-point render span when no points are inside and a previous point exists", () => {
+    const result = sliceTrendPointsByRangeWithCarryForward([
+      { t: 1_000, v: 250, q: "good" },
+      { t: 61_000, v: 250, q: "good" },
+    ], { from: 10_000, to: 20_000 });
+
+    expect(result.points).toEqual([
+      { t: 10_000, v: 250, q: "good" },
+      { t: 20_000, v: 250, q: "good" },
+    ]);
+    expect(result.insertedPointCount).toBe(2);
+    expect(result.previousPointTimestamp).toBe(1_000);
+  });
+
+  it("prepends the range start when the first real point is later than the render range", () => {
+    const result = sliceTrendPointsByRangeWithCarryForward([
+      { t: 1_000, v: 250, q: "good" },
+      { t: 12_000, v: 251, q: "good" },
+      { t: 18_000, v: 252, q: "good" },
+    ], { from: 10_000, to: 18_000 });
+
+    expect(result.points).toEqual([
+      { t: 10_000, v: 250, q: "good" },
+      { t: 12_000, v: 251, q: "good" },
+      { t: 18_000, v: 252, q: "good" },
+    ]);
+    expect(result.insertedPointCount).toBe(1);
+  });
+
+  it("appends the range end from the last visible value", () => {
+    const result = sliceTrendPointsByRangeWithCarryForward([
+      { t: 1_000, v: 250, q: "good" },
+      { t: 12_000, v: 251, q: "good" },
+    ], { from: 10_000, to: 20_000 });
+
+    expect(result.points).toEqual([
+      { t: 10_000, v: 250, q: "good" },
+      { t: 12_000, v: 251, q: "good" },
+      { t: 20_000, v: 251, q: "good" },
+    ]);
+    expect(result.insertedPointCount).toBe(2);
+  });
+
+  it("does not duplicate boundary timestamps", () => {
+    const result = sliceTrendPointsByRangeWithCarryForward([
+      { t: 1_000, v: 249, q: "good" },
+      { t: 10_000, v: 250, q: "good" },
+      { t: 20_000, v: 251, q: "good" },
+      { t: 30_000, v: 252, q: "good" },
+    ], { from: 10_000, to: 20_000 });
+
+    expect(result.points).toEqual([
+      { t: 10_000, v: 250, q: "good" },
+      { t: 20_000, v: 251, q: "good" },
+    ]);
+    expect(result.insertedPointCount).toBe(0);
+  });
+});
+
+describe("decimateTrendPoints", () => {
+  it("preserves two-point constant spans", () => {
+    const source = [
+      { t: 10_000, v: 250, q: "good" as const },
+      { t: 20_000, v: 250, q: "good" as const },
+    ];
+
+    expect(decimateTrendPoints(source, 1)).toBe(source);
   });
 });
 
