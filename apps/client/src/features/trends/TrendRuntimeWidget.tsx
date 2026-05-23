@@ -849,6 +849,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const historyLoadTimerRef = useRef<number | null>(null);
   const offlineLoadedRangeRef = useRef<TrendVisibleRange | null>(null);
   const offlineResponseRef = useRef<TrendQueryResponse | null>(null);
+  const offlineFrozenRangeRef = useRef<TrendVisibleRange | null>(null);
   const offlineLoadSeqRef = useRef(0);
   const liveResponseRef = useRef<TrendQueryResponse | null>(null);
   const bufferedRequestKeyRef = useRef<string | null>(null);
@@ -1028,6 +1029,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     invalidateOfflineLoadState();
     offlineLoadedRangeRef.current = null;
     offlineResponseRef.current = null;
+    offlineFrozenRangeRef.current = null;
     bufferedRequestKeyRef.current = null;
     setLiveResponse(null);
     liveResponseRef.current = null;
@@ -1064,6 +1066,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     liveRealtimeAppendedSinceLastLogRef.current = 0;
     liveLastTimestampByTagRef.current.clear();
     liveSessionIdRef.current += 1;
+    offlineFrozenRangeRef.current = null;
     setHoverSeriesValues(null);
     setHoverTimestamp(null);
     hoverSnapshotKeyRef.current = "";
@@ -1226,6 +1229,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       invalidateOfflineLoadState();
       offlineLoadedRangeRef.current = null;
       offlineResponseRef.current = null;
+      offlineFrozenRangeRef.current = null;
       setLiveResponse(null);
       liveResponseRef.current = null;
       return { ok: false, reason: "error" };
@@ -1961,7 +1965,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     if (selectedTagNames.length === 0 || liveMode) {
       return;
     }
-    const initialLoadedRange = resolveInitialLoadedRange(visibleRangeRef.current);
+    const frozenRange = offlineFrozenRangeRef.current;
+    const initialLoadedRange = resolveInitialLoadedRange(frozenRange ?? visibleRangeRef.current);
+    offlineFrozenRangeRef.current = null;
     offlineLoadedRangeRef.current = initialLoadedRange;
     offlineResponseRef.current = buildEmptyTrendResponse(initialLoadedRange, selectedTags);
     setOfflineLoadedRange(initialLoadedRange);
@@ -2654,6 +2660,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     rememberToolbarRange(nextPreset, normalized);
     setToolbarQuickPreset(nextPreset === "5m" || nextPreset === "15m" || nextPreset === "1h" ? nextPreset : null);
     pendingToolbarPresetRef.current = null;
+    if (!liveMode) {
+      offlineFrozenRangeRef.current = null;
+    }
     if (liveMode && options?.keepLive) {
       setLiveAutoStopReason(null);
       if (options.followLive) {
@@ -2671,6 +2680,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       return;
     }
     if (!options?.keepLive && liveMode) {
+      offlineFrozenRangeRef.current = normalized;
+      visibleRangeRef.current = normalized;
+      lastStableVisibleRangeRef.current = normalized;
       invalidateOfflineLoadState("loading");
       setLiveMode(false);
       setLiveAutoStopReason("Stopped by toolbar history navigation");
@@ -2747,6 +2759,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   const handleChartRangeChange = (range: TrendVisibleRange, source: "interaction" | "live") => {
     const normalized = normalizeTrendRange(range);
+    if (source === "live" && !liveMode) {
+      return;
+    }
     if (source === "live" && liveMode && !liveFollowRef.current) {
       return;
     }
@@ -2820,32 +2835,6 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     void requestBufferedRange(refreshRange, { force: true, replace: true });
   };
 
-  const refreshFromTimer = () => {
-    const refreshRange = offlineLoadedRangeRef.current;
-    if (!refreshRange) {
-      return;
-    }
-    void requestBufferedRange(refreshRange, { force: true, replace: true, skipLoadingState: true });
-  };
-
-  const refreshFromTimerRef = useRef(refreshFromTimer);
-  refreshFromTimerRef.current = refreshFromTimer;
-
-  useEffect(() => {
-    const intervalMs = settings.refreshIntervalMs;
-    if (liveMode || !intervalMs || intervalMs < 500 || !offlineLoadedRange) {
-      return;
-    }
-    const id = window.setInterval(() => {
-      if (refreshFromTimerRef.current) {
-        refreshFromTimerRef.current();
-      }
-    }, intervalMs);
-    return () => {
-      window.clearInterval(id);
-    };
-  }, [liveMode, offlineLoadedRange?.from, offlineLoadedRange?.to, settings.refreshIntervalMs]);
-
   const toggleLiveMode = () => {
     if (!hasSelection) {
       return;
@@ -2876,9 +2865,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       logTrendDiagnostics("live:toggle-off", {
         reason: "toolbar",
       });
+      const frozenRange = normalizeTrendRange(visibleRangeRef.current);
+      offlineFrozenRangeRef.current = frozenRange;
+      visibleRangeRef.current = frozenRange;
+      lastStableVisibleRangeRef.current = frozenRange;
       setError(null);
       setLoading(false);
       invalidateOfflineLoadState("loading");
+      setVisibleRange(frozenRange);
+      setCustomFrom(toLocalDateTimeInputValue(frozenRange.from));
+      setCustomTo(toLocalDateTimeInputValue(frozenRange.to));
       setLiveMode(false);
       liveFollowRef.current = false;
       setLiveFollow(false);
@@ -2893,6 +2889,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setLiveAutoStopReason(null);
     setError(null);
     setLoading(false);
+    offlineFrozenRangeRef.current = null;
     invalidateOfflineLoadState();
     logTrendDiagnostics("live:toggle-on", {
       from: nextRange.from,
