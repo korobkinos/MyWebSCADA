@@ -1953,6 +1953,7 @@ export function TrendChart({
       skipNextVisibleRangeRenderInLiveRef.current = false;
       return;
     }
+    lastZoomRangeRef.current = visibleRange;
     scheduleRender("visible-range-change");
   }, [visibleRange.from, visibleRange.to]);
 

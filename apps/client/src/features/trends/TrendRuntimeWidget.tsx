@@ -47,6 +47,8 @@ const TREND_PREFETCH_MIN_MS = 15 * 60 * 1000;
 const TREND_PREFETCH_MAX_MS = 60 * 60 * 1000;
 const TREND_PREFETCH_EDGE_RATIO = 0.2;
 const TREND_PREFETCH_DEBOUNCE_MS = 220;
+const TREND_BUFFER_QUERY_MAX_POINTS = 8000;
+const TREND_BUFFER_POINTS_PER_SERIES_MAX = 120_000;
 const TREND_CACHE_POINTS_MAX = 600_000;
 const TREND_SERIES_TABLE_HEADER_PX = 30;
 const TREND_SERIES_TABLE_ROW_PX = 30;
@@ -385,7 +387,7 @@ function boundResponseSeriesPoints(
   response: TrendQueryResponse,
   maxPointsPerSeries: number,
 ): TrendQueryResponse {
-  const safeLimit = clamp(Math.round(maxPointsPerSeries), 200, 20_000);
+  const safeLimit = clamp(Math.round(maxPointsPerSeries), 200, TREND_BUFFER_POINTS_PER_SERIES_MAX);
   const boundedSeries = response.series.map((series) => {
     if (series.points.length <= safeLimit) {
       return series;
@@ -1217,7 +1219,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         ? settings.realtimeAppendSnapshotMaxPoints
         : isLiveQuery
         ? 8000
-        : settings.maxVisiblePointsPerSeries;
+        : TREND_BUFFER_QUERY_MAX_POINTS;
     const maxPoints = clamp(Math.round(effectiveMaxPointsSetting), 1000, 8000);
     const requestAggregation = isLiveBootstrapQuery
       ? settings.realtimeAppendSnapshotAggregation
@@ -1266,7 +1268,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
         const normalizedCached = normalizeTrendResponseForRange(cached, range, selectedTags);
         const boundedCached = boundResponseSeriesPoints(
           normalizedCached,
-          targetMode === "live" ? settings.maxLivePointsPerTag : settings.maxVisiblePointsPerSeries,
+          targetMode === "live" ? settings.maxLivePointsPerTag : TREND_BUFFER_POINTS_PER_SERIES_MAX,
         );
         if (targetMode === "live") {
           if (!liveModeRef.current || liveSessionId !== liveSessionIdRef.current) {
@@ -1294,7 +1296,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             const mergedRange = unionTrendRanges(offlineLoadedRangeRef.current, range);
             const mergedCached = boundResponseSeriesPoints(
               buildBufferedTrendResponse(offlineResponseRef.current, boundedCached, mergedRange, selectedTags),
-              settings.maxVisiblePointsPerSeries,
+              TREND_BUFFER_POINTS_PER_SERIES_MAX,
             );
             offlineResponseRef.current = mergedCached;
             setOfflineResponse(mergedCached);
@@ -1458,7 +1460,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       next = normalizeTrendResponseForRange(next, normalizedRange, selectedTags);
       const boundedNext = boundResponseSeriesPoints(
         next,
-        targetMode === "live" ? settings.maxLivePointsPerTag : settings.maxVisiblePointsPerSeries,
+        targetMode === "live" ? settings.maxLivePointsPerTag : TREND_BUFFER_POINTS_PER_SERIES_MAX,
       );
       const totalPointCount = boundedNext.series.reduce((acc, series) => acc + series.points.length, 0);
       if (isLiveBootstrapQuery) {
@@ -1510,7 +1512,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           const mergedRange = unionTrendRanges(offlineLoadedRangeRef.current, range);
           const mergedNext = boundResponseSeriesPoints(
             buildBufferedTrendResponse(offlineResponseRef.current, boundedNext, mergedRange, selectedTags),
-            settings.maxVisiblePointsPerSeries,
+            TREND_BUFFER_POINTS_PER_SERIES_MAX,
           );
           offlineResponseRef.current = mergedNext;
           setOfflineResponse(mergedNext);
@@ -2497,15 +2499,21 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   }, [liveMode]);
 
   const rememberToolbarRange = (preset: TrendRangePreset, range: TrendVisibleRange) => {
-    toolbarRangeRef.current = { preset, range, expiresAt: Date.now() + 1000 };
+    toolbarRangeRef.current = { preset, range, expiresAt: Date.now() + 650 };
   };
 
-  const isToolbarRangeEcho = (range: TrendVisibleRange): boolean => {
+  const resolveToolbarRangeEchoPreset = (range: TrendVisibleRange): TrendRangePreset | null => {
     const pending = toolbarRangeRef.current;
     if (!pending || pending.expiresAt < Date.now()) {
-      return false;
+      return null;
     }
-    return Math.abs(pending.range.from - range.from) < 5 && Math.abs(pending.range.to - range.to) < 5;
+    const pendingQuickPreset = pending.preset === "5m" || pending.preset === "15m" || pending.preset === "1h"
+      ? pending.preset
+      : null;
+    if (pendingQuickPreset && resolveQuickPresetFromRangeSpan(range) === pendingQuickPreset) {
+      return pendingQuickPreset;
+    }
+    return null;
   };
 
   const applyRangeAndQuery = (next: TrendVisibleRange, options?: { keepLive?: boolean; preset?: TrendRangePreset }) => {
@@ -2605,9 +2613,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setCustomFrom(toLocalDateTimeInputValue(normalized.from));
     setCustomTo(toLocalDateTimeInputValue(normalized.to));
     if (source === "interaction") {
-      if (isToolbarRangeEcho(normalized)) {
-        const preset = toolbarRangeRef.current?.preset ?? "custom";
-        setRangePreset(preset);
+      const echoPreset = resolveToolbarRangeEchoPreset(normalized);
+      if (echoPreset) {
+        setRangePreset(echoPreset);
+        setToolbarQuickPreset(echoPreset === "5m" || echoPreset === "15m" || echoPreset === "1h" ? echoPreset : null);
         return;
       } else {
         toolbarRangeRef.current = null;
@@ -2678,7 +2687,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   useEffect(() => {
     const intervalMs = settings.refreshIntervalMs;
-    if (liveMode || !intervalMs || intervalMs < 500 || offlineLoadedRange) {
+    if (liveMode || !intervalMs || intervalMs < 500 || !offlineLoadedRange) {
       return;
     }
     const id = window.setInterval(() => {
@@ -2689,7 +2698,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     return () => {
       window.clearInterval(id);
     };
-  }, [liveMode, settings.refreshIntervalMs]);
+  }, [liveMode, offlineLoadedRange?.from, offlineLoadedRange?.to, settings.refreshIntervalMs]);
 
   const toggleLiveMode = () => {
     if (!hasSelection) {
