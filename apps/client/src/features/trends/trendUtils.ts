@@ -260,6 +260,41 @@ export function parseQuickRange(preset: "5m" | "15m" | "1h" | "8h" | "24h", now 
   };
 }
 
+export function normalizeTrendRange(range: TrendVisibleRange): TrendVisibleRange {
+  return {
+    from: Math.min(range.from, range.to),
+    to: Math.max(range.from, range.to),
+  };
+}
+
+export function isRangeCovered(
+  loadedRange: TrendVisibleRange | null | undefined,
+  visibleRange: TrendVisibleRange,
+  toleranceMs = 1000,
+): boolean {
+  if (!loadedRange) {
+    return false;
+  }
+  const loaded = normalizeTrendRange(loadedRange);
+  const visible = normalizeTrendRange(visibleRange);
+  return visible.from >= loaded.from - toleranceMs && visible.to <= loaded.to + toleranceMs;
+}
+
+export function unionTrendRanges(
+  first: TrendVisibleRange | null | undefined,
+  second: TrendVisibleRange,
+): TrendVisibleRange {
+  const normalizedSecond = normalizeTrendRange(second);
+  if (!first) {
+    return normalizedSecond;
+  }
+  const normalizedFirst = normalizeTrendRange(first);
+  return {
+    from: Math.min(normalizedFirst.from, normalizedSecond.from),
+    to: Math.max(normalizedFirst.to, normalizedSecond.to),
+  };
+}
+
 export function resolveQuickPresetFromRangeSpan(range: TrendVisibleRange): "5m" | "15m" | "1h" | "custom" {
   const span = Math.abs(range.to - range.from);
   const toleranceMs = 1_000;
@@ -904,4 +939,3 @@ export function normalizeTrendAxes(existingAxes: TrendAxisConfig[], settings: Tr
 export function formatRangeLabel(from: number, to: number): string {
   return `${new Date(from).toLocaleString()} - ${new Date(to).toLocaleString()}`;
 }
-

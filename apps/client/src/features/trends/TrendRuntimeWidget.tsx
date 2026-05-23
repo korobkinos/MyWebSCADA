@@ -15,7 +15,7 @@ import { TrendWorkbenchDialog } from "./TrendWorkbenchDialog";
 import { exportTrendDiagnostics, logTrendDiagnostics } from "./trendDiagnostics";
 import { TrendQueryCache, buildTrendCacheKey } from "./trendStore";
 import type { TrendAxisConfig, TrendChartApi, TrendLiveDataSource, TrendPoint, TrendQueryResponse, TrendQuickPreset, TrendRangePreset, TrendSeriesColumnId, TrendSeriesColumnWidths, TrendSettings, TrendTagPickerFilters, TrendTagSelection, TrendVisibleRange } from "./trendTypes";
-import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan } from "./trendUtils";
+import { buildAxes, clamp, defaultTrendSettings, formatRangeLabel, isRangeCovered, normalizeTrendAxes, normalizeTrendPoints, normalizeTrendRange, normalizeTrendTableSettings, parseQuickRange, resolveQuickPresetFromRangeSpan, unionTrendRanges } from "./trendUtils";
 import { readRuntimeViewState, type TrendRuntimeViewStateData, writeRuntimeViewState } from "./trendRuntimeViewState";
 import { resolveTrendTheme } from "./trendTheme";
 import { TrendQueryRateLimiter } from "./trendQueryRateLimiter";
@@ -42,6 +42,11 @@ const TREND_CACHE_POINTS_MIN = 120_000;
 const MIN_TRENDS_QUERY_INTERVAL_MS = 2000;
 const TRENDS_DISABLE_ARCHIVE_POLLING_KEY = "scada.trends.disableArchivePolling";
 const ONLINE_RECOVERY_REFRESH_DEBOUNCE_MS = 3000;
+const TREND_INITIAL_BUFFER_MS = 60 * 60 * 1000;
+const TREND_PREFETCH_MIN_MS = 15 * 60 * 1000;
+const TREND_PREFETCH_MAX_MS = 60 * 60 * 1000;
+const TREND_PREFETCH_EDGE_RATIO = 0.2;
+const TREND_PREFETCH_DEBOUNCE_MS = 220;
 const TREND_CACHE_POINTS_MAX = 600_000;
 const TREND_SERIES_TABLE_HEADER_PX = 30;
 const TREND_SERIES_TABLE_ROW_PX = 30;
@@ -397,6 +402,86 @@ function boundResponseSeriesPoints(
   };
 }
 
+function buildBufferedTrendResponse(
+  base: TrendQueryResponse | null,
+  overlay: TrendQueryResponse,
+  range: TrendVisibleRange,
+  selectedTags: TrendTagSelection[],
+): TrendQueryResponse {
+  if (!base) {
+    return normalizeTrendResponseForRange(overlay, range, selectedTags);
+  }
+  return normalizeTrendResponseForRange({
+    ...overlay,
+    from: new Date(range.from).toISOString(),
+    to: new Date(range.to).toISOString(),
+    series: mergeTrendSeriesPoints(base.series, overlay.series),
+  }, range, selectedTags);
+}
+
+function resolveInitialLoadedRange(visibleRange: TrendVisibleRange): TrendVisibleRange {
+  const normalized = normalizeTrendRange(visibleRange);
+  const visibleSpan = Math.max(1, normalized.to - normalized.from);
+  const bufferSpan = Math.max(TREND_INITIAL_BUFFER_MS, visibleSpan);
+  return {
+    from: normalized.to - bufferSpan,
+    to: normalized.to,
+  };
+}
+
+function resolveRangeForPresetInBuffer(
+  preset: Exclude<TrendRangePreset, "custom">,
+  loadedRange: TrendVisibleRange | null,
+): TrendVisibleRange {
+  if (!loadedRange) {
+    return parseQuickRange(preset);
+  }
+  return parseQuickRange(preset, normalizeTrendRange(loadedRange).to);
+}
+
+function requestPrefetchIfNeeded(
+  visibleRange: TrendVisibleRange,
+  loadedRange: TrendVisibleRange | null,
+): TrendVisibleRange[] {
+  const visible = normalizeTrendRange(visibleRange);
+  if (!loadedRange) {
+    return [resolveInitialLoadedRange(visible)];
+  }
+  const loaded = normalizeTrendRange(loadedRange);
+  const span = Math.max(TREND_ZOOM_MIN_SPAN_MS, visible.to - visible.from);
+  const edgeThreshold = Math.max(60_000, Math.round(span * TREND_PREFETCH_EDGE_RATIO));
+  const prefetchSpan = clamp(Math.round(span * 2), TREND_PREFETCH_MIN_MS, TREND_PREFETCH_MAX_MS);
+  const requests: TrendVisibleRange[] = [];
+
+  if (visible.from < loaded.from) {
+    requests.push({
+      from: visible.from - prefetchSpan,
+      to: loaded.from,
+    });
+  } else if (visible.from - loaded.from <= edgeThreshold) {
+    requests.push({
+      from: loaded.from - prefetchSpan,
+      to: loaded.from,
+    });
+  }
+
+  if (visible.to > loaded.to) {
+    requests.push({
+      from: loaded.to,
+      to: visible.to + prefetchSpan,
+    });
+  } else if (loaded.to - visible.to <= edgeThreshold) {
+    requests.push({
+      from: loaded.to,
+      to: loaded.to + prefetchSpan,
+    });
+  }
+
+  return requests
+    .map(normalizeTrendRange)
+    .filter((range) => range.to - range.from >= 1000);
+}
+
 function downloadTextFile(filename: string, content: string): void {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return;
@@ -427,7 +512,7 @@ function ToolbarGlyph({ path, viewBox = "0 0 24 24" }: ToolbarGlyphProps) {
 }
 
 function resolveRangeFromObject(object: TrendChartObject): { preset: TrendRangePreset; range: TrendVisibleRange } {
-  const preset = object.rangePreset ?? "1h";
+  const preset = object.rangePreset ?? "5m";
   if (preset === "custom" && typeof object.customFrom === "number" && typeof object.customTo === "number" && object.customTo > object.customFrom) {
     return {
       preset,
@@ -493,7 +578,7 @@ function buildObjectDefaultsSignature(object: TrendChartObject): string {
     selectedTags: object.selectedTags ?? [],
     axes: object.axes ?? [],
     settings: resolveSettingsFromObject(object),
-    rangePreset: object.rangePreset ?? "1h",
+    rangePreset: object.rangePreset ?? "5m",
     customFrom: object.customFrom ?? null,
     customTo: object.customTo ?? null,
     liveMode: Boolean(object.liveMode),
@@ -701,6 +786,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const [tagPickerFilters, setTagPickerFilters] = useState<TrendTagPickerFilters>(initialViewState.tagPickerFilters ?? DEFAULT_TAG_PICKER_FILTERS);
   const [settings, setSettings] = useState<TrendSettings>(() => initialViewState.settings ?? resolveSettingsFromObject(object));
   const [offlineResponse, setOfflineResponse] = useState<TrendQueryResponse | null>(null);
+  const [offlineLoadedRange, setOfflineLoadedRange] = useState<TrendVisibleRange | null>(null);
   const [liveResponse, setLiveResponse] = useState<TrendQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -774,6 +860,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const liveRealtimeAppendedSinceLastLogRef = useRef(0);
   const liveLastTimestampByTagRef = useRef<Map<string, number>>(new Map());
   const historyLoadTimerRef = useRef<number | null>(null);
+  const offlineLoadedRangeRef = useRef<TrendVisibleRange | null>(null);
+  const offlineResponseRef = useRef<TrendQueryResponse | null>(null);
+  const bufferedRequestKeyRef = useRef<string | null>(null);
   const toolbarRangeRef = useRef<{ preset: TrendRangePreset; range: TrendVisibleRange; expiresAt: number } | null>(null);
   const pendingToolbarPresetRef = useRef<Exclude<TrendRangePreset, "custom"> | null>(null);
   const viewStateSaveTimerRef = useRef<number | null>(null);
@@ -932,6 +1021,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       restoredTags: nextViewState.selectedTags.length,
     });
     setOfflineResponse(null);
+    setOfflineLoadedRange(null);
+    offlineLoadedRangeRef.current = null;
+    offlineResponseRef.current = null;
+    bufferedRequestKeyRef.current = null;
     setLiveResponse(null);
     setError(null);
     setLastLoadAt(undefined);
@@ -994,6 +1087,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   useEffect(() => {
     visibleRangeRef.current = visibleRange;
   }, [visibleRange.from, visibleRange.to]);
+
+  useEffect(() => {
+    offlineLoadedRangeRef.current = offlineLoadedRange;
+  }, [offlineLoadedRange?.from, offlineLoadedRange?.to]);
+
+  useEffect(() => {
+    offlineResponseRef.current = offlineResponse;
+  }, [offlineResponse]);
 
   useEffect(() => {
     if (!liveMode) {
@@ -1083,10 +1184,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       skipLoadingState?: boolean;
       skipLiveLoadingState?: boolean;
       skipRateLimit?: boolean;
+      mergeWithExisting?: boolean;
     },
   ): Promise<ExecuteQueryResult> => {
     if (selectedTagNames.length === 0) {
       setOfflineResponse(null);
+      setOfflineLoadedRange(null);
+      offlineLoadedRangeRef.current = null;
+      offlineResponseRef.current = null;
       setLiveResponse(null);
       return { ok: false, reason: "error" };
     }
@@ -1185,7 +1290,18 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           }
           liveHistoryLoadedToRef.current = Number.isFinite(cachedLatestTs) ? Math.max(range.to, cachedLatestTs) : range.to;
         } else {
-          setOfflineResponse(boundedCached);
+          if (options?.mergeWithExisting) {
+            const mergedRange = unionTrendRanges(offlineLoadedRangeRef.current, range);
+            const mergedCached = boundResponseSeriesPoints(
+              buildBufferedTrendResponse(offlineResponseRef.current, boundedCached, mergedRange, selectedTags),
+              settings.maxVisiblePointsPerSeries,
+            );
+            offlineResponseRef.current = mergedCached;
+            setOfflineResponse(mergedCached);
+          } else {
+            offlineResponseRef.current = boundedCached;
+            setOfflineResponse(boundedCached);
+          }
           if (pendingToolbarPresetRef.current) {
             setToolbarQuickPreset(pendingToolbarPresetRef.current);
             pendingToolbarPresetRef.current = null;
@@ -1390,7 +1506,18 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
           pendingToolbarPresetRef.current = null;
         }
       } else {
-        setOfflineResponse(boundedNext);
+        if (options?.mergeWithExisting) {
+          const mergedRange = unionTrendRanges(offlineLoadedRangeRef.current, range);
+          const mergedNext = boundResponseSeriesPoints(
+            buildBufferedTrendResponse(offlineResponseRef.current, boundedNext, mergedRange, selectedTags),
+            settings.maxVisiblePointsPerSeries,
+          );
+          offlineResponseRef.current = mergedNext;
+          setOfflineResponse(mergedNext);
+        } else {
+          offlineResponseRef.current = boundedNext;
+          setOfflineResponse(boundedNext);
+        }
         if (pendingToolbarPresetRef.current) {
           setToolbarQuickPreset(pendingToolbarPresetRef.current);
           pendingToolbarPresetRef.current = null;
@@ -1494,6 +1621,68 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     settings.realtimeAppendSnapshotMaxPoints,
     realtimeAppendFlushMs,
   ]);
+
+  const requestBufferedRange = useCallback(async (
+    range: TrendVisibleRange,
+    options?: { force?: boolean; replace?: boolean; skipLoadingState?: boolean },
+  ): Promise<ExecuteQueryResult> => {
+    const normalized = normalizeTrendRange(range);
+    if (normalized.to <= normalized.from || selectedTagNames.length === 0) {
+      return { ok: false, reason: "error" };
+    }
+    const requestKey = `${normalized.from}:${normalized.to}:${options?.replace ? "replace" : "merge"}`;
+    if (!options?.force && bufferedRequestKeyRef.current === requestKey) {
+      return { ok: false, reason: "error" };
+    }
+    bufferedRequestKeyRef.current = requestKey;
+    const result = await executeQuery(normalized, {
+      force: options?.force,
+      context: "history",
+      targetMode: "offline",
+      mergeWithExisting: options?.replace !== true,
+      skipLoadingState: options?.skipLoadingState,
+    });
+    if (bufferedRequestKeyRef.current === requestKey) {
+      bufferedRequestKeyRef.current = null;
+    }
+    if (result.ok) {
+      const nextLoadedRange = options?.replace
+        ? normalized
+        : unionTrendRanges(offlineLoadedRangeRef.current, normalized);
+      offlineLoadedRangeRef.current = nextLoadedRange;
+      setOfflineLoadedRange(nextLoadedRange);
+    }
+    return result;
+  }, [executeQuery, selectedTagNames.length]);
+
+  const maybeRequestPrefetchIfNeeded = useCallback((range: TrendVisibleRange, options?: { immediate?: boolean }) => {
+    if (selectedTagNames.length === 0 || liveModeRef.current) {
+      return;
+    }
+    const requests = requestPrefetchIfNeeded(range, offlineLoadedRangeRef.current);
+    if (requests.length === 0) {
+      return;
+    }
+    if (historyLoadTimerRef.current) {
+      window.clearTimeout(historyLoadTimerRef.current);
+      historyLoadTimerRef.current = null;
+    }
+    const load = () => {
+      void (async () => {
+        for (const requestRange of requests) {
+          await requestBufferedRange(requestRange, { skipLoadingState: true });
+        }
+      })();
+    };
+    if (options?.immediate || !isRangeCovered(offlineLoadedRangeRef.current, range)) {
+      load();
+      return;
+    }
+    historyLoadTimerRef.current = window.setTimeout(() => {
+      historyLoadTimerRef.current = null;
+      load();
+    }, TREND_PREFETCH_DEBOUNCE_MS);
+  }, [requestBufferedRange, selectedTagNames.length]);
 
   const executeLiveBootstrapQuery = useCallback(async (nextRange: TrendVisibleRange): Promise<boolean> => {
     const sessionId = liveSessionIdRef.current;
@@ -1673,9 +1862,13 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     if (selectedTagNames.length === 0 || liveMode) {
       return;
     }
-    setOfflineResponse(buildEmptyTrendResponse(visibleRange, selectedTags));
-    void executeQuery(visibleRange, { force: true, targetMode: "offline", context: "history" });
-  }, [executeQuery, liveMode, screenRevision, selectedTagNamesKey, selectedTags, visibleRange]);
+    const initialLoadedRange = resolveInitialLoadedRange(visibleRangeRef.current);
+    offlineLoadedRangeRef.current = initialLoadedRange;
+    offlineResponseRef.current = buildEmptyTrendResponse(initialLoadedRange, selectedTags);
+    setOfflineLoadedRange(initialLoadedRange);
+    setOfflineResponse(offlineResponseRef.current);
+    void requestBufferedRange(initialLoadedRange, { force: true, replace: true });
+  }, [liveMode, requestBufferedRange, screenRevision, selectedTagNamesKey, selectedTags]);
 
   useEffect(() => {
     if (!liveMode || selectedTagNames.length === 0) {
@@ -2316,12 +2509,11 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   };
 
   const applyRangeAndQuery = (next: TrendVisibleRange, options?: { keepLive?: boolean; preset?: TrendRangePreset }) => {
-    const normalized: TrendVisibleRange = {
-      from: Math.min(next.from, next.to),
-      to: Math.max(next.from, next.to),
-    };
+    const normalized = normalizeTrendRange(next);
     const nextPreset = options?.preset ?? "custom";
     rememberToolbarRange(nextPreset, normalized);
+    setToolbarQuickPreset(nextPreset === "5m" || nextPreset === "15m" || nextPreset === "1h" ? nextPreset : null);
+    pendingToolbarPresetRef.current = null;
     if (liveMode && options?.keepLive) {
       setLiveAutoStopReason(null);
       setRangePreset(nextPreset);
@@ -2341,14 +2533,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     setVisibleRange(normalized);
     setCustomFrom(toLocalDateTimeInputValue(normalized.from));
     setCustomTo(toLocalDateTimeInputValue(normalized.to));
-    setOfflineResponse(buildEmptyTrendResponse(normalized, selectedTags));
-    void executeQuery(normalized, { force: true, context: "history", targetMode: "offline" });
+    if (selectedTags.length > 0 && !isRangeCovered(offlineLoadedRangeRef.current, normalized)) {
+      const missingRanges = requestPrefetchIfNeeded(normalized, offlineLoadedRangeRef.current);
+      const rangesToLoad = missingRanges.length > 0 ? missingRanges : [normalized];
+      void (async () => {
+        for (const requestRange of rangesToLoad) {
+          await requestBufferedRange(requestRange, { force: true, skipLoadingState: false });
+        }
+      })();
+    }
   };
 
   const applyPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
-    const next = parseQuickRange(preset);
+    const next = resolveRangeForPresetInBuffer(preset, liveMode ? null : offlineLoadedRangeRef.current);
     setRangePreset(preset);
-    pendingToolbarPresetRef.current = preset;
     logTrendDiagnostics("range:preset", {
       preset,
       from: next.from,
@@ -2367,7 +2565,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   };
 
   const applyDialogPreset = (preset: Exclude<TrendRangePreset, "custom">) => {
-    const next = parseQuickRange(preset);
+    const next = resolveRangeForPresetInBuffer(preset, liveMode ? null : offlineLoadedRangeRef.current);
     setTimeRangeDraftFrom(toLocalDateTimeInputValue(next.from));
     setTimeRangeDraftTo(toLocalDateTimeInputValue(next.to));
     applyRangeAndQuery(next, { preset, keepLive: liveMode });
@@ -2384,25 +2582,30 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
   const zoomBy = (factor: number) => {
     const currentSpan = Math.max(TREND_ZOOM_MIN_SPAN_MS, visibleRange.to - visibleRange.from);
     const nextSpan = clamp(Math.round(currentSpan * factor), TREND_ZOOM_MIN_SPAN_MS, TREND_ZOOM_MAX_SPAN_MS);
-    applyRangeAndQuery({
+    const nextRange = {
       from: Math.round(visibleRange.to - nextSpan),
       to: Math.round(visibleRange.to),
-    });
+    };
+    applyRangeAndQuery(nextRange);
   };
 
   const panBy = (direction: -1 | 1) => {
     const span = Math.max(TREND_ZOOM_MIN_SPAN_MS, visibleRange.to - visibleRange.from);
     const shift = Math.round(span * 0.25 * direction);
-    applyRangeAndQuery({
+    const nextRange = {
       from: visibleRange.from + shift,
       to: visibleRange.to + shift,
-    });
+    };
+    applyRangeAndQuery(nextRange);
   };
 
   const handleChartRangeChange = (range: TrendVisibleRange, source: "interaction" | "live") => {
-    setVisibleRange(range);
+    const normalized = normalizeTrendRange(range);
+    setVisibleRange(normalized);
+    setCustomFrom(toLocalDateTimeInputValue(normalized.from));
+    setCustomTo(toLocalDateTimeInputValue(normalized.to));
     if (source === "interaction") {
-      if (isToolbarRangeEcho(range)) {
+      if (isToolbarRangeEcho(normalized)) {
         const preset = toolbarRangeRef.current?.preset ?? "custom";
         setRangePreset(preset);
         return;
@@ -2417,23 +2620,14 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       setLiveMode(false);
       setLiveAutoStopReason("Stopped by zoom/pan interaction");
       if (selectedTags.length > 0) {
-        setOfflineResponse(buildEmptyTrendResponse(range, selectedTags));
-        void executeQuery(range, { force: true, context: "history", targetMode: "offline" });
+        if (!isRangeCovered(offlineLoadedRangeRef.current, normalized)) {
+          void requestBufferedRange(resolveInitialLoadedRange(normalized), { force: true, replace: true });
+        }
       }
       return;
     }
     if (source === "interaction" && !liveMode && selectedTags.length > 0) {
-      if (historyLoadTimerRef.current) {
-        window.clearTimeout(historyLoadTimerRef.current);
-      }
-      const span = Math.max(1_000, range.to - range.from);
-      const queryRange: TrendVisibleRange = {
-        from: range.from - Math.floor(span * 0.35),
-        to: range.to + Math.floor(span * 0.35),
-      };
-      historyLoadTimerRef.current = window.setTimeout(() => {
-        void executeQuery(queryRange, { force: true, context: "history", targetMode: "offline" });
-      }, 220);
+      maybeRequestPrefetchIfNeeded(normalized);
     }
   };
 
@@ -2463,12 +2657,20 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
       }
       return;
     }
-    setOfflineResponse(buildEmptyTrendResponse(visibleRange, selectedTags));
-    void executeQuery(visibleRange, { force: true, context: "history", targetMode: "offline" });
+    const refreshRange = offlineLoadedRangeRef.current ?? resolveInitialLoadedRange(visibleRange);
+    offlineLoadedRangeRef.current = refreshRange;
+    setOfflineLoadedRange(refreshRange);
+    setOfflineResponse(buildEmptyTrendResponse(refreshRange, selectedTags));
+    offlineResponseRef.current = buildEmptyTrendResponse(refreshRange, selectedTags);
+    void requestBufferedRange(refreshRange, { force: true, replace: true });
   };
 
   const refreshFromTimer = () => {
-    void executeQuery(visibleRange, { force: true, context: "history", targetMode: "offline" });
+    const refreshRange = offlineLoadedRangeRef.current;
+    if (!refreshRange) {
+      return;
+    }
+    void requestBufferedRange(refreshRange, { force: true, replace: true, skipLoadingState: true });
   };
 
   const refreshFromTimerRef = useRef(refreshFromTimer);
@@ -2476,7 +2678,7 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
 
   useEffect(() => {
     const intervalMs = settings.refreshIntervalMs;
-    if (liveMode || !intervalMs || intervalMs < 500) {
+    if (liveMode || !intervalMs || intervalMs < 500 || offlineLoadedRange) {
       return;
     }
     const id = window.setInterval(() => {
@@ -2762,8 +2964,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             showLegend={false}
             showTooltip={false}
             showDataZoomSlider={false}
-            interactiveZoomEnabled={false}
+            interactiveZoomEnabled={!liveMode}
             visibleRange={visibleRange}
+            loadedRange={mode === "offline" ? offlineLoadedRange : null}
             liveMode={chartLiveMode}
             disableAnimation={liveMode && liveDataSource === "archivePolling"}
             liveWindowMs={liveWindowMs}
@@ -2927,6 +3130,9 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
             onClick={() => runMenuAction(() => {
               setSelectedTags([]);
               setOfflineResponse(null);
+              setOfflineLoadedRange(null);
+              offlineLoadedRangeRef.current = null;
+              offlineResponseRef.current = null;
               setLiveResponse(null);
               setError(null);
             })}
@@ -3075,4 +3281,3 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     </div>
   );
 }
-

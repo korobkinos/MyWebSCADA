@@ -41,6 +41,7 @@ type TrendChartProps = {
   showDataZoomSlider?: boolean;
   interactiveZoomEnabled?: boolean;
   visibleRange: TrendVisibleRange;
+  loadedRange?: TrendVisibleRange | null;
   liveMode: boolean;
   disableAnimation?: boolean;
   liveWindowMs: number;
@@ -93,6 +94,7 @@ export function TrendChart({
   showDataZoomSlider = true,
   interactiveZoomEnabled = true,
   visibleRange,
+  loadedRange = null,
   liveMode,
   disableAnimation = false,
   liveWindowMs,
@@ -1206,6 +1208,10 @@ export function TrendChart({
               filterMode: "none",
               rangeMode: ["value", "value"],
               brushSelect: false,
+              zoomOnMouseWheel: true,
+              moveOnMouseMove: true,
+              moveOnMouseWheel: false,
+              preventDefaultMouseMove: true,
               startValue: visibleRange.from,
               endValue: visibleRange.to,
               minValueSpan: 1000,
@@ -1930,11 +1936,13 @@ export function TrendChart({
 
     seriesPointsRef.current = nextMap;
     axisStatsByTagRef.current = nextStats;
-    fullRangeRef.current = Number.isFinite(minTs) && Number.isFinite(maxTs) && maxTs > minTs
+    fullRangeRef.current = loadedRange && loadedRange.to > loadedRange.from
+      ? loadedRange
+      : Number.isFinite(minTs) && Number.isFinite(maxTs) && maxTs > minTs
       ? { from: minTs, to: maxTs }
       : visibleRange;
     scheduleRender("data-change");
-  }, [data]);
+  }, [data, loadedRange?.from, loadedRange?.to, visibleRange.from, visibleRange.to]);
 
   useEffect(() => {
     scheduleRender("props-change");
