@@ -114,7 +114,8 @@ export type HmiObjectBase = {
     | "radio-group"
     | "numeric-input"
     | "numeric-image-indicator"
-    | "trendChart";
+    | "trendChart"
+    | "eventTable";
   name?: string;
 
   x: number;
@@ -811,6 +812,29 @@ export type TrendChartObject = HmiObjectBase & {
   runtimeSettingsRequiredRole?: AccessRoleLevel;
 };
 
+export type EventTableObject = HmiObjectBase & {
+  type: "eventTable";
+  title?: string;
+  showHeader?: boolean;
+  showToolbar?: boolean;
+  showActiveOnly?: boolean;
+  showUnacknowledgedOnly?: boolean;
+  maxRows?: number;
+  categoryFilter?: string[];
+  priorityFilter?: number[];
+  columns?: string[];
+  fontSize?: number;
+  rowHeight?: number;
+  textColor?: string;
+  backgroundColor?: string;
+  headerBackgroundColor?: string;
+  borderColor?: string;
+  showGridLines?: boolean;
+  zebraRows?: boolean;
+  enableAckButton?: boolean;
+  enableSilenceButton?: boolean;
+};
+
 export type HmiObject =
   | GroupObject
   | TextObject
@@ -835,4 +859,5 @@ export type HmiObject =
   | RadioGroupObject
   | NumericInputObject
   | NumericImageIndicatorObject
-  | TrendChartObject;
+  | TrendChartObject
+  | EventTableObject;

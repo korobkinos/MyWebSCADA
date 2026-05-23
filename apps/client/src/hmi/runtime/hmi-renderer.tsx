@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type Konva from "konva";
@@ -35,6 +35,7 @@ import { applyElementStateRules } from "./element-state-rules";
 import { getObjectIndexedConfigForField, resolveObjectTagField } from "../tags/indexed-address";
 import { sortObjectsByZIndex } from "../editor/z-order";
 import { TrendRuntimeWidget } from "../../features/trends/TrendRuntimeWidget";
+import { EventTableRuntimeWidget } from "../../features/events/EventTableRuntimeWidget";
 
 const HMI_CONTROL_COLORS = {
   text: "#cccccc",
@@ -114,6 +115,12 @@ const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
 
 function isRotationAnimationSupportedObjectType(type: HmiObject["type"]): boolean {
   return ROTATION_ANIMATION_SUPPORTED_TYPES.has(type);
+}
+
+function isWidgetOverlayObject(
+  object: HmiObject,
+): object is Extract<HmiObject, { type: "trendChart" | "eventTable" }> {
+  return object.type === "trendChart" || object.type === "eventTable";
 }
 
 function formatNumericValue(value: number, opts: FormatNumericOptions): string {
@@ -1722,12 +1729,18 @@ function ObjectNode({
     if (flowOnlyPass) {
       return;
     }
-    if (resolvedObject.type !== "trendChart") {
+    if (!isWidgetOverlayObject(resolvedObject)) {
       return;
     }
     if (!runtimeMode) {
       onRemoveWidgetOverlay?.(resolvedObject.id);
       return;
+    }
+    let content: ReactNode;
+    if (resolvedObject.type === "trendChart") {
+      content = <TrendRuntimeWidget object={resolvedObject} userRoleLevel={renderContext.userRoleLevel} />;
+    } else {
+      content = <EventTableRuntimeWidget object={resolvedObject} />;
     }
     onUpsertWidgetOverlay?.({
       objectId: resolvedObject.id,
@@ -1735,7 +1748,7 @@ function ObjectNode({
       y: resolvedObject.y,
       width: Math.max(1, resolvedObject.width),
       height: Math.max(1, resolvedObject.height),
-      content: <TrendRuntimeWidget object={resolvedObject} userRoleLevel={renderContext.userRoleLevel} />,
+      content,
     });
   }, [
     flowOnlyPass,
@@ -1750,7 +1763,7 @@ function ObjectNode({
     if (flowOnlyPass) {
       return;
     }
-    if (resolvedObject.type !== "trendChart") {
+    if (!isWidgetOverlayObject(resolvedObject)) {
       return;
     }
     return () => {
@@ -3404,6 +3417,42 @@ function ObjectNode({
           fontFamily: "Consolas",
           fontSize: 12,
           color: "#d4d4d4",
+          horizontalAlign: "center",
+          verticalAlign: "middle",
+          padding: 4,
+        }, {
+          width: resolvedObject.width,
+          height: resolvedObject.height,
+        })}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
+      </Group>
+    );
+  }
+
+  if (resolvedObject.type === "eventTable") {
+    if (runtimeMode) {
+      return (
+        <Group {...commonGroupProps} listening={false}>
+          <Rect width={resolvedObject.width} height={resolvedObject.height} fill="rgba(0,0,0,0)" listening={false} />
+        </Group>
+      );
+    }
+
+    return (
+      <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        <Rect
+          width={resolvedObject.width}
+          height={resolvedObject.height}
+          fill={resolvedObject.backgroundColor ?? "#1e1e1e"}
+          stroke={resolvedObject.borderColor ?? "#3c3c3c"}
+          strokeWidth={1}
+          perfectDrawEnabled={false}
+        />
+        {renderBoxText(resolvedObject.title?.trim() || "Event Table", {
+          fontFamily: "Consolas",
+          fontSize: 12,
+          color: resolvedObject.textColor ?? "#d4d4d4",
           horizontalAlign: "center",
           verticalAlign: "middle",
           padding: 4,

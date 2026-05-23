@@ -14,6 +14,7 @@ import {
   SaveOutlined,
   SettingOutlined,
   SnippetsOutlined,
+  TableOutlined,
   UndoOutlined,
   UnorderedListOutlined,
 } from "@ant-design/icons";
@@ -542,6 +543,7 @@ export function ScreenEditorCenter({
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("slider"))} title="Add Slider" icon={<SliderIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("progress-bar"))} title="Add Progress Bar" icon={<BarChartIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("trendChart"))} title="Add Trend Chart" icon={<LineChartOutlined />} />
+                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("eventTable"))} title="Add Event Table" icon={<TableOutlined />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("select"))} title="Add Select" icon={<ChevronDownIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("radio-group"))} title="Add Radio Group" icon={<DotFilledIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("numeric-input"))} title="Add Numeric Input" icon={<InputIcon />} />

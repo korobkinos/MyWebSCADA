@@ -885,6 +885,29 @@ const trendChartObjectSchema = hmiBaseSchema.extend({
   showStatusBar: z.boolean().optional(),
 });
 
+const eventTableObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("eventTable"),
+  title: z.string().optional(),
+  showHeader: z.boolean().optional(),
+  showToolbar: z.boolean().optional(),
+  showActiveOnly: z.boolean().optional(),
+  showUnacknowledgedOnly: z.boolean().optional(),
+  maxRows: z.number().int().positive().optional(),
+  categoryFilter: z.array(z.string()).optional(),
+  priorityFilter: z.array(z.number()).optional(),
+  columns: z.array(z.string()).optional(),
+  fontSize: z.number().optional(),
+  rowHeight: z.number().optional(),
+  textColor: z.string().optional(),
+  backgroundColor: z.string().optional(),
+  headerBackgroundColor: z.string().optional(),
+  borderColor: z.string().optional(),
+  showGridLines: z.boolean().optional(),
+  zebraRows: z.boolean().optional(),
+  enableAckButton: z.boolean().optional(),
+  enableSilenceButton: z.boolean().optional(),
+});
+
 export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
   z.discriminatedUnion("type", [
     groupObjectSchema,
@@ -911,6 +934,7 @@ export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
     numericInputObjectSchema,
     numericImageIndicatorObjectSchema,
     trendChartObjectSchema,
+    eventTableObjectSchema,
   ]) as z.ZodType<HmiObject>,
 );
 
@@ -1190,6 +1214,55 @@ const variableSchema = z.object({
   updatedAt: z.string().optional(),
 });
 
+const eventDefinitionSchema = z.object({
+  id: z.string().min(1),
+  enabled: z.boolean().optional(),
+  categoryId: z.string().optional(),
+  categoryName: z.string().optional(),
+  message: z.string().optional(),
+  priority: z.number().optional(),
+  sourceTagName: z.string().optional(),
+  conditionMode: z.enum(["bit", "word"]).optional(),
+  bitTrigger: z.enum(["ON", "OFF", "OFF_TO_ON", "ON_TO_OFF"]).optional(),
+  wordOperator: z.enum(["<", ">", "=", "<>", ">=", "<="]).optional(),
+  wordValue: z.number().optional(),
+  startupDelayMs: z.number().int().nonnegative().optional(),
+  requireAck: z.boolean().optional(),
+  ackValue: z.union([z.boolean(), z.number(), z.string(), z.null()]).optional(),
+  ackTagName: z.string().optional(),
+  notificationTagName: z.string().optional(),
+  soundEnabled: z.boolean().optional(),
+  soundId: z.string().optional(),
+  textColor: z.string().optional(),
+  backgroundColor: z.string().optional(),
+  securityEnabled: z.boolean().optional(),
+  securityTagName: z.string().optional(),
+  securityBitValue: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
+const eventCategorySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  color: z.string().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
+const eventSoundSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  assetId: z.string().optional(),
+  filePath: z.string().optional(),
+  enabled: z.boolean().optional(),
+  volume: z.number().optional(),
+  loop: z.boolean().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
 export const macroSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -1316,6 +1389,9 @@ export const projectSchema = z.object({
   libraries: z.array(projectLibraryRefSchema).optional(),
   drivers: z.array(z.discriminatedUnion("type", [simulatedDriverSchema, opcuaDriverSchema])),
   tags: z.array(tagSchema),
+  events: z.array(eventDefinitionSchema).optional(),
+  eventCategories: z.array(eventCategorySchema).optional(),
+  eventSounds: z.array(eventSoundSchema).optional(),
   variables: z.array(variableSchema).optional(),
   lwStore: z
     .object({

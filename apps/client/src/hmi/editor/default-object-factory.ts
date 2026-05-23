@@ -569,6 +569,36 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
           showToolbarSettingsButton: true,
         },
       };
+    case "eventTable":
+      return {
+        id: id("event_table"),
+        type,
+        x: 100,
+        y: 100,
+        width: 560,
+        height: 280,
+        minWidth: 220,
+        minHeight: 140,
+        title: "Event Table",
+        showHeader: true,
+        showToolbar: true,
+        showActiveOnly: true,
+        showUnacknowledgedOnly: false,
+        maxRows: 100,
+        categoryFilter: [],
+        priorityFilter: [],
+        columns: ["timestamp", "priority", "category", "message", "source", "ack"],
+        fontSize: 12,
+        rowHeight: 28,
+        textColor: "#d4d4d4",
+        backgroundColor: "#1e1e1e",
+        headerBackgroundColor: "#2d2d30",
+        borderColor: "#3c3c3c",
+        showGridLines: true,
+        zebraRows: true,
+        enableAckButton: true,
+        enableSilenceButton: true,
+      };
     default:
       return {
         id: id("obj"),

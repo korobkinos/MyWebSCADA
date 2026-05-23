@@ -15,3 +15,4 @@ export * from "./password-policy";
 export * from "./runtime-command-types";
 export * from "./indexed-address";
 export * from "./hmi-object-tree";
+export * from "./event-types";

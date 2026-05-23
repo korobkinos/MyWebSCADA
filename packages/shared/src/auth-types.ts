@@ -31,6 +31,7 @@ export type AppPermission =
   | "tags.delete"
   | "tags.import"
   | "tags.export"
+  | "events.view"
   | "drivers.view"
   | "drivers.write"
   | "drivers.delete"

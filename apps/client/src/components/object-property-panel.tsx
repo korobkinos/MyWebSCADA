@@ -4094,6 +4094,110 @@ function SpecificPropertyFields({
     );
   }
 
+  if (object.type === "eventTable") {
+    return (
+      <>
+        <Typography.Text strong>General</Typography.Text>
+        <Form.Item label="Title">
+          <Input value={object.title ?? ""} onChange={(e) => onPatch({ title: e.target.value } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Max Rows">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1}
+            max={5000}
+            value={object.maxRows ?? 100}
+            onChange={(value) => onPatch({ maxRows: Math.max(1, Math.min(5000, Number(value ?? 100))) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Columns (comma-separated)">
+          <Input
+            value={(object.columns ?? []).join(", ")}
+            onChange={(event) => {
+              const nextColumns = event.target.value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean);
+              onPatch({ columns: nextColumns } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+        <Form.Item label="Category Filter (comma-separated)">
+          <Input
+            value={(object.categoryFilter ?? []).join(", ")}
+            onChange={(event) => {
+              const nextCategories = event.target.value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean);
+              onPatch({ categoryFilter: nextCategories } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+        <Form.Item label="Priority Filter (comma-separated)">
+          <Input
+            value={(object.priorityFilter ?? []).join(", ")}
+            onChange={(event) => {
+              const nextPriorities = event.target.value
+                .split(",")
+                .map((item) => Number(item.trim()))
+                .filter((value) => Number.isFinite(value));
+              onPatch({ priorityFilter: nextPriorities } as Partial<HmiObject>);
+            }}
+          />
+        </Form.Item>
+        <Form.Item label="Font Size">
+          <InputNumber style={{ width: "100%" }} min={8} max={28} value={object.fontSize ?? 12} onChange={(v) => onPatch({ fontSize: Number(v ?? 12) } as Partial<HmiObject>)} />
+        </Form.Item>
+        <Form.Item label="Row Height">
+          <InputNumber style={{ width: "100%" }} min={18} max={80} value={object.rowHeight ?? 28} onChange={(v) => onPatch({ rowHeight: Number(v ?? 28) } as Partial<HmiObject>)} />
+        </Form.Item>
+
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Visibility / Behavior</Typography.Text>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Show Header</span>
+          <Switch checked={object.showHeader ?? true} onChange={(checked) => onPatch({ showHeader: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Show Toolbar</span>
+          <Switch checked={object.showToolbar ?? true} onChange={(checked) => onPatch({ showToolbar: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Show Active Only</span>
+          <Switch checked={object.showActiveOnly ?? true} onChange={(checked) => onPatch({ showActiveOnly: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Show Unacknowledged Only</span>
+          <Switch checked={object.showUnacknowledgedOnly ?? false} onChange={(checked) => onPatch({ showUnacknowledgedOnly: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Show Grid Lines</span>
+          <Switch checked={object.showGridLines ?? true} onChange={(checked) => onPatch({ showGridLines: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Zebra Rows</span>
+          <Switch checked={object.zebraRows ?? true} onChange={(checked) => onPatch({ zebraRows: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Enable Ack Button</span>
+          <Switch checked={object.enableAckButton ?? true} onChange={(checked) => onPatch({ enableAckButton: checked } as Partial<HmiObject>)} />
+        </Space>
+        <Space className="object-property-panel__runtime-switch-row">
+          <span>Enable Silence Button</span>
+          <Switch checked={object.enableSilenceButton ?? true} onChange={(checked) => onPatch({ enableSilenceButton: checked } as Partial<HmiObject>)} />
+        </Space>
+
+        <Divider style={{ margin: "10px 0" }} />
+        <Typography.Text strong>Colors</Typography.Text>
+        <ColorField label="Text Color" value={object.textColor ?? "#d4d4d4"} fallback="#d4d4d4" onChange={(next) => onPatch({ textColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Background Color" value={object.backgroundColor ?? "#1e1e1e"} fallback="#1e1e1e" onChange={(next) => onPatch({ backgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Header Background" value={object.headerBackgroundColor ?? "#2d2d30"} fallback="#2d2d30" onChange={(next) => onPatch({ headerBackgroundColor: next } as Partial<HmiObject>)} />
+        <ColorField label="Border Color" value={object.borderColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
+      </>
+    );
+  }
+
   if (object.type === "select") {
     return (
       <>
@@ -4730,7 +4834,6 @@ function hasTextLayout(
     object.type === "valueSelect"
   );
 }
-
 
 
 
