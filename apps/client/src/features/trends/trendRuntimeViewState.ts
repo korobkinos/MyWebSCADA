@@ -17,6 +17,7 @@ type TrendRuntimeViewStateData = {
   manualAxes: TrendAxisConfig[];
   tagPickerFilters: TrendTagPickerFilters;
   seriesColumnWidths: TrendSeriesColumnWidths;
+  seriesTableCollapsed?: boolean;
   toolbarQuickPreset?: TrendQuickPreset | null;
   defaultsSignature?: string;
 };
@@ -217,6 +218,7 @@ export function resolveRuntimeViewState({
         parsed.seriesColumnWidths as Partial<Record<TrendSeriesColumnId, unknown>> | undefined,
         defaultSeriesColumnWidths,
       ),
+      seriesTableCollapsed: Boolean(parsed.seriesTableCollapsed),
       toolbarQuickPreset,
       defaultsSignature: typeof parsed.defaultsSignature === "string" ? parsed.defaultsSignature : undefined,
     };
@@ -257,4 +259,3 @@ export function writeRuntimeViewState({ objectId, state }: RuntimeViewStateWrite
   };
   window.localStorage.setItem(getRuntimeViewStateStorageKey(objectId), JSON.stringify(payload));
 }
-

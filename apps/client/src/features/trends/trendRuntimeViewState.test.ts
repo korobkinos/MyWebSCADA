@@ -58,6 +58,7 @@ describe("trend runtime state persistence", () => {
     expect(result?.settings.realtimeAppendSnapshotAggregation).toBe("auto");
     expect(result?.settings.realtimeAppendSnapshotMaxPoints).toBe(8000);
     expect(result?.settings.realtimeAppendFlushMs).toBe(300);
+    expect(result?.seriesTableCollapsed).toBe(false);
   });
 
   it("maps legacy limits into new bounded settings fields", () => {
@@ -113,5 +114,27 @@ describe("trend runtime state persistence", () => {
     expect(result?.settings.realtimeAppendSnapshotAggregation).toBe("auto");
     expect(result?.settings.realtimeAppendSnapshotMaxPoints).toBe(8000);
     expect(result?.settings.realtimeAppendFlushMs).toBe(50);
+  });
+
+  it("restores collapsed series table state", () => {
+    const raw = JSON.stringify({
+      rangePreset: "1h",
+      visibleRange: { from: 1000, to: 2000 },
+      liveMode: false,
+      customFrom: "2026-01-01T12:00",
+      customTo: "2026-01-01T13:00",
+      selectedTags: [],
+      settings: {},
+      seriesTableCollapsed: true,
+    });
+
+    const result = resolveRuntimeViewState({
+      raw,
+      defaultTagPickerFilters: defaultFilters,
+      defaultSeriesColumnWidths: defaultWidths,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.seriesTableCollapsed).toBe(true);
   });
 });
