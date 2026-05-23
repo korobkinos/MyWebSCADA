@@ -17,6 +17,7 @@ const LIVE_DOMAIN_GRACE_MS = 1500;
 const LIVE_CARRY_FORWARD_TICK_MS = 500;
 const LIVE_MIN_SERIES_POINT_CAP = 200;
 const LIVE_MAX_SERIES_POINT_CAP = 20_000;
+const LIVE_GAP_BREAK_RECALC_APPEND_INTERVAL = 256;
 const Y_AXIS_HIT_ZONE_MIN_PX = 42;
 const Y_AXIS_HIT_ZONE_MAX_PX = 96;
 const Y_AXIS_INNER_GAP_PX = 2;
@@ -133,6 +134,9 @@ export function TrendChart({
   const renderRafReasonRef = useRef<string | null>(null);
   const renderThrottleCountRef = useRef(0);
   const appendLivePointsCallCountRef = useRef(0);
+  const liveAppendedPointCountRef = useRef(0);
+  const gapBreakMsByTagRef = useRef<Map<string, number>>(new Map());
+  const liveGapBreakAppendCountByTagRef = useRef<Map<string, number>>(new Map());
   const yAxisOverrideRef = useRef<Map<string, { min: number; max: number }>>(new Map());
   const yAxisRuntimeInfoRef = useRef<TrendAxisRuntimeInfo[]>([]);
   const gridRuntimeInfoRef = useRef<TrendGridRuntimeInfo | null>(null);
@@ -181,6 +185,42 @@ export function TrendChart({
       return { min: 0, max: 0, hasNumeric: false };
     }
     return { min, max, hasNumeric: true };
+  };
+  const updateAxisStatsWithPoint = (tagName: string, point: TrendPoint): void => {
+    if (typeof point.v !== "number" || !Number.isFinite(point.v)) {
+      return;
+    }
+    const current = axisStatsByTagRef.current.get(tagName);
+    if (!current || !current.hasNumeric) {
+      axisStatsByTagRef.current.set(tagName, { min: point.v, max: point.v, hasNumeric: true });
+      return;
+    }
+    if (point.v < current.min || point.v > current.max) {
+      axisStatsByTagRef.current.set(tagName, {
+        min: Math.min(current.min, point.v),
+        max: Math.max(current.max, point.v),
+        hasNumeric: true,
+      });
+    }
+  };
+  const pointContributesToAxisExtrema = (tagName: string, point: TrendPoint | undefined): boolean => {
+    if (!point || typeof point.v !== "number" || !Number.isFinite(point.v)) {
+      return false;
+    }
+    const stats = axisStatsByTagRef.current.get(tagName);
+    if (!stats || !stats.hasNumeric) {
+      return false;
+    }
+    return point.v === stats.min || point.v === stats.max;
+  };
+  const cacheGapBreakMsForTag = (tagName: string, points: TrendPoint[]): number => {
+    const gapBreakMs = Math.max(LIVE_GAP_MIN_BREAK_MS, resolveTrendGapBreakMs(points));
+    gapBreakMsByTagRef.current.set(tagName, gapBreakMs);
+    liveGapBreakAppendCountByTagRef.current.set(tagName, 0);
+    return gapBreakMs;
+  };
+  const resolveCachedGapBreakMs = (tagName: string, points: TrendPoint[]): number => {
+    return gapBreakMsByTagRef.current.get(tagName) ?? cacheGapBreakMsForTag(tagName, points);
   };
   const setRootCursor = (nextCursor: string): void => {
     const normalizedCursor = nextCursor || "default";
@@ -589,7 +629,24 @@ export function TrendChart({
 
   useEffect(() => {
     tagsRef.current = tags;
-    activeTagNameSetRef.current = new Set(tags.map((tag) => tag.tag));
+    const activeTagNames = new Set(tags.map((tag) => tag.tag));
+    activeTagNameSetRef.current = activeTagNames;
+    for (const tagName of [...gapBreakMsByTagRef.current.keys()]) {
+      if (!activeTagNames.has(tagName)) {
+        gapBreakMsByTagRef.current.delete(tagName);
+      }
+    }
+    for (const tagName of [...liveGapBreakAppendCountByTagRef.current.keys()]) {
+      if (!activeTagNames.has(tagName)) {
+        liveGapBreakAppendCountByTagRef.current.delete(tagName);
+      }
+    }
+    for (const tagName of activeTagNames) {
+      const points = seriesPointsRef.current.get(tagName);
+      if (points) {
+        cacheGapBreakMsForTag(tagName, points);
+      }
+    }
   }, [tags]);
 
   useEffect(() => {
@@ -934,7 +991,9 @@ export function TrendChart({
       const lineWidth = tag.lineWidth ?? settings.defaultLineWidth;
       const lineType = tag.lineType ?? "solid";
       const renderMode = tag.mode ?? (tagsByName.get(tag.tag)?.mode ?? "line");
-      const gapBreakMs = resolveTrendGapBreakMs(sourcePoints);
+      const gapBreakMs = liveModeRef.current
+        ? resolveCachedGapBreakMs(tag.tag, sourcePoints)
+        : resolveTrendGapBreakMs(sourcePoints);
       const withGaps = insertTrendGapBreaks(sourcePoints, gapBreakMs);
       const liveNowTs = liveModeRef.current
         ? (liveLastEmittedRightRef.current ?? liveNowRef.current)
@@ -993,6 +1052,7 @@ export function TrendChart({
         visibleRange,
         loadedRange: loadedRange ?? null,
         renderRange,
+        cachedGapBreakMs: liveMode ? gapBreakMsByTagRef.current.get(tag.tag) ?? null : null,
         sampling: sampling ?? "none",
       });
       return {
@@ -1349,6 +1409,9 @@ export function TrendChart({
         bufferedPointCount: totalPointCount,
         renderedPointCount: echartsPointCount,
         renderRangePointCount,
+        liveAppendedPointCount: liveAppendedPointCountRef.current,
+        liveBufferPointCount: liveModeRef.current ? totalPointCount : null,
+        cachedGapBreakMsCount: gapBreakMsByTagRef.current.size,
         sourcePointCount: totalPointCount,
         echartsPointCount,
         domain: fullRangeRef.current,
@@ -1726,6 +1789,8 @@ export function TrendChart({
         liveNowRef.current = Date.now();
         const active = activeTagNameSetRef.current;
         const updatedTags = new Set<string>();
+        const statsNeedsFullRecompute = new Set<string>();
+        let acceptedPointCount = 0;
         let minUpdateTs = Number.POSITIVE_INFINITY;
         let maxUpdateTs = Number.NEGATIVE_INFINITY;
         for (const update of updates) {
@@ -1753,7 +1818,7 @@ export function TrendChart({
                 : "good",
           };
           const lastPoint = current[current.length - 1];
-          const gapBreakMs = Math.max(LIVE_GAP_MIN_BREAK_MS, resolveTrendGapBreakMs(current));
+          const gapBreakMs = resolveCachedGapBreakMs(update.tag, current);
           if (lastPoint && lastPoint.v !== null && nextPoint.v !== null && nextPoint.t - lastPoint.t > gapBreakMs) {
             const gapLeftTs = lastPoint.t + 1;
             const gapRightTs = nextPoint.t - 1;
@@ -1778,9 +1843,18 @@ export function TrendChart({
               gapBreakMs,
             });
           }
+          let statsUpdatedIncrementally = false;
           if (!lastPoint || nextPoint.t > lastPoint.t) {
             current.push(nextPoint);
+            updateAxisStatsWithPoint(update.tag, nextPoint);
+            statsUpdatedIncrementally = true;
           } else if (lastPoint.t === nextPoint.t) {
+            if (pointContributesToAxisExtrema(update.tag, lastPoint)) {
+              statsNeedsFullRecompute.add(update.tag);
+            } else {
+              updateAxisStatsWithPoint(update.tag, nextPoint);
+              statsUpdatedIncrementally = true;
+            }
             current[current.length - 1] = nextPoint;
           } else {
             // Keep chronological order for stable line rendering in live mode.
@@ -1789,12 +1863,22 @@ export function TrendChart({
               index -= 1;
             }
             if (index >= 0 && current[index]!.t === nextPoint.t) {
+              if (pointContributesToAxisExtrema(update.tag, current[index])) {
+                statsNeedsFullRecompute.add(update.tag);
+              }
               current[index] = nextPoint;
             } else if (index + 1 < current.length && current[index + 1]!.t === nextPoint.t) {
+              if (pointContributesToAxisExtrema(update.tag, current[index + 1])) {
+                statsNeedsFullRecompute.add(update.tag);
+              }
               current[index + 1] = nextPoint;
             } else {
               current.splice(index + 1, 0, nextPoint);
+              statsNeedsFullRecompute.add(update.tag);
             }
+          }
+          if (!statsUpdatedIncrementally && !statsNeedsFullRecompute.has(update.tag)) {
+            updateAxisStatsWithPoint(update.tag, nextPoint);
           }
           if (update.timestamp < minUpdateTs) {
             minUpdateTs = update.timestamp;
@@ -1804,6 +1888,12 @@ export function TrendChart({
           }
           seriesPointsRef.current.set(update.tag, current);
           updatedTags.add(update.tag);
+          acceptedPointCount += 1;
+          liveAppendedPointCountRef.current += 1;
+          liveGapBreakAppendCountByTagRef.current.set(
+            update.tag,
+            (liveGapBreakAppendCountByTagRef.current.get(update.tag) ?? 0) + 1,
+          );
         }
 
         if (updatedTags.size === 0) {
@@ -1815,20 +1905,39 @@ export function TrendChart({
         const seriesPointCap = liveSeriesPointCapRef.current;
         for (const tagName of updatedTags) {
           const points = seriesPointsRef.current.get(tagName);
-          if (!points || points.length <= 1) {
+          if (!points) {
             continue;
           }
+          let trimmedAxisExtrema = false;
           let cutIndex = 0;
           while (cutIndex < points.length && points[cutIndex]!.t < trimFromTs) {
             cutIndex += 1;
           }
           if (cutIndex > 0) {
+            for (let index = 0; index < cutIndex; index += 1) {
+              if (pointContributesToAxisExtrema(tagName, points[index])) {
+                trimmedAxisExtrema = true;
+                break;
+              }
+            }
             points.splice(0, cutIndex);
           }
           if (points.length > seriesPointCap) {
-            points.splice(0, points.length - seriesPointCap);
+            const trimCount = points.length - seriesPointCap;
+            for (let index = 0; index < trimCount; index += 1) {
+              if (pointContributesToAxisExtrema(tagName, points[index])) {
+                trimmedAxisExtrema = true;
+                break;
+              }
+            }
+            points.splice(0, trimCount);
           }
-          axisStatsByTagRef.current.set(tagName, recomputeAxisStats(points));
+          if (trimmedAxisExtrema || statsNeedsFullRecompute.has(tagName)) {
+            axisStatsByTagRef.current.set(tagName, recomputeAxisStats(points));
+          }
+          if ((liveGapBreakAppendCountByTagRef.current.get(tagName) ?? 0) >= LIVE_GAP_BREAK_RECALC_APPEND_INTERVAL) {
+            cacheGapBreakMsForTag(tagName, points);
+          }
           seriesPointsRef.current.set(tagName, points);
         }
 
@@ -1855,7 +1964,11 @@ export function TrendChart({
         if (isTrendPerfDebugEnabled()) {
           logTrendDiagnostics("live:append-applied", {
             batchSize: updates.length,
+            acceptedPointCount,
             updatedTagCount: updatedTags.size,
+            liveAppendedPointCount: liveAppendedPointCountRef.current,
+            liveBufferPointCount: [...seriesPointsRef.current.values()].reduce((acc, points) => acc + points.length, 0),
+            cachedGapBreakMsCount: gapBreakMsByTagRef.current.size,
             minUpdateTs: Number.isFinite(minUpdateTs) ? minUpdateTs : null,
             maxUpdateTs: Number.isFinite(maxUpdateTs) ? maxUpdateTs : null,
             renderQueued: true,
@@ -1912,6 +2025,8 @@ export function TrendChart({
       chart.dispose();
       chartRef.current = null;
       liveLastEmittedRightRef.current = null;
+      gapBreakMsByTagRef.current.clear();
+      liveGapBreakAppendCountByTagRef.current.clear();
       yAxisRuntimeInfoRef.current = [];
       gridRuntimeInfoRef.current = null;
       lastPointerPixelXRef.current = null;
@@ -1966,9 +2081,18 @@ export function TrendChart({
       const points = nextMap.get(tagName) ?? [];
       nextStats.set(tagName, recomputeAxisStats(points));
     }
+    const nextGapBreakMsByTag = new Map<string, number>();
+    const nextGapBreakAppendCountByTag = new Map<string, number>();
+    for (const tagName of activeTagNames) {
+      const points = nextMap.get(tagName) ?? [];
+      nextGapBreakMsByTag.set(tagName, Math.max(LIVE_GAP_MIN_BREAK_MS, resolveTrendGapBreakMs(points)));
+      nextGapBreakAppendCountByTag.set(tagName, 0);
+    }
 
     seriesPointsRef.current = nextMap;
     axisStatsByTagRef.current = nextStats;
+    gapBreakMsByTagRef.current = nextGapBreakMsByTag;
+    liveGapBreakAppendCountByTagRef.current = nextGapBreakAppendCountByTag;
     fullRangeRef.current = loadedRange && loadedRange.to > loadedRange.from
       ? loadedRange
       : Number.isFinite(minTs) && Number.isFinite(maxTs) && maxTs > minTs
