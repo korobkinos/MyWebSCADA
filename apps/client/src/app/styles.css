@@ -6443,6 +6443,35 @@ body {
   white-space: nowrap;
 }
 
+.trends-series-table__cell--tag,
+.trends-settings-table__tag-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.trends-series-table__tag-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trends-series-table__warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #d6a23a;
+  line-height: 1;
+}
+
+.trends-series-table__warning-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
 .trends-chart-wrap {
   flex: 1 1 auto;
   min-width: 0;

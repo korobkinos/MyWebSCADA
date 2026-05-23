@@ -237,6 +237,16 @@ function TrendColorButton({ value, fallback, disabled = false, title, onChange }
   );
 }
 
+function TrendWarningIcon({ title }: { title: string }) {
+  return (
+    <span className="trends-series-table__warning-icon" title={title} role="img" aria-label={title}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
+}
+
 export function TrendSettingsPanel({
   open,
   settings,
@@ -855,15 +865,17 @@ export function TrendSettingsPanel({
                         <input type="checkbox" checked={tag.visible !== false} onChange={(event) => updateSeries(tag.tag, { visible: event.target.checked })} />
                       </div>
                       <div
-                        className="screen-editor-tags-cell trends-settings-table__cell"
+                        className="screen-editor-tags-cell trends-settings-table__cell trends-settings-table__tag-cell"
                         title={[
                           tag.tag,
                           tag.archiveMode ? `Archive: ${formatTrendArchivePolicy(tag.archiveMode, tag.archivePeriodMs)}` : "",
                           getSparseTrendArchivePolicyWarning(tag.archiveMode) ?? "",
                         ].filter(Boolean).join("\n")}
                       >
-                        {tag.tag}
-                        {getSparseTrendArchivePolicyWarning(tag.archiveMode) ? " !" : ""}
+                        <span className="trends-series-table__tag-text">{tag.tag}</span>
+                        {getSparseTrendArchivePolicyWarning(tag.archiveMode) ? (
+                          <TrendWarningIcon title={getSparseTrendArchivePolicyWarning(tag.archiveMode) ?? "History may be incomplete"} />
+                        ) : null}
                       </div>
                       <div className="screen-editor-tags-cell trends-settings-table__cell">
                         <input className="workbench-input" value={tag.displayName ?? ""} onChange={(event) => updateSeries(tag.tag, { displayName: event.target.value })} />

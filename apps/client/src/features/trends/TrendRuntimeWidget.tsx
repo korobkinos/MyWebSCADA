@@ -3753,6 +3753,10 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
                     if (column.id === "tag") {
                       const diagnostics = seriesDiagnosticsByTag.get(tag.tag);
                       const archiveWarning = getSparseTrendArchivePolicyWarning(tag.archiveMode ?? tagInfoMap.get(tag.tag)?.archiveMode);
+                      const showWarningIcon = Boolean(diagnostics?.missingHistoryBeforeRange || archiveWarning);
+                      const warningTooltip = diagnostics?.missingHistoryBeforeRange
+                        ? "No archived value before range start"
+                        : archiveWarning ?? "History may be incomplete";
                       return (
                         <div
                           key={column.id}
@@ -3766,7 +3770,17 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
                             archiveWarning ?? "",
                           ].filter(Boolean).join("\n")}
                         >
-                          {tag.tag}{diagnostics?.missingHistoryBeforeRange || archiveWarning ? " !" : ""}
+                          <span className="trends-series-table__tag-text">{tag.tag}</span>
+                          {showWarningIcon ? (
+                            <span
+                              className="trends-series-table__warning-icon"
+                              title={warningTooltip}
+                              role="img"
+                              aria-label={warningTooltip}
+                            >
+                              <ToolbarGlyph path="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" />
+                            </span>
+                          ) : null}
                         </div>
                       );
                     }
