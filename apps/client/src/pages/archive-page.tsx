@@ -10,7 +10,10 @@ import {
   type ArchiveStatus,
   type ArchiveTagConfig,
   type ArchiveTagOverride,
+  type EventArchiveStatus,
+  type OperatorActionArchiveStatus,
 } from "../services/api";
+import type { EventArchiveSettings, OperatorActionArchiveSettings } from "@web-scada/shared";
 
 type PolicyFormState = ArchivePolicyPayload;
 type ArchiveColumnId = "select" | "name" | "policy" | "mode" | "period" | "retention" | "override";
@@ -242,6 +245,19 @@ type ArchiveSettingsDraft = {
   maxDeleteTransactionMs: number;
 };
 
+type MessageArchiveSettingsDraft = {
+  enabled: boolean;
+  retentionDays: number;
+  maxDatabaseSizeMb: number;
+  cleanupMode: "byAge" | "bySize" | "byAgeAndSize";
+  cleanupIntervalMinutes: number;
+  optimizeAfterCleanup: boolean;
+  deleteBatchSize: number;
+  maintenanceIntervalMs: number;
+  maxMaintenanceTickMs: number;
+  maxDeleteTransactionMs: number;
+};
+
 type ArchiveMaintenancePresetId = "safe" | "balanced" | "fast";
 
 const ARCHIVE_MAINTENANCE_PRESETS: Record<ArchiveMaintenancePresetId, Omit<ArchiveSettingsDraft, "autoCleanupEnabled" | "maxDbSizeMb">> = {
@@ -320,11 +336,63 @@ function formatDateTime(value: string | null | undefined): string {
   return date.toLocaleString("ru-RU", { hour12: false });
 }
 
+function normalizeMessageArchiveDraft(
+  source: Partial<MessageArchiveSettingsDraft> | null | undefined,
+): MessageArchiveSettingsDraft {
+  const deleteBatchSize = clampArchiveSetting(
+    source?.deleteBatchSize,
+    ARCHIVE_MAINTENANCE_PRESETS.safe.deleteBatchSize,
+    MIN_DELETE_BATCH_SIZE,
+    MAX_DELETE_BATCH_SIZE,
+  );
+  const maintenanceIntervalMs = clampArchiveSetting(
+    source?.maintenanceIntervalMs,
+    ARCHIVE_MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+    MIN_MAINTENANCE_INTERVAL_MS,
+    MAX_MAINTENANCE_INTERVAL_MS,
+  );
+  const maxDeleteTransactionMs = clampArchiveSetting(
+    source?.maxDeleteTransactionMs,
+    ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
+    MIN_MAX_DELETE_TRANSACTION_MS,
+    MAX_MAX_DELETE_TRANSACTION_MS,
+  );
+  const maxMaintenanceTickMs = Math.max(
+    clampArchiveSetting(
+      source?.maxMaintenanceTickMs,
+      ARCHIVE_MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+      MIN_MAX_MAINTENANCE_TICK_MS,
+      MAX_MAX_MAINTENANCE_TICK_MS,
+    ),
+    maxDeleteTransactionMs,
+  );
+  return {
+    enabled: source?.enabled !== false,
+    retentionDays: Math.max(1, Math.round(source?.retentionDays ?? 90)),
+    maxDatabaseSizeMb: Math.max(1, Math.round(source?.maxDatabaseSizeMb ?? 2048)),
+    cleanupMode: source?.cleanupMode ?? "byAgeAndSize",
+    cleanupIntervalMinutes: Math.max(1, Math.round(source?.cleanupIntervalMinutes ?? 60)),
+    optimizeAfterCleanup: source?.optimizeAfterCleanup === true,
+    deleteBatchSize,
+    maintenanceIntervalMs,
+    maxMaintenanceTickMs,
+    maxDeleteTransactionMs,
+  };
+}
+
 export function ArchivePage() {
   const [status, setStatus] = useState<ArchiveStatus>({ enabled: false, queuedSamples: 0 });
   const [lastLoadError, setLastLoadError] = useState<string | null>(null);
   const [lastStatusCheckAt, setLastStatusCheckAt] = useState<number | null>(null);
   const [runtimeSettings, setRuntimeSettings] = useState<ArchiveRuntimeSettings | null>(null);
+  const [eventArchiveStatus, setEventArchiveStatus] = useState<EventArchiveStatus | null>(null);
+  const [operatorArchiveStatus, setOperatorArchiveStatus] = useState<OperatorActionArchiveStatus | null>(null);
+  const [eventSettingsDraft, setEventSettingsDraft] = useState<MessageArchiveSettingsDraft>(() =>
+    normalizeMessageArchiveDraft(null),
+  );
+  const [operatorSettingsDraft, setOperatorSettingsDraft] = useState<MessageArchiveSettingsDraft>(() =>
+    normalizeMessageArchiveDraft(null),
+  );
   const [policies, setPolicies] = useState<ArchivePolicy[]>([]);
   const [tagConfigs, setTagConfigs] = useState<ArchiveTagConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -404,16 +472,32 @@ export function ArchivePage() {
         setPolicies([]);
         setTagConfigs([]);
         setRuntimeSettings(null);
+        setEventArchiveStatus(null);
+        setOperatorArchiveStatus(null);
         return;
       }
-      const [nextPolicies, nextTagConfigs, nextSettings] = await Promise.all([
+      const [
+        nextPolicies,
+        nextTagConfigs,
+        nextSettings,
+        nextEventArchiveStatus,
+        nextOperatorArchiveStatus,
+        nextEventArchiveSettings,
+        nextOperatorArchiveSettings,
+      ] = await Promise.all([
         api.listArchivePolicies(),
         api.listArchiveTagConfigs(),
         api.getArchiveSettings(),
+        api.getEventArchiveStatus(),
+        api.getOperatorActionArchiveStatus(),
+        api.getEventArchiveSettings(),
+        api.getOperatorActionArchiveSettings(),
       ]);
       setPolicies(nextPolicies);
       setTagConfigs(nextTagConfigs);
       setRuntimeSettings(nextSettings);
+      setEventArchiveStatus(nextEventArchiveStatus);
+      setOperatorArchiveStatus(nextOperatorArchiveStatus);
       setSettingsDraft({
         autoCleanupEnabled: nextSettings.autoCleanupEnabled,
         maxDbSizeMb: nextSettings.maxDbSizeMb,
@@ -422,6 +506,8 @@ export function ArchivePage() {
         maxMaintenanceTickMs: nextSettings.maxMaintenanceTickMs,
         maxDeleteTransactionMs: nextSettings.maxDeleteTransactionMs,
       });
+      setEventSettingsDraft(normalizeMessageArchiveDraft(nextEventArchiveSettings));
+      setOperatorSettingsDraft(normalizeMessageArchiveDraft(nextOperatorArchiveSettings));
     } catch (error) {
       const errorText = error instanceof Error ? error.message : "Archive load failed";
       setLastLoadError(errorText);
@@ -438,6 +524,8 @@ export function ArchivePage() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void checkArchiveStatus({ silent: true });
+      void api.getEventArchiveStatus().then(setEventArchiveStatus).catch(() => undefined);
+      void api.getOperatorActionArchiveStatus().then(setOperatorArchiveStatus).catch(() => undefined);
     }, 5000);
     return () => window.clearInterval(timer);
   }, []);
@@ -934,6 +1022,8 @@ export function ArchivePage() {
       maxMaintenanceTickMs: source.maxMaintenanceTickMs,
       maxDeleteTransactionMs: source.maxDeleteTransactionMs,
     });
+    setEventSettingsDraft(normalizeMessageArchiveDraft(eventArchiveStatus?.settings));
+    setOperatorSettingsDraft(normalizeMessageArchiveDraft(operatorArchiveStatus?.settings));
     setSettingsModalOpen(true);
   };
 
@@ -973,7 +1063,81 @@ export function ArchivePage() {
         maxMaintenanceTickMs,
         maxDeleteTransactionMs,
       };
-      const saved = await api.updateArchiveSettings(payload);
+      const eventPayload: EventArchiveSettings = {
+        ...eventSettingsDraft,
+        deleteBatchSize: clampArchiveSetting(
+          eventSettingsDraft.deleteBatchSize,
+          ARCHIVE_MAINTENANCE_PRESETS.safe.deleteBatchSize,
+          MIN_DELETE_BATCH_SIZE,
+          MAX_DELETE_BATCH_SIZE,
+        ),
+        maintenanceIntervalMs: clampArchiveSetting(
+          eventSettingsDraft.maintenanceIntervalMs,
+          ARCHIVE_MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+          MIN_MAINTENANCE_INTERVAL_MS,
+          MAX_MAINTENANCE_INTERVAL_MS,
+        ),
+        maxDeleteTransactionMs: clampArchiveSetting(
+          eventSettingsDraft.maxDeleteTransactionMs,
+          ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
+          MIN_MAX_DELETE_TRANSACTION_MS,
+          MAX_MAX_DELETE_TRANSACTION_MS,
+        ),
+        maxMaintenanceTickMs: Math.max(
+          clampArchiveSetting(
+            eventSettingsDraft.maxMaintenanceTickMs,
+            ARCHIVE_MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+            MIN_MAX_MAINTENANCE_TICK_MS,
+            MAX_MAX_MAINTENANCE_TICK_MS,
+          ),
+          clampArchiveSetting(
+            eventSettingsDraft.maxDeleteTransactionMs,
+            ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
+            MIN_MAX_DELETE_TRANSACTION_MS,
+            MAX_MAX_DELETE_TRANSACTION_MS,
+          ),
+        ),
+      };
+      const operatorPayload: OperatorActionArchiveSettings = {
+        ...operatorSettingsDraft,
+        deleteBatchSize: clampArchiveSetting(
+          operatorSettingsDraft.deleteBatchSize,
+          ARCHIVE_MAINTENANCE_PRESETS.safe.deleteBatchSize,
+          MIN_DELETE_BATCH_SIZE,
+          MAX_DELETE_BATCH_SIZE,
+        ),
+        maintenanceIntervalMs: clampArchiveSetting(
+          operatorSettingsDraft.maintenanceIntervalMs,
+          ARCHIVE_MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+          MIN_MAINTENANCE_INTERVAL_MS,
+          MAX_MAINTENANCE_INTERVAL_MS,
+        ),
+        maxDeleteTransactionMs: clampArchiveSetting(
+          operatorSettingsDraft.maxDeleteTransactionMs,
+          ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
+          MIN_MAX_DELETE_TRANSACTION_MS,
+          MAX_MAX_DELETE_TRANSACTION_MS,
+        ),
+        maxMaintenanceTickMs: Math.max(
+          clampArchiveSetting(
+            operatorSettingsDraft.maxMaintenanceTickMs,
+            ARCHIVE_MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+            MIN_MAX_MAINTENANCE_TICK_MS,
+            MAX_MAX_MAINTENANCE_TICK_MS,
+          ),
+          clampArchiveSetting(
+            operatorSettingsDraft.maxDeleteTransactionMs,
+            ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
+            MIN_MAX_DELETE_TRANSACTION_MS,
+            MAX_MAX_DELETE_TRANSACTION_MS,
+          ),
+        ),
+      };
+      const [saved, savedEventSettings, savedOperatorSettings] = await Promise.all([
+        api.updateArchiveSettings(payload),
+        api.updateEventArchiveSettings(eventPayload),
+        api.updateOperatorActionArchiveSettings(operatorPayload),
+      ]);
       setRuntimeSettings(saved);
       setSettingsDraft({
         autoCleanupEnabled: saved.autoCleanupEnabled,
@@ -983,6 +1147,8 @@ export function ArchivePage() {
         maxMaintenanceTickMs: saved.maxMaintenanceTickMs,
         maxDeleteTransactionMs: saved.maxDeleteTransactionMs,
       });
+      setEventSettingsDraft(normalizeMessageArchiveDraft(savedEventSettings));
+      setOperatorSettingsDraft(normalizeMessageArchiveDraft(savedOperatorSettings));
       setSettingsModalOpen(false);
       void message.success("Archive settings saved");
       await load();
@@ -1531,6 +1697,95 @@ export function ArchivePage() {
             <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof status.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(status.lastBatchDurationMs))} ms` : "-"}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(status.nextRunAt)}</strong></div>
             {status.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {status.pauseReason}</div> : null}
+          </div>
+
+          <div className="screen-editor-tag-editor">
+            <div className="screen-editor-tag-editor__title">Event Archive Maintenance</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <WorkbenchButton onClick={() => setEventSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.safe }))} disabled={settingsBusy}>
+                Safe
+              </WorkbenchButton>
+              <WorkbenchButton onClick={() => setEventSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.balanced }))} disabled={settingsBusy}>
+                Balanced
+              </WorkbenchButton>
+              <WorkbenchButton onClick={() => setEventSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.fast }))} disabled={settingsBusy}>
+                Fast
+              </WorkbenchButton>
+            </div>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Delete Batch Size</span>
+              <InputNumber min={MIN_DELETE_BATCH_SIZE} max={MAX_DELETE_BATCH_SIZE} value={eventSettingsDraft.deleteBatchSize} onChange={(value) => setEventSettingsDraft((prev) => ({ ...prev, deleteBatchSize: Number(value ?? prev.deleteBatchSize) }))} style={{ width: 220 }} />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Maintenance Interval (ms)</span>
+              <InputNumber min={MIN_MAINTENANCE_INTERVAL_MS} max={MAX_MAINTENANCE_INTERVAL_MS} value={eventSettingsDraft.maintenanceIntervalMs} onChange={(value) => setEventSettingsDraft((prev) => ({ ...prev, maintenanceIntervalMs: Number(value ?? prev.maintenanceIntervalMs) }))} style={{ width: 220 }} />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Max Maintenance Tick (ms)</span>
+              <InputNumber min={MIN_MAX_MAINTENANCE_TICK_MS} max={MAX_MAX_MAINTENANCE_TICK_MS} value={eventSettingsDraft.maxMaintenanceTickMs} onChange={(value) => setEventSettingsDraft((prev) => ({ ...prev, maxMaintenanceTickMs: Number(value ?? prev.maxMaintenanceTickMs) }))} style={{ width: 220 }} />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Max Delete Transaction (ms)</span>
+              <InputNumber min={MIN_MAX_DELETE_TRANSACTION_MS} max={MAX_MAX_DELETE_TRANSACTION_MS} value={eventSettingsDraft.maxDeleteTransactionMs} onChange={(value) => setEventSettingsDraft((prev) => ({ ...prev, maxDeleteTransactionMs: Number(value ?? prev.maxDeleteTransactionMs) }))} style={{ width: 220 }} />
+            </label>
+            <div className="screen-editor-tag-editor__kv"><span>Status</span><strong>{eventArchiveStatus?.status ?? "-"}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>DB Size</span><strong>{formatDbSizeMb(eventArchiveStatus?.dbSizeMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(eventArchiveStatus?.recordsCount)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Oldest</span><strong>{formatDateTime(eventArchiveStatus?.oldestRecordAt)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Newest</span><strong>{formatDateTime(eventArchiveStatus?.newestRecordAt)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Max DB</span><strong>{formatDbSizeMb(eventArchiveStatus?.maxDatabaseSizeMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(eventArchiveStatus?.startThresholdMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(eventArchiveStatus?.stopThresholdMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Deleted last batch</span><strong>{formatRecordsCount(eventArchiveStatus?.recordsDeletedInLastBatch)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(eventArchiveStatus?.totalRecordsDeletedThisRun)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof eventArchiveStatus?.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(eventArchiveStatus.lastBatchDurationMs))} ms` : "-"}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(eventArchiveStatus?.nextRunAt)}</strong></div>
+            {eventArchiveStatus?.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {eventArchiveStatus.pauseReason}</div> : null}
+            <div className="screen-editor-tag-editor__hint">Manual optimize runs safe ANALYZE only (no VACUUM FULL in runtime maintenance).</div>
+          </div>
+
+          <div className="screen-editor-tag-editor">
+            <div className="screen-editor-tag-editor__title">Operator Action Archive Maintenance</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <WorkbenchButton onClick={() => setOperatorSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.safe }))} disabled={settingsBusy}>
+                Safe
+              </WorkbenchButton>
+              <WorkbenchButton onClick={() => setOperatorSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.balanced }))} disabled={settingsBusy}>
+                Balanced
+              </WorkbenchButton>
+              <WorkbenchButton onClick={() => setOperatorSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.fast }))} disabled={settingsBusy}>
+                Fast
+              </WorkbenchButton>
+            </div>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Delete Batch Size</span>
+              <InputNumber min={MIN_DELETE_BATCH_SIZE} max={MAX_DELETE_BATCH_SIZE} value={operatorSettingsDraft.deleteBatchSize} onChange={(value) => setOperatorSettingsDraft((prev) => ({ ...prev, deleteBatchSize: Number(value ?? prev.deleteBatchSize) }))} style={{ width: 220 }} />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Maintenance Interval (ms)</span>
+              <InputNumber min={MIN_MAINTENANCE_INTERVAL_MS} max={MAX_MAINTENANCE_INTERVAL_MS} value={operatorSettingsDraft.maintenanceIntervalMs} onChange={(value) => setOperatorSettingsDraft((prev) => ({ ...prev, maintenanceIntervalMs: Number(value ?? prev.maintenanceIntervalMs) }))} style={{ width: 220 }} />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Max Maintenance Tick (ms)</span>
+              <InputNumber min={MIN_MAX_MAINTENANCE_TICK_MS} max={MAX_MAX_MAINTENANCE_TICK_MS} value={operatorSettingsDraft.maxMaintenanceTickMs} onChange={(value) => setOperatorSettingsDraft((prev) => ({ ...prev, maxMaintenanceTickMs: Number(value ?? prev.maxMaintenanceTickMs) }))} style={{ width: 220 }} />
+            </label>
+            <label className="workbench-field">
+              <span className="workbench-field__label">Max Delete Transaction (ms)</span>
+              <InputNumber min={MIN_MAX_DELETE_TRANSACTION_MS} max={MAX_MAX_DELETE_TRANSACTION_MS} value={operatorSettingsDraft.maxDeleteTransactionMs} onChange={(value) => setOperatorSettingsDraft((prev) => ({ ...prev, maxDeleteTransactionMs: Number(value ?? prev.maxDeleteTransactionMs) }))} style={{ width: 220 }} />
+            </label>
+            <div className="screen-editor-tag-editor__kv"><span>Status</span><strong>{operatorArchiveStatus?.status ?? "-"}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>DB Size</span><strong>{formatDbSizeMb(operatorArchiveStatus?.dbSizeMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(operatorArchiveStatus?.recordsCount)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Oldest</span><strong>{formatDateTime(operatorArchiveStatus?.oldestRecordAt)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Newest</span><strong>{formatDateTime(operatorArchiveStatus?.newestRecordAt)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Max DB</span><strong>{formatDbSizeMb(operatorArchiveStatus?.maxDatabaseSizeMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(operatorArchiveStatus?.startThresholdMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(operatorArchiveStatus?.stopThresholdMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Deleted last batch</span><strong>{formatRecordsCount(operatorArchiveStatus?.recordsDeletedInLastBatch)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(operatorArchiveStatus?.totalRecordsDeletedThisRun)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof operatorArchiveStatus?.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(operatorArchiveStatus.lastBatchDurationMs))} ms` : "-"}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(operatorArchiveStatus?.nextRunAt)}</strong></div>
+            {operatorArchiveStatus?.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {operatorArchiveStatus.pauseReason}</div> : null}
           </div>
 
           <div className="archive-workbench-settings__danger-zone">

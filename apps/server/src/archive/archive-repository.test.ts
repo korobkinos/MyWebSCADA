@@ -109,6 +109,26 @@ describe("ArchiveRepository.enforceRuntimeLimits", () => {
   });
 });
 
+describe("ArchiveRepository.optimizeEventArchive", () => {
+  it("uses ANALYZE without FULL", async () => {
+    const repository = new ArchiveRepository(
+      { connectionString: "postgres://unused" },
+      {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    );
+    const pool = new FakePool();
+    (repository as unknown as { pool: FakePool }).pool = pool;
+
+    await repository.optimizeEventArchive();
+
+    expect(pool.calls.some((call) => call.includes("VACUUM (FULL"))).toBe(false);
+    expect(pool.calls.some((call) => call.includes("VACUUM (ANALYZE) event_occurrences"))).toBe(true);
+  });
+});
+
 describe("ArchiveRepository.applyTrendCarryForward", () => {
   it("returns a two-point flat span when the range has no real points", () => {
     const repository = new ArchiveRepository(

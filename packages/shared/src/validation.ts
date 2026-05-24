@@ -1371,6 +1371,10 @@ const eventArchiveSettingsSchema = z.object({
   cleanupMode: z.enum(["byAge", "bySize", "byAgeAndSize"]),
   cleanupIntervalMinutes: z.number().int().positive(),
   optimizeAfterCleanup: z.boolean(),
+  deleteBatchSize: z.number().int().positive().optional(),
+  maintenanceIntervalMs: z.number().int().positive().optional(),
+  maxMaintenanceTickMs: z.number().int().positive().optional(),
+  maxDeleteTransactionMs: z.number().int().positive().optional(),
   updatedAt: z.string().optional(),
 });
 
@@ -1381,6 +1385,10 @@ const operatorActionArchiveSettingsSchema = z.object({
   cleanupMode: z.enum(["byAge", "bySize", "byAgeAndSize"]),
   cleanupIntervalMinutes: z.number().int().positive(),
   optimizeAfterCleanup: z.boolean(),
+  deleteBatchSize: z.number().int().positive().optional(),
+  maintenanceIntervalMs: z.number().int().positive().optional(),
+  maxMaintenanceTickMs: z.number().int().positive().optional(),
+  maxDeleteTransactionMs: z.number().int().positive().optional(),
   updatedAt: z.string().optional(),
 });
 

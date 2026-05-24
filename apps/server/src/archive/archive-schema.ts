@@ -169,8 +169,24 @@ CREATE TABLE IF NOT EXISTS event_archive_settings (
     cleanup_mode TEXT NOT NULL DEFAULT 'byAgeAndSize' CHECK (cleanup_mode IN ('byAge', 'bySize', 'byAgeAndSize')),
     cleanup_interval_minutes INTEGER NOT NULL DEFAULT 60,
     optimize_after_cleanup BOOLEAN NOT NULL DEFAULT false,
+    delete_batch_size INTEGER NOT NULL DEFAULT 500,
+    maintenance_interval_ms INTEGER NOT NULL DEFAULT 3000,
+    max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 200,
+    max_delete_transaction_ms INTEGER NOT NULL DEFAULT 150,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE event_archive_settings
+ADD COLUMN IF NOT EXISTS delete_batch_size INTEGER NOT NULL DEFAULT 500;
+
+ALTER TABLE event_archive_settings
+ADD COLUMN IF NOT EXISTS maintenance_interval_ms INTEGER NOT NULL DEFAULT 3000;
+
+ALTER TABLE event_archive_settings
+ADD COLUMN IF NOT EXISTS max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 200;
+
+ALTER TABLE event_archive_settings
+ADD COLUMN IF NOT EXISTS max_delete_transaction_ms INTEGER NOT NULL DEFAULT 150;
 
 CREATE TABLE IF NOT EXISTS event_occurrences (
     id BIGSERIAL PRIMARY KEY,
@@ -321,9 +337,13 @@ INSERT INTO event_archive_settings (
     max_database_size_mb,
     cleanup_mode,
     cleanup_interval_minutes,
-    optimize_after_cleanup
+    optimize_after_cleanup,
+    delete_batch_size,
+    maintenance_interval_ms,
+    max_maintenance_tick_ms,
+    max_delete_transaction_ms
 )
-VALUES (1, true, 90, 2048, 'byAgeAndSize', 60, false)
+VALUES (1, true, 90, 2048, 'byAgeAndSize', 60, false, 500, 3000, 200, 150)
 ON CONFLICT (id) DO NOTHING;
 `;
 

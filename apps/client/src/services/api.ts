@@ -199,8 +199,17 @@ export type ArchivePurgeResult = {
 };
 
 export type EventArchiveStatus = {
+  status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
   dbSizeMb: number;
+  maxDatabaseSizeMb?: number | null;
+  startThresholdMb?: number | null;
+  stopThresholdMb?: number | null;
   recordsCount: number;
+  recordsDeletedInLastBatch?: number;
+  totalRecordsDeletedThisRun?: number;
+  lastBatchDurationMs?: number;
+  nextRunAt?: string | null;
+  pauseReason?: string;
   oldestRecordAt: string | null;
   newestRecordAt: string | null;
   settings: EventArchiveSettings;
@@ -213,8 +222,17 @@ export type EventArchiveCleanupResult = {
 };
 
 export type OperatorActionArchiveStatus = {
+  status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
   dbSizeMb: number;
+  maxDatabaseSizeMb?: number | null;
+  startThresholdMb?: number | null;
+  stopThresholdMb?: number | null;
   recordsCount: number;
+  recordsDeletedInLastBatch?: number;
+  totalRecordsDeletedThisRun?: number;
+  lastBatchDurationMs?: number;
+  nextRunAt?: string | null;
+  pauseReason?: string;
   oldestRecordAt: string | null;
   newestRecordAt: string | null;
   settings: OperatorActionArchiveSettings;
@@ -669,12 +687,23 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getOperatorActionArchiveStatus: () => request<OperatorActionArchiveStatus>("/api/operator-actions/archive/status"),
+  getOperatorActionArchiveSettings: () =>
+    request<OperatorActionArchiveSettings>("/api/operator-actions/archive/settings"),
+  updateOperatorActionArchiveSettings: (payload: OperatorActionArchiveSettings) =>
+    request<OperatorActionArchiveSettings>("/api/operator-actions/archive/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   cleanupOperatorActionArchive: (payload?: {
     enabled?: boolean;
     retentionDays?: number;
     maxDatabaseSizeMb?: number;
     cleanupMode?: OperatorActionArchiveSettings["cleanupMode"];
     optimizeAfterCleanup?: boolean;
+    deleteBatchSize?: number;
+    maintenanceIntervalMs?: number;
+    maxMaintenanceTickMs?: number;
+    maxDeleteTransactionMs?: number;
   }) => request<OperatorActionArchiveCleanupResult>("/api/operator-actions/archive/cleanup", {
     method: "POST",
     body: JSON.stringify(payload ?? {}),

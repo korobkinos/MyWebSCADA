@@ -21,6 +21,7 @@ import { MacroService } from "./runtime/macro-service.js";
 import { RuntimeService } from "./runtime/runtime-service.js";
 import { TagStore } from "./tags/tag-store.js";
 import { WebSocketGateway } from "./websocket/websocket-gateway.js";
+import { type OperatorActionArchiveSettings } from "@web-scada/shared";
 
 const port = Number(process.env.PORT ?? 3001);
 const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
@@ -92,6 +93,19 @@ async function bootstrap(): Promise<void> {
   if (archiveService) {
     try {
       await archiveService.initialize([...project.tags, ...variableDefinitions], project.drivers);
+      const operatorArchiveSettings: OperatorActionArchiveSettings = {
+        enabled: project.operatorActionSettings?.archiveSettings?.enabled ?? true,
+        retentionDays: project.operatorActionSettings?.archiveSettings?.retentionDays ?? 90,
+        maxDatabaseSizeMb: project.operatorActionSettings?.archiveSettings?.maxDatabaseSizeMb ?? 2048,
+        cleanupMode: project.operatorActionSettings?.archiveSettings?.cleanupMode ?? "byAgeAndSize",
+        cleanupIntervalMinutes: project.operatorActionSettings?.archiveSettings?.cleanupIntervalMinutes ?? 60,
+        optimizeAfterCleanup: project.operatorActionSettings?.archiveSettings?.optimizeAfterCleanup ?? false,
+        deleteBatchSize: project.operatorActionSettings?.archiveSettings?.deleteBatchSize ?? 500,
+        maintenanceIntervalMs: project.operatorActionSettings?.archiveSettings?.maintenanceIntervalMs ?? 3000,
+        maxMaintenanceTickMs: project.operatorActionSettings?.archiveSettings?.maxMaintenanceTickMs ?? 200,
+        maxDeleteTransactionMs: project.operatorActionSettings?.archiveSettings?.maxDeleteTransactionMs ?? 150,
+      };
+      archiveService.setOperatorActionArchiveSettings(operatorArchiveSettings);
       app.log.info("Archive service initialized");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

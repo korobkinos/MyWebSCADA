@@ -204,10 +204,10 @@ const archiveTagOverrideSchema = z.object({
 const archiveRuntimeSettingsSchema = z.object({
   autoCleanupEnabled: z.boolean(),
   maxDbSizeMb: z.number().int().positive().max(1024 * 1024).nullable(),
-  deleteBatchSize: z.number().int().min(10).max(10_000).nullable().optional(),
-  maintenanceIntervalMs: z.number().int().min(500).max(60_000).nullable().optional(),
-  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).nullable().optional(),
-  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).nullable().optional(),
+  deleteBatchSize: z.number().int().min(10).max(10_000).optional(),
+  maintenanceIntervalMs: z.number().int().min(500).max(60_000).optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).optional(),
 }).superRefine((value, ctx) => {
   if (
     typeof value.maxMaintenanceTickMs === "number"
@@ -246,7 +246,23 @@ const eventArchiveSettingsSchema = z.object({
   cleanupMode: eventArchiveCleanupModeSchema,
   cleanupIntervalMinutes: z.number().int().positive(),
   optimizeAfterCleanup: z.boolean(),
+  deleteBatchSize: z.number().int().min(10).max(10_000).optional(),
+  maintenanceIntervalMs: z.number().int().min(500).max(60_000).optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).optional(),
   updatedAt: z.string().optional(),
+}).superRefine((value, ctx) => {
+  if (
+    typeof value.maxMaintenanceTickMs === "number"
+    && typeof value.maxDeleteTransactionMs === "number"
+    && value.maxMaintenanceTickMs < value.maxDeleteTransactionMs
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxMaintenanceTickMs"],
+      message: "maxMaintenanceTickMs must be greater than or equal to maxDeleteTransactionMs",
+    });
+  }
 });
 const operatorActionResultSchema = z.enum(["success", "failed", "denied"]);
 const operatorActionKindSchema = z.enum([
@@ -302,6 +318,47 @@ const operatorActionArchiveCleanupSchema = z.object({
   maxDatabaseSizeMb: z.number().int().positive().optional(),
   cleanupMode: eventArchiveCleanupModeSchema.optional(),
   optimizeAfterCleanup: z.boolean().optional(),
+  deleteBatchSize: z.number().int().min(10).max(10_000).optional(),
+  maintenanceIntervalMs: z.number().int().min(500).max(60_000).optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).optional(),
+}).superRefine((value, ctx) => {
+  if (
+    typeof value.maxMaintenanceTickMs === "number"
+    && typeof value.maxDeleteTransactionMs === "number"
+    && value.maxMaintenanceTickMs < value.maxDeleteTransactionMs
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxMaintenanceTickMs"],
+      message: "maxMaintenanceTickMs must be greater than or equal to maxDeleteTransactionMs",
+    });
+  }
+});
+const operatorActionArchiveSettingsSchema = z.object({
+  enabled: z.boolean(),
+  retentionDays: z.number().int().positive(),
+  maxDatabaseSizeMb: z.number().int().positive(),
+  cleanupMode: eventArchiveCleanupModeSchema,
+  cleanupIntervalMinutes: z.number().int().positive(),
+  optimizeAfterCleanup: z.boolean(),
+  deleteBatchSize: z.number().int().min(10).max(10_000).optional(),
+  maintenanceIntervalMs: z.number().int().min(500).max(60_000).optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).optional(),
+  updatedAt: z.string().optional(),
+}).superRefine((value, ctx) => {
+  if (
+    typeof value.maxMaintenanceTickMs === "number"
+    && typeof value.maxDeleteTransactionMs === "number"
+    && value.maxMaintenanceTickMs < value.maxDeleteTransactionMs
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxMaintenanceTickMs"],
+      message: "maxMaintenanceTickMs must be greater than or equal to maxDeleteTransactionMs",
+    });
+  }
 });
 const eventAckSchema = z.object({
   ids: z.array(z.union([z.string().min(1), z.number().int().positive()])).min(1).max(1000),
@@ -897,6 +954,7 @@ function toOperatorActionHistoryQuery(query: z.infer<typeof operatorActionHistor
 
 function resolveOperatorActionArchiveSettings(project: ScadaProject): OperatorActionArchiveSettings {
   const archiveSettings = project.operatorActionSettings?.archiveSettings;
+  const maxDeleteTransactionMs = Math.min(1000, Math.max(50, Math.round(archiveSettings?.maxDeleteTransactionMs ?? 150)));
   return {
     enabled: archiveSettings?.enabled ?? true,
     retentionDays: archiveSettings?.retentionDays ?? 90,
@@ -904,6 +962,13 @@ function resolveOperatorActionArchiveSettings(project: ScadaProject): OperatorAc
     cleanupMode: archiveSettings?.cleanupMode ?? "byAgeAndSize",
     cleanupIntervalMinutes: archiveSettings?.cleanupIntervalMinutes ?? 60,
     optimizeAfterCleanup: archiveSettings?.optimizeAfterCleanup ?? false,
+    deleteBatchSize: Math.min(10_000, Math.max(10, Math.round(archiveSettings?.deleteBatchSize ?? 500))),
+    maintenanceIntervalMs: Math.min(60_000, Math.max(500, Math.round(archiveSettings?.maintenanceIntervalMs ?? 3000))),
+    maxMaintenanceTickMs: Math.max(
+      Math.min(2_000, Math.max(50, Math.round(archiveSettings?.maxMaintenanceTickMs ?? 200))),
+      maxDeleteTransactionMs,
+    ),
+    maxDeleteTransactionMs,
     updatedAt: archiveSettings?.updatedAt,
   };
 }
@@ -1169,6 +1234,7 @@ async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): P
   deps.internalVariableService.setup(saved.variables ?? [], saved.lwStore);
   deps.macroService.configure(saved);
   await deps.archiveService?.syncMetadata([...(saved.tags ?? []), ...variableDefinitions], saved.drivers);
+  deps.archiveService?.setOperatorActionArchiveSettings(resolveOperatorActionArchiveSettings(saved));
   await deps.eventEngine?.configureProject(saved);
 
   if (deps.runtimeService.getState().running) {
@@ -1677,7 +1743,47 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.code(503).send({ message: "Operator action archive database is not configured" });
     }
     const settings = resolveOperatorActionArchiveSettings(deps.projectService.getProject());
+    deps.archiveService.setOperatorActionArchiveSettings(settings);
     return reply.send(await deps.archiveService.getOperatorActionArchiveStatus(settings));
+  });
+
+  app.get("/api/operator-actions/archive/settings", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Operator action archive database is not configured" });
+    }
+    const settings = resolveOperatorActionArchiveSettings(deps.projectService.getProject());
+    return reply.send(settings);
+  });
+
+  app.put("/api/operator-actions/archive/settings", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Operator action archive database is not configured" });
+    }
+    const payload = operatorActionArchiveSettingsSchema.parse(request.body ?? {});
+    const project = deps.projectService.getProject();
+    const nextProject: ScadaProject = {
+      ...project,
+      operatorActionSettings: {
+        ...(project.operatorActionSettings ?? {}),
+        archiveSettings: {
+          ...(project.operatorActionSettings?.archiveSettings ?? {}),
+          ...payload,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    };
+    const saved = await persistProjectUpdate(deps, nextProject);
+    const resolved = resolveOperatorActionArchiveSettings(saved);
+    deps.archiveService?.setOperatorActionArchiveSettings(resolved);
+    return reply.send(resolved);
   });
 
   app.post("/api/operator-actions/archive/cleanup", async (request, reply) => {
@@ -1690,12 +1796,17 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const payload = operatorActionArchiveCleanupSchema.parse(request.body ?? {});
     const settings = resolveOperatorActionArchiveSettings(deps.projectService.getProject());
+    deps.archiveService.setOperatorActionArchiveSettings(settings);
     return reply.send(await deps.archiveService.cleanupOperatorActionArchive({
       enabled: payload.enabled ?? settings.enabled,
       retentionDays: payload.retentionDays ?? settings.retentionDays,
       maxDatabaseSizeMb: payload.maxDatabaseSizeMb ?? settings.maxDatabaseSizeMb,
       cleanupMode: payload.cleanupMode ?? settings.cleanupMode,
       optimizeAfterCleanup: payload.optimizeAfterCleanup ?? settings.optimizeAfterCleanup,
+      deleteBatchSize: payload.deleteBatchSize ?? settings.deleteBatchSize,
+      maintenanceIntervalMs: payload.maintenanceIntervalMs ?? settings.maintenanceIntervalMs,
+      maxMaintenanceTickMs: payload.maxMaintenanceTickMs ?? settings.maxMaintenanceTickMs,
+      maxDeleteTransactionMs: payload.maxDeleteTransactionMs ?? settings.maxDeleteTransactionMs,
     }));
   });
 

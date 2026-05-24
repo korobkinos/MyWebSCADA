@@ -142,8 +142,17 @@ export type ArchivePruneBatchResultRow = {
 };
 
 export type EventArchiveStatusRow = {
+  status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
   dbSizeMb: number;
+  maxDatabaseSizeMb?: number | null;
+  startThresholdMb?: number | null;
+  stopThresholdMb?: number | null;
   recordsCount: number;
+  recordsDeletedInLastBatch?: number;
+  totalRecordsDeletedThisRun?: number;
+  lastBatchDurationMs?: number;
+  nextRunAt?: string | null;
+  pauseReason?: string;
   oldestRecordAt: string | null;
   newestRecordAt: string | null;
   settings: EventArchiveSettings;
@@ -156,8 +165,17 @@ export type EventArchiveCleanupResultRow = {
 };
 
 export type OperatorActionArchiveStatusRow = {
+  status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
   dbSizeMb: number;
+  maxDatabaseSizeMb?: number | null;
+  startThresholdMb?: number | null;
+  stopThresholdMb?: number | null;
   recordsCount: number;
+  recordsDeletedInLastBatch?: number;
+  totalRecordsDeletedThisRun?: number;
+  lastBatchDurationMs?: number;
+  nextRunAt?: string | null;
+  pauseReason?: string;
   oldestRecordAt: string | null;
   newestRecordAt: string | null;
   settings: OperatorActionArchiveSettings;
@@ -289,6 +307,9 @@ export class ArchiveRepository {
   private readonly defaultMaxMaintenanceTickMs: number;
   private readonly defaultMaxDeleteTransactionMs: number;
   private activeTrendQueries = 0;
+  private activeEventQueries = 0;
+  private activeOperatorActionQueries = 0;
+  private activeOperatorActionWrites = 0;
   private readonly tags = new Map<string, TagArchiveCacheItem>();
   private readonly qualities = new Map<string, number>();
   private readonly sources = new Map<string, number>();
@@ -1264,17 +1285,19 @@ export class ArchiveRepository {
   }
 
   public async listActiveEventOccurrences(limit = 200): Promise<EventOccurrence[]> {
-    return this.listEventOccurrencesByClause("cleared_at IS NULL", limit);
+    return this.withEventQueryActivity(async () => this.listEventOccurrencesByClause("cleared_at IS NULL", limit));
   }
 
   public async listOnlineEventOccurrences(
     limit = 200,
     includeClearedUnacknowledged = false,
   ): Promise<EventOccurrence[]> {
-    const whereClause = includeClearedUnacknowledged
-      ? "(cleared_at IS NULL OR (cleared_at IS NOT NULL AND acknowledged_at IS NULL))"
-      : "cleared_at IS NULL";
-    return this.listEventOccurrencesByClause(whereClause, limit);
+    return this.withEventQueryActivity(async () => {
+      const whereClause = includeClearedUnacknowledged
+        ? "(cleared_at IS NULL OR (cleared_at IS NOT NULL AND acknowledged_at IS NULL))"
+        : "cleared_at IS NULL";
+      return this.listEventOccurrencesByClause(whereClause, limit);
+    });
   }
 
   public async createEventOccurrence(input: {
@@ -1523,10 +1546,11 @@ export class ArchiveRepository {
   }
 
   public async getEventOccurrencesByIds(ids: Array<string | number>): Promise<EventOccurrence[]> {
-    if (ids.length === 0) {
-      return [];
-    }
-    const rows = await this.pool.query<{
+    return this.withEventQueryActivity(async () => {
+      if (ids.length === 0) {
+        return [];
+      }
+      const rows = await this.pool.query<{
       id: number;
       event_definition_id: string;
       occurred_at: Date;
@@ -1574,12 +1598,14 @@ export class ArchiveRepository {
       `,
       [ids.map((item) => String(item))],
     );
-    return rows.rows.map((row) => this.mapEventOccurrenceRow(row));
+      return rows.rows.map((row) => this.mapEventOccurrenceRow(row));
+    });
   }
 
   public async queryEventOccurrences(filters: EventHistoryQuery): Promise<EventHistoryPage> {
-    const whereParts: string[] = [];
-    const params: unknown[] = [];
+    return this.withEventQueryActivity(async () => {
+      const whereParts: string[] = [];
+      const params: unknown[] = [];
 
     const addParam = (value: unknown): string => {
       params.push(value);
@@ -1682,12 +1708,13 @@ export class ArchiveRepository {
 
     const items: EventHistoryRecord[] = rows.rows.map((row) => this.mapEventOccurrenceRow(row));
 
-    return {
-      items,
-      total: Number.isFinite(total) ? Math.max(0, Math.round(total)) : 0,
-      limit,
-      offset,
-    };
+      return {
+        items,
+        total: Number.isFinite(total) ? Math.max(0, Math.round(total)) : 0,
+        limit,
+        offset,
+      };
+    });
   }
 
   public async getEventArchiveSettings(): Promise<EventArchiveSettings> {
@@ -1698,6 +1725,10 @@ export class ArchiveRepository {
       cleanup_mode: string;
       cleanup_interval_minutes: number;
       optimize_after_cleanup: boolean;
+      delete_batch_size: number | null;
+      maintenance_interval_ms: number | null;
+      max_maintenance_tick_ms: number | null;
+      max_delete_transaction_ms: number | null;
       updated_at: Date;
     }>(
       `
@@ -1708,6 +1739,10 @@ export class ArchiveRepository {
           cleanup_mode,
           cleanup_interval_minutes,
           optimize_after_cleanup,
+          delete_batch_size,
+          maintenance_interval_ms,
+          max_maintenance_tick_ms,
+          max_delete_transaction_ms,
           updated_at
       FROM event_archive_settings
       WHERE id = 1
@@ -1722,9 +1757,19 @@ export class ArchiveRepository {
         cleanupMode: "byAgeAndSize",
         cleanupIntervalMinutes: 60,
         optimizeAfterCleanup: false,
+        deleteBatchSize: this.defaultDeleteBatchSize,
+        maintenanceIntervalMs: this.defaultMaintenanceIntervalMs,
+        maxMaintenanceTickMs: this.defaultMaxMaintenanceTickMs,
+        maxDeleteTransactionMs: this.defaultMaxDeleteTransactionMs,
         updatedAt: new Date(0).toISOString(),
       };
     }
+    const maxDeleteTransactionMs = this.normalizeBoundedInteger(
+      row.max_delete_transaction_ms,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
     return {
       enabled: row.enabled,
       retentionDays: row.retention_days,
@@ -1732,11 +1777,60 @@ export class ArchiveRepository {
       cleanupMode: (row.cleanup_mode as EventArchiveCleanupMode) ?? "byAgeAndSize",
       cleanupIntervalMinutes: row.cleanup_interval_minutes,
       optimizeAfterCleanup: row.optimize_after_cleanup,
+      deleteBatchSize: this.normalizeBoundedInteger(
+        row.delete_batch_size,
+        this.defaultDeleteBatchSize,
+        MIN_DELETE_BATCH_SIZE,
+        MAX_DELETE_BATCH_SIZE,
+      ),
+      maintenanceIntervalMs: this.normalizeBoundedInteger(
+        row.maintenance_interval_ms,
+        this.defaultMaintenanceIntervalMs,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      ),
+      maxMaintenanceTickMs: Math.max(
+        this.normalizeBoundedInteger(
+          row.max_maintenance_tick_ms,
+          this.defaultMaxMaintenanceTickMs,
+          MIN_MAX_MAINTENANCE_TICK_MS,
+          MAX_MAX_MAINTENANCE_TICK_MS,
+        ),
+        maxDeleteTransactionMs,
+      ),
+      maxDeleteTransactionMs,
       updatedAt: row.updated_at.toISOString(),
     };
   }
 
   public async updateEventArchiveSettings(settings: EventArchiveSettings): Promise<EventArchiveSettings> {
+    const boundedDeleteBatchSize = this.normalizeBoundedInteger(
+      settings.deleteBatchSize,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const boundedMaintenanceIntervalMs = this.normalizeBoundedInteger(
+      settings.maintenanceIntervalMs,
+      this.defaultMaintenanceIntervalMs,
+      MIN_MAINTENANCE_INTERVAL_MS,
+      MAX_MAINTENANCE_INTERVAL_MS,
+    );
+    const boundedMaxDeleteTransactionMs = this.normalizeBoundedInteger(
+      settings.maxDeleteTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const boundedMaxMaintenanceTickMs = Math.max(
+      this.normalizeBoundedInteger(
+        settings.maxMaintenanceTickMs,
+        this.defaultMaxMaintenanceTickMs,
+        MIN_MAX_MAINTENANCE_TICK_MS,
+        MAX_MAX_MAINTENANCE_TICK_MS,
+      ),
+      boundedMaxDeleteTransactionMs,
+    );
     const result = await this.pool.query<{
       enabled: boolean;
       retention_days: number;
@@ -1744,6 +1838,10 @@ export class ArchiveRepository {
       cleanup_mode: string;
       cleanup_interval_minutes: number;
       optimize_after_cleanup: boolean;
+      delete_batch_size: number | null;
+      maintenance_interval_ms: number | null;
+      max_maintenance_tick_ms: number | null;
+      max_delete_transaction_ms: number | null;
       updated_at: Date;
     }>(
       `
@@ -1755,9 +1853,13 @@ export class ArchiveRepository {
         cleanup_mode,
         cleanup_interval_minutes,
         optimize_after_cleanup,
+        delete_batch_size,
+        maintenance_interval_ms,
+        max_maintenance_tick_ms,
+        max_delete_transaction_ms,
         updated_at
       )
-      VALUES (1, $1, $2, $3, $4, $5, $6, now())
+      VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
       ON CONFLICT (id) DO UPDATE
       SET enabled = EXCLUDED.enabled,
           retention_days = EXCLUDED.retention_days,
@@ -1765,6 +1867,10 @@ export class ArchiveRepository {
           cleanup_mode = EXCLUDED.cleanup_mode,
           cleanup_interval_minutes = EXCLUDED.cleanup_interval_minutes,
           optimize_after_cleanup = EXCLUDED.optimize_after_cleanup,
+          delete_batch_size = EXCLUDED.delete_batch_size,
+          maintenance_interval_ms = EXCLUDED.maintenance_interval_ms,
+          max_maintenance_tick_ms = EXCLUDED.max_maintenance_tick_ms,
+          max_delete_transaction_ms = EXCLUDED.max_delete_transaction_ms,
           updated_at = now()
       RETURNING
           enabled,
@@ -1773,6 +1879,10 @@ export class ArchiveRepository {
           cleanup_mode,
           cleanup_interval_minutes,
           optimize_after_cleanup,
+          delete_batch_size,
+          maintenance_interval_ms,
+          max_maintenance_tick_ms,
+          max_delete_transaction_ms,
           updated_at
       `,
       [
@@ -1782,6 +1892,10 @@ export class ArchiveRepository {
         settings.cleanupMode,
         settings.cleanupIntervalMinutes,
         settings.optimizeAfterCleanup,
+        boundedDeleteBatchSize,
+        boundedMaintenanceIntervalMs,
+        boundedMaxMaintenanceTickMs,
+        boundedMaxDeleteTransactionMs,
       ],
     );
     const row = result.rows[0];
@@ -1795,6 +1909,38 @@ export class ArchiveRepository {
       cleanupMode: (row.cleanup_mode as EventArchiveCleanupMode) ?? "byAgeAndSize",
       cleanupIntervalMinutes: row.cleanup_interval_minutes,
       optimizeAfterCleanup: row.optimize_after_cleanup,
+      deleteBatchSize: this.normalizeBoundedInteger(
+        row.delete_batch_size,
+        this.defaultDeleteBatchSize,
+        MIN_DELETE_BATCH_SIZE,
+        MAX_DELETE_BATCH_SIZE,
+      ),
+      maintenanceIntervalMs: this.normalizeBoundedInteger(
+        row.maintenance_interval_ms,
+        this.defaultMaintenanceIntervalMs,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      ),
+      maxMaintenanceTickMs: Math.max(
+        this.normalizeBoundedInteger(
+          row.max_maintenance_tick_ms,
+          this.defaultMaxMaintenanceTickMs,
+          MIN_MAX_MAINTENANCE_TICK_MS,
+          MAX_MAX_MAINTENANCE_TICK_MS,
+        ),
+        this.normalizeBoundedInteger(
+          row.max_delete_transaction_ms,
+          this.defaultMaxDeleteTransactionMs,
+          MIN_MAX_DELETE_TRANSACTION_MS,
+          MAX_MAX_DELETE_TRANSACTION_MS,
+        ),
+      ),
+      maxDeleteTransactionMs: this.normalizeBoundedInteger(
+        row.max_delete_transaction_ms,
+        this.defaultMaxDeleteTransactionMs,
+        MIN_MAX_DELETE_TRANSACTION_MS,
+        MAX_MAX_DELETE_TRANSACTION_MS,
+      ),
       updatedAt: row.updated_at.toISOString(),
     };
   }
@@ -1843,68 +1989,61 @@ export class ArchiveRepository {
         optimized: false,
       };
     }
+
     const cleanupMode = options?.cleanupMode ?? settings.cleanupMode;
     const retentionDays = Math.max(1, Math.round(options?.retentionDays ?? settings.retentionDays));
     const maxDatabaseSizeMb = Math.max(1, Math.round(options?.maxDatabaseSizeMb ?? settings.maxDatabaseSizeMb));
     const optimizeAfterCleanup = options?.optimizeAfterCleanup ?? settings.optimizeAfterCleanup;
+    const deleteBatchSize = this.normalizeBoundedInteger(
+      settings.deleteBatchSize,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const maxDeleteTransactionMs = this.normalizeBoundedInteger(
+      settings.maxDeleteTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
 
     let deletedByAge = 0;
     let deletedBySize = 0;
 
     if (cleanupMode === "byAge" || cleanupMode === "byAgeAndSize") {
-      const byAge = await this.pool.query(
-        `
-        DELETE FROM event_occurrences
-        WHERE occurred_at < now() - make_interval(days => $1::int)
-        `,
-        [retentionDays],
-      );
-      deletedByAge = byAge.rowCount ?? 0;
+      let safetyCounter = 0;
+      while (safetyCounter < 10_000) {
+        safetyCounter += 1;
+        const deleted = await this.deleteEventOccurrencesByRetentionBatch({
+          retentionDays,
+          limit: deleteBatchSize,
+          maxTransactionMs: maxDeleteTransactionMs,
+        });
+        deletedByAge += deleted.deletedRecords;
+        if (deleted.deletedRecords < deleteBatchSize) {
+          break;
+        }
+      }
     }
 
     if (cleanupMode === "bySize" || cleanupMode === "byAgeAndSize") {
       const sizeLimitBytes = maxDatabaseSizeMb * 1024 * 1024;
       let safetyCounter = 0;
-      while (safetyCounter < 100) {
+      while (safetyCounter < 10_000) {
         safetyCounter += 1;
-        const sizeState = await this.pool.query<{ db_size_bytes: string | number; records_count: string | number }>(
-          `
-          SELECT
-              COALESCE(pg_total_relation_size('event_occurrences'), 0) AS db_size_bytes,
-              (SELECT COUNT(*)::bigint FROM event_occurrences) AS records_count
-          `,
-        );
-        const dbSizeRaw = sizeState.rows[0]?.db_size_bytes ?? 0;
-        const recordsRaw = sizeState.rows[0]?.records_count ?? 0;
-        const dbSizeBytes = typeof dbSizeRaw === "string" ? Number.parseInt(dbSizeRaw, 10) : Number(dbSizeRaw);
-        const recordsCount = typeof recordsRaw === "string" ? Number.parseInt(recordsRaw, 10) : Number(recordsRaw);
-        if (!Number.isFinite(dbSizeBytes) || dbSizeBytes <= sizeLimitBytes) {
+        const sizeState = await this.readSizedTableStats("event_occurrences", "occurred_at");
+        if (!Number.isFinite(sizeState.currentBytes) || sizeState.currentBytes <= sizeLimitBytes) {
           break;
         }
-        if (!Number.isFinite(recordsCount) || recordsCount <= 0) {
+        if (!Number.isFinite(sizeState.recordsCount) || sizeState.recordsCount <= 0) {
           break;
         }
-        const overflowRatio = Math.min(1, Math.max(0, (dbSizeBytes - sizeLimitBytes) / dbSizeBytes));
-        const deleteLimit = Math.min(
-          recordsCount,
-          ARCHIVE_SIZE_DELETE_MAX_ROWS,
-          Math.max(ARCHIVE_SIZE_DELETE_MIN_ROWS, Math.ceil(recordsCount * overflowRatio * ARCHIVE_SIZE_DELETE_HEADROOM)),
-        );
-        const deleteResult = await this.pool.query(
-          `
-          DELETE FROM event_occurrences
-          WHERE ctid IN (
-            SELECT ctid
-            FROM event_occurrences
-            ORDER BY occurred_at ASC, id ASC
-            LIMIT $1
-          )
-          `,
-          [deleteLimit],
-        );
-        const chunkDeleted = deleteResult.rowCount ?? 0;
-        deletedBySize += chunkDeleted;
-        if (chunkDeleted === 0) {
+        const deleted = await this.deleteOldestEventOccurrencesBatch({
+          limit: deleteBatchSize,
+          maxTransactionMs: maxDeleteTransactionMs,
+        });
+        deletedBySize += deleted.deletedRecords;
+        if (deleted.deletedRecords === 0) {
           break;
         }
       }
@@ -1925,14 +2064,9 @@ export class ArchiveRepository {
 
   public async optimizeEventArchive(): Promise<void> {
     try {
-      await this.pool.query("VACUUM (FULL, ANALYZE) event_occurrences");
+      await this.pool.query("VACUUM (ANALYZE) event_occurrences");
     } catch (error) {
-      this.logger.warn(`Event archive full vacuum failed: ${this.errorText(error)}`);
-      try {
-        await this.pool.query("VACUUM (ANALYZE) event_occurrences");
-      } catch (fallbackError) {
-        this.logger.warn(`Event archive analyze failed: ${this.errorText(fallbackError)}`);
-      }
+      this.logger.warn(`Event archive analyze failed: ${this.errorText(error)}`);
     }
   }
 
@@ -1960,8 +2094,9 @@ export class ArchiveRepository {
     errorText?: string | null;
     details?: Record<string, unknown> | null;
   }): Promise<OperatorActionRecord> {
-    const occurredAt = input.occurredAt ? new Date(input.occurredAt) : new Date();
-    const result = await this.pool.query<{
+    return this.withOperatorActionWriteActivity(async () => {
+      const occurredAt = input.occurredAt ? new Date(input.occurredAt) : new Date();
+      const result = await this.pool.query<{
       id: number;
       occurred_at: Date;
       user_id: string | null;
@@ -2087,16 +2222,18 @@ export class ArchiveRepository {
         input.details ?? null,
       ],
     );
-    const row = result.rows[0];
-    if (!row) {
-      throw new Error("Failed to create operator action record");
-    }
-    return this.mapOperatorActionRow(row);
+      const row = result.rows[0];
+      if (!row) {
+        throw new Error("Failed to create operator action record");
+      }
+      return this.mapOperatorActionRow(row);
+    });
   }
 
   public async queryOperatorActions(filters: OperatorActionHistoryQuery): Promise<OperatorActionHistoryPage> {
-    const whereParts: string[] = [];
-    const params: unknown[] = [];
+    return this.withOperatorActionQueryActivity(async () => {
+      const whereParts: string[] = [];
+      const params: unknown[] = [];
 
     const addParam = (value: unknown): string => {
       params.push(value);
@@ -2212,15 +2349,48 @@ export class ArchiveRepository {
       queryParams,
     );
 
-    return {
-      items: rows.rows.map((row) => this.mapOperatorActionRow(row)),
-      total: Number.isFinite(total) ? Math.max(0, Math.round(total)) : 0,
-      limit,
-      offset,
-    };
+      return {
+        items: rows.rows.map((row) => this.mapOperatorActionRow(row)),
+        total: Number.isFinite(total) ? Math.max(0, Math.round(total)) : 0,
+        limit,
+        offset,
+      };
+    });
   }
 
   public async getOperatorActionArchiveStatus(settings?: OperatorActionArchiveSettings): Promise<OperatorActionArchiveStatusRow> {
+    const resolvedSettingsSource = settings ?? this.defaultOperatorActionArchiveSettings();
+    const resolvedMaxDeleteTransactionMs = this.normalizeBoundedInteger(
+      resolvedSettingsSource.maxDeleteTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const resolvedSettings: OperatorActionArchiveSettings = {
+      ...resolvedSettingsSource,
+      deleteBatchSize: this.normalizeBoundedInteger(
+        resolvedSettingsSource.deleteBatchSize,
+        this.defaultDeleteBatchSize,
+        MIN_DELETE_BATCH_SIZE,
+        MAX_DELETE_BATCH_SIZE,
+      ),
+      maintenanceIntervalMs: this.normalizeBoundedInteger(
+        resolvedSettingsSource.maintenanceIntervalMs,
+        this.defaultMaintenanceIntervalMs,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      ),
+      maxMaintenanceTickMs: Math.max(
+        this.normalizeBoundedInteger(
+          resolvedSettingsSource.maxMaintenanceTickMs,
+          this.defaultMaxMaintenanceTickMs,
+          MIN_MAX_MAINTENANCE_TICK_MS,
+          MAX_MAX_MAINTENANCE_TICK_MS,
+        ),
+        resolvedMaxDeleteTransactionMs,
+      ),
+      maxDeleteTransactionMs: resolvedMaxDeleteTransactionMs,
+    };
     const result = await this.pool.query<{
       records_count: string | number;
       db_size_bytes: string | number;
@@ -2245,7 +2415,7 @@ export class ArchiveRepository {
       recordsCount: Number.isFinite(recordsCount) ? Math.max(0, Math.round(recordsCount)) : 0,
       oldestRecordAt: row?.oldest_record_at ? row.oldest_record_at.toISOString() : null,
       newestRecordAt: row?.newest_record_at ? row.newest_record_at.toISOString() : null,
-      settings: settings ?? this.defaultOperatorActionArchiveSettings(),
+      settings: resolvedSettings,
     };
   }
 
@@ -2255,6 +2425,10 @@ export class ArchiveRepository {
     maxDatabaseSizeMb?: number;
     cleanupMode?: OperatorActionArchiveSettings["cleanupMode"];
     optimizeAfterCleanup?: boolean;
+    deleteBatchSize?: number;
+    maintenanceIntervalMs?: number;
+    maxMaintenanceTickMs?: number;
+    maxDeleteTransactionMs?: number;
   }): Promise<OperatorActionArchiveCleanupResultRow> {
     const settings = {
       ...this.defaultOperatorActionArchiveSettings(),
@@ -2271,64 +2445,56 @@ export class ArchiveRepository {
     const cleanupMode = settings.cleanupMode;
     const retentionDays = Math.max(1, Math.round(settings.retentionDays));
     const maxDatabaseSizeMb = Math.max(1, Math.round(settings.maxDatabaseSizeMb));
+    const deleteBatchSize = this.normalizeBoundedInteger(
+      settings.deleteBatchSize,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const maxDeleteTransactionMs = this.normalizeBoundedInteger(
+      settings.maxDeleteTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
 
     let deletedByAge = 0;
     let deletedBySize = 0;
 
     if (cleanupMode === "byAge" || cleanupMode === "byAgeAndSize") {
-      const byAge = await this.pool.query(
-        `
-        DELETE FROM operator_actions
-        WHERE occurred_at < now() - make_interval(days => $1::int)
-        `,
-        [retentionDays],
-      );
-      deletedByAge = byAge.rowCount ?? 0;
+      let safetyCounter = 0;
+      while (safetyCounter < 10_000) {
+        safetyCounter += 1;
+        const deleted = await this.deleteOperatorActionsByRetentionBatch({
+          retentionDays,
+          limit: deleteBatchSize,
+          maxTransactionMs: maxDeleteTransactionMs,
+        });
+        deletedByAge += deleted.deletedRecords;
+        if (deleted.deletedRecords < deleteBatchSize) {
+          break;
+        }
+      }
     }
 
     if (cleanupMode === "bySize" || cleanupMode === "byAgeAndSize") {
       const sizeLimitBytes = maxDatabaseSizeMb * 1024 * 1024;
       let safetyCounter = 0;
-      while (safetyCounter < 100) {
+      while (safetyCounter < 10_000) {
         safetyCounter += 1;
-        const sizeState = await this.pool.query<{ db_size_bytes: string | number; records_count: string | number }>(
-          `
-          SELECT
-              COALESCE(pg_total_relation_size('operator_actions'), 0) AS db_size_bytes,
-              (SELECT COUNT(*)::bigint FROM operator_actions) AS records_count
-          `,
-        );
-        const dbSizeRaw = sizeState.rows[0]?.db_size_bytes ?? 0;
-        const recordsRaw = sizeState.rows[0]?.records_count ?? 0;
-        const dbSizeBytes = typeof dbSizeRaw === "string" ? Number.parseInt(dbSizeRaw, 10) : Number(dbSizeRaw);
-        const recordsCount = typeof recordsRaw === "string" ? Number.parseInt(recordsRaw, 10) : Number(recordsRaw);
-        if (!Number.isFinite(dbSizeBytes) || dbSizeBytes <= sizeLimitBytes) {
+        const sizeState = await this.readSizedTableStats("operator_actions", "occurred_at");
+        if (!Number.isFinite(sizeState.currentBytes) || sizeState.currentBytes <= sizeLimitBytes) {
           break;
         }
-        if (!Number.isFinite(recordsCount) || recordsCount <= 0) {
+        if (!Number.isFinite(sizeState.recordsCount) || sizeState.recordsCount <= 0) {
           break;
         }
-        const overflowRatio = Math.min(1, Math.max(0, (dbSizeBytes - sizeLimitBytes) / dbSizeBytes));
-        const deleteLimit = Math.min(
-          recordsCount,
-          ARCHIVE_SIZE_DELETE_MAX_ROWS,
-          Math.max(ARCHIVE_SIZE_DELETE_MIN_ROWS, Math.ceil(recordsCount * overflowRatio * ARCHIVE_SIZE_DELETE_HEADROOM)),
-        );
-        const deleteResult = await this.pool.query(
-          `
-          DELETE FROM operator_actions
-          WHERE ctid IN (
-            SELECT ctid
-            FROM operator_actions
-            ORDER BY occurred_at ASC, id ASC
-            LIMIT $1
-          )
-          `,
-          [deleteLimit],
-        );
-        const chunkDeleted = deleteResult.rowCount ?? 0;
-        deletedBySize += chunkDeleted;
-        if (chunkDeleted === 0) {
+        const deleted = await this.deleteOldestOperatorActionsBatch({
+          limit: deleteBatchSize,
+          maxTransactionMs: maxDeleteTransactionMs,
+        });
+        deletedBySize += deleted.deletedRecords;
+        if (deleted.deletedRecords === 0) {
           break;
         }
       }
@@ -2359,6 +2525,18 @@ export class ArchiveRepository {
     return this.activeTrendQueries;
   }
 
+  public getActiveEventQueries(): number {
+    return this.activeEventQueries;
+  }
+
+  public getActiveOperatorActionQueries(): number {
+    return this.activeOperatorActionQueries;
+  }
+
+  public getActiveOperatorActionWrites(): number {
+    return this.activeOperatorActionWrites;
+  }
+
   public async deleteOldestSamplesBatch(options: {
     limit: number;
     maxTransactionMs: number;
@@ -2382,6 +2560,220 @@ export class ArchiveRepository {
         USING oldest
         WHERE s.tag_id = oldest.tag_id
           AND s.time = oldest.time
+        `,
+        [limit],
+      );
+      await client.query("COMMIT");
+      return {
+        deletedRecords: result.rowCount ?? 0,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async deleteEventOccurrencesByRetentionBatch(options: {
+    retentionDays: number;
+    limit: number;
+    maxTransactionMs: number;
+  }): Promise<ArchivePruneBatchResultRow> {
+    const retentionDays = Math.max(1, Math.round(options.retentionDays));
+    const limit = this.normalizeBoundedInteger(
+      options.limit,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const maxTransactionMs = this.normalizeBoundedInteger(
+      options.maxTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const client = await this.pool.connect();
+    const startedAt = Date.now();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      const result = await client.query(
+        `
+        WITH overdue AS (
+          SELECT id
+          FROM event_occurrences
+          WHERE occurred_at < now() - make_interval(days => $1::int)
+          ORDER BY occurred_at ASC, id ASC
+          LIMIT $2
+        )
+        DELETE FROM event_occurrences e
+        USING overdue
+        WHERE e.id = overdue.id
+        `,
+        [retentionDays, limit],
+      );
+      await client.query("COMMIT");
+      return {
+        deletedRecords: result.rowCount ?? 0,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async deleteOldestEventOccurrencesBatch(options: {
+    limit: number;
+    maxTransactionMs: number;
+  }): Promise<ArchivePruneBatchResultRow> {
+    const limit = this.normalizeBoundedInteger(
+      options.limit,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const maxTransactionMs = this.normalizeBoundedInteger(
+      options.maxTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const client = await this.pool.connect();
+    const startedAt = Date.now();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      const result = await client.query(
+        `
+        WITH oldest AS (
+          SELECT id
+          FROM event_occurrences
+          ORDER BY occurred_at ASC, id ASC
+          LIMIT $1
+        )
+        DELETE FROM event_occurrences e
+        USING oldest
+        WHERE e.id = oldest.id
+        `,
+        [limit],
+      );
+      await client.query("COMMIT");
+      return {
+        deletedRecords: result.rowCount ?? 0,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async deleteOperatorActionsByRetentionBatch(options: {
+    retentionDays: number;
+    limit: number;
+    maxTransactionMs: number;
+  }): Promise<ArchivePruneBatchResultRow> {
+    const retentionDays = Math.max(1, Math.round(options.retentionDays));
+    const limit = this.normalizeBoundedInteger(
+      options.limit,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const maxTransactionMs = this.normalizeBoundedInteger(
+      options.maxTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const client = await this.pool.connect();
+    const startedAt = Date.now();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      const result = await client.query(
+        `
+        WITH overdue AS (
+          SELECT id
+          FROM operator_actions
+          WHERE occurred_at < now() - make_interval(days => $1::int)
+          ORDER BY occurred_at ASC, id ASC
+          LIMIT $2
+        )
+        DELETE FROM operator_actions oa
+        USING overdue
+        WHERE oa.id = overdue.id
+        `,
+        [retentionDays, limit],
+      );
+      await client.query("COMMIT");
+      return {
+        deletedRecords: result.rowCount ?? 0,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async deleteOldestOperatorActionsBatch(options: {
+    limit: number;
+    maxTransactionMs: number;
+  }): Promise<ArchivePruneBatchResultRow> {
+    const limit = this.normalizeBoundedInteger(
+      options.limit,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const maxTransactionMs = this.normalizeBoundedInteger(
+      options.maxTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const client = await this.pool.connect();
+    const startedAt = Date.now();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      const result = await client.query(
+        `
+        WITH oldest AS (
+          SELECT id
+          FROM operator_actions
+          ORDER BY occurred_at ASC, id ASC
+          LIMIT $1
+        )
+        DELETE FROM operator_actions oa
+        USING oldest
+        WHERE oa.id = oldest.id
         `,
         [limit],
       );
@@ -2433,11 +2825,23 @@ export class ArchiveRepository {
   }
 
   private async readArchiveSamplesSize(): Promise<{ currentBytes: number; recordsCount: number }> {
+    return this.readSizedTableStats("archive_samples", "time");
+  }
+
+  private async readSizedTableStats(
+    tableName: "archive_samples" | "event_occurrences" | "operator_actions",
+    orderColumn: "time" | "occurred_at",
+  ): Promise<{ currentBytes: number; recordsCount: number }> {
+    const allowedTableNames = new Set(["archive_samples", "event_occurrences", "operator_actions"]);
+    const allowedColumns = new Set(["time", "occurred_at"]);
+    if (!allowedTableNames.has(tableName) || !allowedColumns.has(orderColumn)) {
+      throw new Error(`Unsupported table stats request: ${tableName}.${orderColumn}`);
+    }
     const sizeResult = await this.pool.query<{ size_bytes: string | number; records_count: string | number }>(
       `
       SELECT
-        COALESCE(pg_total_relation_size('archive_samples'), 0) AS size_bytes,
-        (SELECT COUNT(*)::bigint FROM archive_samples) AS records_count
+        COALESCE(pg_total_relation_size('${tableName}'), 0) AS size_bytes,
+        (SELECT COUNT(*)::bigint FROM ${tableName}) AS records_count
       `,
     );
     const sizeRaw = sizeResult.rows[0]?.size_bytes ?? 0;
@@ -3247,6 +3651,33 @@ export class ArchiveRepository {
     }
   }
 
+  private async withEventQueryActivity<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeEventQueries += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeEventQueries = Math.max(0, this.activeEventQueries - 1);
+    }
+  }
+
+  private async withOperatorActionQueryActivity<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeOperatorActionQueries += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeOperatorActionQueries = Math.max(0, this.activeOperatorActionQueries - 1);
+    }
+  }
+
+  private async withOperatorActionWriteActivity<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeOperatorActionWrites += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeOperatorActionWrites = Math.max(0, this.activeOperatorActionWrites - 1);
+    }
+  }
+
   private normalizePositiveInteger(value: unknown, fallback: number): number {
     const fallbackValue = Number.isFinite(fallback) && fallback > 0 ? Math.round(fallback) : 1;
     const numeric = typeof value === "number" ? value : Number(value);
@@ -3295,6 +3726,10 @@ export class ArchiveRepository {
       cleanupMode: "byAgeAndSize",
       cleanupIntervalMinutes: 60,
       optimizeAfterCleanup: false,
+      deleteBatchSize: this.defaultDeleteBatchSize,
+      maintenanceIntervalMs: this.defaultMaintenanceIntervalMs,
+      maxMaintenanceTickMs: this.defaultMaxMaintenanceTickMs,
+      maxDeleteTransactionMs: this.defaultMaxDeleteTransactionMs,
     };
   }
 

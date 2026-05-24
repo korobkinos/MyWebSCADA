@@ -106,6 +106,10 @@ export type OperatorActionArchiveSettings = {
   cleanupMode: 'byAge' | 'bySize' | 'byAgeAndSize';
   cleanupIntervalMinutes: number;
   optimizeAfterCleanup: boolean;
+  deleteBatchSize?: number;
+  maintenanceIntervalMs?: number;
+  maxMaintenanceTickMs?: number;
+  maxDeleteTransactionMs?: number;
   updatedAt?: string;
 };
 

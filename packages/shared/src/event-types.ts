@@ -103,6 +103,10 @@ export type EventArchiveSettings = {
   cleanupMode: EventArchiveCleanupMode;
   cleanupIntervalMinutes: number;
   optimizeAfterCleanup: boolean;
+  deleteBatchSize?: number;
+  maintenanceIntervalMs?: number;
+  maxMaintenanceTickMs?: number;
+  maxDeleteTransactionMs?: number;
   updatedAt?: string;
 };
 
