@@ -1,8 +1,8 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { HmiObject, HmiScreen, MacroDefinition, MacroRunResult, MacroTrigger, ScadaProject, TagDefinition } from "@web-scada/shared";
 import { LeftOutlined, RightOutlined, UpOutlined } from "@ant-design/icons";
-import { Button, Card, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tag, Typography, message } from "antd";
-import { macroApiDocumentation, macroExamples, type MacroApiDocItem } from "./macro-api-doc";
+import { Button, Card, Collapse, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tag, Typography, message } from "antd";
+import { macroApiDocumentation, macroExamples, macroTemplates, type MacroApiDocItem, type MacroTemplateItem } from "./macro-api-doc";
 import { ResizableDockPanel } from "../../components/resizable-dock-panel";
 import { useDockLayout } from "../../hooks/use-dock-layout";
 
@@ -107,6 +107,10 @@ function uniqueCategories(items: MacroApiDocItem[]): string[] {
   return [...new Set(items.map((item) => item.category))];
 }
 
+function uniqueTemplateCategories(items: MacroTemplateItem[]): string[] {
+  return [...new Set(items.map((item) => item.category))];
+}
+
 function safetyTagColor(safety: MacroApiDocItem["safety"]): string {
   if (safety === "read") {
     return "blue";
@@ -195,6 +199,8 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
   const [newVarName, setNewVarName] = useState<string>("Var1");
   const [newVarType, setNewVarType] = useState<"BOOL" | "INT" | "DINT" | "REAL" | "STRING">("REAL");
   const [usageMacroId, setUsageMacroId] = useState<string | null>(null);
+  const [templateCategory, setTemplateCategory] = useState<string>("All");
+  const [templateQuery, setTemplateQuery] = useState<string>("");
   const [dirty, setDirty] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -210,6 +216,29 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
   const popupScreens = useMemo(() => project.screens.filter((screen) => screen.kind === "popup"), [project.screens]);
   const normalScreens = useMemo(() => project.screens.filter((screen) => screen.kind === "screen"), [project.screens]);
   const categories = useMemo(() => ["Quick Start", ...uniqueCategories(macroApiDocumentation), "События запуска макросов", "Примеры макросов", "Ошибки и отладка"], []);
+  const templateCategories = useMemo(() => ["All", ...uniqueTemplateCategories(macroTemplates)], []);
+  const filteredTemplates = useMemo(() => {
+    const query = templateQuery.trim().toLowerCase();
+    return macroTemplates.filter((item) => {
+      if (templateCategory !== "All" && item.category !== templateCategory) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const haystack = `${item.title} ${item.description} ${item.code} ${(item.tags ?? []).join(" ")}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [templateCategory, templateQuery]);
+  const templatesByCategory = useMemo(() => {
+    const groups = new Map<string, MacroTemplateItem[]>();
+    for (const item of filteredTemplates) {
+      const prev = groups.get(item.category) ?? [];
+      prev.push(item);
+      groups.set(item.category, prev);
+    }
+    return [...groups.entries()];
+  }, [filteredTemplates]);
   const usageRows = useMemo(
     () => (usageMacroId ? findMacroReferences(project, usageMacroId) : []),
     [project, usageMacroId],
@@ -266,6 +295,25 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
     mutateMacro({ code: value });
     requestAnimationFrame(() => {
       editor.focus();
+      editor.selectionStart = cursor;
+      editor.selectionEnd = cursor;
+    });
+  };
+
+  const insertTemplateCode = (snippet: string): void => {
+    const editor = codeRef.current;
+    if (!selectedMacro || !editor) {
+      return;
+    }
+    const normalized = snippet.trim();
+    const current = selectedMacro.code ?? "";
+    const next = current.trim().length === 0
+      ? normalized
+      : `${current.replace(/\s*$/, "")}\n\n${normalized}`;
+    mutateMacro({ code: next });
+    requestAnimationFrame(() => {
+      editor.focus();
+      const cursor = next.length;
       editor.selectionStart = cursor;
       editor.selectionEnd = cursor;
     });
@@ -861,6 +909,64 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
                       </List.Item>
                     )}
                   />
+                ),
+              },
+              {
+                key: "templates",
+                label: "Templates",
+                children: (
+                  <Space direction="vertical" style={{ width: "100%" }}>
+                    <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
+                      <Select
+                        size="small"
+                        style={{ minWidth: 180 }}
+                        value={templateCategory}
+                        onChange={setTemplateCategory}
+                        options={templateCategories.map((item) => ({ label: item, value: item }))}
+                      />
+                      <Input
+                        size="small"
+                        style={{ width: 220 }}
+                        placeholder="Search templates"
+                        value={templateQuery}
+                        onChange={(event) => setTemplateQuery(event.target.value)}
+                      />
+                    </Space>
+                    <Collapse
+                      size="small"
+                      items={templatesByCategory.map(([category, items]) => ({
+                        key: category,
+                        label: `${category} (${items.length})`,
+                        children: (
+                          <List
+                            size="small"
+                            dataSource={items}
+                            renderItem={(item) => (
+                              <List.Item>
+                                <Card
+                                  size="small"
+                                  style={{ width: "100%" }}
+                                  title={(
+                                    <Space size={8} wrap>
+                                      <Typography.Text strong>{item.title}</Typography.Text>
+                                      {item.safety ? <Tag color={safetyTagColor(item.safety)}>{item.safety}</Tag> : null}
+                                    </Space>
+                                  )}
+                                  extra={<Button size="small" onClick={() => insertTemplateCode(item.code)}>Insert</Button>}
+                                >
+                                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                                    <Typography.Text type="secondary">{item.description}</Typography.Text>
+                                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{item.code}</pre>
+                                  </Space>
+                                </Card>
+                              </List.Item>
+                            )}
+                          />
+                        ),
+                      }))}
+                    />
+                    {templatesByCategory.length === 0 ? <Typography.Text type="secondary">No templates found.</Typography.Text> : null}
+                  </Space>
                 ),
               },
               {

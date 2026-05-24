@@ -23,6 +23,16 @@ export type MacroExample = {
   code: string;
 };
 
+export type MacroTemplateItem = {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  code: string;
+  tags?: string[];
+  safety?: "read" | "write" | "ui" | "navigation" | "debug" | "utility";
+};
+
 export const macroApiDocumentation: MacroApiDocItem[] = [
   {
     name: "readTag",
@@ -382,6 +392,117 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     safety: "debug",
     related: ["log", "warn"],
     example: "error(\"command failed\");",
+  },
+];
+
+export const macroTemplates: MacroTemplateItem[] = [
+  {
+    id: "tpl-read-tag-log",
+    title: "Read tag and log value",
+    category: "Tags",
+    description: "Read current tag value and print it to macro log.",
+    safety: "read",
+    tags: ["readTag", "log"],
+    code: "const value = readTag(\"Boiler.Pressure\");\nlog(\"Boiler.Pressure =\", value);",
+  },
+  {
+    id: "tpl-write-command-tag",
+    title: "Write command tag",
+    category: "Commands",
+    description: "Send one-shot write command to a command tag.",
+    safety: "write",
+    tags: ["writeTag"],
+    code: "await writeTag(\"Pump_1.StartCmd\", true);\nlog(\"Start command sent\");",
+  },
+  {
+    id: "tpl-pulse-command-tag",
+    title: "Pulse command tag (500 ms)",
+    category: "Commands",
+    description: "Send pulse command with auto-reset after 500 ms.",
+    safety: "write",
+    tags: ["pulseTag"],
+    code: "await pulseTag(\"Burner_1.StartCmd\", true, 500, false);",
+  },
+  {
+    id: "tpl-toggle-bool-command",
+    title: "Toggle boolean command",
+    category: "Commands",
+    description: "Toggle BOOL command/state tag.",
+    safety: "write",
+    tags: ["toggleTag"],
+    code: "await toggleTag(\"Pump_1.Enable\");",
+  },
+  {
+    id: "tpl-open-screen",
+    title: "Open screen",
+    category: "Navigation",
+    description: "Navigate to regular screen by id.",
+    safety: "navigation",
+    tags: ["openScreen"],
+    code: "openScreen(\"main_screen\");",
+  },
+  {
+    id: "tpl-open-popup-with-context",
+    title: "Open popup with args and tagPrefix",
+    category: "Navigation",
+    description: "Open popup and pass runtime context to bindings.",
+    safety: "navigation",
+    tags: ["openPopup", "tagPrefix", "args"],
+    code: "const prefix = \"VALVES.PZK_1\";\nopenPopup(\"Popup_ValveControl\", {\n  title: \"Valve Control\",\n  tagPrefix: prefix,\n  args: { valveName: \"PZK-1\", source: \"macro\" },\n});",
+  },
+  {
+    id: "tpl-lw-selector",
+    title: "Use LW register as selector",
+    category: "Selection",
+    description: "Select object by LW register and open popup for selected prefix.",
+    safety: "utility",
+    tags: ["getLW", "openPopup"],
+    code: "const selectedValve = Number(getLW(10) ?? 1);\nconst prefix = \"VALVES.PZK_\" + selectedValve;\nlog(\"Selected prefix:\", prefix);\nopenPopup(\"Popup_ValveControl\", {\n  title: \"Valve PZK-\" + selectedValve,\n  tagPrefix: prefix,\n  args: { selectedValve },\n});",
+  },
+  {
+    id: "tpl-temp-named-var",
+    title: "Temporary named variable",
+    category: "State",
+    description: "Keep simple state between macro runs.",
+    safety: "utility",
+    tags: ["getVar", "setVar"],
+    code: "const step = Number(getVar(\"StartSequenceStep\") ?? 0);\nsetVar(\"StartSequenceStep\", step + 1);\nlog(\"StartSequenceStep =\", step + 1);",
+  },
+  {
+    id: "tpl-resolve-relative-tag",
+    title: "Resolve relative tag with prefix",
+    category: "Bindings",
+    description: "Resolve relative tag name and read its value.",
+    safety: "utility",
+    tags: ["resolveTag", "readTag"],
+    code: "const prefix = String(getCurrentTagPrefix() || \"VALVES.PZK_1\");\nconst openedTag = resolveTag(\".Opened\", prefix);\nconst opened = readTag(openedTag);\nlog(openedTag, opened);",
+  },
+  {
+    id: "tpl-valve-open-cmd",
+    title: "Valve open command",
+    category: "Valves",
+    description: "Resolve valve open command tag and send pulse.",
+    safety: "write",
+    tags: ["resolveTag", "pulseTag"],
+    code: "const prefix = String(getCurrentTagPrefix() || \"VALVES.PZK_1\");\nconst cmdOpenTag = resolveTag(\".CmdOpen\", prefix);\nawait pulseTag(cmdOpenTag, true, 500, false);",
+  },
+  {
+    id: "tpl-valve-close-cmd",
+    title: "Valve close command",
+    category: "Valves",
+    description: "Resolve valve close command tag and send pulse.",
+    safety: "write",
+    tags: ["resolveTag", "pulseTag"],
+    code: "const prefix = String(getCurrentTagPrefix() || \"VALVES.PZK_1\");\nconst cmdCloseTag = resolveTag(\".CmdClose\", prefix);\nawait pulseTag(cmdCloseTag, true, 500, false);",
+  },
+  {
+    id: "tpl-simple-condition",
+    title: "Simple condition",
+    category: "Logic",
+    description: "Read one tag and trigger another action if condition is true.",
+    safety: "write",
+    tags: ["readTag", "writeTag", "log"],
+    code: "const isEnabled = readTag(\"Pump_1.Enable\") === true;\nif (isEnabled) {\n  await writeTag(\"Pump_1.StartCmd\", true);\n  log(\"Pump start command sent\");\n} else {\n  log(\"Pump is disabled\");\n}",
   },
 ];
 
