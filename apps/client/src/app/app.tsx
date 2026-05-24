@@ -6,9 +6,14 @@ import {
   MenuOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Button, ConfigProvider, Dropdown, Space, Spin, Typography, message, theme as antdTheme } from "antd";
+import { Button, ConfigProvider, Dropdown, Spin, Typography, message, theme as antdTheme } from "antd";
 import type { MenuProps } from "antd";
 import type { AppPermission, ProjectTheme } from "@web-scada/shared";
+import {
+  AUTH_INTENT_REDIRECT_EDITOR,
+  buildStateWithAuthIntent,
+  createAuthIntent,
+} from "./auth-intent";
 import { startRuntimePerformanceDiagnostics } from "../services/performance-diagnostics";
 import { createTagValueBatcher } from "../services/tag-value-batcher";
 import { createRuntimeSocket } from "../services/ws";
@@ -33,7 +38,8 @@ export function App() {
   const authResolved = useScadaStore((s) => s.authResolved);
   const logout = useScadaStore((s) => s.logoutEngineer);
   const hasPermission = useScadaStore((s) => s.hasPermission);
-  const isRuntimeRoute = location.pathname === "/" || location.pathname === "/runtime";
+  const isLoginAliasRoute = location.pathname === "/login";
+  const isRuntimeRoute = location.pathname === "/" || location.pathname === "/runtime" || isLoginAliasRoute;
   const isMacrosRoute = location.pathname === "/macros";
   const isEditorRoute = location.pathname === "/editor" || isMacrosRoute;
   const isProtectedRoute = isEditorRoute;
@@ -224,7 +230,12 @@ export function App() {
         icon: <EditOutlined />,
         onClick: () => {
           if (!authUser) {
-            navigate("/login", { state: { from: "/editor" } });
+            navigate("/runtime", {
+              state: buildStateWithAuthIntent(
+                createAuthIntent("open-editor", { redirectTo: AUTH_INTENT_REDIRECT_EDITOR }),
+                location.state,
+              ),
+            });
             return;
           }
           if (!hasPermission("editor.view")) {
@@ -246,23 +257,26 @@ export function App() {
           void document.documentElement.requestFullscreen();
         },
       },
-      authUser
-        ? {
+      {
+        key: "login",
+        label: "Authorization",
+        icon: <UserOutlined />,
+        onClick: () => {
+          navigate("/runtime", {
+            state: buildStateWithAuthIntent(createAuthIntent("manual-auth"), location.state),
+          });
+        },
+      },
+      ...(authUser
+        ? [{
             key: "logout",
             label: `Logout (${authUser.username})`,
             icon: <LogoutOutlined />,
             onClick: () => {
               logout();
             },
-          }
-        : {
-            key: "login",
-            label: "Authorization",
-            icon: <UserOutlined />,
-            onClick: () => {
-              void message.info("Open any protected runtime action to authorize.");
-            },
-          },
+          }]
+        : []),
     ];
 
     return (
@@ -307,6 +321,16 @@ export function App() {
 
         <Suspense fallback={<CenteredSpinner />}>
           <Routes>
+            <Route
+              path="/login"
+              element={(
+                <Navigate
+                  to="/runtime"
+                  replace
+                  state={buildStateWithAuthIntent(createAuthIntent("login-alias"), location.state)}
+                />
+              )}
+            />
             <Route path="/" element={<RuntimePage fullscreen />} />
             <Route path="/runtime" element={<RuntimePage fullscreen />} />
           </Routes>
@@ -323,13 +347,20 @@ function RequirePermission({ permission, children }: { permission: AppPermission
   const authResolved = useScadaStore((s) => s.authResolved);
   const authUser = useScadaStore((s) => s.authUser);
   const hasPermission = useScadaStore((s) => s.hasPermission);
-  const location = useLocation();
 
   if (!authResolved) {
     return <CenteredSpinner />;
   }
   if (!authUser) {
-    return <Navigate to="/runtime" replace state={{ from: location.pathname }} />;
+    return (
+      <Navigate
+        to="/runtime"
+        replace
+        state={buildStateWithAuthIntent(
+          createAuthIntent("open-editor", { redirectTo: AUTH_INTENT_REDIRECT_EDITOR }),
+        )}
+      />
+    );
   }
   if (!hasPermission(permission)) {
     return (

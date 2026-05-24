@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ACCESS_ROLE_LABELS_RU,
   COMMAND_TIMEOUT_MS,
@@ -31,6 +32,13 @@ import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/
 import { isAbortError } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 import {
+  AUTH_INTENT_REDIRECT_EDITOR,
+  readAuthIntentFromLocationState,
+  resolvePostLoginRedirect,
+  stripAuthIntentFromLocationState,
+  type AuthIntent,
+} from "../app/auth-intent";
+import {
   WorkbenchButton,
   WorkbenchLoginForm,
   WorkbenchWindowManager,
@@ -60,6 +68,8 @@ const COMMAND_WARNING_RETENTION_MS = 30_000;
 const FAST_INTERNAL_MACRO_TIMEOUT_MS = 1000;
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const project = useScadaStore((s) => s.project);
   const tags = useScadaStore((s) => s.tags);
   const libraries = useScadaStore((s) => s.libraries);
@@ -121,6 +131,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     requiredRole: 1,
     currentRole: 0,
   });
+  const [activeAuthIntent, setActiveAuthIntent] = useState<AuthIntent | null>(null);
   const {
     openWindows,
     openWindow,
@@ -419,7 +430,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     closeWindow(RUNTIME_ACCESS_WINDOW_ID);
   };
 
-  const openAuthWindow = () => {
+  const openAuthWindow = useCallback((intent: AuthIntent | null = null) => {
+    setActiveAuthIntent(intent);
     openWindow({
       id: RUNTIME_AUTH_WINDOW_ID,
       title: "Authorization",
@@ -428,11 +440,25 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       minHeight: 230,
       render: () => null,
     });
-  };
+  }, [openWindow, runtimeAuthWindowRect]);
 
-  const closeAuthWindow = () => {
+  const closeAuthWindow = useCallback(() => {
+    setActiveAuthIntent(null);
     closeWindow(RUNTIME_AUTH_WINDOW_ID);
-  };
+  }, [closeWindow]);
+
+  useEffect(() => {
+    const authIntent = readAuthIntentFromLocationState(location.state);
+    if (!authIntent?.openAuthModal) {
+      return;
+    }
+    openAuthWindow(authIntent);
+    const nextState = stripAuthIntentFromLocationState(location.state);
+    navigate(
+      { pathname: location.pathname, search: location.search, hash: location.hash },
+      { replace: true, state: nextState },
+    );
+  }, [location.hash, location.pathname, location.search, location.state, navigate, openAuthWindow]);
 
   if (!project || !screen) {
     return <Typography.Text>Project is not loaded</Typography.Text>;
@@ -1851,7 +1877,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
               variant="primary"
               onClick={() => {
                 closeAccessWindow();
-                openAuthWindow();
+                openAuthWindow(null);
               }}
             >
               Authorization
@@ -1889,7 +1915,17 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
                 }
                 closeAuthWindow();
                 closeAccessWindow();
-                void message.success("Authorized. Press the control again.");
+                const hasEditorViewPermission = useScadaStore.getState().hasPermission("editor.view");
+                const redirectDecision = resolvePostLoginRedirect(activeAuthIntent, hasEditorViewPermission);
+                if (redirectDecision.redirectTo === AUTH_INTENT_REDIRECT_EDITOR) {
+                  navigate(redirectDecision.redirectTo);
+                  return { ok: true };
+                }
+                if (redirectDecision.errorText) {
+                  void message.warning(redirectDecision.errorText);
+                  return { ok: true };
+                }
+                void message.success("Authorized.");
                 return { ok: true };
               } catch (error) {
                 return { ok: false, error: error instanceof Error ? error.message : String(error) };
