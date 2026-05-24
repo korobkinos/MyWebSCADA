@@ -7,3 +7,8 @@ export * from "./workbench-collapsible-section";
 export * from "./workbench-tree-item";
 export * from "./workbench-tabs";
 export * from "./workbench-panel-toolbar";
+export * from "./workbench-table";
+export * from "./workbench-status-block";
+export * from "./workbench-file-picker-row";
+export * from "./workbench-danger-zone";
+export * from "./workbench-confirm-dialog";
