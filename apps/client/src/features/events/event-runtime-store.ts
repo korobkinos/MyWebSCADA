@@ -43,7 +43,14 @@ type Listener = () => void;
 
 const DEFAULT_RECENT_BUFFER_LIMIT = 1000;
 const DEFAULT_ONLINE_LIMIT = 200;
-const DEFAULT_ONLINE_RETENTION_LIMIT = 5000;
+const DEFAULT_ONLINE_RETENTION_LIMIT = 2000;
+const MIN_RECENT_BUFFER_LIMIT = 100;
+const MAX_RECENT_BUFFER_LIMIT = 1000;
+const MIN_ONLINE_RETENTION_LIMIT = 200;
+const MAX_ONLINE_RETENTION_LIMIT = 2000;
+const ONLINE_SNAPSHOT_FLUSH_INTERVAL_MS = 300;
+const DEBUG_LOG_INTERVAL_MS = 5000;
+const ARCHIVE_STATUS_REFRESH_MIN_INTERVAL_MS = 30_000;
 
 const historyRequestSequence = new Map<string, number>();
 const listeners = new Set<Listener>();
@@ -53,6 +60,11 @@ let socket: RuntimeSocketController | null = null;
 let started = false;
 let recentBufferLimit = DEFAULT_RECENT_BUFFER_LIMIT;
 let onlineRetentionLimit = DEFAULT_ONLINE_RETENTION_LIMIT;
+let onlineSnapshotFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingOnlineSnapshotFlush = false;
+let lastDebugLogAt = 0;
+let archiveStatusLoadedAt: number | null = null;
+let archiveStatusInFlight: Promise<void> | null = null;
 let state: EventRuntimeState = {
   activeEvents: [],
   recentEvents: [],
@@ -87,6 +99,37 @@ function emit(): void {
   }
 }
 
+function isDebugEnabled(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem("webscada:event-runtime-debug") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function logDebugSnapshot(reason: string): void {
+  if (!isDebugEnabled()) {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastDebugLogAt < DEBUG_LOG_INTERVAL_MS) {
+    return;
+  }
+  lastDebugLogAt = now;
+  console.debug("[event-runtime-store]", {
+    reason,
+    onlineMapSize: onlineMap.size,
+    recentEventsLength: state.recentEvents.length,
+    activeEventsLength: state.activeEvents.length,
+    activeCount: state.activeCount,
+    unacknowledgedCount: state.unacknowledgedCount,
+    clearedUnacknowledgedCount: state.clearedUnacknowledgedCount,
+  });
+}
+
 function patchState(patch: Partial<EventRuntimeState>): void {
   state = {
     ...state,
@@ -101,7 +144,11 @@ function updateRecentBuffer(occurrence: EventOccurrence): void {
     return;
   }
 
-  const next = state.recentEvents.filter((item) => normalizeOccurrenceId(item) !== id);
+  const next = state.recentEvents.slice(0, recentBufferLimit);
+  const existingIndex = next.findIndex((item) => normalizeOccurrenceId(item) === id);
+  if (existingIndex >= 0) {
+    next.splice(existingIndex, 1);
+  }
   next.unshift(occurrence);
   if (next.length > recentBufferLimit) {
     next.length = recentBufferLimit;
@@ -177,6 +224,40 @@ function recalculateOnlineSnapshot(): void {
   };
 }
 
+function flushOnlineSnapshot(reason: string): void {
+  pendingOnlineSnapshotFlush = false;
+  pruneOnlineMap();
+  recalculateOnlineSnapshot();
+  state = {
+    ...state,
+    lastUpdateAt: Date.now(),
+  };
+  emit();
+  logDebugSnapshot(reason);
+}
+
+function scheduleOnlineSnapshotFlush(reason: string): void {
+  pendingOnlineSnapshotFlush = true;
+  if (onlineSnapshotFlushTimer !== null) {
+    return;
+  }
+  onlineSnapshotFlushTimer = setTimeout(() => {
+    onlineSnapshotFlushTimer = null;
+    flushOnlineSnapshot(reason);
+    if (pendingOnlineSnapshotFlush) {
+      scheduleOnlineSnapshotFlush("queued");
+    }
+  }, ONLINE_SNAPSHOT_FLUSH_INTERVAL_MS);
+}
+
+function flushOnlineSnapshotNow(reason: string): void {
+  if (onlineSnapshotFlushTimer !== null) {
+    clearTimeout(onlineSnapshotFlushTimer);
+    onlineSnapshotFlushTimer = null;
+  }
+  flushOnlineSnapshot(reason);
+}
+
 function mergeOccurrence(_kind: "active" | "cleared" | "acknowledged", occurrence: EventOccurrence): void {
   const id = normalizeOccurrenceId(occurrence);
   if (!id) {
@@ -188,14 +269,7 @@ function mergeOccurrence(_kind: "active" | "cleared" | "acknowledged", occurrenc
   onlineMap.set(id, next);
 
   updateRecentBuffer(next);
-  pruneOnlineMap();
-  recalculateOnlineSnapshot();
-
-  state = {
-    ...state,
-    lastUpdateAt: Date.now(),
-  };
-  emit();
+  scheduleOnlineSnapshotFlush("socket-update");
 
   void _kind;
 }
@@ -224,6 +298,11 @@ function maybeCloseSocket(): void {
   }
   socket?.close();
   socket = null;
+  if (onlineSnapshotFlushTimer !== null) {
+    clearTimeout(onlineSnapshotFlushTimer);
+    onlineSnapshotFlushTimer = null;
+  }
+  pendingOnlineSnapshotFlush = false;
   patchState({ onlineStatus: "closed" });
 }
 
@@ -275,7 +354,10 @@ export const eventRuntimeStore = {
   },
 
   setRecentBufferLimit(nextLimit: number): void {
-    recentBufferLimit = Math.max(100, Math.round(nextLimit) || DEFAULT_RECENT_BUFFER_LIMIT);
+    recentBufferLimit = Math.min(
+      MAX_RECENT_BUFFER_LIMIT,
+      Math.max(MIN_RECENT_BUFFER_LIMIT, Math.round(nextLimit) || DEFAULT_RECENT_BUFFER_LIMIT),
+    );
     if (state.recentEvents.length > recentBufferLimit) {
       patchState({
         recentEvents: state.recentEvents.slice(0, recentBufferLimit),
@@ -284,10 +366,11 @@ export const eventRuntimeStore = {
   },
 
   setOnlineRetentionLimit(nextLimit: number): void {
-    onlineRetentionLimit = Math.max(200, Math.round(nextLimit) || DEFAULT_ONLINE_RETENTION_LIMIT);
-    pruneOnlineMap();
-    recalculateOnlineSnapshot();
-    emit();
+    onlineRetentionLimit = Math.min(
+      MAX_ONLINE_RETENTION_LIMIT,
+      Math.max(MIN_ONLINE_RETENTION_LIMIT, Math.round(nextLimit) || DEFAULT_ONLINE_RETENTION_LIMIT),
+    );
+    flushOnlineSnapshotNow("retention-limit-change");
   },
 
   setSoundStatusMessage(messageText: string | null): void {
@@ -332,12 +415,10 @@ export const eventRuntimeStore = {
         }
         onlineMap.set(id, item);
       }
-      pruneOnlineMap();
-      recalculateOnlineSnapshot();
+      flushOnlineSnapshotNow("initialize-online");
       patchState({
         onlineLoading: false,
         onlineError: null,
-        lastUpdateAt: Date.now(),
       });
     } catch (error) {
       patchState({
@@ -361,12 +442,10 @@ export const eventRuntimeStore = {
         }
         onlineMap.set(id, item);
       }
-      pruneOnlineMap();
-      recalculateOnlineSnapshot();
+      flushOnlineSnapshotNow("reload-online");
       patchState({
         onlineLoading: false,
         onlineError: null,
-        lastUpdateAt: Date.now(),
       });
     } catch (error) {
       patchState({ onlineLoading: false, onlineError: formatError(error) });
@@ -408,14 +487,31 @@ export const eventRuntimeStore = {
     }
   },
 
-  async loadArchiveStatus(): Promise<void> {
-    patchState({ archiveStatusLoading: true, archiveStatusError: null });
-    try {
-      const archiveStatus = await api.getEventArchiveStatus();
-      patchState({ archiveStatus, archiveStatusLoading: false, archiveStatusError: null });
-    } catch (error) {
-      patchState({ archiveStatusLoading: false, archiveStatusError: formatError(error) });
+  async loadArchiveStatus(options?: { force?: boolean; minIntervalMs?: number }): Promise<void> {
+    const force = options?.force === true;
+    const minIntervalMs = Math.max(1000, Math.round(options?.minIntervalMs ?? ARCHIVE_STATUS_REFRESH_MIN_INTERVAL_MS));
+    const now = Date.now();
+    if (!force && archiveStatusLoadedAt !== null && (now - archiveStatusLoadedAt) < minIntervalMs) {
+      return;
     }
+    if (archiveStatusInFlight) {
+      return archiveStatusInFlight;
+    }
+
+    patchState({ archiveStatusLoading: true, archiveStatusError: null });
+    archiveStatusInFlight = (async () => {
+      try {
+        const archiveStatus = await api.getEventArchiveStatus();
+        archiveStatusLoadedAt = Date.now();
+        patchState({ archiveStatus, archiveStatusLoading: false, archiveStatusError: null });
+      } catch (error) {
+        patchState({ archiveStatusLoading: false, archiveStatusError: formatError(error) });
+      } finally {
+        archiveStatusInFlight = null;
+      }
+    })();
+
+    return archiveStatusInFlight;
   },
 
   async acknowledgeOccurrences(ids: string[]): Promise<EventAcknowledgeResponse> {
@@ -432,8 +528,7 @@ export const eventRuntimeStore = {
     }
 
     if (acknowledged.length > 0) {
-      pruneOnlineMap();
-      recalculateOnlineSnapshot();
+      flushOnlineSnapshotNow("acknowledged");
 
       const nextHistoryByWidget: Record<string, HistoryBucket> = {};
       const updatedById = new Map(acknowledged.map((item) => [normalizeOccurrenceId(item), item]));
@@ -452,7 +547,6 @@ export const eventRuntimeStore = {
       state = {
         ...state,
         historyByWidget: nextHistoryByWidget,
-        lastUpdateAt: Date.now(),
       };
       emit();
     }

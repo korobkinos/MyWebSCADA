@@ -90,6 +90,12 @@ type EventTableRow = EventTableEventRow | EventTableOperatorActionRow;
 const OPERATOR_ACTION_CATEGORY_LABEL = "Действие оператора";
 const OPERATOR_ACTION_ONLINE_WINDOW_MS = 5 * 60 * 1000;
 const OPERATOR_ACTION_ONLINE_POLL_MS = 3000;
+const MAX_EVENT_TABLE_ROWS = 1000;
+const MAX_EVENT_TABLE_PAGE_SIZE = 500;
+const MAX_MIXED_SOURCE_ROWS = 1000;
+const MAX_OPERATOR_ACTION_QUERY_LIMIT = 1000;
+const ARCHIVE_STATUS_REFRESH_INTERVAL_MS = 30_000;
+const DEBUG_LOG_INTERVAL_MS = 5000;
 const AUTO_COLUMN_MIN_WIDTH: Record<EventTableColumnId, number> = {
   timestamp: 160,
   priority: 90,
@@ -580,6 +586,17 @@ function isRussianUi(): boolean {
   return false;
 }
 
+function isEventTableDebugEnabled(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem("webscada:event-runtime-debug") === "1";
+  } catch {
+    return false;
+  }
+}
+
 function getSoundStatusLabel(kind: SoundStatusKind, russianUi: boolean): string {
   if (russianUi) {
     if (kind === "disabled") {
@@ -658,6 +675,7 @@ export function EventTableRuntimeWidget({
   const columnResizeRef = useRef<ColumnResizeState>(null);
   const persistenceWarningShownRef = useRef(false);
   const operatorActionRequestSeqRef = useRef(0);
+  const debugLogAtRef = useRef(0);
 
   const config = useMemo(() => resolveEventTableConfig(object), [object]);
   const russianUi = useMemo(() => isRussianUi(), []);
@@ -691,8 +709,8 @@ export function EventTableRuntimeWidget({
   const showTopStatus = showStatus && statusPosition === "top";
   const showBottomStatus = showStatus && statusPosition === "bottom";
   const showHeader = object.showHeader !== false;
-  const maxRows = Math.max(1, Math.round(object.maxRows ?? 100));
-  const pageSize = Math.max(1, Math.round(object.pageSize ?? 50));
+  const maxRows = Math.min(MAX_EVENT_TABLE_ROWS, Math.max(1, Math.round(object.maxRows ?? 100)));
+  const pageSize = Math.min(MAX_EVENT_TABLE_PAGE_SIZE, Math.max(1, Math.round(object.pageSize ?? 50)));
   const compactMode = object.compactMode ?? false;
   const showGridLines = object.showGridLines !== false;
   const transparentBackground = object.transparentBackground === true;
@@ -784,7 +802,7 @@ export function EventTableRuntimeWidget({
   );
 
   const onlineEventRowsForMix = useMemo(
-    () => onlineSortedRows
+    () => onlineRows
       .map((event) => {
         const rowId = getEventRowId(event);
         if (!rowId) {
@@ -798,7 +816,7 @@ export function EventTableRuntimeWidget({
         } as EventTableEventRow;
       })
       .filter((item): item is EventTableEventRow => Boolean(item)),
-    [onlineSortedRows],
+    [onlineRows],
   );
 
   const historySortedRows = useMemo(() => {
@@ -818,7 +836,10 @@ export function EventTableRuntimeWidget({
     return historySortedRows.slice(start, start + pageSize);
   }, [historyPage, historySortedRows, object.serverSidePagination, pageSize]);
 
-  const historyEventRowsForMix = historySortedRows;
+  const historyEventRowsForMix = useMemo(
+    () => historySortedRows.slice(0, Math.max(pageSize, Math.min(MAX_MIXED_SOURCE_ROWS, maxRows))),
+    [historySortedRows, maxRows, pageSize],
+  );
 
   const historyEventTableRows = useMemo<EventTableRow[]>(
     () => historyRows
@@ -859,6 +880,7 @@ export function EventTableRuntimeWidget({
       .filter((item): item is EventTableEventRow => Boolean(item));
     const operatorRows = operatorActionHistory.items
       .filter((item) => matchesOperatorActionFilters(item, historyFilterObject))
+      .slice(0, MAX_MIXED_SOURCE_ROWS)
       .map((item) => toOperatorActionRow(item))
       .filter((item): item is EventTableOperatorActionRow => Boolean(item));
 
@@ -884,6 +906,7 @@ export function EventTableRuntimeWidget({
     }
     const operatorRows = operatorActionHistory.items
       .filter((item) => matchesOperatorActionFilters(item, object))
+      .slice(0, MAX_MIXED_SOURCE_ROWS)
       .map((item) => toOperatorActionRow(item))
       .filter((item): item is EventTableOperatorActionRow => Boolean(item));
     return [...onlineEventRowsForMix, ...operatorRows]
@@ -895,7 +918,11 @@ export function EventTableRuntimeWidget({
     : onlineEventTableRows;
 
   const historyTableRows = showOperatorActionsInHistory ? mixedHistoryVisibleRows : historyEventTableRows;
-  const visibleRows = mode === "history" ? historyTableRows : onlineTableRows;
+  const visibleRowsRaw = mode === "history" ? historyTableRows : onlineTableRows;
+  const visibleRows = useMemo(
+    () => visibleRowsRaw.slice(0, Math.max(pageSize, maxRows)),
+    [maxRows, pageSize, visibleRowsRaw],
+  );
 
   const historyTotalRowsForMode = showOperatorActionsInHistory
     ? (object.serverSidePagination !== false
@@ -970,8 +997,8 @@ export function EventTableRuntimeWidget({
   }, [object.columnWidths, object.id]);
 
   useEffect(() => {
-    eventRuntimeStore.setRecentBufferLimit(Math.max(1000, maxRows));
-    eventRuntimeStore.setOnlineRetentionLimit(Math.max(2000, maxRows * 8));
+    eventRuntimeStore.setRecentBufferLimit(maxRows);
+    eventRuntimeStore.setOnlineRetentionLimit(Math.max(1000, maxRows * 4));
   }, [maxRows]);
 
   useEffect(() => {
@@ -979,7 +1006,7 @@ export function EventTableRuntimeWidget({
       return;
     }
     void eventRuntimeStore.initializeOnline();
-    void eventRuntimeStore.reloadOnline(Math.max(200, maxRows * 2));
+    void eventRuntimeStore.reloadOnline(Math.min(1000, Math.max(200, maxRows * 2)));
   }, [maxRows, mode]);
 
   const historyQuery = useMemo(
@@ -992,8 +1019,43 @@ export function EventTableRuntimeWidget({
       return;
     }
     void eventRuntimeStore.loadHistory({ widgetId: object.id, query: historyQuery });
-    void eventRuntimeStore.loadArchiveStatus();
   }, [historyQuery, mode, object.id]);
+
+  useEffect(() => {
+    if (mode !== "history") {
+      return;
+    }
+    void eventRuntimeStore.loadArchiveStatus({ minIntervalMs: ARCHIVE_STATUS_REFRESH_INTERVAL_MS });
+    const timer = window.setInterval(() => {
+      void eventRuntimeStore.loadArchiveStatus({ minIntervalMs: ARCHIVE_STATUS_REFRESH_INTERVAL_MS });
+    }, ARCHIVE_STATUS_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [mode]);
+
+  const operatorActionQueryLimit = useMemo(
+    () => Math.min(MAX_OPERATOR_ACTION_QUERY_LIMIT, Math.max(pageSize, maxRows)),
+    [maxRows, pageSize],
+  );
+
+  useEffect(() => {
+    if (mode !== "history" || showOperatorActionsInHistory) {
+      return;
+    }
+    setOperatorActionHistory((previous) => {
+      if (previous.items.length === 0 && previous.total === 0) {
+        return previous;
+      }
+      return {
+        ...previous,
+        items: [],
+        total: 0,
+        limit: 0,
+        offset: 0,
+        loading: false,
+        error: null,
+      };
+    });
+  }, [mode, showOperatorActionsInHistory]);
 
   useEffect(() => {
     if (!showOperatorActionsInMode) {
@@ -1025,14 +1087,14 @@ export function EventTableRuntimeWidget({
           from: historyQuery.from,
           to: historyQuery.to,
           search: object.searchText?.trim() || undefined,
-          limit: historyQuery.limit,
+          limit: Math.min(operatorActionQueryLimit, Math.max(1, historyQuery.limit ?? operatorActionQueryLimit)),
           offset: historyQuery.offset,
         }
         : {
           from: new Date(Date.now() - OPERATOR_ACTION_ONLINE_WINDOW_MS).toISOString(),
           to: new Date().toISOString(),
           search: object.searchText?.trim() || undefined,
-          limit: Math.max(200, Math.min(4000, Math.max(maxRows, pageSize) * 4)),
+          limit: operatorActionQueryLimit,
           offset: 0,
         };
 
@@ -1083,8 +1145,37 @@ export function EventTableRuntimeWidget({
     maxRows,
     mode,
     object.searchText,
+    operatorActionQueryLimit,
     pageSize,
     showOperatorActionsInMode,
+  ]);
+
+  useEffect(() => {
+    if (!isEventTableDebugEnabled()) {
+      return;
+    }
+    const now = Date.now();
+    if (now - debugLogAtRef.current < DEBUG_LOG_INTERVAL_MS) {
+      return;
+    }
+    debugLogAtRef.current = now;
+    console.debug("[EventTableRuntimeWidget]", {
+      widgetId: object.id,
+      mode,
+      activeEventsLength: runtimeEvents.activeEvents.length,
+      recentEventsLength: runtimeEvents.recentEvents.length,
+      historyRowsLoaded: historyBucket.items.length,
+      operatorActionRowsLoaded: operatorActionHistory.items.length,
+      visibleRowsLength: visibleRows.length,
+    });
+  }, [
+    historyBucket.items.length,
+    mode,
+    object.id,
+    operatorActionHistory.items.length,
+    runtimeEvents.activeEvents.length,
+    runtimeEvents.recentEvents.length,
+    visibleRows.length,
   ]);
 
   useEffect(() => () => {
