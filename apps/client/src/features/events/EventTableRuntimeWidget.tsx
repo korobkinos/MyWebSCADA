@@ -115,6 +115,24 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function areColumnWidthsEqual(
+  left: Partial<Record<EventTableColumnId, number>>,
+  right: Partial<Record<EventTableColumnId, number>>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  for (const key of leftKeys) {
+    const column = key as EventTableColumnId;
+    if (Number(left[column]) !== Number(right[column])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function toFiniteNumber(value: unknown, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -877,12 +895,18 @@ export function EventTableRuntimeWidget({
       .sort((left, right) => compareMixedRowsByTime(left, right, object.sortDirection ?? "desc"));
   }, [object, onlineEventRowsForMix, operatorActionHistory.items, showOperatorActionsInOnline]);
 
-  const onlineTableRows = showOperatorActionsInOnline
-    ? mixedOnlineRows.slice(0, maxRows)
-    : onlineEventTableRows;
-
-  const historyTableRows = showOperatorActionsInHistory ? mixedHistoryVisibleRows : historyEventTableRows;
-  const visibleRowsRaw = mode === "history" ? historyTableRows : onlineTableRows;
+  const onlineTableRows = useMemo(
+    () => (showOperatorActionsInOnline ? mixedOnlineRows.slice(0, maxRows) : onlineEventTableRows),
+    [maxRows, mixedOnlineRows, onlineEventTableRows, showOperatorActionsInOnline],
+  );
+  const historyTableRows = useMemo(
+    () => (showOperatorActionsInHistory ? mixedHistoryVisibleRows : historyEventTableRows),
+    [historyEventTableRows, mixedHistoryVisibleRows, showOperatorActionsInHistory],
+  );
+  const visibleRowsRaw = useMemo(
+    () => (mode === "history" ? historyTableRows : onlineTableRows),
+    [historyTableRows, mode, onlineTableRows],
+  );
   const visibleRows = useMemo(
     () => visibleRowsRaw.slice(0, Math.max(pageSize, maxRows)),
     [maxRows, pageSize, visibleRowsRaw],
@@ -907,10 +931,25 @@ export function EventTableRuntimeWidget({
   useEffect(() => {
     setSelectedIds((previous) => {
       const visibleIds = new Set(visibleRows.map((item) => item.rowId));
+      if (previous.size === 0 && visibleIds.size === 0) {
+        return previous;
+      }
       const next = new Set<string>();
       for (const id of previous) {
         if (visibleIds.has(id)) {
           next.add(id);
+        }
+      }
+      if (next.size === previous.size) {
+        let equal = true;
+        for (const id of next) {
+          if (!previous.has(id)) {
+            equal = false;
+            break;
+          }
+        }
+        if (equal) {
+          return previous;
         }
       }
       return next;
@@ -957,7 +996,8 @@ export function EventTableRuntimeWidget({
   }, [canOpenSettings, settingsOpen]);
 
   useEffect(() => {
-    setRuntimeColumnWidths(normalizeEventTableColumnWidths(object.columnWidths));
+    const normalized = normalizeEventTableColumnWidths(object.columnWidths);
+    setRuntimeColumnWidths((previous) => (areColumnWidthsEqual(previous, normalized) ? previous : normalized));
   }, [object.columnWidths, object.id]);
 
   useEffect(() => {
