@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import AdmZip from "adm-zip";
@@ -7,6 +7,7 @@ import type {
   ArchiveManifestFile,
   Asset,
   ElementLibrary,
+  EventDefinition,
   EventSound,
   HmiObject,
   HmiScreen,
@@ -15,23 +16,33 @@ import type {
   ProjectArchiveImportResult,
   ProjectArchiveIssue,
   ProjectArchiveManifest,
+  ProjectArchiveSignature,
+  ProjectArchiveValidationOptions,
   ProjectArchiveValidationResult,
   ScadaProject,
+  ScreenArchiveDependencyMode,
   ScreenArchiveData,
+  ScreenArchiveExportOptions,
   ScreenArchiveImportOptions,
   ScreenArchiveImportResult,
   ScreenArchiveManifest,
+  ScreenArchiveValidationOptions,
   ScreenArchiveValidationResult,
   TagDefinition,
 } from "@web-scada/shared";
 import {
   projectArchiveImportOptionsSchema,
   projectArchiveManifestSchema,
+  projectArchiveSignatureSchema,
+  projectArchiveValidationOptionsSchema,
   projectSchema,
   screenArchiveDataSchema,
+  screenArchiveExportOptionsSchema,
   screenArchiveImportOptionsSchema,
   screenArchiveManifestSchema,
+  screenArchiveValidationOptionsSchema,
 } from "@web-scada/shared";
+import { getRuntimeValueSourceDependencies } from "@web-scada/shared";
 import { EventSoundService } from "../events/event-sound-service.js";
 import { LibraryService } from "../libraries/library-service.js";
 import { ProjectService } from "./project-service.js";
@@ -53,6 +64,7 @@ type ExportArchiveResult = {
 type ParsedZip = {
   files: Map<string, Buffer>;
   sizes: Map<string, number>;
+  signature?: ProjectArchiveSignature;
 };
 
 type ParsedProjectArchive = ParsedZip & {
@@ -68,6 +80,19 @@ type ParsedScreenArchive = ParsedZip & {
 };
 
 type AnyParsedArchive = ParsedProjectArchive | ParsedScreenArchive;
+
+type StagedProjectImport = {
+  stageRoot: string;
+  rollbackRoot: string;
+  projectFile: string;
+  projectDir: string;
+  stagedProjectFile: string;
+  stagedAssetsDir: string;
+  stagedEventSoundsDir: string;
+  librariesRoot: string;
+  stagedLibrariesRoot: string;
+  libraryIds: string[];
+};
 
 const PROJECT_FORMAT = "mywebscada-project";
 const SCREEN_FORMAT = "mywebscada-screen";
@@ -85,6 +110,21 @@ function nowIso(): string {
 
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
+}
+
+function archiveSecret(): string | undefined {
+  const value = process.env.PROJECT_ARCHIVE_SECRET?.trim();
+  return value || undefined;
+}
+
+function hmacSha256(buffer: Buffer, secret: string): string {
+  return createHmac("sha256", secret).update(buffer).digest("hex");
+}
+
+function timingSafeHexEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left, "hex");
+  const rightBuffer = Buffer.from(right, "hex");
+  return leftBuffer.byteLength === rightBuffer.byteLength && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 function addIssue(out: ProjectArchiveIssue[], code: string, message: string, filePath?: string): void {
@@ -269,22 +309,259 @@ function macroTagReferences(macroCode: string): string[] {
   return [...refs];
 }
 
+function collectExpressionTagReferences(expression: string): string[] {
+  const refs = new Set<string>();
+  const pattern = /\b(?:tag|readTag|writeTag|pulseTag|toggleTag)\s*\(\s*(['"`])([^'"`]+)\1/g;
+  let match = pattern.exec(expression);
+  while (match) {
+    const value = match[2]?.trim();
+    if (value && !value.includes("${")) {
+      refs.add(value);
+    }
+    match = pattern.exec(expression);
+  }
+  return [...refs];
+}
+
+type ScreenDependencyRefs = {
+  assetIds: Set<string>;
+  libraryIds: Set<string>;
+  libraryElements: Map<string, Set<string>>;
+  tagNames: Set<string>;
+  macroIds: Set<string>;
+  screenIds: Set<string>;
+  dynamicWarnings: ProjectArchiveIssue[];
+};
+
+function makeScreenDependencyRefs(): ScreenDependencyRefs {
+  return {
+    assetIds: new Set(),
+    libraryIds: new Set(),
+    libraryElements: new Map(),
+    tagNames: new Set(),
+    macroIds: new Set(),
+    screenIds: new Set(),
+    dynamicWarnings: [],
+  };
+}
+
+function addLibraryElementRef(refs: ScreenDependencyRefs, libraryId: string, elementId: string): void {
+  refs.libraryIds.add(libraryId);
+  const elements = refs.libraryElements.get(libraryId) ?? new Set<string>();
+  elements.add(elementId);
+  refs.libraryElements.set(libraryId, elements);
+}
+
+function collectRuntimeActionRefs(action: unknown, refs: ScreenDependencyRefs): void {
+  if (!action || typeof action !== "object") {
+    return;
+  }
+  const value = action as Record<string, unknown>;
+  switch (value.type) {
+    case "openScreen":
+      if (typeof value.screenId === "string") {
+        refs.screenIds.add(value.screenId);
+      }
+      break;
+    case "openPopup":
+      if (typeof value.popupScreenId === "string") {
+        refs.screenIds.add(value.popupScreenId);
+      }
+      if (typeof value.tagPrefix === "string" && value.tagPrefix.trim()) {
+        addIssue(refs.dynamicWarnings, "DYNAMIC_TAG_REFERENCE", "Popup tagPrefix may resolve tags dynamically.");
+      }
+      break;
+    case "runMacro":
+      if (typeof value.macroId === "string") {
+        refs.macroIds.add(value.macroId);
+      }
+      break;
+    case "write":
+    case "pulse":
+    case "toggle":
+      if (typeof value.tag === "string") {
+        refs.tagNames.add(value.tag);
+      }
+      break;
+    case "writeConst":
+    case "writeNumberPrompt":
+      if (value.target === "tag" && typeof value.name === "string") {
+        refs.tagNames.add(value.name);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+function collectRuntimeValueSourceRefs(source: unknown, refs: ScreenDependencyRefs): void {
+  if (!source || typeof source !== "object") {
+    return;
+  }
+  const dependencies = getRuntimeValueSourceDependencies(source as Parameters<typeof getRuntimeValueSourceDependencies>[0]);
+  for (const dependency of dependencies) {
+    if (dependency.type === "tag") {
+      refs.tagNames.add(dependency.tag);
+    }
+  }
+}
+
+function collectBindingRefs(bindings: unknown, refs: ScreenDependencyRefs): void {
+  if (!bindings || typeof bindings !== "object") {
+    return;
+  }
+  for (const binding of Object.values(bindings as Record<string, unknown>)) {
+    if (!binding || typeof binding !== "object") {
+      continue;
+    }
+    const value = binding as Record<string, unknown>;
+    if (value.mode === "tag" && typeof value.source === "string") {
+      refs.tagNames.add(value.source);
+    }
+    if (value.mode === "expr" && typeof value.source === "string") {
+      const refsFromExpression = collectExpressionTagReferences(value.source);
+      refsFromExpression.forEach((tag) => refs.tagNames.add(tag));
+      if (refsFromExpression.length === 0 && /\btag\s*\(/.test(value.source)) {
+        addIssue(refs.dynamicWarnings, "UNRESOLVED_DYNAMIC_REFERENCE", "Expression contains a dynamic tag reference.");
+      }
+    }
+  }
+}
+
+function collectKnownObjectRefs(object: HmiObject, refs: ScreenDependencyRefs): void {
+  collectBindingRefs(object.bindings, refs);
+  if (object.visibleTag) {
+    refs.tagNames.add(object.visibleTag);
+  }
+  if (object.disabledTag) {
+    refs.tagNames.add(object.disabledTag);
+  }
+  if (object.onPressMacroId) {
+    refs.macroIds.add(object.onPressMacroId);
+  }
+  if (object.onReleaseMacroId) {
+    refs.macroIds.add(object.onReleaseMacroId);
+  }
+  if (object.tagIndexing || object.tagIndexingByField) {
+    addIssue(refs.dynamicWarnings, "UNRESOLVED_DYNAMIC_REFERENCE", "Indexed tag addressing may reference tags dynamically.", `object:${object.id}`);
+  }
+
+  if ("action" in object) {
+    collectRuntimeActionRefs((object as { action?: unknown }).action, refs);
+  }
+
+  switch (object.type) {
+    case "group":
+      object.objects.forEach((child) => collectKnownObjectRefs(child, refs));
+      break;
+    case "image":
+      if (object.assetId) {
+        refs.assetIds.add(object.assetId);
+      }
+      if (object.stateTag) {
+        refs.tagNames.add(object.stateTag);
+      }
+      object.stateImages?.forEach((state) => {
+        if (state.assetId) {
+          refs.assetIds.add(state.assetId);
+        }
+      });
+      break;
+    case "stateImage":
+      refs.tagNames.add(object.tag);
+      if (object.defaultAssetId) {
+        refs.assetIds.add(object.defaultAssetId);
+      }
+      if (object.badQualityAssetId) {
+        refs.assetIds.add(object.badQualityAssetId);
+      }
+      object.states.forEach((state) => {
+        if (state.assetId) {
+          refs.assetIds.add(state.assetId);
+        }
+      });
+      break;
+    case "numeric-image-indicator":
+      if (object.tag) {
+        refs.tagNames.add(object.tag);
+      }
+      if (object.defaultAssetId) {
+        refs.assetIds.add(object.defaultAssetId);
+      }
+      if (object.badQualityAssetId) {
+        refs.assetIds.add(object.badQualityAssetId);
+      }
+      object.states.forEach((state) => {
+        if (state.assetId) {
+          refs.assetIds.add(state.assetId);
+        }
+      });
+      break;
+    case "button":
+      if (object.backgroundAssetId) {
+        refs.assetIds.add(object.backgroundAssetId);
+      }
+      if (object.pressedBackgroundAssetId) {
+        refs.assetIds.add(object.pressedBackgroundAssetId);
+      }
+      if (object.disabledBackgroundAssetId) {
+        refs.assetIds.add(object.disabledBackgroundAssetId);
+      }
+      break;
+    case "libraryElementInstance":
+      addLibraryElementRef(refs, object.libraryId, object.elementId);
+      if (object.tagPrefix) {
+        addIssue(refs.dynamicWarnings, "UNRESOLVED_DYNAMIC_REFERENCE", "Library tagPrefix may resolve tags dynamically.", `object:${object.id}`);
+      }
+      for (const assignment of Object.values(object.bindingAssignments ?? {})) {
+        if (assignment.baseTag) {
+          refs.tagNames.add(assignment.baseTag);
+        }
+        if (assignment.overrideTag) {
+          refs.tagNames.add(assignment.overrideTag);
+        }
+        collectRuntimeValueSourceRefs(assignment.prefixSource, refs);
+        collectRuntimeValueSourceRefs(assignment.indexOffsetSource, refs);
+        collectRuntimeValueSourceRefs(assignment.overrideTagSource, refs);
+        if (assignment.prefix || assignment.prefixMode?.type !== "none" || assignment.indexMode?.type !== "none") {
+          addIssue(refs.dynamicWarnings, "UNRESOLVED_DYNAMIC_REFERENCE", "Library binding may derive tag names dynamically.", `object:${object.id}`);
+        }
+      }
+      break;
+    case "frame":
+      refs.screenIds.add(object.screenId);
+      if (object.tagPrefix) {
+        addIssue(refs.dynamicWarnings, "UNRESOLVED_DYNAMIC_REFERENCE", "Frame tagPrefix may resolve tags dynamically.", `object:${object.id}`);
+      }
+      break;
+    case "trendChart":
+      object.selectedTags.forEach((series) => refs.tagNames.add(series.tag));
+      break;
+    case "eventTable":
+      if (object.sourceTagFilter) {
+        refs.tagNames.add(object.sourceTagFilter);
+      }
+      break;
+    default:
+      collectObjectTagNames(object, refs.tagNames);
+      collectObjectAssetIds(object, refs.assetIds);
+      collectObjectMacroIds(object, refs.macroIds);
+      break;
+  }
+}
+
 function collectDependencies(project: ScadaProject, screen: HmiScreen): {
   assets: Asset[];
   libraries: string[];
   tags: TagDefinition[];
   macros: MacroDefinition[];
+  events: EventDefinition[];
+  warnings: ProjectArchiveIssue[];
 } {
-  const assetIds = new Set<string>();
-  const libraryIds = new Set<string>();
-  const tagNames = new Set<string>();
-  const macroIds = new Set<string>();
+  const refs = makeScreenDependencyRefs();
 
   for (const object of screen.objects) {
-    collectObjectAssetIds(object, assetIds);
-    collectObjectLibraryIds(object, libraryIds);
-    collectObjectTagNames(object, tagNames);
-    collectObjectMacroIds(object, macroIds);
+    collectKnownObjectRefs(object, refs);
   }
 
   for (const macro of project.macros ?? []) {
@@ -298,24 +575,34 @@ function collectDependencies(project: ScadaProject, screen: HmiScreen): {
       return false;
     });
     if (screenTrigger) {
-      macroIds.add(macro.id);
+      refs.macroIds.add(macro.id);
     }
   }
 
-  const macros = (project.macros ?? []).filter((macro) => macroIds.has(macro.id));
+  const macros = (project.macros ?? []).filter((macro) => refs.macroIds.has(macro.id));
   for (const macro of macros) {
-    macroTagReferences(macro.code).forEach((tagName) => tagNames.add(tagName));
+    macroTagReferences(macro.code).forEach((tagName) => refs.tagNames.add(tagName));
+    macro.triggers?.forEach((trigger) => {
+      if (trigger.type === "onTagChange") {
+        refs.tagNames.add(trigger.tag);
+      }
+      if (trigger.type === "onCondition") {
+        collectExpressionTagReferences(trigger.condition).forEach((tagName) => refs.tagNames.add(tagName));
+      }
+    });
   }
 
   return {
-    assets: (project.assets ?? []).filter((asset) => assetIds.has(asset.id)),
-    libraries: [...libraryIds],
-    tags: project.tags.filter((tag) => tagNames.has(tag.name)),
+    assets: (project.assets ?? []).filter((asset) => refs.assetIds.has(asset.id)),
+    libraries: [...refs.libraryIds],
+    tags: project.tags.filter((tag) => refs.tagNames.has(tag.name)),
     macros,
+    events: [],
+    warnings: refs.dynamicWarnings,
   };
 }
 
-function replaceIdsInUnknown(value: unknown, maps: { assetIds: Map<string, string>; libraryIds: Map<string, string> }): unknown {
+function replaceIdsInUnknown(value: unknown, maps: { assetIds: Map<string, string>; libraryIds: Map<string, string>; macroIds?: Map<string, string> }): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => replaceIdsInUnknown(item, maps));
   }
@@ -332,6 +619,10 @@ function replaceIdsInUnknown(value: unknown, maps: { assetIds: Map<string, strin
       }
       if (lower === "libraryid" && maps.libraryIds.has(child)) {
         next[key] = maps.libraryIds.get(child);
+        continue;
+      }
+      if ((lower === "macroid" || lower.endsWith("macroid")) && maps.macroIds?.has(child)) {
+        next[key] = maps.macroIds.get(child);
         continue;
       }
     }
@@ -370,19 +661,23 @@ export class ProjectArchiveService {
     const addJson = (entryPath: string, value: unknown, type: ArchiveFileKind): void => {
       addFile(entryPath, Buffer.from(JSON.stringify(value, null, 2), "utf8"), type);
     };
+    const readRequired = async (absolutePath: string, archivePath: string): Promise<Buffer> => {
+      const buffer = await readFile(absolutePath).catch(() => undefined);
+      if (!buffer) {
+        throw new Error(`Archive export blocked: referenced file is missing (${archivePath})`);
+      }
+      return buffer;
+    };
 
     addJson("project.json", project, "project");
 
     for (const asset of project.assets ?? []) {
       const normalized = normalizeArchivePath(asset.storagePath);
       if (!normalized.ok) {
-        continue;
+        throw new Error(`Archive export blocked: invalid asset path '${asset.storagePath}': ${normalized.reason}`);
       }
       const absolute = path.join(projectDir, ...normalized.value.split("/"));
-      const buffer = await readFile(absolute).catch(() => undefined);
-      if (buffer) {
-        addFile(normalized.value, buffer, "asset");
-      }
+      addFile(normalized.value, await readRequired(absolute, normalized.value), "asset");
     }
 
     for (const sound of project.eventSounds ?? []) {
@@ -391,27 +686,26 @@ export class ProjectArchiveService {
         continue;
       }
       const absolute = path.join(this.eventSoundService.getStorageDir(), storedFileName);
-      const buffer = await readFile(absolute).catch(() => undefined);
-      if (buffer) {
-        addFile(`data/event-sounds/${storedFileName}`, buffer, "eventSound");
-      }
+      addFile(`data/event-sounds/${storedFileName}`, await readRequired(absolute, `data/event-sounds/${storedFileName}`), "eventSound");
     }
 
     const attachedIds = new Set((project.libraries ?? []).filter((ref) => ref.enabled !== false).map((ref) => ref.libraryId));
     const libraries = await this.libraryService.listLibraries();
+    for (const libraryId of attachedIds) {
+      if (!libraries.some((item) => item.id === libraryId)) {
+        throw new Error(`Archive export blocked: enabled library is missing (${libraryId})`);
+      }
+    }
     for (const library of libraries.filter((item) => attachedIds.has(item.id))) {
       const libraryDir = path.dirname(this.libraryService.libraryFilePath(library.id));
       addJson(`libraries/${library.id}/library.json`, library, "library");
       for (const asset of library.assets ?? []) {
         const normalized = normalizeArchivePath(asset.storagePath);
         if (!normalized.ok) {
-          continue;
+          throw new Error(`Archive export blocked: invalid library asset path '${asset.storagePath}': ${normalized.reason}`);
         }
         const absolute = path.join(libraryDir, ...normalized.value.split("/"));
-        const buffer = await readFile(absolute).catch(() => undefined);
-        if (buffer) {
-          addFile(`libraries/${library.id}/${normalized.value}`, buffer, "libraryAsset");
-        }
+        addFile(`libraries/${library.id}/${normalized.value}`, await readRequired(absolute, `libraries/${library.id}/${normalized.value}`), "libraryAsset");
       }
       await this.addLooseLibraryFiles(libraryDir, `libraries/${library.id}`, zip, files);
     }
@@ -433,7 +727,9 @@ export class ProjectArchiveService {
       },
       files,
     };
-    addJson("manifest.json", manifest, "metadata");
+    const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
+    addFile("manifest.json", manifestBytes, "metadata");
+    this.addSignature(zip, manifestBytes);
 
     return {
       buffer: zip.toBuffer() as Buffer,
@@ -441,16 +737,22 @@ export class ProjectArchiveService {
     };
   }
 
-  public async exportScreenArchive(screenId: string): Promise<ExportArchiveResult> {
+  public async exportScreenArchive(screenId: string, options?: ScreenArchiveExportOptions): Promise<ExportArchiveResult> {
+    const parsedOptions = screenArchiveExportOptionsSchema.parse(options ?? {});
     const project = projectSchema.parse(this.projectService.getProject());
     const screen = project.screens.find((item) => item.id === screenId);
     if (!screen) {
       throw new Error("Screen not found");
     }
 
-    const dependencies = collectDependencies(project, screen);
+    const dependencies = this.collectScreenArchiveDependencies(project, screen, parsedOptions.dependencyMode);
     const libraries = await this.libraryService.listLibraries();
     const librarySet = new Set(dependencies.libraries);
+    for (const libraryId of librarySet) {
+      if (!libraries.some((item) => item.id === libraryId)) {
+        throw new Error(`Archive export blocked: referenced library is missing (${libraryId})`);
+      }
+    }
     const includedLibraries = libraries.filter((library) => librarySet.has(library.id));
     const data: ScreenArchiveData = {
       screen,
@@ -458,6 +760,7 @@ export class ProjectArchiveService {
       libraries: includedLibraries,
       tags: dependencies.tags,
       macros: dependencies.macros,
+      events: dependencies.events,
     };
 
     const zip = new AdmZip();
@@ -470,18 +773,22 @@ export class ProjectArchiveService {
     const addJson = (entryPath: string, value: unknown, type: ArchiveFileKind): void => {
       addFile(entryPath, Buffer.from(JSON.stringify(value, null, 2), "utf8"), type);
     };
+    const readRequired = async (absolutePath: string, archivePath: string): Promise<Buffer> => {
+      const buffer = await readFile(absolutePath).catch(() => undefined);
+      if (!buffer) {
+        throw new Error(`Archive export blocked: referenced file is missing (${archivePath})`);
+      }
+      return buffer;
+    };
 
     addJson("screen.json", data, "screen");
     for (const asset of data.assets) {
       const normalized = normalizeArchivePath(asset.storagePath);
       if (!normalized.ok) {
-        continue;
+        throw new Error(`Archive export blocked: invalid asset path '${asset.storagePath}': ${normalized.reason}`);
       }
       const absolute = path.join(projectDir, ...normalized.value.split("/"));
-      const buffer = await readFile(absolute).catch(() => undefined);
-      if (buffer) {
-        addFile(normalized.value, buffer, "asset");
-      }
+      addFile(normalized.value, await readRequired(absolute, normalized.value), "asset");
     }
     for (const library of data.libraries) {
       const libraryDir = path.dirname(this.libraryService.libraryFilePath(library.id));
@@ -489,13 +796,10 @@ export class ProjectArchiveService {
       for (const asset of library.assets ?? []) {
         const normalized = normalizeArchivePath(asset.storagePath);
         if (!normalized.ok) {
-          continue;
+          throw new Error(`Archive export blocked: invalid library asset path '${asset.storagePath}': ${normalized.reason}`);
         }
         const absolute = path.join(libraryDir, ...normalized.value.split("/"));
-        const buffer = await readFile(absolute).catch(() => undefined);
-        if (buffer) {
-          addFile(`libraries/${library.id}/${normalized.value}`, buffer, "libraryAsset");
-        }
+        addFile(`libraries/${library.id}/${normalized.value}`, await readRequired(absolute, `libraries/${library.id}/${normalized.value}`), "libraryAsset");
       }
       await this.addLooseLibraryFiles(libraryDir, `libraries/${library.id}`, zip, files);
     }
@@ -512,10 +816,13 @@ export class ProjectArchiveService {
         libraries: data.libraries.length,
         tags: data.tags.length,
         macros: data.macros.length,
+        events: data.events?.length ?? 0,
       },
       files,
     };
-    addJson("manifest.json", manifest, "metadata");
+    const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
+    addFile("manifest.json", manifestBytes, "metadata");
+    this.addSignature(zip, manifestBytes);
 
     return {
       buffer: zip.toBuffer() as Buffer,
@@ -523,12 +830,12 @@ export class ProjectArchiveService {
     };
   }
 
-  public async validateProjectArchive(uploadedFile: UploadInput): Promise<ProjectArchiveValidationResult> {
-    return this.inspectProjectArchive(uploadedFile.content);
+  public async validateProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveValidationOptions): Promise<ProjectArchiveValidationResult> {
+    return this.inspectProjectArchive(uploadedFile.content, false, projectArchiveValidationOptionsSchema.parse(options ?? {}));
   }
 
-  public async validateScreenArchive(uploadedFile: UploadInput): Promise<ScreenArchiveValidationResult> {
-    return this.inspectScreenArchive(uploadedFile.content);
+  public async validateScreenArchive(uploadedFile: UploadInput, options?: ScreenArchiveValidationOptions): Promise<ScreenArchiveValidationResult> {
+    return this.inspectScreenArchive(uploadedFile.content, false, screenArchiveValidationOptionsSchema.parse(options ?? {}));
   }
 
   public async importProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveImportOptions): Promise<ProjectArchiveImportResult> {
@@ -537,23 +844,35 @@ export class ProjectArchiveService {
       throw new Error("Project import mode 'import-as-copy' is not implemented yet");
     }
 
-    const inspected = await this.inspectProjectArchive(uploadedFile.content, true);
+    const inspected = await this.inspectProjectArchive(uploadedFile.content, true, {
+      requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
+    });
     if (!inspected.valid || !inspected.parsed || inspected.parsed.kind !== "project") {
       throw new Error(inspected.errors[0]?.message ?? "Project archive is invalid");
     }
 
-    const backupPath = await this.createProjectBackup();
-    const projectDir = path.dirname(this.projectService.getProjectFile());
     const project = this.normalizeImportedProject(inspected.parsed.project);
-
-    await this.restoreProjectFiles(inspected.parsed, projectDir);
-    const saved = await this.projectService.saveProject(project);
-    return { ok: true, mode: parsedOptions.mode, backupPath, project: saved };
+    const backupPath = await this.createProjectBackup();
+    const staged = await this.stageProjectImport(inspected.parsed, project);
+    try {
+      await this.swapStagedProjectImport(staged);
+      const saved = await this.projectService.loadProject();
+      return { ok: true, mode: parsedOptions.mode, backupPath, project: saved };
+    } catch (error) {
+      await this.rollbackProjectImport(staged).catch(() => undefined);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Project import failed after backup was created at ${backupPath}. Rolled back previous project state. ${message}`);
+    } finally {
+      await rm(staged.stageRoot, { recursive: true, force: true }).catch(() => undefined);
+      await rm(staged.rollbackRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   public async importScreenArchive(uploadedFile: UploadInput, options?: ScreenArchiveImportOptions): Promise<ScreenArchiveImportResult> {
     const parsedOptions = screenArchiveImportOptionsSchema.parse(options ?? {});
-    const inspected = await this.inspectScreenArchive(uploadedFile.content, true);
+    const inspected = await this.inspectScreenArchive(uploadedFile.content, true, {
+      requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
+    });
     if (!inspected.valid || !inspected.parsed || inspected.parsed.kind !== "screen") {
       throw new Error(inspected.errors[0]?.message ?? "Screen archive is invalid");
     }
@@ -563,6 +882,7 @@ export class ProjectArchiveService {
     const warnings: ProjectArchiveIssue[] = [...inspected.warnings];
     const assetIdMap = new Map<string, string>();
     const libraryIdMap = new Map<string, string>();
+    const macroIdMap = new Map<string, string>();
     let reusedAssets = 0;
     let copiedAssets = 0;
     let importedTags = 0;
@@ -662,7 +982,12 @@ export class ProjectArchiveService {
       }
     }
 
-    let importedScreen = replaceIdsInUnknown(inspected.parsed.data.screen, { assetIds: assetIdMap, libraryIds: libraryIdMap }) as HmiScreen;
+    const macroMerge = this.mergeMacros(project.macros ?? [], inspected.parsed.data.macros, warnings);
+    for (const [sourceId, targetId] of macroMerge.idMap) {
+      macroIdMap.set(sourceId, targetId);
+    }
+
+    let importedScreen = replaceIdsInUnknown(inspected.parsed.data.screen, { assetIds: assetIdMap, libraryIds: libraryIdMap, macroIds: macroIdMap }) as HmiScreen;
     let nextScreens = [...project.screens];
     if (parsedOptions.mode === "replace") {
       const targetId = parsedOptions.replaceScreenId ?? importedScreen.id;
@@ -689,7 +1014,8 @@ export class ProjectArchiveService {
       assets: nextAssets,
       tags: nextTags,
       libraries: nextProjectLibraryRefs,
-      macros: this.mergeMacros(project.macros ?? [], inspected.parsed.data.macros, warnings),
+      macros: macroMerge.macros,
+      events: this.mergeEvents(project.events ?? [], inspected.parsed.data.events ?? [], warnings),
       screens: nextScreens,
       startScreenId: project.startScreenId ?? nextScreens[0]?.id,
     });
@@ -710,17 +1036,17 @@ export class ProjectArchiveService {
     };
   }
 
-  private async inspectProjectArchive(content: Buffer, withParsed?: false): Promise<ProjectArchiveValidationResult>;
-  private async inspectProjectArchive(content: Buffer, withParsed: true): Promise<ProjectArchiveValidationResult & { parsed?: AnyParsedArchive }>;
-  private async inspectProjectArchive(content: Buffer, withParsed = false): Promise<ProjectArchiveValidationResult & { parsed?: AnyParsedArchive }> {
-    const inspected = await this.inspectArchive(content, "project");
+  private async inspectProjectArchive(content: Buffer, withParsed?: false, options?: ProjectArchiveValidationOptions): Promise<ProjectArchiveValidationResult>;
+  private async inspectProjectArchive(content: Buffer, withParsed: true, options?: ProjectArchiveValidationOptions): Promise<ProjectArchiveValidationResult & { parsed?: AnyParsedArchive }>;
+  private async inspectProjectArchive(content: Buffer, withParsed = false, options?: ProjectArchiveValidationOptions): Promise<ProjectArchiveValidationResult & { parsed?: AnyParsedArchive }> {
+    const inspected = await this.inspectArchive(content, "project", options);
     return withParsed ? inspected : this.stripParsed(inspected);
   }
 
-  private async inspectScreenArchive(content: Buffer, withParsed?: false): Promise<ScreenArchiveValidationResult>;
-  private async inspectScreenArchive(content: Buffer, withParsed: true): Promise<ScreenArchiveValidationResult & { parsed?: AnyParsedArchive }>;
-  private async inspectScreenArchive(content: Buffer, withParsed = false): Promise<ScreenArchiveValidationResult & { parsed?: AnyParsedArchive }> {
-    const inspected = await this.inspectArchive(content, "screen");
+  private async inspectScreenArchive(content: Buffer, withParsed?: false, options?: ScreenArchiveValidationOptions): Promise<ScreenArchiveValidationResult>;
+  private async inspectScreenArchive(content: Buffer, withParsed: true, options?: ScreenArchiveValidationOptions): Promise<ScreenArchiveValidationResult & { parsed?: AnyParsedArchive }>;
+  private async inspectScreenArchive(content: Buffer, withParsed = false, options?: ScreenArchiveValidationOptions): Promise<ScreenArchiveValidationResult & { parsed?: AnyParsedArchive }> {
+    const inspected = await this.inspectArchive(content, "screen", options);
     const result = withParsed ? inspected : this.stripParsed(inspected);
     if (inspected.parsed?.kind === "screen") {
       const project = this.projectService.getProject();
@@ -741,11 +1067,19 @@ export class ProjectArchiveService {
     return result;
   }
 
-  private async inspectArchive(content: Buffer, expected: "project" | "screen"): Promise<ProjectArchiveValidationResult & { parsed?: AnyParsedArchive }> {
+  private async inspectArchive(content: Buffer, expected: "project" | "screen", options?: ProjectArchiveValidationOptions | ScreenArchiveValidationOptions): Promise<ProjectArchiveValidationResult & { parsed?: AnyParsedArchive }> {
     const errors: ProjectArchiveIssue[] = [];
     const warnings: ProjectArchiveIssue[] = [];
     const base: ProjectArchiveValidationResult & { parsed?: AnyParsedArchive } = {
       valid: false,
+      authenticity: {
+        signed: false,
+        required: Boolean(options?.requireSignature),
+        verified: false,
+      },
+      checksum: {
+        verified: false,
+      },
       warnings,
       errors,
     };
@@ -818,6 +1152,48 @@ export class ProjectArchiveService {
       return base;
     }
 
+    const secret = archiveSecret();
+    let signature: ProjectArchiveSignature | undefined;
+    const signatureBytes = files.get("signature.json");
+    if (signatureBytes) {
+      let rawSignature: unknown;
+      try {
+        rawSignature = JSON.parse(signatureBytes.toString("utf8"));
+      } catch {
+        addIssue(errors, "INVALID_SIGNATURE_JSON", "signature.json is invalid", "signature.json");
+      }
+      const parsedSignature = rawSignature ? projectArchiveSignatureSchema.safeParse(rawSignature) : undefined;
+      if (parsedSignature && !parsedSignature.success) {
+        addIssue(errors, "INVALID_SIGNATURE", "signature.json does not match the expected signature format", "signature.json");
+      }
+      if (parsedSignature?.success) {
+        signature = parsedSignature.data;
+        base.authenticity = {
+          signed: true,
+          required: Boolean(options?.requireSignature),
+          verified: false,
+          algorithm: parsedSignature.data.algorithm,
+        };
+        if (!secret) {
+          addIssue(warnings, "ARCHIVE_SIGNATURE_UNVERIFIED", "Archive is signed, but PROJECT_ARCHIVE_SECRET is not configured so the signature cannot be verified.", "signature.json");
+        } else {
+          const expectedSignature = hmacSha256(manifestBytes, secret);
+          if (!timingSafeHexEqual(expectedSignature, parsedSignature.data.signature.toLowerCase())) {
+            addIssue(errors, "ARCHIVE_SIGNATURE_MISMATCH", "Archive signature does not match manifest.json.", "signature.json");
+          } else {
+            base.authenticity.verified = true;
+          }
+        }
+      }
+    } else {
+      addIssue(options?.requireSignature ? errors : warnings, "ARCHIVE_NOT_SIGNED", "Archive does not contain signature.json.", "signature.json");
+      base.authenticity = {
+        signed: false,
+        required: Boolean(options?.requireSignature),
+        verified: false,
+      };
+    }
+
     let rawManifest: unknown;
     try {
       rawManifest = JSON.parse(manifestBytes.toString("utf8"));
@@ -845,6 +1221,10 @@ export class ProjectArchiveService {
         continue;
       }
       const archivePath = normalized.value;
+      if (manifestPathSet.has(archivePath)) {
+        addIssue(errors, "DUPLICATE_MANIFEST_FILE", "Duplicate file path in manifest", archivePath);
+        continue;
+      }
       manifestPathSet.add(archivePath);
       const bytes = files.get(archivePath);
       if (!bytes) {
@@ -858,8 +1238,9 @@ export class ProjectArchiveService {
         addIssue(errors, "CHECKSUM_MISMATCH", "File checksum does not match manifest", archivePath);
       }
     }
+    base.checksum = { verified: !errors.some((issue) => issue.code === "CHECKSUM_MISMATCH" || issue.code === "SIZE_MISMATCH" || issue.code === "MANIFEST_FILE_MISSING") };
     for (const archivePath of files.keys()) {
-      if (archivePath === "manifest.json") {
+      if (archivePath === "manifest.json" || archivePath === "signature.json") {
         continue;
       }
       if (!manifestPathSet.has(archivePath)) {
@@ -868,9 +1249,9 @@ export class ProjectArchiveService {
     }
 
     if (expected === "project") {
-      return this.inspectProjectPayload(files, sizes, manifest.data as ProjectArchiveManifest, base);
+      return this.inspectProjectPayload(files, sizes, manifest.data as ProjectArchiveManifest, base, signature);
     }
-    return this.inspectScreenPayload(files, sizes, manifest.data as ScreenArchiveManifest, base);
+    return this.inspectScreenPayload(files, sizes, manifest.data as ScreenArchiveManifest, base, signature);
   }
 
   private inspectProjectPayload(
@@ -878,6 +1259,7 @@ export class ProjectArchiveService {
     sizes: Map<string, number>,
     manifest: ProjectArchiveManifest,
     result: ProjectArchiveValidationResult & { parsed?: AnyParsedArchive },
+    signature?: ProjectArchiveSignature,
   ): ProjectArchiveValidationResult & { parsed?: AnyParsedArchive } {
     const projectBytes = files.get("project.json");
     if (!projectBytes) {
@@ -906,7 +1288,7 @@ export class ProjectArchiveService {
       this.validateAssetFile(asset, files, sizes, result.errors);
     }
     for (const sound of project.eventSounds ?? []) {
-      this.validateSoundFile(sound, files, sizes, result.warnings);
+      this.validateSoundFile(sound, files, sizes, result.errors);
     }
     for (const ref of project.libraries ?? []) {
       if (ref.enabled === false) {
@@ -916,6 +1298,7 @@ export class ProjectArchiveService {
         addIssue(result.errors, "MISSING_LIBRARY_FILE", "Attached library file is missing", `libraries/${ref.libraryId}/library.json`);
       }
     }
+    this.validateProjectReferences(project, files, result.errors, result.warnings);
 
     result.valid = result.errors.length === 0;
     result.summary = {
@@ -930,7 +1313,7 @@ export class ProjectArchiveService {
       variables: (project.variables ?? []).length,
     };
     if (result.valid) {
-      result.parsed = { kind: "project", manifest, project, files, sizes };
+      result.parsed = { kind: "project", manifest, project, files, sizes, signature };
     }
     return result;
   }
@@ -940,6 +1323,7 @@ export class ProjectArchiveService {
     sizes: Map<string, number>,
     manifest: ScreenArchiveManifest,
     result: ProjectArchiveValidationResult & { parsed?: AnyParsedArchive },
+    signature?: ProjectArchiveSignature,
   ): ProjectArchiveValidationResult & { parsed?: AnyParsedArchive } {
     const screenBytes = files.get("screen.json");
     if (!screenBytes) {
@@ -969,6 +1353,9 @@ export class ProjectArchiveService {
     if (manifest.counts.macros !== data.macros.length) {
       addIssue(result.errors, "COUNT_MISMATCH_MACROS", "manifest macro count does not match screen.json", "manifest.json");
     }
+    if (manifest.counts.events !== undefined && manifest.counts.events !== (data.events ?? []).length) {
+      addIssue(result.errors, "COUNT_MISMATCH_EVENTS", "manifest event count does not match screen.json", "manifest.json");
+    }
 
     for (const asset of data.assets) {
       this.validateAssetFile(asset, files, sizes, result.errors);
@@ -989,6 +1376,7 @@ export class ProjectArchiveService {
         }
       }
     }
+    this.validateScreenReferences(data, result.errors, result.warnings);
 
     result.valid = result.errors.length === 0;
     result.summary = {
@@ -998,12 +1386,12 @@ export class ProjectArchiveService {
       tags: data.tags.length,
       assets: data.assets.length,
       libraries: data.libraries.length,
-      events: 0,
+      events: data.events?.length ?? 0,
       macros: data.macros.length,
       variables: 0,
     };
     if (result.valid) {
-      result.parsed = { kind: "screen", manifest, data, files, sizes };
+      result.parsed = { kind: "screen", manifest, data, files, sizes, signature };
     }
     return result;
   }
@@ -1042,6 +1430,191 @@ export class ProjectArchiveService {
     if (size !== undefined && size > MAX_FILE_SIZE_BYTES) {
       addIssue(warnings, "FILE_TOO_LARGE", "Event sound file is too large", archivePath);
     }
+  }
+
+  private addSignature(zip: AdmZip, manifestBytes: Buffer): void {
+    const secret = archiveSecret();
+    if (!secret) {
+      return;
+    }
+    const signature: ProjectArchiveSignature = {
+      algorithm: "HMAC-SHA256",
+      signedPayload: "manifest.json",
+      signature: hmacSha256(manifestBytes, secret),
+      createdAt: nowIso(),
+    };
+    zip.addFile("signature.json", Buffer.from(JSON.stringify(signature, null, 2), "utf8"));
+  }
+
+  private collectScreenArchiveDependencies(
+    project: ScadaProject,
+    screen: HmiScreen,
+    mode: ScreenArchiveDependencyMode,
+  ): {
+    assets: Asset[];
+    libraries: string[];
+    tags: TagDefinition[];
+    macros: MacroDefinition[];
+    events: EventDefinition[];
+    warnings: ProjectArchiveIssue[];
+  } {
+    if (mode === "safe") {
+      return {
+        assets: [...(project.assets ?? [])],
+        libraries: (project.libraries ?? []).filter((ref) => ref.enabled !== false).map((ref) => ref.libraryId),
+        tags: [...project.tags],
+        macros: [...(project.macros ?? [])],
+        events: [...(project.events ?? [])],
+        warnings: [],
+      };
+    }
+    return collectDependencies(project, screen);
+  }
+
+  private validateProjectReferences(project: ScadaProject, files: Map<string, Buffer>, errors: ProjectArchiveIssue[], warnings: ProjectArchiveIssue[]): void {
+    const assetIds = new Set((project.assets ?? []).map((asset) => asset.id));
+    const tagNames = new Set(project.tags.map((tag) => tag.name));
+    const macroIds = new Set((project.macros ?? []).map((macro) => macro.id));
+    const screenIds = new Set(project.screens.map((screen) => screen.id));
+    const libraryElements = new Map<string, Set<string>>();
+
+    for (const ref of project.libraries ?? []) {
+      const bytes = files.get(`libraries/${ref.libraryId}/library.json`);
+      if (!bytes) {
+        continue;
+      }
+      try {
+        const library = JSON.parse(bytes.toString("utf8")) as ElementLibrary;
+        libraryElements.set(library.id, new Set(library.elements.map((element) => element.id)));
+      } catch {
+        addIssue(errors, "INVALID_LIBRARY_JSON", "Attached library JSON is invalid.", `libraries/${ref.libraryId}/library.json`);
+      }
+    }
+
+    for (const screen of project.screens) {
+      const refs = makeScreenDependencyRefs();
+      screen.objects.forEach((object) => collectKnownObjectRefs(object, refs));
+      this.reportBrokenRefs(refs, { assetIds, tagNames, macroIds, screenIds, libraryElements }, errors, warnings, `screen:${screen.id}`);
+    }
+
+    for (const macro of project.macros ?? []) {
+      macroTagReferences(macro.code).forEach((tagName) => {
+        if (!tagNames.has(tagName)) {
+          addIssue(errors, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' references missing tag '${tagName}'.`, `macro:${macro.id}`);
+        }
+      });
+      for (const trigger of macro.triggers ?? []) {
+        if ((trigger.type === "onScreenOpen" || trigger.type === "onScreenClose" || trigger.type === "onButtonClick") && trigger.screenKey && !screenIds.has(trigger.screenKey) && !project.screens.some((screen) => screen.name === trigger.screenKey)) {
+          addIssue(errors, "BROKEN_SCREEN_REFERENCE", `Macro '${macro.id}' references missing screen '${trigger.screenKey}'.`, `macro:${macro.id}`);
+        }
+        if (trigger.type === "onTagChange" && !tagNames.has(trigger.tag)) {
+          addIssue(errors, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' references missing tag '${trigger.tag}'.`, `macro:${macro.id}`);
+        }
+        if (trigger.type === "onCondition") {
+          collectExpressionTagReferences(trigger.condition).forEach((tagName) => {
+            if (!tagNames.has(tagName)) {
+              addIssue(errors, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' condition references missing tag '${tagName}'.`, `macro:${macro.id}`);
+            }
+          });
+        }
+      }
+    }
+
+    for (const event of project.events ?? []) {
+      this.collectEventTagRefs(event).forEach((tagName) => {
+        if (!tagNames.has(tagName)) {
+          addIssue(errors, "BROKEN_TAG_REFERENCE", `Event '${event.id}' references missing tag '${tagName}'.`, `event:${event.id}`);
+        }
+      });
+    }
+  }
+
+  private validateScreenReferences(data: ScreenArchiveData, errors: ProjectArchiveIssue[], warnings: ProjectArchiveIssue[]): void {
+    const assetIds = new Set(data.assets.map((asset) => asset.id));
+    const tagNames = new Set(data.tags.map((tag) => tag.name));
+    const macroIds = new Set(data.macros.map((macro) => macro.id));
+    const screenIds = new Set([data.screen.id]);
+    const libraryElements = new Map(data.libraries.map((library) => [library.id, new Set(library.elements.map((element) => element.id))]));
+    const refs = makeScreenDependencyRefs();
+
+    data.screen.objects.forEach((object) => collectKnownObjectRefs(object, refs));
+    this.reportBrokenRefs(refs, { assetIds, tagNames, macroIds, screenIds, libraryElements }, errors, warnings, `screen:${data.screen.id}`);
+    for (const event of data.events ?? []) {
+      this.collectEventTagRefs(event).forEach((tagName) => {
+        if (!tagNames.has(tagName)) {
+          addIssue(warnings, "BROKEN_TAG_REFERENCE", `Event '${event.id}' references missing tag '${tagName}'.`, `event:${event.id}`);
+        }
+      });
+    }
+  }
+
+  private collectEventTagRefs(event: EventDefinition): string[] {
+    const refs = new Set<string>();
+    [
+      event.sourceTagName,
+      event.ackTagName,
+      event.notificationTagName,
+      event.elapsedTimeTagName,
+      event.securityTagName,
+    ].forEach((tagName) => {
+      if (tagName) {
+        refs.add(tagName);
+      }
+    });
+    [...(event.onActiveActions ?? []), ...(event.onClearedActions ?? []), ...(event.onAckActions ?? [])].forEach((action) => {
+      const actionRefs = makeScreenDependencyRefs();
+      collectRuntimeActionRefs(action, actionRefs);
+      actionRefs.tagNames.forEach((tagName) => refs.add(tagName));
+    });
+    return [...refs];
+  }
+
+  private reportBrokenRefs(
+    refs: ScreenDependencyRefs,
+    known: {
+      assetIds: Set<string>;
+      tagNames: Set<string>;
+      macroIds: Set<string>;
+      screenIds: Set<string>;
+      libraryElements: Map<string, Set<string>>;
+    },
+    errors: ProjectArchiveIssue[],
+    warnings: ProjectArchiveIssue[],
+    scope: string,
+  ): void {
+    for (const assetId of refs.assetIds) {
+      if (!known.assetIds.has(assetId)) {
+        addIssue(errors, "BROKEN_ASSET_REFERENCE", `Missing asset reference '${assetId}'.`, scope);
+      }
+    }
+    for (const tagName of refs.tagNames) {
+      if (!known.tagNames.has(tagName)) {
+        addIssue(warnings, "BROKEN_TAG_REFERENCE", `Missing statically detectable tag reference '${tagName}'.`, scope);
+      }
+    }
+    for (const macroId of refs.macroIds) {
+      if (!known.macroIds.has(macroId)) {
+        addIssue(errors, "BROKEN_MACRO_REFERENCE", `Missing macro reference '${macroId}'.`, scope);
+      }
+    }
+    for (const screenId of refs.screenIds) {
+      if (!known.screenIds.has(screenId)) {
+        addIssue(errors, "BROKEN_SCREEN_REFERENCE", `Missing screen reference '${screenId}'.`, scope);
+      }
+    }
+    for (const [libraryId, elementIds] of refs.libraryElements) {
+      const knownElements = known.libraryElements.get(libraryId);
+      if (!knownElements) {
+        addIssue(errors, "BROKEN_LIBRARY_REFERENCE", `Missing library reference '${libraryId}'.`, scope);
+        continue;
+      }
+      for (const elementId of elementIds) {
+        if (!knownElements.has(elementId)) {
+          addIssue(errors, "BROKEN_LIBRARY_ELEMENT_REFERENCE", `Missing library element '${libraryId}/${elementId}'.`, scope);
+        }
+      }
+    }
+    warnings.push(...refs.dynamicWarnings);
   }
 
   private stripParsed<T extends ProjectArchiveValidationResult & { parsed?: AnyParsedArchive }>(input: T): ProjectArchiveValidationResult {
@@ -1100,6 +1673,150 @@ export class ProjectArchiveService {
         path: path.dirname(this.libraryService.libraryFilePath(ref.libraryId)),
       })),
     };
+  }
+
+  private async stageProjectImport(parsed: ParsedProjectArchive, project: ScadaProject): Promise<StagedProjectImport> {
+    const projectFile = this.projectService.getProjectFile();
+    const projectDir = path.dirname(projectFile);
+    const stageRoot = path.join(projectDir, `.import-stage-${randomUUID()}`);
+    const rollbackRoot = path.join(projectDir, `.import-rollback-${randomUUID()}`);
+    const stagedProjectDir = path.join(stageRoot, "project");
+    const stagedProjectFile = path.join(stagedProjectDir, path.basename(projectFile));
+    const stagedAssetsDir = path.join(stagedProjectDir, "assets");
+    const stagedEventSoundsDir = path.join(stageRoot, "event-sounds");
+    const librariesRoot = this.getLibrariesRoot();
+    const stagedLibrariesRoot = path.join(stageRoot, "libraries");
+    const libraryIds: string[] = [];
+
+    await mkdir(stagedProjectDir, { recursive: true });
+    await writeFile(stagedProjectFile, JSON.stringify(projectSchema.parse(project), null, 2), "utf8");
+
+    for (const asset of parsed.project.assets ?? []) {
+      const normalized = normalizeArchivePath(asset.storagePath);
+      if (!normalized.ok) {
+        throw new Error(normalized.reason);
+      }
+      const buffer = parsed.files.get(normalized.value);
+      if (!buffer) {
+        throw new Error(`Missing staged asset file: ${normalized.value}`);
+      }
+      await this.writeArchiveFile(stagedProjectDir, normalized.value, buffer);
+    }
+
+    for (const sound of parsed.project.eventSounds ?? []) {
+      const storedFileName = parseStoredFileName(sound.filePath);
+      if (!storedFileName) {
+        continue;
+      }
+      const buffer = parsed.files.get(`data/event-sounds/${storedFileName}`);
+      if (!buffer) {
+        throw new Error(`Missing staged event sound file: data/event-sounds/${storedFileName}`);
+      }
+      await mkdir(stagedEventSoundsDir, { recursive: true });
+      await writeFile(path.join(stagedEventSoundsDir, storedFileName), buffer);
+    }
+
+    for (const ref of parsed.project.libraries ?? []) {
+      if (ref.enabled === false || !parsed.files.has(`libraries/${ref.libraryId}/library.json`)) {
+        continue;
+      }
+      const libraryBytes = parsed.files.get(`libraries/${ref.libraryId}/library.json`)!;
+      const library = normalizeImportedLibrary(JSON.parse(libraryBytes.toString("utf8")) as ElementLibrary, ref.libraryId);
+      await this.restoreLibraryToRoot(parsed, ref.libraryId, library, stagedLibrariesRoot);
+      libraryIds.push(ref.libraryId);
+    }
+
+    return {
+      stageRoot,
+      rollbackRoot,
+      projectFile,
+      projectDir,
+      stagedProjectFile,
+      stagedAssetsDir,
+      stagedEventSoundsDir,
+      librariesRoot,
+      stagedLibrariesRoot,
+      libraryIds,
+    };
+  }
+
+  private getLibrariesRoot(): string {
+    return path.dirname(path.dirname(this.libraryService.libraryFilePath("__archive_probe__")));
+  }
+
+  private async pathExists(targetPath: string): Promise<boolean> {
+    return readFile(targetPath).then(() => true).catch(async () => {
+      const entries = await readdir(targetPath).catch(() => undefined);
+      return entries !== undefined;
+    });
+  }
+
+  private async moveIfExists(from: string, to: string): Promise<boolean> {
+    if (!(await this.pathExists(from))) {
+      return false;
+    }
+    await mkdir(path.dirname(to), { recursive: true });
+    await rm(to, { recursive: true, force: true });
+    await rename(from, to);
+    return true;
+  }
+
+  private async swapStagedProjectImport(staged: StagedProjectImport): Promise<void> {
+    await mkdir(staged.rollbackRoot, { recursive: true });
+    await this.moveIfExists(staged.projectFile, path.join(staged.rollbackRoot, "project.json"));
+    await this.moveIfExists(path.join(staged.projectDir, "assets"), path.join(staged.rollbackRoot, "assets"));
+    await this.moveIfExists(this.eventSoundService.getStorageDir(), path.join(staged.rollbackRoot, "event-sounds"));
+
+    for (const libraryId of staged.libraryIds) {
+      await this.moveIfExists(
+        path.dirname(this.libraryService.libraryFilePath(libraryId)),
+        path.join(staged.rollbackRoot, "libraries", safeId(libraryId)),
+      );
+    }
+
+    await mkdir(staged.projectDir, { recursive: true });
+    await rename(staged.stagedProjectFile, staged.projectFile);
+    if (await this.pathExists(staged.stagedAssetsDir)) {
+      await rename(staged.stagedAssetsDir, path.join(staged.projectDir, "assets"));
+    }
+    if (await this.pathExists(staged.stagedEventSoundsDir)) {
+      await mkdir(path.dirname(this.eventSoundService.getStorageDir()), { recursive: true });
+      await rename(staged.stagedEventSoundsDir, this.eventSoundService.getStorageDir());
+    }
+    for (const libraryId of staged.libraryIds) {
+      const stagedLibraryDir = path.join(staged.stagedLibrariesRoot, safeId(libraryId));
+      if (await this.pathExists(stagedLibraryDir)) {
+        await mkdir(staged.librariesRoot, { recursive: true });
+        await rename(stagedLibraryDir, path.dirname(this.libraryService.libraryFilePath(libraryId)));
+      }
+    }
+  }
+
+  private async rollbackProjectImport(staged: StagedProjectImport): Promise<void> {
+    const rollbackProjectFile = path.join(staged.rollbackRoot, "project.json");
+    const rollbackAssetsDir = path.join(staged.rollbackRoot, "assets");
+    const rollbackEventSoundsDir = path.join(staged.rollbackRoot, "event-sounds");
+
+    if (await this.pathExists(rollbackProjectFile)) {
+      await rm(staged.projectFile, { force: true }).catch(() => undefined);
+      await this.moveIfExists(rollbackProjectFile, staged.projectFile);
+    }
+    if (await this.pathExists(rollbackAssetsDir)) {
+      await rm(path.join(staged.projectDir, "assets"), { recursive: true, force: true }).catch(() => undefined);
+      await this.moveIfExists(rollbackAssetsDir, path.join(staged.projectDir, "assets"));
+    }
+    if (await this.pathExists(rollbackEventSoundsDir)) {
+      await rm(this.eventSoundService.getStorageDir(), { recursive: true, force: true }).catch(() => undefined);
+      await this.moveIfExists(rollbackEventSoundsDir, this.eventSoundService.getStorageDir());
+    }
+    for (const libraryId of staged.libraryIds) {
+      const rollbackLibraryDir = path.join(staged.rollbackRoot, "libraries", safeId(libraryId));
+      if (await this.pathExists(rollbackLibraryDir)) {
+        await rm(path.dirname(this.libraryService.libraryFilePath(libraryId)), { recursive: true, force: true }).catch(() => undefined);
+        await this.moveIfExists(rollbackLibraryDir, path.dirname(this.libraryService.libraryFilePath(libraryId)));
+      }
+    }
+    await this.projectService.loadProject().catch(() => undefined);
   }
 
   private async restoreProjectFiles(parsed: ParsedProjectArchive, projectDir: string): Promise<void> {
@@ -1177,6 +1894,25 @@ export class ProjectArchiveService {
     }
   }
 
+  private async restoreLibraryToRoot(parsed: ParsedZip, sourceLibraryId: string, library: ElementLibrary, librariesRoot: string): Promise<void> {
+    const targetDir = path.join(librariesRoot, safeId(library.id));
+    await mkdir(targetDir, { recursive: true });
+    await writeFile(path.join(targetDir, "library.json"), JSON.stringify(library, null, 2), "utf8");
+
+    const prefix = `libraries/${sourceLibraryId}/`;
+    for (const [archivePath, buffer] of parsed.files.entries()) {
+      if (!archivePath.startsWith(prefix) || archivePath === `${prefix}library.json`) {
+        continue;
+      }
+      const relative = archivePath.slice(prefix.length);
+      const normalized = normalizeArchivePath(relative);
+      if (!normalized.ok || !isSupportedArchiveFile(normalized.value)) {
+        continue;
+      }
+      await this.writeArchiveFile(targetDir, normalized.value, buffer);
+    }
+  }
+
   private async writeArchiveFile(root: string, relativePath: string, buffer: Buffer): Promise<void> {
     const normalized = normalizeArchivePath(relativePath);
     if (!normalized.ok) {
@@ -1196,16 +1932,43 @@ export class ProjectArchiveService {
     return backupPath;
   }
 
-  private mergeMacros(existing: MacroDefinition[], incoming: MacroDefinition[], warnings: ProjectArchiveIssue[]): MacroDefinition[] {
+  private mergeMacros(existing: MacroDefinition[], incoming: MacroDefinition[], warnings: ProjectArchiveIssue[]): { macros: MacroDefinition[]; idMap: Map<string, string> } {
     const next = [...existing];
+    const existingById = new Map(next.map((macro) => [macro.id, macro]));
     const existingIds = new Set(next.map((macro) => macro.id));
+    const idMap = new Map<string, string>();
     for (const macro of incoming) {
-      if (existingIds.has(macro.id)) {
-        addIssue(warnings, "MACRO_SKIPPED", `Macro '${macro.id}' already exists and was skipped.`);
+      const existingMacro = existingById.get(macro.id);
+      if (existingMacro) {
+        if (existingMacro.code === macro.code && existingMacro.language === macro.language) {
+          idMap.set(macro.id, existingMacro.id);
+          continue;
+        }
+        const nextId = makeUniqueId(macro.id, existingIds, "macro");
+        next.push({ ...macro, id: nextId, name: `${macro.name} (copy)` });
+        existingIds.add(nextId);
+        idMap.set(macro.id, nextId);
+        addIssue(warnings, "MACRO_IMPORTED_AS_COPY", `Macro '${macro.id}' already exists with different code; imported as '${nextId}'.`);
         continue;
       }
       next.push(macro);
       existingIds.add(macro.id);
+      existingById.set(macro.id, macro);
+      idMap.set(macro.id, macro.id);
+    }
+    return { macros: next, idMap };
+  }
+
+  private mergeEvents(existing: EventDefinition[], incoming: EventDefinition[], warnings: ProjectArchiveIssue[]): EventDefinition[] {
+    const next = [...existing];
+    const existingIds = new Set(next.map((event) => event.id));
+    for (const event of incoming) {
+      if (existingIds.has(event.id)) {
+        addIssue(warnings, "EVENT_SKIPPED", `Event '${event.id}' already exists and was skipped.`);
+        continue;
+      }
+      next.push(event);
+      existingIds.add(event.id);
     }
     return next;
   }

@@ -1303,7 +1303,7 @@ const variableSchema = z.object({
   updatedAt: z.string().optional(),
 });
 
-const eventDefinitionSchema = z.object({
+export const eventDefinitionSchema = z.object({
   id: z.string().min(1),
   enabled: z.boolean().optional(),
   categoryId: z.string().optional(),

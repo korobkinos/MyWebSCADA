@@ -28,6 +28,7 @@ import type {
   ProjectArchiveValidationResult,
   RuntimeState,
   ScadaProject,
+  ScreenArchiveExportOptions,
   ScreenArchiveImportOptions,
   ScreenArchiveImportResult,
   ScreenArchiveValidationResult,
@@ -635,9 +636,10 @@ export const api = {
       body: form,
     });
   },
-  exportScreenArchive: async (screenId: string) => {
+  exportScreenArchive: async (screenId: string, options?: ScreenArchiveExportOptions) => {
     const token = getEngineerToken();
-    const response = await fetch(resolveRequestUrl(`/api/screens/${encodeURIComponent(screenId)}/archive/export`), {
+    const query = options?.dependencyMode ? `?${new URLSearchParams({ dependencyMode: options.dependencyMode }).toString()}` : "";
+    const response = await fetch(resolveRequestUrl(`/api/screens/${encodeURIComponent(screenId)}/archive/export${query}`), {
       method: "GET",
       headers: token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : {},
     });

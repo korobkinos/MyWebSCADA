@@ -32,6 +32,7 @@ import {
   libraryElementSchema,
   normalizePasswordPolicy,
   projectArchiveImportOptionsSchema,
+  screenArchiveExportOptionsSchema,
   screenArchiveImportOptionsSchema,
   projectSchema,
 } from "@web-scada/shared";
@@ -1549,7 +1550,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const { screenId } = request.params as { screenId: string };
     try {
-      const exported = await deps.projectArchiveService.exportScreenArchive(screenId);
+      const options = screenArchiveExportOptionsSchema.parse(request.query ?? {});
+      const exported = await deps.projectArchiveService.exportScreenArchive(screenId, options);
       reply.header("Content-Type", "application/zip");
       reply.header("Content-Disposition", `attachment; filename=\"${exported.fileName}\"`);
       return reply.send(exported.buffer);

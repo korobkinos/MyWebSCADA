@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { Asset, ElementLibrary } from "./asset-library-types";
+import type { EventDefinition } from "./event-types";
 import type { HmiScreen, MacroDefinition, ScadaProject } from "./project-types";
 import type { TagDefinition } from "./tag-types";
-import { assetSchema, elementLibrarySchema, hmiScreenSchema, macroSchema, projectSchema, tagSchema } from "./validation";
+import { assetSchema, elementLibrarySchema, eventDefinitionSchema, hmiScreenSchema, macroSchema, projectSchema, tagSchema } from "./validation";
 
 export type ArchiveFileKind =
   | "metadata"
@@ -18,6 +19,13 @@ export type ArchiveManifestFile = {
   type: ArchiveFileKind;
   size: number;
   sha256: string;
+};
+
+export type ProjectArchiveSignature = {
+  algorithm: "HMAC-SHA256";
+  signedPayload: "manifest.json";
+  signature: string;
+  createdAt: string;
 };
 
 export type ProjectArchiveManifest = {
@@ -45,6 +53,7 @@ export type ScreenArchiveData = {
   libraries: ElementLibrary[];
   tags: TagDefinition[];
   macros: MacroDefinition[];
+  events?: EventDefinition[];
 };
 
 export type ScreenArchiveManifest = {
@@ -60,6 +69,7 @@ export type ScreenArchiveManifest = {
     libraries: number;
     tags: number;
     macros: number;
+    events?: number;
   };
   files: ArchiveManifestFile[];
 };
@@ -85,6 +95,15 @@ export type ProjectArchiveValidationSummary = {
 export type ProjectArchiveValidationResult = {
   valid: boolean;
   summary?: ProjectArchiveValidationSummary;
+  authenticity?: {
+    signed: boolean;
+    required: boolean;
+    verified: boolean;
+    algorithm?: "HMAC-SHA256";
+  };
+  checksum?: {
+    verified: boolean;
+  };
   warnings: ProjectArchiveIssue[];
   errors: ProjectArchiveIssue[];
 };
@@ -103,11 +122,27 @@ export type ScreenArchiveImportMode = "add" | "replace";
 
 export type ProjectArchiveImportOptions = {
   mode: ProjectArchiveImportMode;
+  requireSignature?: boolean;
 };
 
 export type ScreenArchiveImportOptions = {
   mode: ScreenArchiveImportMode;
   replaceScreenId?: string;
+  requireSignature?: boolean;
+};
+
+export type ProjectArchiveValidationOptions = {
+  requireSignature?: boolean;
+};
+
+export type ScreenArchiveValidationOptions = {
+  requireSignature?: boolean;
+};
+
+export type ScreenArchiveDependencyMode = "minimal" | "safe";
+
+export type ScreenArchiveExportOptions = {
+  dependencyMode?: ScreenArchiveDependencyMode;
 };
 
 export type ProjectArchiveImportResult = {
@@ -139,6 +174,13 @@ export const archiveManifestFileSchema = z.object({
   sha256: z.string().regex(/^[a-f0-9]{64}$/i),
 });
 
+export const projectArchiveSignatureSchema = z.object({
+  algorithm: z.literal("HMAC-SHA256"),
+  signedPayload: z.literal("manifest.json"),
+  signature: z.string().regex(/^[a-f0-9]{64}$/i),
+  createdAt: z.string().min(1),
+});
+
 export const projectArchiveManifestSchema = z.object({
   format: z.literal("mywebscada-project"),
   formatVersion: z.number().int().positive(),
@@ -164,6 +206,7 @@ export const screenArchiveDataSchema = z.object({
   libraries: z.array(elementLibrarySchema),
   tags: z.array(tagSchema),
   macros: z.array(macroSchema),
+  events: z.array(eventDefinitionSchema).optional(),
 });
 
 export const screenArchiveManifestSchema = z.object({
@@ -179,17 +222,32 @@ export const screenArchiveManifestSchema = z.object({
     libraries: z.number().int().nonnegative(),
     tags: z.number().int().nonnegative(),
     macros: z.number().int().nonnegative(),
+    events: z.number().int().nonnegative().optional(),
   }),
   files: z.array(archiveManifestFileSchema),
 });
 
 export const projectArchiveImportOptionsSchema = z.object({
   mode: z.enum(["replace-current", "import-as-copy"]).default("replace-current"),
+  requireSignature: z.boolean().optional(),
 });
 
 export const screenArchiveImportOptionsSchema = z.object({
   mode: z.enum(["add", "replace"]).default("add"),
   replaceScreenId: z.string().min(1).optional(),
+  requireSignature: z.boolean().optional(),
+});
+
+export const projectArchiveValidationOptionsSchema = z.object({
+  requireSignature: z.boolean().optional(),
+});
+
+export const screenArchiveValidationOptionsSchema = z.object({
+  requireSignature: z.boolean().optional(),
+});
+
+export const screenArchiveExportOptionsSchema = z.object({
+  dependencyMode: z.enum(["minimal", "safe"]).default("safe"),
 });
 
 export { projectSchema };

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type {
   ProjectArchiveValidationResult,
   ScadaProject,
+  ScreenArchiveDependencyMode,
   ScreenArchiveImportOptions,
   ScreenArchiveValidationResult,
 } from "@web-scada/shared";
@@ -41,6 +42,8 @@ function ValidationSummary({ result }: { result: ProjectArchiveValidationResult 
         <Descriptions size="small" bordered column={2}>
           <Descriptions.Item label="Format">{result.summary.format}</Descriptions.Item>
           <Descriptions.Item label="Name">{result.summary.name}</Descriptions.Item>
+          <Descriptions.Item label="Signed">{result.authenticity?.signed ? (result.authenticity.verified ? "verified" : "yes") : "unsigned"}</Descriptions.Item>
+          <Descriptions.Item label="Checksums">{result.checksum?.verified === false ? "failed" : "verified"}</Descriptions.Item>
           <Descriptions.Item label="Screens">{result.summary.screens}</Descriptions.Item>
           <Descriptions.Item label="Tags">{result.summary.tags}</Descriptions.Item>
           <Descriptions.Item label="Assets">{result.summary.assets}</Descriptions.Item>
@@ -118,6 +121,8 @@ export function ProjectManagerPage() {
   const [projectValidation, setProjectValidation] = useState<ProjectArchiveValidationResult | null>(null);
   const [screenValidation, setScreenValidation] = useState<ScreenArchiveValidationResult | null>(null);
   const [screenMode, setScreenMode] = useState<ScreenArchiveImportOptions["mode"]>("add");
+  const [dependencyMode, setDependencyMode] = useState<ScreenArchiveDependencyMode>("safe");
+  const [lastBackupPath, setLastBackupPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   if (!project) {
@@ -176,6 +181,7 @@ export function ProjectManagerPage() {
         setBusy(true);
         try {
           const imported = await api.importProjectArchive(projectArchiveFile, { mode: "replace-current" });
+          setLastBackupPath(imported.backupPath ?? null);
           await reloadAfterImport();
           void message.success(imported.backupPath ? `Project imported. Backup: ${imported.backupPath}` : "Project imported");
         } finally {
@@ -191,7 +197,7 @@ export function ProjectManagerPage() {
     }
     setBusy(true);
     try {
-      const exported = await api.exportScreenArchive(currentScreen.id);
+      const exported = await api.exportScreenArchive(currentScreen.id, { dependencyMode });
       downloadBlob(exported.blob, exported.fileName);
       void message.success("Screen archive exported");
     } finally {
@@ -319,6 +325,7 @@ export function ProjectManagerPage() {
             }}
           />
           <Typography.Text type="secondary">{projectArchiveFile ? projectArchiveFile.name : "No project archive selected"}</Typography.Text>
+          {lastBackupPath ? <Alert type="info" showIcon message="Last import backup" description={lastBackupPath} /> : null}
           <ValidationSummary result={projectValidation} />
         </Space>
       </Card>
@@ -328,6 +335,12 @@ export function ProjectManagerPage() {
           <Typography.Text>Selected screen: {currentScreen ? `${currentScreen.name} (${currentScreen.id})` : "none"}</Typography.Text>
           <Space wrap>
             <Button type="primary" disabled={!currentScreen} loading={busy} onClick={() => void exportScreen()}>Export selected screen ZIP</Button>
+            <Select
+              value={dependencyMode}
+              style={{ width: 170 }}
+              onChange={setDependencyMode}
+              options={[{ label: "Safe dependencies", value: "safe" }, { label: "Minimal dependencies", value: "minimal" }]}
+            />
             <Button onClick={() => screenFileRef.current?.click()}>Choose screen ZIP</Button>
             <Button disabled={!screenArchiveFile} loading={busy} onClick={() => void validateScreen()}>Validate</Button>
             <Select
