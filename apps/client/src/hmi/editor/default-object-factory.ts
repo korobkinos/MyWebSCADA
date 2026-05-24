@@ -602,6 +602,8 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         showSearch: true,
         showActiveOnlyToggle: true,
         showUnackedOnlyToggle: true,
+        showOperatorActions: false,
+        showOperatorActionsToggle: true,
         showAckVisibleButton: true,
         showSilenceButton: true,
         showEnableSoundsButton: true,

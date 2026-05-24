@@ -4298,6 +4298,11 @@ function SpecificPropertyFields({
 
   if (object.type === "eventTable") {
     const mode = object.mode ?? (object.enableHistoryMode ? "history" : "online");
+    const toolbarPosition = object.toolbarPosition ?? (object.showToolbar === false ? "hidden" : "top");
+    const toolbarVisible = object.showToolbar !== false && toolbarPosition !== "hidden";
+    const showOperatorActionsToggle = typeof object.showOperatorActionsToggle === "boolean"
+      ? object.showOperatorActionsToggle
+      : toolbarVisible;
     const defaultColumns: Array<{ key: string; label: string }> = [
       { key: "timestamp", label: "Timestamp" },
       { key: "priority", label: "Priority" },
@@ -4377,6 +4382,14 @@ function SpecificPropertyFields({
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Show Cleared</span>
             <Switch checked={object.showCleared ?? false} onChange={(checked) => onPatch({ showCleared: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Показывать действия оператора по умолчанию</span>
+            <Switch checked={object.showOperatorActions === true} onChange={(checked) => onPatch({ showOperatorActions: checked } as Partial<HmiObject>)} />
+          </div>
+          <div className="object-property-panel__switch-item">
+            <span className="object-property-panel__switch-label">Кнопка показа/скрытия действий оператора</span>
+            <Switch checked={showOperatorActionsToggle} onChange={(checked) => onPatch({ showOperatorActionsToggle: checked } as Partial<HmiObject>)} />
           </div>
         </div>
         <Form.Item label="Max Rows">
@@ -4599,7 +4612,7 @@ function SpecificPropertyFields({
         </div>
         <Form.Item label="Toolbar Position">
           <Select
-            value={object.toolbarPosition ?? (object.showToolbar === false ? "hidden" : "top")}
+            value={toolbarPosition}
             options={[
               { value: "top", label: "top" },
               { value: "bottom", label: "bottom" },

@@ -1,4 +1,4 @@
-import type { EventDefinition, EventOccurrence, EventTableObject, HmiObject } from "@web-scada/shared";
+import type { EventDefinition, EventOccurrence, EventTableObject, HmiObject, OperatorActionRecord } from "@web-scada/shared";
 import {
   AudioMutedOutlined,
   CheckCircleOutlined,
@@ -36,6 +36,7 @@ import {
 } from "./event-table-history-query";
 import {
   downloadCsvFile,
+  formatEventCellDateTime,
   formatDbSizeLabel,
   formatRecordCountLabel,
   formatStatusClockTime,
@@ -49,6 +50,7 @@ import {
 } from "./event-table-filters";
 import { eventSoundPlayer } from "./event-sound-player";
 import { eventRuntimeStore } from "./event-runtime-store";
+import { api } from "../../services/api";
 
 type EventTableRuntimeWidgetProps = {
   object: EventTableObject;
@@ -60,6 +62,30 @@ type ColumnResizeState = {
   startX: number;
   startWidth: number;
 } | null;
+
+type EventTableEventRow = {
+  rowType: "event";
+  rowId: string;
+  occurredAt: string;
+  event: EventOccurrence;
+};
+
+type EventTableOperatorActionRow = {
+  rowType: "operatorAction";
+  rowId: string;
+  occurredAt: string;
+  action: OperatorActionRecord;
+  categoryText: string;
+  sourceText: string;
+  resultText: string;
+  priorityText: string;
+  actionKind: string;
+  username: string;
+};
+
+type EventTableRow = EventTableEventRow | EventTableOperatorActionRow;
+
+const OPERATOR_ACTION_CATEGORY_LABEL = "Действие оператора";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -79,6 +105,131 @@ function toSingleFilterValues<T extends string | number>(values: T[] | undefined
 
 function normalizeOccurrenceId(input: Pick<EventOccurrence, "id">): string {
   return String(input.id ?? "").trim();
+}
+
+function normalizeOperatorActionId(input: Pick<OperatorActionRecord, "id">): string {
+  return String(input.id ?? "").trim();
+}
+
+function getEventRowId(occurrence: EventOccurrence): string {
+  const id = normalizeOccurrenceId(occurrence);
+  return id ? `event:${id}` : "";
+}
+
+function getOperatorActionRowId(action: OperatorActionRecord): string {
+  const id = normalizeOperatorActionId(action);
+  return id ? `operatorAction:${id}` : "";
+}
+
+function toSafeTimestamp(iso: string | null | undefined): number {
+  const timestamp = Date.parse(iso ?? "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function compareMixedRowsByTime(left: EventTableRow, right: EventTableRow, direction: "asc" | "desc"): number {
+  const sortSign = direction === "asc" ? 1 : -1;
+  const timestampResult = toSafeTimestamp(left.occurredAt) - toSafeTimestamp(right.occurredAt);
+  if (timestampResult !== 0) {
+    return timestampResult * sortSign;
+  }
+  return left.rowId.localeCompare(right.rowId) * sortSign;
+}
+
+function toOperatorActionSource(action: OperatorActionRecord): string {
+  return action.objectDescription?.trim()
+    || action.objectName?.trim()
+    || action.targetName?.trim()
+    || action.objectId?.trim()
+    || "-";
+}
+
+function getOperatorActionPriorityText(result: OperatorActionRecord["result"]): string {
+  return result === "failed" || result === "denied" ? "warning" : "info";
+}
+
+function toOperatorActionRow(action: OperatorActionRecord): EventTableOperatorActionRow | null {
+  const rowId = getOperatorActionRowId(action);
+  if (!rowId) {
+    return null;
+  }
+  return {
+    rowType: "operatorAction",
+    rowId,
+    occurredAt: action.occurredAt,
+    action,
+    categoryText: OPERATOR_ACTION_CATEGORY_LABEL,
+    sourceText: toOperatorActionSource(action),
+    resultText: action.result,
+    priorityText: getOperatorActionPriorityText(action.result),
+    actionKind: action.actionKind,
+    username: action.username?.trim() || "-",
+  };
+}
+
+function matchesOperatorActionFilters(action: OperatorActionRecord, object: EventTableObject): boolean {
+  const categoryFilter = object.categoryFilter ?? [];
+  if (categoryFilter.length > 0) {
+    const hasCategoryMatch = categoryFilter.some((item) => item.trim() === OPERATOR_ACTION_CATEGORY_LABEL);
+    if (!hasCategoryMatch) {
+      return false;
+    }
+  }
+
+  const sourceFilter = object.sourceTagFilter?.trim().toLowerCase();
+  if (sourceFilter) {
+    const source = toOperatorActionSource(action).toLowerCase();
+    if (!source.includes(sourceFilter)) {
+      return false;
+    }
+  }
+
+  const searchText = object.searchText?.trim().toLowerCase();
+  if (searchText) {
+    const searchCorpus = [
+      action.messageText,
+      action.username,
+      action.objectDescription,
+      action.objectName,
+      action.targetName,
+    ]
+      .map((value) => String(value ?? "").trim().toLowerCase())
+      .filter(Boolean)
+      .join(" | ");
+    if (!searchCorpus.includes(searchText)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getRowCellText(column: EventTableColumnId, row: EventTableRow): string {
+  if (row.rowType === "event") {
+    return getEventCellText(column, row.event);
+  }
+
+  if (column === "timestamp") {
+    return formatEventCellDateTime(row.occurredAt);
+  }
+  if (column === "priority") {
+    return row.priorityText;
+  }
+  if (column === "category") {
+    return row.categoryText;
+  }
+  if (column === "message") {
+    return row.action.messageText?.trim() || "-";
+  }
+  if (column === "source") {
+    return row.sourceText;
+  }
+  if (column === "value") {
+    return row.actionKind || "-";
+  }
+  if (column === "state") {
+    return row.resultText;
+  }
+  return "-";
 }
 
 function findObjectScreenId(project: ReturnType<typeof useScadaStore.getState>["project"], objectId: string): string | undefined {
@@ -239,7 +390,7 @@ function printHtmlDocument(content: string): Promise<void> {
 }
 
 function buildClientCsv(
-  rows: EventOccurrence[],
+  rows: EventTableRow[],
   columns: EventTableColumnId[],
   columnLabels: Partial<Record<EventTableColumnId, string>> | undefined,
   delimiter: string,
@@ -252,7 +403,7 @@ function buildClientCsv(
   }).join(delimiter);
 
   const lines = rows.map((row) => columns
-    .map((column) => escapeCsvCell(getEventCellText(column, row)))
+    .map((column) => escapeCsvCell(getRowCellText(column, row)))
     .join(delimiter));
 
   const contentLines: string[] = [];
@@ -268,7 +419,7 @@ function buildClientCsv(
 }
 
 function buildHtmlExport(
-  rows: EventOccurrence[],
+  rows: EventTableRow[],
   columns: EventTableColumnId[],
   columnLabels: Partial<Record<EventTableColumnId, string>> | undefined,
   includeHeaders: boolean,
@@ -287,7 +438,7 @@ function buildHtmlExport(
 
   const bodyHtml = rows
     .map((row) => `<tr>${columns
-      .map((column) => `<td>${escapeHtmlCell(getEventCellText(column, row))}</td>`)
+      .map((column) => `<td>${escapeHtmlCell(getRowCellText(column, row))}</td>`)
       .join("")}</tr>`)
     .join("");
 
@@ -365,6 +516,24 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const [exportOpen, setExportOpen] = useState(false);
   const [runtimeColumnWidths, setRuntimeColumnWidths] = useState<Record<string, number>>({});
   const [soundSilenced, setSoundSilenced] = useState(false);
+  const [showOperatorActions, setShowOperatorActions] = useState(object.showOperatorActions === true);
+  const [operatorActionHistory, setOperatorActionHistory] = useState<{
+    items: OperatorActionRecord[];
+    total: number;
+    limit: number;
+    offset: number;
+    loading: boolean;
+    error: string | null;
+    updatedAt: number | null;
+  }>({
+    items: [],
+    total: 0,
+    limit: 0,
+    offset: 0,
+    loading: false,
+    error: null,
+    updatedAt: null,
+  });
 
   const oncePlayedIdsRef = useRef<Set<string>>(new Set());
   const silenceBlockedRef = useRef(false);
@@ -372,6 +541,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const soundLoopRetryTimerRef = useRef<number | null>(null);
   const columnResizeRef = useRef<ColumnResizeState>(null);
   const persistenceWarningShownRef = useRef(false);
+  const operatorActionRequestSeqRef = useRef(0);
 
   const config = useMemo(() => resolveEventTableConfig(object), [object]);
 
@@ -410,6 +580,9 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const showTitleBottom = config.titlePosition === "bottom";
   const showToolbarTop = config.showToolbar && config.toolbarPosition === "top";
   const showToolbarBottom = config.showToolbar && config.toolbarPosition === "bottom";
+  const canShowOperatorActionsToggle = config.showToolbar && config.showOperatorActionsToggle;
+  // Keep online/active alarm behavior unchanged: operator-action rows are merged only in history mode.
+  const showOperatorActionsInHistory = mode === "history" && showOperatorActions;
 
   const resolvedScreenId = useMemo(
     () => screenId ?? currentScreenId ?? findObjectScreenId(project, object.id),
@@ -465,6 +638,24 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     return sorted.slice(0, maxRows);
   }, [maxRows, object, runtimeEvents.activeEvents]);
 
+  const onlineTableRows = useMemo<EventTableRow[]>(
+    () => onlineRows
+      .map((event) => {
+        const rowId = getEventRowId(event);
+        if (!rowId) {
+          return null;
+        }
+        return {
+          rowType: "event",
+          rowId,
+          occurredAt: event.occurredAt,
+          event,
+        } as EventTableEventRow;
+      })
+      .filter((item): item is EventTableEventRow => Boolean(item)),
+    [onlineRows],
+  );
+
   const historySortedRows = useMemo(() => {
     const filtered = historyBucket.items.filter((item) => matchesCommonEventFilters(item, historyFilterObject));
     return sortEventRows(filtered, object);
@@ -482,16 +673,88 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     return historySortedRows.slice(start, start + pageSize);
   }, [historyPage, historySortedRows, object.serverSidePagination, pageSize]);
 
-  const visibleRows = mode === "history" ? historyRows : onlineRows;
+  const historyEventRowsForMix = historySortedRows;
+
+  const historyEventTableRows = useMemo<EventTableRow[]>(
+    () => historyRows
+      .map((event) => {
+        const rowId = getEventRowId(event);
+        if (!rowId) {
+          return null;
+        }
+        return {
+          rowType: "event",
+          rowId,
+          occurredAt: event.occurredAt,
+          event,
+        } as EventTableEventRow;
+      })
+      .filter((item): item is EventTableEventRow => Boolean(item)),
+    [historyRows],
+  );
+
+  const mixedHistoryRows = useMemo<EventTableRow[]>(() => {
+    if (!showOperatorActionsInHistory) {
+      return [];
+    }
+
+    const eventRows = historyEventRowsForMix
+      .map((event) => {
+        const rowId = getEventRowId(event);
+        if (!rowId) {
+          return null;
+        }
+        return {
+          rowType: "event",
+          rowId,
+          occurredAt: event.occurredAt,
+          event,
+        } as EventTableEventRow;
+      })
+      .filter((item): item is EventTableEventRow => Boolean(item));
+    const operatorRows = operatorActionHistory.items
+      .filter((item) => matchesOperatorActionFilters(item, historyFilterObject))
+      .map((item) => toOperatorActionRow(item))
+      .filter((item): item is EventTableOperatorActionRow => Boolean(item));
+
+    // Mixed pagination is approximate when server pagination is enabled:
+    // each API endpoint pages independently before merge.
+    return [...eventRows, ...operatorRows].sort((left, right) => compareMixedRowsByTime(left, right, object.sortDirection ?? "desc"));
+  }, [historyEventRowsForMix, historyFilterObject, object.sortDirection, operatorActionHistory.items, showOperatorActionsInHistory]);
+
+  const mixedHistoryVisibleRows = useMemo<EventTableRow[]>(() => {
+    if (!showOperatorActionsInHistory) {
+      return [];
+    }
+    if (object.serverSidePagination !== false) {
+      return mixedHistoryRows.slice(0, pageSize);
+    }
+    const start = Math.max(0, (historyPage - 1) * pageSize);
+    return mixedHistoryRows.slice(start, start + pageSize);
+  }, [historyPage, mixedHistoryRows, object.serverSidePagination, pageSize, showOperatorActionsInHistory]);
+
+  const historyTableRows = showOperatorActionsInHistory ? mixedHistoryVisibleRows : historyEventTableRows;
+  const visibleRows = mode === "history" ? historyTableRows : onlineTableRows;
+
+  const historyTotalRowsForMode = showOperatorActionsInHistory
+    ? (object.serverSidePagination !== false
+      ? historyTotalRows + operatorActionHistory.total
+      : mixedHistoryRows.length)
+    : historyTotalRows;
 
   const totalPages = useMemo(() => {
-    const total = mode === "history" ? historyTotalRows : visibleRows.length;
+    const total = mode === "history" ? historyTotalRowsForMode : visibleRows.length;
     return Math.max(1, Math.ceil(Math.max(1, total) / Math.max(1, pageSize)));
-  }, [historyTotalRows, mode, pageSize, visibleRows.length]);
+  }, [historyTotalRowsForMode, mode, pageSize, visibleRows.length]);
+
+  const selectedEventCount = useMemo(
+    () => visibleRows.filter((item) => item.rowType === "event" && selectedIds.has(item.rowId)).length,
+    [selectedIds, visibleRows],
+  );
 
   useEffect(() => {
     setSelectedIds((previous) => {
-      const visibleIds = new Set(visibleRows.map((item) => String(item.id)));
+      const visibleIds = new Set(visibleRows.map((item) => item.rowId));
       const next = new Set<string>();
       for (const id of previous) {
         if (visibleIds.has(id)) {
@@ -514,7 +777,12 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     object.categoryFilter,
     object.priorityFilter,
     pageSize,
+    showOperatorActions,
   ]);
+
+  useEffect(() => {
+    setShowOperatorActions(object.showOperatorActions === true);
+  }, [object.id, object.showOperatorActions]);
 
   useEffect(() => {
     setRuntimeColumnWidths(object.columnWidths ?? {});
@@ -545,6 +813,66 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     void eventRuntimeStore.loadHistory({ widgetId: object.id, query: historyQuery });
     void eventRuntimeStore.loadArchiveStatus();
   }, [historyQuery, mode, object.id]);
+
+  const operatorActionHistoryQuery = useMemo(() => {
+    const sourceFilter = object.sourceTagFilter?.trim();
+    return {
+      from: historyQuery.from,
+      to: historyQuery.to,
+      search: object.searchText?.trim() || undefined,
+      targetName: sourceFilter || undefined,
+      limit: historyQuery.limit,
+      offset: historyQuery.offset,
+    };
+  }, [historyQuery.from, historyQuery.limit, historyQuery.offset, historyQuery.to, object.searchText, object.sourceTagFilter]);
+
+  useEffect(() => {
+    if (!showOperatorActionsInHistory) {
+      setOperatorActionHistory((previous) => ({
+        ...previous,
+        items: [],
+        total: 0,
+        loading: false,
+        error: null,
+      }));
+      return;
+    }
+
+    const requestSeq = operatorActionRequestSeqRef.current + 1;
+    operatorActionRequestSeqRef.current = requestSeq;
+    setOperatorActionHistory((previous) => ({
+      ...previous,
+      loading: true,
+      error: null,
+    }));
+
+    void api.getOperatorActionHistory(operatorActionHistoryQuery)
+      .then((page) => {
+        if (operatorActionRequestSeqRef.current !== requestSeq) {
+          return;
+        }
+        setOperatorActionHistory({
+          items: page.items ?? [],
+          total: page.total ?? 0,
+          limit: page.limit ?? 0,
+          offset: page.offset ?? 0,
+          loading: false,
+          error: null,
+          updatedAt: Date.now(),
+        });
+      })
+      .catch((error: unknown) => {
+        if (operatorActionRequestSeqRef.current !== requestSeq) {
+          return;
+        }
+        const text = error instanceof Error ? error.message : String(error);
+        setOperatorActionHistory((previous) => ({
+          ...previous,
+          loading: false,
+          error: text,
+        }));
+      });
+  }, [operatorActionHistoryQuery, showOperatorActionsInHistory]);
 
   useEffect(() => () => {
     eventRuntimeStore.clearHistory(object.id);
@@ -826,7 +1154,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         }
         const next = new Set(previous);
         for (const id of unique) {
-          next.delete(id);
+          next.delete(`event:${id}`);
         }
         return next;
       });
@@ -840,15 +1168,19 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
   const handleAcknowledgeVisible = useCallback(() => {
     const ids = visibleRows
-      .filter((item) => !item.acknowledgedAt)
-      .map((item) => String(item.id));
+      .filter((item): item is EventTableEventRow => item.rowType === "event" && !item.event.acknowledgedAt)
+      .map((item) => String(item.event.id));
     void acknowledgeRows(ids);
   }, [acknowledgeRows, visibleRows]);
 
   const handleAcknowledgeSelected = useCallback(() => {
     const ids = visibleRows
-      .filter((item) => selectedIds.has(String(item.id)) && !item.acknowledgedAt)
-      .map((item) => String(item.id));
+      .filter((item): item is EventTableEventRow => (
+        item.rowType === "event"
+        && selectedIds.has(item.rowId)
+        && !item.event.acknowledgedAt
+      ))
+      .map((item) => String(item.event.id));
     void acknowledgeRows(ids);
   }, [acknowledgeRows, selectedIds, visibleRows]);
 
@@ -863,16 +1195,16 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     if (!selectedOnly) {
       return visibleRows;
     }
-    return visibleRows.filter((item) => selectedIds.has(String(item.id)));
+    return visibleRows.filter((item) => selectedIds.has(item.rowId));
   }, [selectedIds, visibleRows]);
 
   const buildExportStatusSummary = useCallback(() => {
     if (mode === "history") {
-      return `Mode: history | Period: ${historyPreset.label} | Rows: ${historyTotalRows}`;
+      return `Mode: history | Period: ${historyPreset.label} | Rows: ${historyTotalRowsForMode}`;
     }
     const onlineStatusLabel = runtimeEvents.onlineStatus === "open" ? "online" : runtimeEvents.onlineStatus;
     return `Mode: online (${onlineStatusLabel}) | Active: ${runtimeEvents.activeCount} | Unacked: ${runtimeEvents.unacknowledgedCount} | Rows: ${onlineRows.length}`;
-  }, [historyPreset.label, historyTotalRows, mode, onlineRows.length, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount]);
+  }, [historyPreset.label, historyTotalRowsForMode, mode, onlineRows.length, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount]);
 
   const handleExport = useCallback(async (options: EventTableExportOptions) => {
     if (object.enableCsvExport === false) {
@@ -894,6 +1226,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     try {
       const useArchiveCsv = options.format === "csv"
         && mode === "history"
+        && !showOperatorActionsInHistory
         && options.csvSource === "archiveQuery"
         && !options.selectedOnly
         && options.includeHeaders
@@ -946,7 +1279,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     } finally {
       setBusyExport(false);
     }
-  }, [buildExportStatusSummary, columns, historyQuery, mode, object.columnLabels, object.enableCsvExport, resolveExportRows, title]);
+  }, [buildExportStatusSummary, columns, historyQuery, mode, object.columnLabels, object.enableCsvExport, resolveExportRows, showOperatorActionsInHistory, title]);
 
   const muteSounds = useCallback(() => {
     eventSoundPlayer.stopSeamlessLoop();
@@ -990,7 +1323,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     const historySegments = [
       `Event archive: ${historyState}`,
       `period ${historyPreset.label}`,
-      `records ${historyTotalRows}`,
+      `records ${historyTotalRowsForMode}`,
       object.showDatabaseStatus === false ? "DB --" : `DB ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)}`,
       object.showDatabaseStatus === false ? "total --" : `total ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`,
     ];
@@ -1019,7 +1352,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     }
 
     const lineOne = mode === "history"
-      ? `Event archive: ${historyState} | period ${historyPreset.label} | records ${historyTotalRows}`
+      ? `Event archive: ${historyState} | period ${historyPreset.label} | records ${historyTotalRowsForMode}`
       : `Event status: ${onlineStatusLabel} | active ${runtimeEvents.activeCount} | unacked ${runtimeEvents.unacknowledgedCount}`;
     const lineTwo = mode === "history"
       ? (object.showDatabaseStatus === false
@@ -1084,11 +1417,16 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const historyFilterNote = mode === "history" && hasMultiValueHistoryFilters(object)
     ? "History filter uses single category and single priority value; extra values are ignored."
     : "";
-  const statusNote = [hasSoundNote, historyFilterNote].filter(Boolean).join(" | ");
+  const operatorActionModeNote = mode === "online" && showOperatorActions
+    ? "Operator actions are shown in history mode."
+    : "";
+  const statusNote = [hasSoundNote, historyFilterNote, operatorActionModeNote].filter(Boolean).join(" | ");
 
   const historyCanPrev = historyPage > 1;
   const historyCanNext = historyPage < totalPages;
   const csvTooltipTitle = `${mode === "history" ? "Export history records" : "Export online messages"}${object.enableCsvExport === false ? " (disabled)" : ""}`;
+  const historyLoading = historyBucket.loading || (showOperatorActionsInHistory && operatorActionHistory.loading);
+  const historyError = historyBucket.error || (showOperatorActionsInHistory ? operatorActionHistory.error : null);
 
   const startColumnResize = (event: ReactMouseEvent<HTMLDivElement>, column: EventTableColumnId) => {
     event.preventDefault();
@@ -1162,6 +1500,15 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         />
       ) : null}
 
+      {canShowOperatorActionsToggle ? (
+        <WorkbenchIconButton
+          title={showOperatorActions ? "Скрыть действия оператора" : "Показать действия оператора"}
+          active={showOperatorActions}
+          onClick={() => setShowOperatorActions((previous) => !previous)}
+          icon={showOperatorActions ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+        />
+      ) : null}
+
       {config.showAckVisibleButton ? (
         <WorkbenchIconButton
           title="Acknowledge visible"
@@ -1173,10 +1520,10 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
       {object.enableAckSelectedButton ? (
         <WorkbenchIconButton
-          title={`Acknowledge selected (${selectedIds.size})`}
+          title={`Acknowledge selected (${selectedEventCount})`}
           onClick={handleAcknowledgeSelected}
           disabled={busyAck}
-          icon={<span>{selectedIds.size}</span>}
+          icon={<span>{selectedEventCount}</span>}
         />
       ) : null}
 
@@ -1357,15 +1704,17 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
               </div>
             ) : null}
 
-            {(mode === "online" && runtimeEvents.onlineLoading) || (mode === "history" && historyBucket.loading) ? (
+            {(mode === "online" && runtimeEvents.onlineLoading) || (mode === "history" && historyLoading) ? (
               <div style={{ padding: 12, color: mutedTextColor, fontSize: Math.max(10, fontSize - 1) }}>
-                {mode === "history" ? "Loading history events..." : "Loading online events..."}
+                {mode === "history"
+                  ? (showOperatorActionsInHistory ? "Loading history events and operator actions..." : "Loading history events...")
+                  : "Loading online events..."}
               </div>
             ) : null}
 
-            {(mode === "online" && runtimeEvents.onlineError) || (mode === "history" && historyBucket.error) ? (
+            {(mode === "online" && runtimeEvents.onlineError) || (mode === "history" && historyError) ? (
               <div style={{ padding: 12, color: object.criticalColor ?? "#f48771", fontSize: Math.max(10, fontSize - 1) }}>
-                {mode === "history" ? historyBucket.error : runtimeEvents.onlineError}
+                {mode === "history" ? historyError : runtimeEvents.onlineError}
               </div>
             ) : null}
 
@@ -1387,13 +1736,29 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
               ) : (
                 <div style={{ minWidth: "100%" }}>
                   {visibleRows.map((row, rowIndex) => {
-                    const rowId = String(row.id);
+                    const rowId = row.rowId;
                     const selected = selectedIds.has(rowId);
-                    const eventDefinition = eventDefinitionById.get(row.eventDefinitionId);
-                    const messageVisual = resolveEventMessageVisual(eventDefinition);
-                    const rowDefaultColor = getOccurrenceRowColor(row, object, textColor);
+                    const isEventRow = row.rowType === "event";
+                    const eventRow = isEventRow ? row.event : null;
+                    const operatorResult = row.rowType === "operatorAction" ? row.action.result : null;
+                    const eventDefinition = eventRow ? eventDefinitionById.get(eventRow.eventDefinitionId) : undefined;
+                    const messageVisual = eventRow
+                      ? resolveEventMessageVisual(eventDefinition)
+                      : {
+                        textColor: null,
+                        backgroundColor: operatorResult === "success" ? "rgba(110, 128, 150, 0.10)" : "rgba(230, 180, 80, 0.14)",
+                        backgroundBlinkEnabled: false,
+                        backgroundBlinkDurationMs: 1600,
+                        backgroundBlinkOpacity: 0.25,
+                      };
+                    const operatorRowColor = operatorResult === "failed" || operatorResult === "denied"
+                      ? (object.warningColor ?? "#e6b450")
+                      : textColor;
+                    const rowDefaultColor = eventRow
+                      ? getOccurrenceRowColor(eventRow, object, textColor)
+                      : operatorRowColor;
                     const rowColor = messageVisual.textColor ?? rowDefaultColor;
-                    const rowIsUnacknowledged = !row.acknowledgedAt;
+                    const rowIsUnacknowledged = Boolean(eventRow && !eventRow.acknowledgedAt);
                     const customBackgroundColor = messageVisual.backgroundColor;
                     const shouldBlinkBackground = Boolean(
                       messageVisual.backgroundBlinkEnabled
@@ -1410,8 +1775,8 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                     ) ?? "rgba(244, 135, 113, 0.45)";
 
                     const handleRowActivate = () => {
-                      if (!row.acknowledgedAt) {
-                        handleAcknowledgeSingle(rowId, row.acknowledgedAt);
+                      if (eventRow && !eventRow.acknowledgedAt) {
+                        handleAcknowledgeSingle(String(eventRow.id), eventRow.acknowledgedAt);
                         return;
                       }
                       toggleRowSelection(rowId);
@@ -1448,17 +1813,20 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                         className={shouldBlinkBackground ? "event-table-row--blinking" : ""}
                       >
                         {columns.map((column, index) => {
-                          const cellText = getEventCellText(column, row);
+                          const cellText = getRowCellText(column, row);
                           const textAlign = config.columnAlignments[column];
                           const isMessageCell = column === "message";
-                          const isAckByClickAvailable = isMessageCell && !row.acknowledgedAt;
+                          const isAckByClickAvailable = Boolean(isMessageCell && eventRow && !eventRow.acknowledgedAt);
                           return (
                             <div
                               key={`${rowId}-${column}`}
                               onClick={isMessageCell
                                 ? (event) => {
+                                  if (!eventRow || eventRow.acknowledgedAt) {
+                                    return;
+                                  }
                                   event.stopPropagation();
-                                  handleAcknowledgeSingle(rowId, row.acknowledgedAt);
+                                  handleAcknowledgeSingle(String(eventRow.id), eventRow.acknowledgedAt);
                                 }
                                 : undefined}
                               style={{

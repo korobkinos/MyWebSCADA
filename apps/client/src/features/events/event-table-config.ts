@@ -17,6 +17,7 @@ export type ResolvedEventTableConfig = {
   showSearch: boolean;
   showActiveOnlyToggle: boolean;
   showUnackedOnlyToggle: boolean;
+  showOperatorActionsToggle: boolean;
   showAckVisibleButton: boolean;
   showSilenceButton: boolean;
   showEnableSoundsButton: boolean;
@@ -79,6 +80,9 @@ export function resolveEventTableConfig(object: EventTableObject): ResolvedEvent
   const titlePosition = object.titlePosition ?? (object.showTitle === false ? "hidden" : "top");
   const toolbarPosition = object.toolbarPosition ?? (object.showToolbar === false ? "hidden" : "top");
   const showToolbar = object.showToolbar !== false && toolbarPosition !== "hidden";
+  const showOperatorActionsToggle = typeof object.showOperatorActionsToggle === "boolean"
+    ? object.showOperatorActionsToggle
+    : showToolbar;
 
   const columnAlignments: Record<string, EventTableColumnAlign> = {};
   const fallbackAlign = resolveColumnAlign(object.cellTextAlign, "left");
@@ -94,6 +98,7 @@ export function resolveEventTableConfig(object: EventTableObject): ResolvedEvent
     showSearch: resolveToggle(object.showSearch, object.enableSearchInToolbar, true),
     showActiveOnlyToggle: resolveToggle(object.showActiveOnlyToggle, object.enableActiveOnlyToggle, true),
     showUnackedOnlyToggle: resolveToggle(object.showUnackedOnlyToggle, object.enableUnackedOnlyToggle, true),
+    showOperatorActionsToggle,
     showAckVisibleButton: resolveToggle(object.showAckVisibleButton, object.enableAckButton, true),
     showSilenceButton: resolveToggle(object.showSilenceButton, object.enableSilenceButton, true),
     showEnableSoundsButton: resolveToggle(object.showEnableSoundsButton, object.enableSoundsButton, true),
@@ -167,4 +172,3 @@ export function resolveEventOccurrenceSoundId(
   const fallback = sounds.find((item) => item.kind === kind && item.enabled !== false);
   return trimOrUndefined(fallback?.id);
 }
-

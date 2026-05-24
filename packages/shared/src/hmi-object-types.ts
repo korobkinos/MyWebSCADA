@@ -840,6 +840,8 @@ export type EventTableObject = HmiObjectBase & {
   showSearch?: boolean;
   showActiveOnlyToggle?: boolean;
   showUnackedOnlyToggle?: boolean;
+  showOperatorActions?: boolean;
+  showOperatorActionsToggle?: boolean;
   showAckVisibleButton?: boolean;
   showSilenceButton?: boolean;
   showEnableSoundsButton?: boolean;

@@ -55,6 +55,17 @@ describe("resolveEventTableConfig", () => {
     expect(hidden.stopSoundOnAck).toBe(true);
     expect(hidden.stopSoundOnSilence).toBe(true);
   });
+
+  it("defaults operator actions toggle to toolbar visibility unless overridden", () => {
+    const visibleToolbar = resolveEventTableConfig(makeObject({ showToolbar: true, toolbarPosition: "top" }));
+    expect(visibleToolbar.showOperatorActionsToggle).toBe(true);
+
+    const hiddenToolbar = resolveEventTableConfig(makeObject({ showToolbar: false }));
+    expect(hiddenToolbar.showOperatorActionsToggle).toBe(false);
+
+    const explicitOff = resolveEventTableConfig(makeObject({ showToolbar: true, showOperatorActionsToggle: false }));
+    expect(explicitOff.showOperatorActionsToggle).toBe(false);
+  });
 });
 
 describe("resolveEventOccurrenceSoundId", () => {
@@ -90,4 +101,3 @@ describe("resolveEventOccurrenceSoundId", () => {
     expect(soundId).toBeUndefined();
   });
 });
-

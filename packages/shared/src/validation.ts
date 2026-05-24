@@ -916,6 +916,8 @@ const eventTableObjectSchema = hmiBaseSchema.extend({
   showSearch: z.boolean().optional(),
   showActiveOnlyToggle: z.boolean().optional(),
   showUnackedOnlyToggle: z.boolean().optional(),
+  showOperatorActions: z.boolean().optional(),
+  showOperatorActionsToggle: z.boolean().optional(),
   showAckVisibleButton: z.boolean().optional(),
   showSilenceButton: z.boolean().optional(),
   showEnableSoundsButton: z.boolean().optional(),
