@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Form, Input, InputNumber, Select, Space, Switch, Tag, message } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
 import { WorkbenchButton, WorkbenchWindow } from "../components/workbench";
 import type { WorkbenchWindowRect } from "../components/workbench";
 import {
@@ -258,6 +259,13 @@ type MessageArchiveSettingsDraft = {
   maxDeleteTransactionMs: number;
 };
 
+type ArchiveConsoleEntry = {
+  id: string;
+  ts: string;
+  level: "info" | "success" | "warn" | "error";
+  text: string;
+};
+
 type ArchiveMaintenancePresetId = "safe" | "balanced" | "fast";
 
 const ARCHIVE_MAINTENANCE_PRESETS: Record<ArchiveMaintenancePresetId, Omit<ArchiveSettingsDraft, "autoCleanupEnabled" | "maxDbSizeMb">> = {
@@ -336,6 +344,10 @@ function formatDateTime(value: string | null | undefined): string {
   return date.toLocaleString("ru-RU", { hour12: false });
 }
 
+function formatConsoleTimestamp(): string {
+  return new Date().toLocaleTimeString("ru-RU", { hour12: false });
+}
+
 function normalizeMessageArchiveDraft(
   source: Partial<MessageArchiveSettingsDraft> | null | undefined,
 ): MessageArchiveSettingsDraft {
@@ -382,6 +394,7 @@ function normalizeMessageArchiveDraft(
 
 export function ArchivePage() {
   const [status, setStatus] = useState<ArchiveStatus>({ enabled: false, queuedSamples: 0 });
+  const [consoleEntries, setConsoleEntries] = useState<ArchiveConsoleEntry[]>([]);
   const [lastLoadError, setLastLoadError] = useState<string | null>(null);
   const [lastStatusCheckAt, setLastStatusCheckAt] = useState<number | null>(null);
   const [runtimeSettings, setRuntimeSettings] = useState<ArchiveRuntimeSettings | null>(null);
@@ -442,6 +455,22 @@ export function ArchivePage() {
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const pageSelectCheckboxRef = useRef<HTMLInputElement | null>(null);
+  const trendStatusLogKeyRef = useRef<string>("");
+  const eventStatusLogKeyRef = useRef<string>("");
+  const operatorStatusLogKeyRef = useRef<string>("");
+
+  const appendConsole = useCallback((level: ArchiveConsoleEntry["level"], text: string) => {
+    setConsoleEntries((prev) => {
+      const entry: ArchiveConsoleEntry = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        ts: formatConsoleTimestamp(),
+        level,
+        text,
+      };
+      const next = [...prev, entry];
+      return next.length > 300 ? next.slice(next.length - 300) : next;
+    });
+  }, []);
 
   const checkArchiveStatus = async (options?: { silent?: boolean }): Promise<ArchiveStatus | null> => {
     try {
@@ -454,6 +483,7 @@ export function ArchivePage() {
       const errorText = error instanceof Error ? error.message : "Archive status check failed";
       setLastLoadError(errorText);
       setLastStatusCheckAt(Date.now());
+      appendConsole("error", `status-check failed: ${errorText}`);
       if (!options?.silent) {
         void message.error(errorText);
       }
@@ -529,6 +559,93 @@ export function ArchivePage() {
     }, 5000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!status.enabled) {
+      return;
+    }
+    const state = status.status ?? (status.maintenanceRunning ? "pruning" : "scheduled");
+    const key = [
+      state,
+      status.statusDetail ?? "",
+      status.pauseReason ?? "",
+      status.lastPruneError ?? "",
+      status.recordsDeletedInLastBatch ?? 0,
+      status.totalRecordsDeletedThisRun ?? 0,
+      status.dbSizeMb ?? "-",
+      status.lastBatchDurationMs ?? 0,
+      status.lastDeleteAttemptAt ?? "",
+    ].join("|");
+    if (key === trendStatusLogKeyRef.current) {
+      return;
+    }
+    trendStatusLogKeyRef.current = key;
+    const level: ArchiveConsoleEntry["level"] =
+      state === "error" ? "error" : state === "paused" ? "warn" : state === "pruning" ? "info" : "success";
+    appendConsole(
+      level,
+      `trend ${state}: db=${formatDbSizeMb(status.dbSizeMb)}MB limit=${formatDbSizeMb(status.maxDbSizeMb)}MB deleted(batch/run)=${formatRecordsCount(status.recordsDeletedInLastBatch)}/${formatRecordsCount(status.totalRecordsDeletedThisRun)} detail=${status.statusDetail ?? "-"} reason=${status.lastPruneReason ?? "-"} error=${status.lastPruneError ?? "-"}`,
+    );
+  }, [
+    appendConsole,
+    status.dbSizeMb,
+    status.enabled,
+    status.lastBatchDurationMs,
+    status.lastDeleteAttemptAt,
+    status.lastPruneError,
+    status.lastPruneReason,
+    status.maintenanceRunning,
+    status.maxDbSizeMb,
+    status.pauseReason,
+    status.recordsDeletedInLastBatch,
+    status.status,
+    status.statusDetail,
+    status.totalRecordsDeletedThisRun,
+  ]);
+
+  useEffect(() => {
+    if (!eventArchiveStatus) {
+      return;
+    }
+    const key = [
+      eventArchiveStatus.status ?? "-",
+      eventArchiveStatus.statusDetail ?? "",
+      eventArchiveStatus.pauseReason ?? "",
+      eventArchiveStatus.recordsDeletedInLastBatch ?? 0,
+      eventArchiveStatus.totalRecordsDeletedThisRun ?? 0,
+      eventArchiveStatus.dbSizeMb,
+    ].join("|");
+    if (key === eventStatusLogKeyRef.current) {
+      return;
+    }
+    eventStatusLogKeyRef.current = key;
+    appendConsole(
+      "info",
+      `events ${eventArchiveStatus.status ?? "-"}: db=${formatDbSizeMb(eventArchiveStatus.dbSizeMb)}MB deleted(batch/run)=${formatRecordsCount(eventArchiveStatus.recordsDeletedInLastBatch)}/${formatRecordsCount(eventArchiveStatus.totalRecordsDeletedThisRun)} detail=${eventArchiveStatus.statusDetail ?? "-"} pause=${eventArchiveStatus.pauseReason ?? "-"}`,
+    );
+  }, [appendConsole, eventArchiveStatus]);
+
+  useEffect(() => {
+    if (!operatorArchiveStatus) {
+      return;
+    }
+    const key = [
+      operatorArchiveStatus.status ?? "-",
+      operatorArchiveStatus.statusDetail ?? "",
+      operatorArchiveStatus.pauseReason ?? "",
+      operatorArchiveStatus.recordsDeletedInLastBatch ?? 0,
+      operatorArchiveStatus.totalRecordsDeletedThisRun ?? 0,
+      operatorArchiveStatus.dbSizeMb,
+    ].join("|");
+    if (key === operatorStatusLogKeyRef.current) {
+      return;
+    }
+    operatorStatusLogKeyRef.current = key;
+    appendConsole(
+      "info",
+      `operator ${operatorArchiveStatus.status ?? "-"}: db=${formatDbSizeMb(operatorArchiveStatus.dbSizeMb)}MB deleted(batch/run)=${formatRecordsCount(operatorArchiveStatus.recordsDeletedInLastBatch)}/${formatRecordsCount(operatorArchiveStatus.totalRecordsDeletedThisRun)} detail=${operatorArchiveStatus.statusDetail ?? "-"} pause=${operatorArchiveStatus.pauseReason ?? "-"}`,
+    );
+  }, [appendConsole, operatorArchiveStatus]);
 
   useEffect(() => {
     if (policies.length === 0) {
@@ -1198,10 +1315,20 @@ export function ArchivePage() {
       `Start: ${formatDbSizeMb(status.startThresholdMb)} MB`,
       `Stop: ${formatDbSizeMb(status.stopThresholdMb)} MB`,
       `Records: ${formatRecordsCount(status.recordsTotal ?? status.recordsCount)}`,
+      `Estimated records: ${formatRecordsCount(status.estimatedSamplesCount)}`,
+      `Actual records: ${formatRecordsCount(status.actualSamplesCount)}`,
       `Deleted(batch): ${formatRecordsCount(status.recordsDeletedInLastBatch)}`,
       `Deleted(run): ${formatRecordsCount(status.totalRecordsDeletedThisRun)}`,
+      `Retention deleted: ${formatRecordsCount(status.lastRetentionDeleted)}`,
+      `Size deleted: ${formatRecordsCount(status.lastSizeDeleted)}`,
       `Last batch: ${typeof status.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(status.lastBatchDurationMs))} ms` : "-"}`,
+      `Oldest sample: ${formatDateTime(status.oldestSampleTime)}`,
+      `Newest sample: ${formatDateTime(status.newestSampleTime)}`,
+      `Last delete attempt: ${formatDateTime(status.lastDeleteAttemptAt)}`,
       `Next run: ${formatDateTime(status.nextRunAt)}`,
+      status.statusDetail ? `Detail: ${status.statusDetail}` : null,
+      status.lastPruneReason ? `Reason: ${status.lastPruneReason}` : null,
+      status.lastPruneError ? `Error: ${status.lastPruneError}` : null,
       status.pauseReason ? `Pause: ${status.pauseReason}` : null,
     ].filter(Boolean).join(" | ");
     const eventDetails = eventArchiveStatus
@@ -1228,43 +1355,62 @@ export function ArchivePage() {
       : "Operator: -";
     const detailsLines = [trendDetails, eventDetails, operatorDetails];
     const maintenanceState = status.status ?? (status.maintenanceRunning ? "pruning" : "scheduled");
+    const trendDbConnection = !status.enabled ? "off" : lastLoadError ? "down" : "up";
+    const eventDbConnection = !status.enabled ? "off" : eventArchiveStatus ? "up" : "unknown";
+    const operatorDbConnection = !status.enabled ? "off" : operatorArchiveStatus ? "up" : "unknown";
+    const compactDetails = [
+      `DBs Trend/Message/Info: ${trendDbConnection}/${eventDbConnection}/${operatorDbConnection}`,
+      `Volume: ${formatDbSizeMb(status.dbSizeMb)} / ${formatDbSizeMb(status.maxDbSizeMb)} MB`,
+      `Checked: ${checkTime}`,
+    ].filter(Boolean).join(" | ");
+    const detailsTooltip = detailsLines.filter((line) => line.trim().length > 0).join("\n");
     if (loading) {
-      return { tone: "loading", text: `Archive status: checking... | last check ${checkTime}`, detailsLines };
+      return { tone: "loading", text: "Archive: checking...", compactDetails, detailsTooltip };
     }
     if (lastLoadError) {
-      return { tone: "error", text: `Archive status: connection error - ${lastLoadError} | last check ${checkTime}`, detailsLines };
+      return { tone: "error", text: "Archive: connection error", compactDetails, detailsTooltip };
     }
     if (!status.enabled) {
-      return { tone: "warning", text: `Archive status: disabled${status.reason ? ` - ${status.reason}` : ""} | last check ${checkTime}`, detailsLines };
+      return { tone: "warning", text: "Archive: disabled", compactDetails, detailsTooltip };
     }
     if (maintenanceState === "pruning" || maintenanceState === "compacting" || maintenanceState === "cooling_down") {
-      return { tone: "loading", text: `Archive status: ${maintenanceState} | queue ${status.queuedSamples} | last check ${checkTime}`, detailsLines };
+      return { tone: "loading", text: `Archive: ${maintenanceState}`, compactDetails, detailsTooltip };
     }
     if (maintenanceState === "paused") {
-      return { tone: "warning", text: `Archive status: paused | queue ${status.queuedSamples} | last check ${checkTime}`, detailsLines };
+      return { tone: "warning", text: "Archive: paused", compactDetails, detailsTooltip };
     }
     if (maintenanceState === "error") {
-      return { tone: "error", text: `Archive status: error | queue ${status.queuedSamples} | last check ${checkTime}`, detailsLines };
+      return { tone: "error", text: "Archive: error", compactDetails, detailsTooltip };
     }
-    return { tone: "ok", text: `Archive status: ${maintenanceState} | queue ${status.queuedSamples} | last check ${checkTime}`, detailsLines };
+    return { tone: "ok", text: `Archive: ${maintenanceState}`, compactDetails, detailsTooltip };
   }, [
     lastLoadError,
     lastStatusCheckAt,
     loading,
     status.dbSizeMb,
     status.enabled,
+    status.estimatedSamplesCount,
+    status.actualSamplesCount,
     status.lastBatchDurationMs,
+    status.lastDeleteAttemptAt,
+    status.lastPruneError,
+    status.lastPruneReason,
+    status.lastRetentionDeleted,
+    status.lastSizeDeleted,
     status.maxDbSizeMb,
     status.maintenanceRunning,
     status.nextRunAt,
+    status.newestSampleTime,
     status.pauseReason,
     status.queuedSamples,
     status.reason,
     status.recordsCount,
     status.recordsDeletedInLastBatch,
     status.recordsTotal,
+    status.oldestSampleTime,
     status.startThresholdMb,
     status.status,
+    status.statusDetail,
     status.stopThresholdMb,
     status.totalRecordsDeletedThisRun,
     eventArchiveStatus?.dbSizeMb,
@@ -1293,8 +1439,10 @@ export function ArchivePage() {
           variant="primary"
           disabled={archiveDisabled}
           onClick={async () => {
+            appendConsole("info", "manual maintenance started");
             const result = await api.runArchiveMaintenance();
             void message.success(`Deleted samples: ${result.deletedSamples}`);
+            appendConsole("success", `manual maintenance completed: deleted=${result.deletedSamples}`);
             await load();
           }}
         >
@@ -1570,11 +1718,27 @@ export function ArchivePage() {
           <option value={200}>200</option>
           <option value={500}>500</option>
         </select>
-        <div className={`screen-editor-archive-window__status-wrap screen-editor-archive-window__status--${archiveStatusView.tone}`}>
+        <div
+          className={`screen-editor-archive-window__status-wrap screen-editor-archive-window__status--${archiveStatusView.tone}`}
+          title={archiveStatusView.detailsTooltip}
+        >
           <span className="screen-editor-archive-window__status">{archiveStatusView.text}</span>
-          <div className="screen-editor-archive-window__status-lines">
-            {archiveStatusView.detailsLines.map((line, index) => (
-              <span key={`${index}:${line}`} className="screen-editor-archive-window__status-line">{line}</span>
+          <span className="screen-editor-archive-window__status-details">{archiveStatusView.compactDetails}</span>
+        </div>
+      </div>
+
+      <div className="screen-editor-archive-window__console-shell">
+        <div className="screen-editor-macros-window__console-panel">
+          <div className="screen-editor-macros-window__console-header">
+            <span>Console</span>
+            <div className="screen-editor-macros-window__console-actions">
+              <WorkbenchButton icon={<DeleteOutlined />} title="Clear log" onClick={() => setConsoleEntries([])} />
+            </div>
+          </div>
+          <div className="screen-editor-macros-window__console">
+            {consoleEntries.length === 0 ? <div>No logs yet</div> : null}
+            {consoleEntries.map((entry) => (
+              <div key={entry.id}>[{entry.ts}] [{entry.level}] {entry.text}</div>
             ))}
           </div>
         </div>

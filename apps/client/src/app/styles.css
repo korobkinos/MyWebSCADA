@@ -2325,6 +2325,8 @@ body {
   flex-direction: column;
   align-items: flex-end;
   gap: 1px;
+  min-width: 0;
+  max-width: 65%;
 }
 
 .screen-editor-archive-window__status {
@@ -2338,6 +2340,10 @@ body {
   opacity: 0.85;
   font-size: 10px;
   white-space: nowrap;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .screen-editor-archive-window__status-lines {
@@ -2371,6 +2377,14 @@ body {
   color: #7dc3ff;
 }
 
+.screen-editor-archive-window__console-shell {
+  flex: 0 0 132px;
+  min-height: 96px;
+  max-height: 180px;
+  border: 1px solid #2d2d2d;
+  overflow: hidden;
+}
+
 @media (max-height: 760px), (max-width: 1320px) {
   .screen-editor-archive-window .screen-editor-tags-pagination {
     flex-wrap: wrap;
@@ -2382,12 +2396,18 @@ body {
     flex: 1 1 100%;
     margin-left: 0;
     align-items: flex-start;
+    max-width: 100%;
   }
 
   .screen-editor-archive-window .screen-editor-tags-pagination .screen-editor-archive-window__status,
   .screen-editor-archive-window .screen-editor-tags-pagination .screen-editor-archive-window__status-details {
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+
+  .screen-editor-archive-window__console-shell {
+    flex-basis: 96px;
+    max-height: 132px;
   }
 }
 

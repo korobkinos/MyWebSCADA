@@ -165,6 +165,16 @@ export class ArchiveService {
   private maintenanceState: ArchiveMaintenanceState = "idle";
   private maintenancePauseReason: string | null = null;
   private maintenanceErrorMessage: string | null = null;
+  private maintenanceStatusDetail: string | null = null;
+  private maintenanceLastPruneReason: string | null = null;
+  private maintenanceLastPruneError: string | null = null;
+  private maintenanceLastRetentionDeleted = 0;
+  private maintenanceLastSizeDeleted = 0;
+  private maintenanceLastDeleteAttemptAt: number | null = null;
+  private maintenanceEstimatedSamplesCount: number | null = null;
+  private maintenanceActualSamplesCount: number | null = null;
+  private maintenanceOldestSampleTime: string | null = null;
+  private maintenanceNewestSampleTime: string | null = null;
   private maintenanceNextRunAt: number | null = null;
   private maintenanceDbSizeMb: number | null = null;
   private maintenanceRecordsTotal: number | null = null;
@@ -387,6 +397,16 @@ export class ArchiveService {
     recordsTotal: number | null;
     maintenanceRunning: boolean;
     status: ArchiveMaintenanceState;
+    statusDetail?: string;
+    lastPruneReason?: string;
+    lastPruneError?: string;
+    lastRetentionDeleted?: number;
+    lastSizeDeleted?: number;
+    lastDeleteAttemptAt?: string | null;
+    estimatedSamplesCount?: number | null;
+    actualSamplesCount?: number | null;
+    oldestSampleTime?: string | null;
+    newestSampleTime?: string | null;
     recordsDeletedInLastBatch: number;
     totalRecordsDeletedThisRun: number;
     lastBatchDurationMs: number;
@@ -406,6 +426,16 @@ export class ArchiveService {
         recordsTotal: null,
         maintenanceRunning: false,
         status: "idle",
+        statusDetail: undefined,
+        lastPruneReason: undefined,
+        lastPruneError: undefined,
+        lastRetentionDeleted: 0,
+        lastSizeDeleted: 0,
+        lastDeleteAttemptAt: null,
+        estimatedSamplesCount: null,
+        actualSamplesCount: null,
+        oldestSampleTime: null,
+        newestSampleTime: null,
         recordsDeletedInLastBatch: 0,
         totalRecordsDeletedThisRun: 0,
         lastBatchDurationMs: 0,
@@ -417,6 +447,10 @@ export class ArchiveService {
       const stats = await this.repository.getStorageStats();
       this.maintenanceDbSizeMb = stats.dbSizeMb;
       this.maintenanceRecordsTotal = stats.recordsCount;
+      this.maintenanceEstimatedSamplesCount = stats.estimatedSamplesCount;
+      this.maintenanceActualSamplesCount = stats.actualSamplesCount;
+      this.maintenanceOldestSampleTime = stats.oldestSampleTime;
+      this.maintenanceNewestSampleTime = stats.newestSampleTime;
     }
 
     return {
@@ -433,6 +467,16 @@ export class ArchiveService {
       recordsTotal: this.maintenanceRecordsTotal,
       maintenanceRunning: this.maintenanceState === "pruning" || this.maintenanceState === "compacting",
       status: this.maintenanceState,
+      statusDetail: this.maintenanceStatusDetail ?? undefined,
+      lastPruneReason: this.maintenanceLastPruneReason ?? undefined,
+      lastPruneError: this.maintenanceLastPruneError ?? undefined,
+      lastRetentionDeleted: this.maintenanceLastRetentionDeleted,
+      lastSizeDeleted: this.maintenanceLastSizeDeleted,
+      lastDeleteAttemptAt: this.maintenanceLastDeleteAttemptAt ? new Date(this.maintenanceLastDeleteAttemptAt).toISOString() : null,
+      estimatedSamplesCount: this.maintenanceEstimatedSamplesCount,
+      actualSamplesCount: this.maintenanceActualSamplesCount,
+      oldestSampleTime: this.maintenanceOldestSampleTime,
+      newestSampleTime: this.maintenanceNewestSampleTime,
       recordsDeletedInLastBatch: this.recordsDeletedInLastBatch,
       totalRecordsDeletedThisRun: this.totalRecordsDeletedThisRun,
       lastBatchDurationMs: this.lastBatchDurationMs,
@@ -743,6 +787,16 @@ export class ArchiveService {
     }
     this.maintenanceNextRunAt = null;
     this.maintenanceState = "idle";
+    this.maintenanceStatusDetail = null;
+    this.maintenanceLastPruneReason = null;
+    this.maintenanceLastPruneError = null;
+    this.maintenanceLastRetentionDeleted = 0;
+    this.maintenanceLastSizeDeleted = 0;
+    this.maintenanceLastDeleteAttemptAt = null;
+    this.maintenanceEstimatedSamplesCount = null;
+    this.maintenanceActualSamplesCount = null;
+    this.maintenanceOldestSampleTime = null;
+    this.maintenanceNewestSampleTime = null;
     this.eventArchiveMaintenance.status = "idle";
     this.eventArchiveMaintenance.statusDetail = null;
     this.eventArchiveMaintenance.nextRunAt = null;
@@ -888,6 +942,10 @@ export class ArchiveService {
 
     this.maintenanceDbSizeMb = stats.dbSizeMb;
     this.maintenanceRecordsTotal = stats.recordsCount;
+    this.maintenanceEstimatedSamplesCount = stats.estimatedSamplesCount;
+    this.maintenanceActualSamplesCount = stats.actualSamplesCount;
+    this.maintenanceOldestSampleTime = stats.oldestSampleTime;
+    this.maintenanceNewestSampleTime = stats.newestSampleTime;
     this.maintenanceMaxDbSizeMb = normalizedSettings.maxDbSizeMb;
     this.maintenanceStartThresholdMb = thresholds.startThresholdMb;
     this.maintenanceStopThresholdMb = thresholds.stopThresholdMb;
@@ -897,7 +955,13 @@ export class ArchiveService {
       this.recordsDeletedInLastBatch = 0;
       this.totalRecordsDeletedThisRun = 0;
       this.lastBatchDurationMs = 0;
+      this.maintenanceStatusDetail = null;
       this.maintenancePauseReason = null;
+      this.maintenanceLastPruneReason = null;
+      this.maintenanceLastPruneError = null;
+      this.maintenanceLastRetentionDeleted = 0;
+      this.maintenanceLastSizeDeleted = 0;
+      this.maintenanceLastDeleteAttemptAt = null;
       this.maintenanceState = "idle";
       await this.runMessageArchiveMaintenanceTick("event");
       await this.runMessageArchiveMaintenanceTick("operator");
@@ -919,7 +983,12 @@ export class ArchiveService {
     if (!this.pruningActive) {
       this.recordsDeletedInLastBatch = 0;
       this.lastBatchDurationMs = 0;
+      this.maintenanceStatusDetail = null;
       this.maintenancePauseReason = null;
+      this.maintenanceLastPruneError = null;
+      this.maintenanceLastPruneReason = null;
+      this.maintenanceLastRetentionDeleted = 0;
+      this.maintenanceLastSizeDeleted = 0;
       this.maintenanceState = "scheduled";
       await this.runMessageArchiveMaintenanceTick("event");
       await this.runMessageArchiveMaintenanceTick("operator");
@@ -933,6 +1002,7 @@ export class ArchiveService {
     while (Date.now() < deadline) {
       if (this.maintenanceInterruptRequested) {
         this.maintenancePauseReason = "settings_changed";
+        this.maintenanceStatusDetail = null;
         this.maintenanceState = "scheduled";
         break;
       }
@@ -940,39 +1010,128 @@ export class ArchiveService {
       const loadGuard = this.loadGuard(normalizedSettings);
       if (loadGuard.paused) {
         this.maintenancePauseReason = loadGuard.reason ?? "runtime_load_high";
+        this.maintenanceStatusDetail = "waiting_due_to_load_guard";
+        this.maintenanceLastPruneReason = this.maintenancePauseReason;
         this.maintenanceState = "paused";
+        this.logTrendPruningTick({
+          dbSizeMb: currentDbSizeMb,
+          startThresholdMb: startThreshold,
+          stopThresholdMb: stopThreshold,
+          deleteBatchSize: normalizedSettings.deleteBatchSize,
+          maxDeleteTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+          retentionDeleted: 0,
+          sizeDeleted: 0,
+          lastBatchDurationMs: this.lastBatchDurationMs,
+          statusDetail: this.maintenanceStatusDetail,
+        });
         break;
       }
 
       this.maintenancePauseReason = null;
       this.maintenanceState = "pruning";
+      this.maintenanceStatusDetail = null;
+      this.maintenanceLastPruneError = null;
 
       let deletedInBatch = 0;
       let batchDurationMs = 0;
+      let deletedByRetention = 0;
+      let deletedBySize = 0;
 
-      const retentionStart = Date.now();
-      const deletedByRetention = await this.repository.applyRetentionBatch(normalizedSettings.deleteBatchSize);
-      if (deletedByRetention > 0) {
-        deletedInBatch = deletedByRetention;
-        batchDurationMs = Math.max(0, Date.now() - retentionStart);
-      } else {
-        const sizeDeleteResult = await this.repository.deleteOldestSamplesBatch({
-          limit: normalizedSettings.deleteBatchSize,
-          maxTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+      try {
+        this.maintenanceLastDeleteAttemptAt = Date.now();
+        const retentionStart = Date.now();
+        deletedByRetention = await this.repository.applyRetentionBatch(normalizedSettings.deleteBatchSize);
+        if (deletedByRetention > 0) {
+          deletedInBatch = deletedByRetention;
+          batchDurationMs = Math.max(0, Date.now() - retentionStart);
+          this.maintenanceStatusDetail = "pruning_by_retention";
+          this.maintenanceLastPruneReason = "deleted expired samples by retention policy";
+        } else {
+          this.maintenanceStatusDetail = "no_expired_records";
+          const sizeDeleteResult = await this.repository.deleteOldestSamplesBatch({
+            limit: normalizedSettings.deleteBatchSize,
+            maxTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+          });
+          deletedBySize = sizeDeleteResult.deletedRecords;
+          deletedInBatch = sizeDeleteResult.deletedRecords;
+          batchDurationMs = sizeDeleteResult.durationMs;
+
+          if (sizeDeleteResult.diagnostics) {
+            this.maintenanceLastPruneReason = sizeDeleteResult.diagnostics.reason;
+            this.maintenanceEstimatedSamplesCount = sizeDeleteResult.diagnostics.estimatedSamplesCount;
+            this.maintenanceActualSamplesCount = sizeDeleteResult.diagnostics.actualSamplesCount;
+            this.maintenanceOldestSampleTime = sizeDeleteResult.diagnostics.oldestSampleTime;
+            this.maintenanceNewestSampleTime = sizeDeleteResult.diagnostics.newestSampleTime;
+            this.maintenanceLastDeleteAttemptAt = Date.parse(sizeDeleteResult.diagnostics.deleteAttemptAt);
+          }
+
+          if (deletedBySize > 0) {
+            this.maintenanceStatusDetail = "pruning_by_size";
+            this.maintenanceLastPruneReason = "deleted oldest samples due to size threshold";
+          } else {
+            this.maintenanceStatusDetail = "no_deletable_records";
+            this.maintenanceLastPruneReason = this.maintenanceLastPruneReason
+              ?? "size above threshold but DELETE returned 0";
+          }
+        }
+      } catch (error) {
+        this.recordsDeletedInLastBatch = 0;
+        this.lastBatchDurationMs = 0;
+        this.maintenanceLastRetentionDeleted = deletedByRetention;
+        this.maintenanceLastSizeDeleted = deletedBySize;
+        this.maintenanceLastPruneError = this.errorText(error);
+        this.maintenanceStatusDetail = this.isStatementTimeoutError(error) ? "delete_timed_out" : "delete_failed";
+        this.maintenanceLastPruneReason = this.maintenanceStatusDetail === "delete_timed_out"
+          ? `size pruning timed out after ${normalizedSettings.maxDeleteTransactionMs} ms`
+          : "size pruning delete failed";
+        this.pruningActive = false;
+        this.maintenanceState = this.maintenanceStatusDetail === "delete_timed_out" ? "paused" : "error";
+        this.logTrendPruningTick({
+          dbSizeMb: currentDbSizeMb,
+          startThresholdMb: startThreshold,
+          stopThresholdMb: stopThreshold,
+          deleteBatchSize: normalizedSettings.deleteBatchSize,
+          maxDeleteTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+          retentionDeleted: deletedByRetention,
+          sizeDeleted: deletedBySize,
+          lastBatchDurationMs: this.lastBatchDurationMs,
+          statusDetail: this.maintenanceStatusDetail,
         });
-        deletedInBatch = sizeDeleteResult.deletedRecords;
-        batchDurationMs = sizeDeleteResult.durationMs;
+        if (this.maintenanceStatusDetail === "delete_failed") {
+          this.logger.error(`Trend archive size pruning failed: ${this.maintenanceLastPruneError}`);
+        } else {
+          this.logger.warn(`Trend archive size pruning timed out: ${this.maintenanceLastPruneError}`);
+        }
+        break;
       }
 
       this.recordsDeletedInLastBatch = deletedInBatch;
       this.lastBatchDurationMs = batchDurationMs;
+      this.maintenanceLastRetentionDeleted = deletedByRetention;
+      this.maintenanceLastSizeDeleted = deletedBySize;
       totalDeletedInTick += deletedInBatch;
       this.totalRecordsDeletedThisRun += deletedInBatch;
 
-      const refreshedStats = await this.repository.getStorageStats();
+      const refreshedStats = await this.repository.getStorageStats({ includeActualCount: true });
       this.maintenanceDbSizeMb = refreshedStats.dbSizeMb;
       this.maintenanceRecordsTotal = refreshedStats.recordsCount;
+      this.maintenanceEstimatedSamplesCount = refreshedStats.estimatedSamplesCount;
+      this.maintenanceActualSamplesCount = refreshedStats.actualSamplesCount;
+      this.maintenanceOldestSampleTime = refreshedStats.oldestSampleTime;
+      this.maintenanceNewestSampleTime = refreshedStats.newestSampleTime;
       currentDbSizeMb = refreshedStats.dbSizeMb;
+
+      this.logTrendPruningTick({
+        dbSizeMb: currentDbSizeMb,
+        startThresholdMb: startThreshold,
+        stopThresholdMb: stopThreshold,
+        deleteBatchSize: normalizedSettings.deleteBatchSize,
+        maxDeleteTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+        retentionDeleted: deletedByRetention,
+        sizeDeleted: deletedBySize,
+        lastBatchDurationMs: batchDurationMs,
+        statusDetail: this.maintenanceStatusDetail,
+      });
 
       if (stopThreshold !== null && currentDbSizeMb < stopThreshold) {
         this.pruningActive = false;
@@ -982,7 +1141,9 @@ export class ArchiveService {
 
       if (deletedInBatch === 0) {
         this.pruningActive = false;
-        this.maintenanceState = "scheduled";
+        this.maintenanceState = "paused";
+        this.maintenanceStatusDetail = "no_deletable_records";
+        this.maintenanceLastPruneReason = this.maintenanceLastPruneReason ?? "size above threshold but DELETE returned 0";
         break;
       }
 
@@ -999,6 +1160,13 @@ export class ArchiveService {
     }
     if (this.pruningActive && stopThreshold !== null && currentDbSizeMb < stopThreshold) {
       this.pruningActive = false;
+    }
+    if (this.maintenanceState !== "pruning"
+      && this.maintenanceState !== "cooling_down"
+      && this.maintenanceState !== "paused"
+      && this.maintenanceState !== "error"
+      && this.recordsDeletedInLastBatch === 0) {
+      this.maintenanceStatusDetail = null;
     }
 
     await this.runMessageArchiveMaintenanceTick("event");
@@ -1302,6 +1470,45 @@ export class ArchiveService {
       ),
       maxDeleteTransactionMs,
     };
+  }
+
+  private logTrendPruningTick(input: {
+    dbSizeMb: number;
+    startThresholdMb: number | null;
+    stopThresholdMb: number | null;
+    deleteBatchSize: number;
+    maxDeleteTransactionMs: number;
+    retentionDeleted: number;
+    sizeDeleted: number;
+    lastBatchDurationMs: number;
+    statusDetail: string | null;
+  }): void {
+    this.logger.info(`trend:pruning-tick ${JSON.stringify({
+      dbSizeMb: input.dbSizeMb,
+      startThresholdMb: input.startThresholdMb,
+      stopThresholdMb: input.stopThresholdMb,
+      deleteBatchSize: input.deleteBatchSize,
+      maxDeleteTransactionMs: input.maxDeleteTransactionMs,
+      retentionDeleted: input.retentionDeleted,
+      sizeDeleted: input.sizeDeleted,
+      lastBatchDurationMs: input.lastBatchDurationMs,
+      statusDetail: input.statusDetail,
+      oldestSampleTime: this.maintenanceOldestSampleTime,
+      newestSampleTime: this.maintenanceNewestSampleTime,
+      actualSamplesCount: this.maintenanceActualSamplesCount,
+      estimatedSamplesCount: this.maintenanceEstimatedSamplesCount,
+    })}`);
+  }
+
+  private isStatementTimeoutError(error: unknown): boolean {
+    if (typeof error === "object" && error !== null && "code" in error) {
+      const code = (error as { code?: unknown }).code;
+      if (code === "57014") {
+        return true;
+      }
+    }
+    const message = this.errorText(error).toLowerCase();
+    return message.includes("statement timeout") || message.includes("canceling statement");
   }
 
   private pauseBetweenBatchesMs(intervalMs: number): number {

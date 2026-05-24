@@ -120,6 +120,16 @@ export type ArchiveStatus = {
   recordsTotal?: number | null;
   maintenanceRunning?: boolean;
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
+  statusDetail?: string;
+  lastPruneReason?: string;
+  lastPruneError?: string;
+  lastRetentionDeleted?: number;
+  lastSizeDeleted?: number;
+  lastDeleteAttemptAt?: string | null;
+  actualSamplesCount?: number | null;
+  estimatedSamplesCount?: number | null;
+  oldestSampleTime?: string | null;
+  newestSampleTime?: string | null;
   recordsDeletedInLastBatch?: number;
   totalRecordsDeletedThisRun?: number;
   lastBatchDurationMs?: number;

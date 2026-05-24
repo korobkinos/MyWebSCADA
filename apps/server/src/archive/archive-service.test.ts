@@ -155,8 +155,62 @@ describe("ArchiveService soft maintenance behavior", () => {
     expect(deleteLimits).toEqual([321]);
     expect(status.recordsDeletedInLastBatch).toBe(321);
     expect(status.totalRecordsDeletedThisRun).toBe(321);
+    expect(status.statusDetail).toBe("pruning_by_size");
+    expect(status.lastSizeDeleted).toBe(321);
     expect(status.startThresholdMb).toBe(1100);
     expect(status.stopThresholdMb).toBe(950);
+  });
+
+  it("marks trend maintenance as no_deletable_records when size pruning deletes zero rows", async () => {
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 1000 }),
+      getStorageStats: async () => ({ dbSizeMb: 1300, recordsCount: 5000 }),
+      deleteOldestSamplesBatch: async () => ({
+        deletedRecords: 0,
+        durationMs: 7,
+        diagnostics: {
+          deleteAttemptAt: "2026-05-24T10:00:00.000Z",
+          reason: "size above threshold but DELETE returned 0 despite available candidates",
+          actualSamplesCount: 5_000,
+          estimatedSamplesCount: 4_900,
+          oldestSampleTime: "2026-01-01T00:00:00.000Z",
+          newestSampleTime: "2026-05-24T09:59:59.000Z",
+          candidateRows: 500,
+          oldestCandidateTime: "2026-01-01T00:00:00.000Z",
+          newestCandidateTime: "2026-01-02T00:00:00.000Z",
+          isHypertable: true,
+          hypertableChunks: 42,
+        },
+      }),
+    });
+
+    await service.runMaintenance();
+    const status = await service.getStatus();
+
+    expect(status.status).toBe("paused");
+    expect(status.statusDetail).toBe("no_deletable_records");
+    expect(status.recordsDeletedInLastBatch).toBe(0);
+    expect(status.lastBatchDurationMs).toBe(7);
+    expect(status.lastPruneReason).toContain("DELETE returned 0");
+    expect(status.status).not.toBe("pruning");
+  });
+
+  it("reports delete_timed_out when trend size delete hits statement timeout", async () => {
+    const timeoutError = Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 1000, maxDeleteTransactionMs: 50 }),
+      getStorageStats: async () => ({ dbSizeMb: 1300, recordsCount: 5000 }),
+      deleteOldestSamplesBatch: async () => {
+        throw timeoutError;
+      },
+    });
+
+    await service.runMaintenance();
+    const status = await service.getStatus();
+
+    expect(status.status).toBe("paused");
+    expect(status.statusDetail).toBe("delete_timed_out");
+    expect(status.lastPruneError).toContain("statement timeout");
   });
 
   it("pauses trend maintenance when trend load is active", async () => {
@@ -171,6 +225,7 @@ describe("ArchiveService soft maintenance behavior", () => {
     const status = await service.getStatus();
 
     expect(status.status).toBe("paused");
+    expect(status.statusDetail).toBe("waiting_due_to_load_guard");
     expect(status.pauseReason).toContain("trend_queries_active");
   });
 

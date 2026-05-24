@@ -85,6 +85,48 @@ class TrendQueryFakePool {
   }
 }
 
+class ZeroDeleteDiagnosticsPool {
+  public async query(_sql: string, _params?: unknown[]): Promise<QueryResult> {
+    return { rows: [] };
+  }
+
+  public async connect(): Promise<{
+    query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
+    release: () => void;
+  }> {
+    return {
+      query: async (sql: string, _params?: unknown[]) => {
+        if (sql.includes("SELECT COUNT(*)::bigint FROM archive_samples")) {
+          return {
+            rows: [{
+              actual_count: "26",
+              estimated_count: "30",
+              oldest_sample_time: new Date("2026-01-01T00:00:00.000Z"),
+              newest_sample_time: new Date("2026-05-24T00:00:00.000Z"),
+              is_hypertable: true,
+              hypertable_chunks: "7",
+            }],
+          };
+        }
+        if (sql.includes("FROM oldest") && sql.includes("candidate_rows")) {
+          return {
+            rows: [{
+              candidate_rows: "10",
+              oldest_candidate_time: new Date("2026-01-01T00:00:00.000Z"),
+              newest_candidate_time: new Date("2026-01-02T00:00:00.000Z"),
+            }],
+          };
+        }
+        if (sql.includes("DELETE FROM archive_samples")) {
+          return { rowCount: 0, rows: [] };
+        }
+        return { rows: [] };
+      },
+      release: () => undefined,
+    };
+  }
+}
+
 describe("ArchiveRepository.enforceRuntimeLimits", () => {
   it("deletes old samples in a limited transaction without running vacuum", async () => {
     const repository = new ArchiveRepository(
@@ -106,6 +148,32 @@ describe("ArchiveRepository.enforceRuntimeLimits", () => {
     expect(result.deletedBySize).toBeGreaterThan(0);
     expect(pool.calls.some((call) => call.includes("VACUUM"))).toBe(false);
     expect(pool.calls.some((call) => call.includes("DELETE FROM archive_samples"))).toBe(true);
+  });
+});
+
+describe("ArchiveRepository.deleteOldestSamplesBatch", () => {
+  it("returns diagnostics when delete returns zero rows", async () => {
+    const repository = new ArchiveRepository(
+      { connectionString: "postgres://unused" },
+      {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    );
+    const pool = new ZeroDeleteDiagnosticsPool();
+    (repository as unknown as { pool: ZeroDeleteDiagnosticsPool }).pool = pool;
+
+    const result = await repository.deleteOldestSamplesBatch({
+      limit: 10,
+      maxTransactionMs: 150,
+    });
+
+    expect(result.deletedRecords).toBe(0);
+    expect(result.diagnostics?.reason).toContain("DELETE returned 0");
+    expect(result.diagnostics?.actualSamplesCount).toBe(26);
+    expect(result.diagnostics?.estimatedSamplesCount).toBe(30);
+    expect(result.diagnostics?.isHypertable).toBe(true);
   });
 });
 
