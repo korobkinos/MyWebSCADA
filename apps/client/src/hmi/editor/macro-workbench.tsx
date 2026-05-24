@@ -766,6 +766,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
                   value={selectedMacro.code ?? ""}
                   onChange={(value) => mutateMacro({ code: value })}
                   height="100%"
+                  enableMacroCompletions
                 />
               </div>
 
