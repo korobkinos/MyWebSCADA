@@ -880,6 +880,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         total: 0,
         loading: false,
         error: null,
+        updatedAt: null,
       }));
       return;
     }
@@ -892,7 +893,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       operatorActionRequestSeqRef.current = requestSeq;
       setOperatorActionHistory((previous) => ({
         ...previous,
-        loading: true,
+        loading: mode === "history" || previous.updatedAt === null,
         error: null,
       }));
 
