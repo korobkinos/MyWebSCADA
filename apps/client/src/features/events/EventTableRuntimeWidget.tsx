@@ -88,9 +88,57 @@ type EventTableRow = EventTableEventRow | EventTableOperatorActionRow;
 const OPERATOR_ACTION_CATEGORY_LABEL = "Действие оператора";
 const OPERATOR_ACTION_ONLINE_WINDOW_MS = 5 * 60 * 1000;
 const OPERATOR_ACTION_ONLINE_POLL_MS = 3000;
+const AUTO_COLUMN_MIN_WIDTH: Record<EventTableColumnId, number> = {
+  timestamp: 160,
+  priority: 90,
+  category: 130,
+  message: 220,
+  source: 150,
+  value: 90,
+  state: 90,
+  ack: 60,
+};
+const AUTO_COLUMN_MAX_WIDTH: Record<EventTableColumnId, number> = {
+  timestamp: 280,
+  priority: 220,
+  category: 320,
+  message: 1200,
+  source: 600,
+  value: 240,
+  state: 240,
+  ack: 120,
+};
+
+let textMeasureContext: CanvasRenderingContext2D | null | undefined;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function getTextMeasureContext(): CanvasRenderingContext2D | null {
+  if (textMeasureContext !== undefined) {
+    return textMeasureContext;
+  }
+  if (typeof document === "undefined") {
+    textMeasureContext = null;
+    return textMeasureContext;
+  }
+  const canvas = document.createElement("canvas");
+  textMeasureContext = canvas.getContext("2d");
+  return textMeasureContext;
+}
+
+function measureTextWidthPx(text: string, fontSizePx: number, fontWeight: 400 | 600): number {
+  const normalizedText = String(text ?? "");
+  if (!normalizedText) {
+    return 0;
+  }
+  const context = getTextMeasureContext();
+  if (!context) {
+    return Math.round(normalizedText.length * fontSizePx * 0.58);
+  }
+  context.font = `${fontWeight} ${fontSizePx}px "Segoe UI", Tahoma, sans-serif`;
+  return Math.ceil(context.measureText(normalizedText).width);
 }
 
 function toFiniteNumber(value: unknown, fallback: number): number {
@@ -1490,14 +1538,50 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     ...runtimeColumnWidths,
   }), [object.columnWidths, runtimeColumnWidths]);
 
+  const autoColumnWidths = useMemo(() => {
+    const calculated: Record<string, number> = {};
+    const headerFontSize = Math.max(9, fontSize - 1);
+    const cellFontSize = Math.max(9, fontSize - 1);
+    const horizontalPadding = Math.max(6, config.cellPadding * 2);
+
+    for (const column of columns) {
+      const headerText = object.columnLabels?.[column]?.trim() || DEFAULT_EVENT_TABLE_COLUMN_LABELS[column] || column;
+      let maxTextWidth = measureTextWidthPx(headerText, headerFontSize, 600);
+
+      for (const row of visibleRows) {
+        const cellText = getRowCellText(column, row);
+        const width = measureTextWidthPx(cellText, cellFontSize, 400);
+        if (width > maxTextWidth) {
+          maxTextWidth = width;
+        }
+      }
+
+      const targetWidth = maxTextWidth + horizontalPadding + 14;
+      calculated[column] = clamp(
+        Math.round(targetWidth),
+        AUTO_COLUMN_MIN_WIDTH[column],
+        AUTO_COLUMN_MAX_WIDTH[column],
+      );
+    }
+
+    return calculated;
+  }, [columns, config.cellPadding, fontSize, object.columnLabels, visibleRows]);
+
   const gridTemplateColumns = useMemo(
     () => columns
       .map((column) => {
-        const width = Number(effectiveColumnWidths[column]);
-        return Number.isFinite(width) && width > 32 ? `${width}px` : "minmax(80px, 1fr)";
+        const manualWidth = Number(effectiveColumnWidths[column]);
+        if (Number.isFinite(manualWidth) && manualWidth > 32) {
+          return `${manualWidth}px`;
+        }
+        const autoWidth = Number(autoColumnWidths[column]);
+        if (Number.isFinite(autoWidth) && autoWidth > 32) {
+          return `${autoWidth}px`;
+        }
+        return "minmax(80px, 1fr)";
       })
       .join(" "),
-    [columns, effectiveColumnWidths],
+    [autoColumnWidths, columns, effectiveColumnWidths],
   );
 
   const hasSoundNote = (soundSilenced ? "Sound is silenced." : "")

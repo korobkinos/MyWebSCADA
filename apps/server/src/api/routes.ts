@@ -123,12 +123,16 @@ const commandMetaSchema = z.object({
   createdAt: z.number().int(),
   ttlMs: z.number().int().positive(),
 });
+const optionalTrimmedStringSchema = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().trim().min(1).optional(),
+);
 const operatorActionContextSchema = z.object({
-  screenId: z.string().min(1).optional(),
-  screenName: z.string().min(1).optional(),
+  screenId: optionalTrimmedStringSchema,
+  screenName: optionalTrimmedStringSchema,
   objectId: z.string().min(1),
-  objectName: z.string().min(1).optional(),
-  objectDescription: z.string().min(1).optional(),
+  objectName: optionalTrimmedStringSchema,
+  objectDescription: optionalTrimmedStringSchema,
   objectType: z.string().min(1),
   actionKind: z.enum([
     "write",
@@ -144,9 +148,9 @@ const operatorActionContextSchema = z.object({
     "screen",
   ]),
   targetType: z.enum(["tag", "variable", "lw", "macro", "screen", "unknown"]).optional(),
-  targetName: z.string().min(1).optional(),
-  unit: z.string().min(1).optional(),
-  messageTemplate: z.string().min(1).optional(),
+  targetName: optionalTrimmedStringSchema,
+  unit: optionalTrimmedStringSchema,
+  messageTemplate: optionalTrimmedStringSchema,
   clientOldValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
   requestedValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
   details: z.record(z.unknown()).optional(),
