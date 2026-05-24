@@ -235,6 +235,7 @@ describe("ArchiveService soft maintenance behavior", () => {
     expect(
       eventStatus.statusDetail === "pruning_by_age" || eventStatus.statusDetail === undefined,
     ).toBe(true);
+    expect(eventStatus.pauseReason).toBeUndefined();
   });
 
   it("event bySize does not start below hysteresis threshold", async () => {
@@ -391,5 +392,6 @@ describe("ArchiveService soft maintenance behavior", () => {
     expect(["pruning", "cooling_down", "scheduled"]).toContain(operatorStatus.status);
     expect(operatorStatus.startThresholdMb).toBe(1100);
     expect(operatorStatus.stopThresholdMb).toBe(950);
+    expect(operatorStatus.pauseReason).toBeUndefined();
   });
 });

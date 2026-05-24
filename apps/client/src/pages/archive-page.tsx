@@ -1740,6 +1740,7 @@ export function ArchivePage() {
             <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(eventArchiveStatus?.totalRecordsDeletedThisRun)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof eventArchiveStatus?.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(eventArchiveStatus.lastBatchDurationMs))} ms` : "-"}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(eventArchiveStatus?.nextRunAt)}</strong></div>
+            {eventArchiveStatus?.statusDetail ? <div className="screen-editor-tag-editor__hint">Maintenance detail: {eventArchiveStatus.statusDetail}</div> : null}
             {eventArchiveStatus?.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {eventArchiveStatus.pauseReason}</div> : null}
             <div className="screen-editor-tag-editor__hint">Manual optimize runs safe ANALYZE only (no VACUUM FULL in runtime maintenance).</div>
           </div>
@@ -1785,6 +1786,7 @@ export function ArchivePage() {
             <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(operatorArchiveStatus?.totalRecordsDeletedThisRun)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof operatorArchiveStatus?.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(operatorArchiveStatus.lastBatchDurationMs))} ms` : "-"}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(operatorArchiveStatus?.nextRunAt)}</strong></div>
+            {operatorArchiveStatus?.statusDetail ? <div className="screen-editor-tag-editor__hint">Maintenance detail: {operatorArchiveStatus.statusDetail}</div> : null}
             {operatorArchiveStatus?.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {operatorArchiveStatus.pauseReason}</div> : null}
           </div>
 

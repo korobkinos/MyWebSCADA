@@ -1178,7 +1178,6 @@ export class ArchiveService {
       state.totalRecordsDeletedThisRun += batchResult.deletedRecords;
       deletedTotal += batchResult.deletedRecords;
       state.statusDetail = workReason;
-      state.pauseReason = workReason;
 
       const refreshedStatus = kind === "event"
         ? await this.repository.getEventArchiveStatus()
