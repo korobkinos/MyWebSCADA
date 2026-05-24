@@ -2294,6 +2294,10 @@ body {
   line-height: 1.35;
 }
 
+.screen-editor-window-content.screen-editor-archive-window {
+  overflow-x: hidden;
+}
+
 .screen-editor-archive-window__workspace {
   flex: 1 1 auto;
   min-width: 0;
@@ -2350,6 +2354,26 @@ body {
 
 .screen-editor-archive-window__status--loading {
   color: #7dc3ff;
+}
+
+@media (max-height: 760px), (max-width: 1320px) {
+  .screen-editor-archive-window .screen-editor-tags-pagination {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 4px;
+  }
+
+  .screen-editor-archive-window .screen-editor-tags-pagination .screen-editor-archive-window__status-wrap {
+    flex: 1 1 100%;
+    margin-left: 0;
+    align-items: flex-start;
+  }
+
+  .screen-editor-archive-window .screen-editor-tags-pagination .screen-editor-archive-window__status,
+  .screen-editor-archive-window .screen-editor-tags-pagination .screen-editor-archive-window__status-details {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .screen-editor-archive-window .ant-card {
