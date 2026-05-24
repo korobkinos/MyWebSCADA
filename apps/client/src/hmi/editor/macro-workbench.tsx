@@ -107,6 +107,25 @@ function uniqueCategories(items: MacroApiDocItem[]): string[] {
   return [...new Set(items.map((item) => item.category))];
 }
 
+function safetyTagColor(safety: MacroApiDocItem["safety"]): string {
+  if (safety === "read") {
+    return "blue";
+  }
+  if (safety === "write") {
+    return "red";
+  }
+  if (safety === "ui") {
+    return "gold";
+  }
+  if (safety === "navigation") {
+    return "purple";
+  }
+  if (safety === "debug") {
+    return "geekblue";
+  }
+  return "default";
+}
+
 function formatTrigger(trigger: MacroTrigger): string {
   if (trigger.type === "onScreenOpen") {
     return `onScreenOpen: ${trigger.screenKey}`;
@@ -532,15 +551,83 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
           />
         ) : null}
 
-        {helpCategory !== "Quick Start" && helpCategory !== "События запуска макросов" && helpCategory !== "Примеры макросов" ? (
+        {helpCategory === "Ошибки и отладка" ? (
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <Typography.Text>1. Запускайте `Check Syntax` перед `Run Test`.</Typography.Text>
+            <Typography.Text>2. Используйте `log(...)` для текущих значений и аргументов.</Typography.Text>
+            <Typography.Text>3. Используйте `warn(...)` для плохого качества/ожиданий.</Typography.Text>
+            <Typography.Text>4. Используйте `error(...)` для критичных отказов логики.</Typography.Text>
+            <Divider style={{ margin: "8px 0" }} />
+            <List
+              size="small"
+              dataSource={macroApiDocumentation.filter((item) => item.category === "Логи/Отладка")}
+              renderItem={(item) => (
+                <List.Item actions={[<Button size="small" onClick={() => insertCode(`${item.name}()`)}>Insert</Button>]}>
+                  <Space direction="vertical" style={{ width: "100%" }}>
+                    <Space size={6} wrap>
+                      <Typography.Text strong>{item.signature}</Typography.Text>
+                      {item.safety ? <Tag color={safetyTagColor(item.safety)}>{item.safety}</Tag> : null}
+                    </Space>
+                    <Typography.Text type="secondary">{item.description}</Typography.Text>
+                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{item.example}</pre>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Space>
+        ) : null}
+
+        {helpCategory !== "Quick Start"
+          && helpCategory !== "События запуска макросов"
+          && helpCategory !== "Примеры макросов"
+          && helpCategory !== "Ошибки и отладка" ? (
           <List
             size="small"
             dataSource={macroApiDocumentation.filter((item) => item.category === helpCategory)}
             renderItem={(item) => (
               <List.Item actions={[<Button size="small" onClick={() => insertCode(`${item.name}()`)}>Insert</Button>]}>
                 <Space direction="vertical" style={{ width: "100%" }}>
-                  <Typography.Text strong>{item.signature}</Typography.Text>
+                  <Space size={6} wrap>
+                    <Typography.Text strong>{item.signature}</Typography.Text>
+                    {item.async ? <Tag color="processing">async</Tag> : null}
+                    {item.safety ? <Tag color={safetyTagColor(item.safety)}>{item.safety}</Tag> : null}
+                  </Space>
                   <Typography.Text type="secondary">{item.description}</Typography.Text>
+                  {item.params?.length ? (
+                    <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                      <Typography.Text strong>Параметры</Typography.Text>
+                      <List
+                        size="small"
+                        split={false}
+                        dataSource={item.params}
+                        renderItem={(param) => (
+                          <List.Item style={{ padding: "2px 0" }}>
+                            <Space direction="vertical" size={0} style={{ width: "100%" }}>
+                              <Space size={6} wrap>
+                                <Typography.Text code>{param.name}</Typography.Text>
+                                <Tag>{param.type}</Tag>
+                                {param.required ? <Tag color="green">required</Tag> : <Tag>optional</Tag>}
+                              </Space>
+                              <Typography.Text type="secondary">{param.description}</Typography.Text>
+                            </Space>
+                          </List.Item>
+                        )}
+                      />
+                    </Space>
+                  ) : null}
+                  {item.returns ? (
+                    <Typography.Text>
+                      <Typography.Text strong>Returns:</Typography.Text> {item.returns}
+                    </Typography.Text>
+                  ) : null}
+                  {item.related?.length ? (
+                    <Space size={4} wrap>
+                      <Typography.Text strong>Related:</Typography.Text>
+                      {item.related.map((fnName) => (
+                        <Tag key={`${item.name}_${fnName}`}>{fnName}</Tag>
+                      ))}
+                    </Space>
+                  ) : null}
                   <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{item.example}</pre>
                 </Space>
               </List.Item>
@@ -763,7 +850,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
             items={[
               {
                 key: "functions",
-                label: "Functions",
+                label: "API",
                 children: (
                   <List
                     size="small"

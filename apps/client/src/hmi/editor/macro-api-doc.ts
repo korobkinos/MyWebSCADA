@@ -4,6 +4,16 @@ export type MacroApiDocItem = {
   signature: string;
   description: string;
   example: string;
+  params?: Array<{
+    name: string;
+    type: string;
+    required?: boolean;
+    description: string;
+  }>;
+  returns?: string;
+  async?: boolean;
+  safety?: "read" | "write" | "ui" | "navigation" | "debug" | "utility";
+  related?: string[];
 };
 
 export type MacroExample = {
@@ -19,6 +29,17 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Теги",
     signature: "readTag(tagName: string): unknown",
     description: "Читает текущее значение тега.",
+    params: [
+      {
+        name: "tagName",
+        type: "string",
+        required: true,
+        description: "Полное имя тега (или относительное имя после resolveTag).",
+      },
+    ],
+    returns: "Текущее значение тега или null, если значение недоступно.",
+    safety: "read",
+    related: ["resolveTag", "writeTag", "pulseTag", "toggleTag", "getTagQuality"],
     example: "const pressure = readTag(\"Boiler.Pressure\");",
   },
   {
@@ -26,6 +47,24 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Теги",
     signature: "writeTag(tagName: string, value: unknown): Promise<void>",
     description: "Записывает значение в тег.",
+    params: [
+      {
+        name: "tagName",
+        type: "string",
+        required: true,
+        description: "Имя командного/целевого тега.",
+      },
+      {
+        name: "value",
+        type: "unknown",
+        required: true,
+        description: "Значение для записи (обычно BOOL/число/строка).",
+      },
+    ],
+    returns: "Promise<void>",
+    async: true,
+    safety: "write",
+    related: ["readTag", "pulseTag", "toggleTag"],
     example: "await writeTag(\"Burner_1.StartCmd\", true);",
   },
   {
@@ -33,6 +72,35 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Теги",
     signature: "pulseTag(tagName: string, value: unknown, durationMs: number, resetValue?: unknown): Promise<void>",
     description: "Импульсная запись с авто-сбросом.",
+    params: [
+      {
+        name: "tagName",
+        type: "string",
+        required: true,
+        description: "Имя командного тега.",
+      },
+      {
+        name: "value",
+        type: "unknown",
+        required: true,
+        description: "Значение на время импульса.",
+      },
+      {
+        name: "durationMs",
+        type: "number",
+        required: true,
+        description: "Длительность импульса в миллисекундах.",
+      },
+      {
+        name: "resetValue",
+        type: "unknown",
+        description: "Значение после сброса. По умолчанию false.",
+      },
+    ],
+    returns: "Promise<void>",
+    async: true,
+    safety: "write",
+    related: ["writeTag", "toggleTag"],
     example: "await pulseTag(\"Burner_1.StartCmd\", true, 500, false);",
   },
   {
@@ -40,6 +108,18 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Теги",
     signature: "toggleTag(tagName: string): Promise<void>",
     description: "Переключает BOOL-тег.",
+    params: [
+      {
+        name: "tagName",
+        type: "string",
+        required: true,
+        description: "Имя BOOL-тега.",
+      },
+    ],
+    returns: "Promise<void>",
+    async: true,
+    safety: "write",
+    related: ["readTag", "writeTag", "pulseTag"],
     example: "await toggleTag(\"Pump_1.Enable\");",
   },
   {
@@ -61,6 +141,17 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "LW/Vars",
     signature: "getLW(address: number): unknown",
     description: "Читает LW-регистр.",
+    params: [
+      {
+        name: "address",
+        type: "number",
+        required: true,
+        description: "Номер LW-адреса (например 10, 100, 9200).",
+      },
+    ],
+    returns: "Значение LW или null, если переменная не инициализирована.",
+    safety: "read",
+    related: ["setLW", "getVar", "setVar"],
     example: "const selected = getLW(10);",
   },
   {
@@ -68,6 +159,23 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "LW/Vars",
     signature: "setLW(address: number, value: unknown): void",
     description: "Записывает LW-регистр.",
+    params: [
+      {
+        name: "address",
+        type: "number",
+        required: true,
+        description: "Номер LW-адреса.",
+      },
+      {
+        name: "value",
+        type: "unknown",
+        required: true,
+        description: "Новое значение.",
+      },
+    ],
+    returns: "void",
+    safety: "write",
+    related: ["getLW", "setVar"],
     example: "setLW(9200, 123);",
   },
   {
@@ -75,6 +183,17 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "LW/Vars",
     signature: "getVar(name: string): unknown",
     description: "Читает внутреннюю переменную.",
+    params: [
+      {
+        name: "name",
+        type: "string",
+        required: true,
+        description: "Имя переменной проекта.",
+      },
+    ],
+    returns: "Значение переменной или null.",
+    safety: "read",
+    related: ["setVar", "readVariable", "writeVariable"],
     example: "const mode = getVar(\"Mode\");",
   },
   {
@@ -82,6 +201,23 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "LW/Vars",
     signature: "setVar(name: string, value: unknown): void",
     description: "Записывает внутреннюю переменную.",
+    params: [
+      {
+        name: "name",
+        type: "string",
+        required: true,
+        description: "Имя переменной проекта.",
+      },
+      {
+        name: "value",
+        type: "unknown",
+        required: true,
+        description: "Новое значение.",
+      },
+    ],
+    returns: "void",
+    safety: "write",
+    related: ["getVar", "readVariable", "writeVariable"],
     example: "setVar(\"SelectedValveName\", \"ПЗК-1\");",
   },
   {
@@ -103,6 +239,17 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Экраны/Popup",
     signature: "openScreen(screenId: string): void",
     description: "Открывает обычный экран.",
+    params: [
+      {
+        name: "screenId",
+        type: "string",
+        required: true,
+        description: "ID экрана типа screen.",
+      },
+    ],
+    returns: "void",
+    safety: "navigation",
+    related: ["openPopup", "closePopup"],
     example: "openScreen(\"main_screen\");",
   },
   {
@@ -110,6 +257,22 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Экраны/Popup",
     signature: "openPopup(popupScreenId: string, options?: { title?: string; x?: number; y?: number; tagPrefix?: string; args?: Record<string, unknown> }): void",
     description: "Открывает popup и передаёт context.",
+    params: [
+      {
+        name: "popupScreenId",
+        type: "string",
+        required: true,
+        description: "ID экрана типа popup.",
+      },
+      {
+        name: "options",
+        type: "{ title?: string; x?: number; y?: number; tagPrefix?: string; args?: Record<string, unknown> }",
+        description: "Параметры окна и runtime-контекст (tagPrefix/args).",
+      },
+    ],
+    returns: "void",
+    safety: "navigation",
+    related: ["closePopup", "openScreen", "resolveTag"],
     example: "openPopup(\"Popup_ValveControl\", { title: \"Управление\", tagPrefix: \"VALVES.PZK_1\", args: { valveName: \"ПЗК-1\" } });",
   },
   {
@@ -117,6 +280,16 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Экраны/Popup",
     signature: "closePopup(popupInstanceId?: string): void",
     description: "Закрывает popup по id или верхний активный.",
+    params: [
+      {
+        name: "popupInstanceId",
+        type: "string",
+        description: "ID экземпляра popup. Если не задан, закроется верхний активный.",
+      },
+    ],
+    returns: "void",
+    safety: "navigation",
+    related: ["openPopup", "openScreen"],
     example: "closePopup();",
   },
   {
@@ -138,6 +311,22 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Контекст/Bindings",
     signature: "resolveTag(relativeOrAbsoluteTag: string, tagPrefix?: string): string",
     description: "Разворачивает относительный тег `.Name` в полный.",
+    params: [
+      {
+        name: "relativeOrAbsoluteTag",
+        type: "string",
+        required: true,
+        description: "Относительный `.Name` или уже абсолютный тег.",
+      },
+      {
+        name: "tagPrefix",
+        type: "string",
+        description: "Префикс для относительных тегов. Если не задан, берётся из текущего контекста.",
+      },
+    ],
+    returns: "Полное имя тега.",
+    safety: "utility",
+    related: ["getCurrentTagPrefix", "getContext", "readTag"],
     example: "const openedTag = resolveTag(\".Opened\", getCurrentTagPrefix());",
   },
   {
@@ -145,6 +334,17 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Логи/Отладка",
     signature: "log(...items: unknown[]): void",
     description: "Инфо-лог макроса.",
+    params: [
+      {
+        name: "items",
+        type: "unknown[]",
+        required: true,
+        description: "Любые значения для записи в лог.",
+      },
+    ],
+    returns: "void",
+    safety: "debug",
+    related: ["warn", "error"],
     example: "log(\"macro started\", args);",
   },
   {
@@ -152,6 +352,17 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Логи/Отладка",
     signature: "warn(...items: unknown[]): void",
     description: "Warning-лог макроса.",
+    params: [
+      {
+        name: "items",
+        type: "unknown[]",
+        required: true,
+        description: "Любые значения для warning-сообщения.",
+      },
+    ],
+    returns: "void",
+    safety: "debug",
+    related: ["log", "error"],
     example: "warn(\"bad quality\");",
   },
   {
@@ -159,11 +370,64 @@ export const macroApiDocumentation: MacroApiDocItem[] = [
     category: "Логи/Отладка",
     signature: "error(...items: unknown[]): void",
     description: "Error-лог макроса.",
+    params: [
+      {
+        name: "items",
+        type: "unknown[]",
+        required: true,
+        description: "Любые значения для error-сообщения.",
+      },
+    ],
+    returns: "void",
+    safety: "debug",
+    related: ["log", "warn"],
     example: "error(\"command failed\");",
   },
 ];
 
 export const macroExamples: MacroExample[] = [
+  {
+    id: "read-tag-log",
+    title: "Чтение тега и лог значения",
+    description: "Проверка текущего значения аналогового тега.",
+    code: "const pressure = readTag(\"Boiler.Pressure\");\nlog(\"Boiler.Pressure =\", pressure);",
+  },
+  {
+    id: "write-command-tag",
+    title: "Запись командного тега",
+    description: "Отправка команды ПУСК.",
+    code: "await writeTag(\"Pump_1.StartCmd\", true);\nlog(\"StartCmd sent\");",
+  },
+  {
+    id: "pulse-command-tag",
+    title: "Импульс командного тега",
+    description: "Подача импульса 300 мс с авто-сбросом.",
+    code: "await pulseTag(\"Burner_1.StartCmd\", true, 300, false);",
+  },
+  {
+    id: "popup-with-tagprefix-args",
+    title: "Popup с tagPrefix и args",
+    description: "Открытие универсального popup для выбранного агрегата.",
+    code: "const unit = Number(getLW(10) ?? 1);\nconst prefix = \"UNITS.U\" + unit;\nopenPopup(\"Popup_UnitControl\", {\n  title: \"Unit U\" + unit,\n  tagPrefix: prefix,\n  args: { unit, source: \"macro\" }\n});",
+  },
+  {
+    id: "lw-selector",
+    title: "LW как селектор",
+    description: "Выбор активного насоса через LW10.",
+    code: "const selectedPump = Number(getLW(10) ?? 1);\nconst cmdTag = \"Pumps.P\" + selectedPump + \".StartCmd\";\nawait writeTag(cmdTag, true);",
+  },
+  {
+    id: "named-var-temp-state",
+    title: "Named variable как временное состояние",
+    description: "Сохранение этапа операции между запусками.",
+    code: "const step = Number(getVar(\"StartSequenceStep\") ?? 0);\nif (step === 0) {\n  await writeTag(\"Line.FillCmd\", true);\n  setVar(\"StartSequenceStep\", 1);\n} else {\n  await writeTag(\"Line.RunCmd\", true);\n  setVar(\"StartSequenceStep\", 0);\n}",
+  },
+  {
+    id: "resolve-relative-tag",
+    title: "Resolve относительного тега",
+    description: "Безопасная работа с .Tag внутри popup по prefix.",
+    code: "const prefix = String(getCurrentTagPrefix() || \"VALVES.PZK_1\");\nconst openedTag = resolveTag(\".Opened\", prefix);\nconst opened = readTag(openedTag);\nlog(openedTag, opened);",
+  },
   {
     id: "javascript-lite-simple",
     title: "javascript-lite: простой if/else",
