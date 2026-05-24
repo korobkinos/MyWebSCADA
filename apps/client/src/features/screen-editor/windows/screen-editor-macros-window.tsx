@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { HmiObject, MacroDefinition, MacroRunResult, MacroTrigger } from "@web-scada/shared";
 import {
+  CheckOutlined,
   CopyOutlined,
   DeleteOutlined,
   DownOutlined,
@@ -19,7 +20,8 @@ import { message, Modal, Select } from "antd";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { WorkbenchButton, WorkbenchResizeHandle } from "../../../components/workbench";
 import { WorkbenchWindow } from "../../../components/workbench/windows/workbench-window";
-import { macroApiDocumentation, macroExamples } from "../../../hmi/editor/macro-api-doc";
+import { MacroCodeEditor, type MacroCodeEditorHandle, buildApiSnippet } from "../../../hmi/editor/macro-code-editor";
+import { macroApiDocumentation, macroExamples, macroTemplates } from "../../../hmi/editor/macro-api-doc";
 import { useScadaStore } from "../../../store/scada-store";
 
 type MacroWithExtras = MacroDefinition & {
@@ -144,6 +146,12 @@ function formatTrigger(trigger: MacroTrigger): string {
   return `onCondition: ${trigger.condition}`;
 }
 
+function normalizeSnippetForInsert(snippet: string): string {
+  return snippet
+    .replace(/\$\{(\d+):([^}]+)\}/g, "$2")
+    .replace(/\$(\d+)/g, "");
+}
+
 export function ScreenEditorMacrosWindow() {
   const project = useScadaStore((s) => s.project);
   const currentScreenId = useScadaStore((s) => s.currentScreenId);
@@ -178,8 +186,10 @@ export function ScreenEditorMacrosWindow() {
   const [consoleCollapsed, setConsoleCollapsed] = useState(false);
   const [helpWindowRect, setHelpWindowRect] = useState({ x: 320, y: 72, width: 860, height: 680 });
   const [helpWindowZIndex, setHelpWindowZIndex] = useState<number>(1200);
+  const [templateQuery, setTemplateQuery] = useState("");
   const listPanelRef = useRef<ImperativePanelHandle | null>(null);
   const consolePanelRef = useRef<ImperativePanelHandle | null>(null);
+  const codeEditorRef = useRef<MacroCodeEditorHandle | null>(null);
 
   const macroSource = useMemo(
     () => ((project?.macros as MacroWithExtras[] | undefined) ?? (macros as MacroWithExtras[])),
@@ -282,11 +292,57 @@ export function ScreenEditorMacrosWindow() {
     }
     return options;
   }, [project?.screens]);
+  const currentScreen = useMemo(
+    () => (currentScreenId ? project?.screens.find((screen) => screen.id === currentScreenId) : undefined),
+    [currentScreenId, project?.screens],
+  );
+  const currentScreenObjects = useMemo(() => {
+    const result: HmiObject[] = [];
+    if (!currentScreen) {
+      return result;
+    }
+    walkObjects(currentScreen.objects, (obj) => result.push(obj));
+    return result;
+  }, [currentScreen]);
+  const filteredTemplates = useMemo(() => {
+    const q = templateQuery.trim().toLowerCase();
+    if (!q) {
+      return macroTemplates;
+    }
+    return macroTemplates.filter((item) => `${item.title} ${item.description} ${item.code}`.toLowerCase().includes(q));
+  }, [templateQuery]);
 
   const updateDraft = useCallback((patch: Partial<MacroDraft>) => {
     setDraftMacro((prev) => (prev ? { ...prev, ...patch } : prev));
     setDirty(true);
   }, []);
+
+  const insertCode = useCallback((snippet: string) => {
+    if (!draftMacro) {
+      return;
+    }
+    const editor = codeEditorRef.current;
+    if (editor?.insertText(snippet)) {
+      return;
+    }
+    updateDraft({ code: `${draftMacro.code}${snippet}` });
+  }, [draftMacro, updateDraft]);
+
+  const checkSyntax = useCallback(() => {
+    if (!draftMacro) {
+      return;
+    }
+    try {
+      // eslint-disable-next-line no-new-func
+      new Function("api", "args", draftMacro.code);
+      appendConsole("success", "Check syntax: OK");
+      void message.success("Syntax OK");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      appendConsole("error", `Check syntax failed: ${text}`);
+      void message.error(text);
+    }
+  }, [appendConsole, draftMacro]);
 
   const addTrigger = useCallback(() => {
     if (!draftMacro) {
@@ -642,6 +698,12 @@ export function ScreenEditorMacrosWindow() {
           disabled={!selectedMacro || running || selectedMacroInvalid}
         />
         <WorkbenchButton
+          icon={<CheckOutlined />}
+          title="Check Syntax"
+          onClick={checkSyntax}
+          disabled={!draftMacro}
+        />
+        <WorkbenchButton
           icon={listCollapsed ? <UnorderedListOutlined /> : <LeftOutlined />}
           title={listCollapsed ? "Show macros list" : "Hide macros list"}
           onClick={() => (listCollapsed ? showListPanel() : hideListPanel())}
@@ -748,11 +810,15 @@ export function ScreenEditorMacrosWindow() {
                     ) : null}
                     <label className="workbench-field">
                       <span className="workbench-field__label">Code</span>
-                      <textarea
-                        className="screen-editor-macro-code"
-                        value={draftMacro.code}
-                        onChange={(event) => updateDraft({ code: event.target.value })}
-                      />
+                      <div className="screen-editor-macro-code-editor">
+                        <MacroCodeEditor
+                          ref={codeEditorRef}
+                          value={draftMacro.code}
+                          onChange={(value) => updateDraft({ code: value })}
+                          height="100%"
+                          enableMacroCompletions
+                        />
+                      </div>
                     </label>
                     <div className="screen-editor-macro-help">
                       API: <code>readTag</code>, <code>writeTag</code>, <code>pulseTag</code>, <code>toggleTag</code>, <code>getVar</code>, <code>setVar</code>, <code>openScreen</code>, <code>openPopup</code>, <code>closePopup</code>.
@@ -954,7 +1020,65 @@ if (value > 10) {
                         </div>
                         <code>{item.signature}</code>
                         <div className="screen-editor-macro-help-modal__api-desc">{item.description}</div>
+                        <div>
+                          <WorkbenchButton onClick={() => insertCode(`${normalizeSnippetForInsert(buildApiSnippet(item))}\n`)}>
+                            Insert
+                          </WorkbenchButton>
+                        </div>
                         <pre>{item.example}</pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="screen-editor-macro-help-modal__block">
+                  <div className="screen-editor-macro-help-modal__title">Templates</div>
+                  <input
+                    className="workbench-input"
+                    value={templateQuery}
+                    placeholder="Search templates"
+                    onChange={(event) => setTemplateQuery(event.target.value)}
+                    style={{ marginBottom: 8, width: "100%" }}
+                  />
+                  <div className="screen-editor-macro-help-modal__api-list">
+                    {filteredTemplates.map((template) => (
+                      <div key={template.id} className="screen-editor-macro-help-modal__api-item">
+                        <div className="screen-editor-macro-help-modal__api-meta">
+                          <span>{template.category}</span>
+                        </div>
+                        <code>{template.title}</code>
+                        <div className="screen-editor-macro-help-modal__api-desc">{template.description}</div>
+                        <div>
+                          <WorkbenchButton onClick={() => insertCode(`\n${template.code}\n`)}>
+                            Insert
+                          </WorkbenchButton>
+                        </div>
+                        <pre>{template.code}</pre>
+                      </div>
+                    ))}
+                    {filteredTemplates.length === 0 ? <div className="screen-editor-empty-state">No templates found</div> : null}
+                  </div>
+                </div>
+                <div className="screen-editor-macro-help-modal__block">
+                  <div className="screen-editor-macro-help-modal__title">Tags / Objects</div>
+                  <div className="screen-editor-macro-help-modal__api-list">
+                    {project.tags.slice(0, 30).map((tag) => (
+                      <div key={tag.name} className="screen-editor-macro-help-modal__api-item">
+                        <code>{tag.name}</code>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <WorkbenchButton onClick={() => insertCode(`readTag("${tag.name}")`)}>Read</WorkbenchButton>
+                          <WorkbenchButton onClick={() => insertCode(`writeTag("${tag.name}", value)`)}>Write</WorkbenchButton>
+                        </div>
+                      </div>
+                    ))}
+                    {currentScreenObjects.slice(0, 30).map((obj) => (
+                      <div key={obj.id} className="screen-editor-macro-help-modal__api-item">
+                        <code>{obj.id}</code>
+                        <div className="screen-editor-macro-help-modal__api-desc">{obj.type}</div>
+                        <div>
+                          <WorkbenchButton onClick={() => insertCode(`"${obj.id}"`)}>
+                            Insert ID
+                          </WorkbenchButton>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -964,6 +1088,11 @@ if (value > 10) {
                   {macroExamples.slice(0, 3).map((example) => (
                     <div key={example.id} className="screen-editor-macro-help-modal__example">
                       <strong>{example.title}</strong>
+                      <div>
+                        <WorkbenchButton onClick={() => insertCode(`\n${example.code}\n`)}>
+                          Insert
+                        </WorkbenchButton>
+                      </div>
                       <pre>{example.code}</pre>
                     </div>
                   ))}

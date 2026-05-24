@@ -3730,6 +3730,15 @@ body {
   border-color: #007acc;
 }
 
+.screen-editor-macro-code-editor {
+  width: 100%;
+  min-height: 320px;
+  height: 360px;
+  border: 1px solid #3c3c3c;
+  background: #111111;
+  overflow: hidden;
+}
+
 .screen-editor-macro-triggers {
   border: 1px solid #2d2d2d;
   background: #1d1d1d;

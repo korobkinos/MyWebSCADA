@@ -34,7 +34,8 @@ export function App() {
   const logout = useScadaStore((s) => s.logoutEngineer);
   const hasPermission = useScadaStore((s) => s.hasPermission);
   const isRuntimeRoute = location.pathname === "/" || location.pathname === "/runtime";
-  const isEditorRoute = location.pathname === "/editor";
+  const isMacrosRoute = location.pathname === "/macros";
+  const isEditorRoute = location.pathname === "/editor" || isMacrosRoute;
   const isProtectedRoute = isEditorRoute;
   const [bootError, setBootError] = useState<string | null>(null);
   const [uiTheme, setUiTheme] = useState<ProjectTheme>(() => {
@@ -201,6 +202,7 @@ export function App() {
                 </RequirePermission>
               }
             />
+            <Route path="/macros" element={<Navigate to="/editor" replace />} />
             <Route path="*" element={<Navigate to="/editor" replace />} />
           </Routes>
         </Suspense>

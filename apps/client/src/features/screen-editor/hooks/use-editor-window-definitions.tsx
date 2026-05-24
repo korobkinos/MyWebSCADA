@@ -68,6 +68,7 @@ type UseEditorWindowDefinitionsParams = {
   canUsersWrite: boolean;
   canUsersDelete: boolean;
   canUsersChangePassword: boolean;
+  canMacrosView: boolean;
   updateScreen: (screenId: string, patch: Partial<HmiScreen>) => void;
   startScreenName: string;
   startRuntime: () => Promise<void>;
@@ -336,14 +337,16 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
         minHeight: 420,
         render: () => <EventsPage />,
       },
-      {
-        id: "macros",
-        title: "Macros",
-        defaultRect: { x: 140, y: 80, width: 1400, height: 800 },
-        minWidth: 720,
-        minHeight: 460,
-        render: () => <ScreenEditorMacrosWindow />,
-      },
+      ...(params.canMacrosView
+        ? [{
+            id: "macros",
+            title: "Macros",
+            defaultRect: { x: 140, y: 80, width: 1400, height: 800 },
+            minWidth: 720,
+            minHeight: 460,
+            render: () => <ScreenEditorMacrosWindow />,
+          }]
+        : []),
       {
         id: "drivers",
         title: "Drivers / OPC UA / Simulation",

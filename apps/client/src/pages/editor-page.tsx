@@ -171,6 +171,7 @@ export function EditorPage() {
   const canUsersWrite = hasPermission("users.write");
   const canUsersDelete = hasPermission("users.delete");
   const canUsersChangePassword = hasPermission("users.changePassword");
+  const canMacrosView = hasPermission("macros.view");
   const enabledLibraryIds = useMemo(
     () => new Set((project?.libraries ?? []).filter((item) => item.enabled).map((item) => item.libraryId)),
     [project?.libraries],
@@ -1013,6 +1014,7 @@ export function EditorPage() {
     canUsersWrite,
     canUsersDelete,
     canUsersChangePassword,
+    canMacrosView,
     updateScreen,
     startScreenName,
     startRuntime: handleStartRuntime,
@@ -1075,7 +1077,9 @@ export function EditorPage() {
     { id: "tags", title: "Tags", icon: <TagsOutlined />, active: isWindowOpen("tags"), onClick: () => openDefinedWindow("tags") },
     { id: "events", title: "Event Manager", icon: <BellOutlined />, active: isWindowOpen("events"), onClick: () => openDefinedWindow("events") },
     { id: "archive", title: "Archive", icon: <DatabaseOutlined />, active: isWindowOpen("archive"), onClick: () => openDefinedWindow("archive") },
-    { id: "macros", title: "Macros", icon: <CodeOutlined />, active: isWindowOpen("macros"), onClick: () => openDefinedWindow("macros") },
+    canMacrosView
+      ? { id: "macros", title: "Macros", icon: <CodeOutlined />, active: isWindowOpen("macros"), onClick: () => openDefinedWindow("macros") }
+      : null,
     { id: "assets", title: "Assets", icon: <FileImageOutlined />, active: isWindowOpen("assets"), onClick: () => openDefinedWindow("assets") },
     { id: "libraries", title: "Libraries", icon: <FolderOpenOutlined />, active: isWindowOpen("libraries"), onClick: () => openDefinedWindow("libraries") },
     { id: "drivers", title: "Drivers", icon: <ApiOutlined />, active: isWindowOpen("drivers"), onClick: () => openDefinedWindow("drivers") },

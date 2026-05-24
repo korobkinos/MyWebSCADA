@@ -9528,7 +9528,7 @@
       "id": "inc_counter",
       "name": "Increment Counter",
       "language": "javascript-lite",
-      "code": "const current = Number(api.readVariable('Counter') ?? 0); \nif (current > 5) {\n  api.writeVariable(\"Counter\", 0);\n}else{\napi.writeVariable('Counter', current + 1);\n}",
+      "code": "const current = Number(api.readVariable('Counter') ?? 0); \nif (current > 5) {\n  api.writeVariable(\"Counter\", 0);\n}else{\napi.writeVariable('Counter', current + 1);\n}\n",
       "enabled": true,
       "triggers": []
     },
@@ -9583,20 +9583,19 @@
     },
     "dockLayout": {
       "panels": {
-        "archive.left": {
-          "id": "archive.left",
+        "macros.list": {
+          "id": "macros.list",
           "side": "left",
           "hidden": false,
-          "size": 304,
-          "lastVisibleSize": 320,
-          "detached": false
+          "size": 360,
+          "lastVisibleSize": 360
         },
-        "archive.right": {
-          "id": "archive.right",
-          "side": "right",
+        "macros.logs": {
+          "id": "macros.logs",
+          "side": "bottom",
           "hidden": false,
-          "size": 397,
-          "lastVisibleSize": 397,
+          "size": 150,
+          "lastVisibleSize": 150,
           "detached": false
         }
       }
