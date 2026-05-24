@@ -3,6 +3,7 @@ import type { HmiObject, HmiScreen, MacroDefinition, MacroRunResult, MacroTrigge
 import { LeftOutlined, RightOutlined, UpOutlined } from "@ant-design/icons";
 import { Button, Card, Collapse, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tag, Typography, message } from "antd";
 import { macroApiDocumentation, macroExamples, macroTemplates, type MacroApiDocItem, type MacroTemplateItem } from "./macro-api-doc";
+import { MacroCodeEditor, type MacroCodeEditorHandle } from "./macro-code-editor";
 import { ResizableDockPanel } from "../../components/resizable-dock-panel";
 import { useDockLayout } from "../../hooks/use-dock-layout";
 
@@ -92,15 +93,6 @@ function inferObjectCandidates(screen?: HmiScreen): HmiObject[] {
     return [];
   }
   return screen.objects;
-}
-
-function insertAtCursor(textArea: HTMLTextAreaElement, text: string): { value: string; cursor: number } {
-  const start = textArea.selectionStart ?? 0;
-  const end = textArea.selectionEnd ?? 0;
-  const value = textArea.value;
-  const next = `${value.slice(0, start)}${text}${value.slice(end)}`;
-  const cursor = start + text.length;
-  return { value: next, cursor };
 }
 
 function uniqueCategories(items: MacroApiDocItem[]): string[] {
@@ -204,7 +196,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
   const [dirty, setDirty] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const codeRef = useRef<HTMLTextAreaElement | null>(null);
+  const codeRef = useRef<MacroCodeEditorHandle | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const centerRef = useRef<HTMLDivElement | null>(null);
   const dockLayout = useDockLayout(macroDockDefaults.map((item) => ({ ...item })), { autoSaveMs: 900 });
@@ -287,22 +279,19 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
   };
 
   const insertCode = (snippet: string): void => {
-    const editor = codeRef.current;
-    if (!selectedMacro || !editor) {
+    if (!selectedMacro) {
       return;
     }
-    const { value, cursor } = insertAtCursor(editor, snippet);
-    mutateMacro({ code: value });
-    requestAnimationFrame(() => {
-      editor.focus();
-      editor.selectionStart = cursor;
-      editor.selectionEnd = cursor;
-    });
+    const editor = codeRef.current;
+    if (editor?.insertText(snippet)) {
+      return;
+    }
+    mutateMacro({ code: `${selectedMacro.code ?? ""}${snippet}` });
+    requestAnimationFrame(() => editor?.focus());
   };
 
   const insertTemplateCode = (snippet: string): void => {
-    const editor = codeRef.current;
-    if (!selectedMacro || !editor) {
+    if (!selectedMacro) {
       return;
     }
     const normalized = snippet.trim();
@@ -311,12 +300,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
       ? normalized
       : `${current.replace(/\s*$/, "")}\n\n${normalized}`;
     mutateMacro({ code: next });
-    requestAnimationFrame(() => {
-      editor.focus();
-      const cursor = next.length;
-      editor.selectionStart = cursor;
-      editor.selectionEnd = cursor;
-    });
+    requestAnimationFrame(() => codeRef.current?.focus());
   };
 
   const addMacro = (): void => {
@@ -777,14 +761,11 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
               </Space>
 
               <div style={{ flex: "1 1 auto", minHeight: 320, overflow: "auto" }}>
-                <Input.TextArea
-                  ref={(node) => {
-                    codeRef.current = node?.resizableTextArea?.textArea ?? null;
-                  }}
-                  autoSize={false}
-                  style={{ height: "100%", minHeight: 320, resize: "vertical", fontFamily: "Consolas, Menlo, Monaco, monospace" }}
-                  value={selectedMacro.code}
-                  onChange={(e) => mutateMacro({ code: e.target.value })}
+                <MacroCodeEditor
+                  ref={codeRef}
+                  value={selectedMacro.code ?? ""}
+                  onChange={(value) => mutateMacro({ code: value })}
+                  height="100%"
                 />
               </div>
 
