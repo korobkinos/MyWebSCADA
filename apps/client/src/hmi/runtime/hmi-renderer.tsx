@@ -3968,7 +3968,7 @@ function SliderObjectNode({
         const pointer = groupNode.getRelativePointerPosition();
         if (pointer) {
           const fraction = getSliderFraction(pointer.x, pointer.y);
-          commitSliderValue(fraction, false, true, true);
+          commitSliderValue(fraction, false, true, false);
         }
       }}
       onMouseDown={(evt: KonvaEventObject<MouseEvent>) => {
