@@ -755,6 +755,7 @@ export type NumericInputOpenPayload = {
   badBackgroundColor?: string;
   badBorderColor?: string;
   signalBad?: boolean;
+  actionContext?: RenderContext;
 };
 
 type HmiRendererProps = {
@@ -2764,7 +2765,17 @@ function ObjectNode({
           }
           onAction?.(
             withActionRoleLevel(action, resolvedObject.requiredActionRole),
-            withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+            withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name, {
+              __operatorActionKind: "checkbox",
+              __operatorActionLogOnThisCommand: true,
+              __operatorActionTargetType: "tag",
+              __operatorActionTargetName: normalizedTagName,
+              __operatorActionClientOldValue: isChecked,
+              __operatorActionDetails: {
+                writeMode,
+                pulseDurationMs: writeMode.startsWith("pulse") ? pulseDurationMs : undefined,
+              },
+            }),
           );
         }}
       >
@@ -3597,6 +3608,17 @@ function ObjectNode({
             badBackgroundColor,
             badBorderColor,
             signalBad: numInputBad,
+            actionContext: withRuntimeActionContext(
+              renderContext,
+              resolvedObject.id,
+              performance.now(),
+              resolvedObject.name,
+              {
+                __operatorActionKind: "numericInput",
+                __operatorActionLogOnThisCommand: true,
+                __operatorActionClientOldValue: Number.isFinite(rawNumValue) ? rawNumValue : null,
+              },
+            ),
           });
         }}
       >
@@ -3739,7 +3761,7 @@ function SliderObjectNode({
     return (clampedX - start) / Math.max(1, end - start);
   }, [isSliderVertical, resolvedObject.height, resolvedObject.width, sliderThumbRadius]);
 
-  const commitSliderValue = useCallback((fraction: number, force = false, allowWrite = true) => {
+  const commitSliderValue = useCallback((fraction: number, force = false, allowWrite = true, includeOperatorActionLog = false) => {
     const val = sliderMin + fraction * (sliderMax - sliderMin);
     const step = resolvedObject.step ?? 1;
     const stepped = step > 0 ? Math.round(val / step) * step : val;
@@ -3748,7 +3770,7 @@ function SliderObjectNode({
     if (!allowWrite) {
       return;
     }
-    if (lastWrittenValueRef.current !== null && Math.abs(lastWrittenValueRef.current - clamped) < 1e-9) {
+    if (!includeOperatorActionLog && lastWrittenValueRef.current !== null && Math.abs(lastWrittenValueRef.current - clamped) < 1e-9) {
       return;
     }
     const now = Date.now();
@@ -3776,7 +3798,18 @@ function SliderObjectNode({
         value: clamped,
       }, resolvedObject.requiredActionRole),
       (() => {
-        const nextContext = withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name);
+        const nextContext = withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name, {
+          __operatorActionKind: "slider",
+          __operatorActionTargetType: "tag",
+          __operatorActionTargetName: tagName ?? "",
+          __operatorActionClientOldValue: sliderValue,
+          __operatorActionLogOnThisCommand: includeOperatorActionLog,
+          __operatorActionDetails: {
+            writeOnRelease: sliderWriteOnRelease,
+            writeMode: sliderWriteOnRelease ? "release" : "drag",
+            dragWriteIntervalMs: sliderDragWriteIntervalMs,
+          },
+        });
         return {
           ...nextContext,
           parameters: {
@@ -3786,13 +3819,13 @@ function SliderObjectNode({
         };
       })(),
     );
-  }, [resolvedObject, sliderMin, sliderMax, runtimeMode, onAction, renderContext, sliderDragWriteIntervalMs, resolveTagValue]);
+  }, [resolvedObject, sliderMin, sliderMax, runtimeMode, onAction, renderContext, sliderDragWriteIntervalMs, resolveTagValue, sliderValue, sliderWriteOnRelease]);
 
   const finalizeSliderDrag = useCallback((allowWrite = true) => {
     sliderDragRef.current = false;
     setSliderIsDragging(false);
     const fraction = Math.max(0, Math.min(1, sliderLastFractionRef.current));
-    commitSliderValue(fraction, true, allowWrite);
+    commitSliderValue(fraction, true, allowWrite, allowWrite);
     sliderReleaseAtRef.current = Date.now();
     sliderReleaseSourceValueRef.current = sliderValue;
   }, [commitSliderValue, sliderValue]);
@@ -3935,7 +3968,7 @@ function SliderObjectNode({
         const pointer = groupNode.getRelativePointerPosition();
         if (pointer) {
           const fraction = getSliderFraction(pointer.x, pointer.y);
-          commitSliderValue(fraction);
+          commitSliderValue(fraction, false, true, true);
         }
       }}
       onMouseDown={(evt: KonvaEventObject<MouseEvent>) => {
@@ -3952,7 +3985,7 @@ function SliderObjectNode({
         if (pointer) {
           const fraction = getSliderFraction(pointer.x, pointer.y);
           sliderLastFractionRef.current = fraction;
-          commitSliderValue(fraction, true, !sliderWriteOnRelease);
+          commitSliderValue(fraction, true, !sliderWriteOnRelease, false);
         }
       }}
       onMouseMove={(evt: KonvaEventObject<MouseEvent>) => {
@@ -3964,7 +3997,7 @@ function SliderObjectNode({
         if (pointer) {
           const fraction = getSliderFraction(pointer.x, pointer.y);
           sliderLastFractionRef.current = fraction;
-          commitSliderValue(fraction, false, !sliderWriteOnRelease);
+          commitSliderValue(fraction, false, !sliderWriteOnRelease, false);
         }
       }}
       onMouseUp={(evt: KonvaEventObject<MouseEvent>) => {
@@ -4938,7 +4971,14 @@ function ButtonNode({
           return;
         }
         if (!isDisabled) {
-          const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name);
+          const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
+            __operatorActionKind: "button",
+            __operatorActionLogOnThisCommand: true,
+            __operatorActionDetails: {
+              buttonActionType: object.action.type,
+              pulseDurationMs: object.action.type === "pulse" ? object.action.durationMs : undefined,
+            },
+          });
           setExecuting(true);
           const result = onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), nextContext);
           if (result && typeof (result as Promise<void>).finally === "function") {
@@ -5498,6 +5538,7 @@ function withRuntimeActionContext(
   objectId: string,
   clickTs: number,
   objectName?: string,
+  extraParameters?: Record<string, unknown>,
 ): RenderContext {
   const runtimeObjectId = objectId.trim();
   const runtimeObjectScope = resolveRuntimeActionScope(context.parameters, runtimeObjectId);
@@ -5510,6 +5551,7 @@ function withRuntimeActionContext(
       __runtimeObjectScope: runtimeObjectScope,
       __runtimeObjectName: resolvedObjectName,
       __actionClickTs: clickTs,
+      ...(extraParameters ?? {}),
     },
   };
 }

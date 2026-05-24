@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { RenderContext } from "@web-scada/shared";
 
 export type NumericInputDialogState = {
   objectId: string;
@@ -34,6 +35,7 @@ export type NumericInputDialogState = {
   badBackgroundColor?: string;
   badBorderColor?: string;
   signalBad?: boolean;
+  actionContext?: RenderContext;
 };
 
 type NumericInputDialogProps = {

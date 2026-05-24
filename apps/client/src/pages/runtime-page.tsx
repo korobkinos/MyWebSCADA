@@ -6,9 +6,13 @@ import {
   getUserRoleLevel,
   hasRoleAccess,
   roleLevelFromRoles,
+  type HmiObject,
   type AccessRoleLevel,
   type ManualCommandMeta,
   type ManualCommandRejectReason,
+  type OperatorActionContext,
+  type OperatorActionKind,
+  type OperatorActionTargetType,
   createInitialPopupState,
   popupReducer,
   resolveRuntimeAction,
@@ -480,6 +484,217 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       return fallbackObjectName.trim();
     }
     return undefined;
+  };
+
+  const isProjectOperatorActionLoggingEnabled = project.operatorActionSettings?.enabled !== false;
+
+  const resolveRuntimeObjectMeta = (context: RenderContext): { object: HmiObject; screenName?: string; screenId?: string } | null => {
+    const objectId = getRuntimeActionObjectId(context);
+    if (!objectId) {
+      return null;
+    }
+    const preferredScreenId = typeof context.screenId === "string" ? context.screenId.trim() : "";
+    const preferredScreen = preferredScreenId ? project.screens.find((item) => item.id === preferredScreenId) : undefined;
+    const fromPreferred = preferredScreen ? findObjectDeep(preferredScreen.objects, objectId) : undefined;
+    if (fromPreferred) {
+      return {
+        object: fromPreferred,
+        screenId: preferredScreen?.id,
+        screenName: preferredScreen?.name,
+      };
+    }
+    for (const projectScreen of project.screens) {
+      const found = findObjectDeep(projectScreen.objects, objectId);
+      if (found) {
+        return {
+          object: found,
+          screenId: projectScreen.id,
+          screenName: projectScreen.name,
+        };
+      }
+    }
+    return null;
+  };
+
+  const resolveActionTargetMeta = (
+    action: RuntimeAction,
+  ): { targetType?: OperatorActionTargetType; targetName?: string; requestedValue?: string | number | boolean | null } => {
+    if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+      return {
+        targetType: "tag",
+        targetName: action.tag,
+        requestedValue: action.type === "toggle" ? undefined : action.value,
+      };
+    }
+    if (action.type === "writeConst") {
+      return {
+        targetType: action.target === "variable" ? "variable" : "tag",
+        targetName: action.name,
+        requestedValue: action.value,
+      };
+    }
+    if (action.type === "setLW") {
+      return {
+        targetType: "lw",
+        targetName: `LW${Math.max(0, Math.floor(action.address))}`,
+        requestedValue: action.value,
+      };
+    }
+    if (action.type === "setInternalVar") {
+      return {
+        targetType: "variable",
+        targetName: action.name,
+        requestedValue: action.value,
+      };
+    }
+    if (action.type === "runMacro") {
+      return {
+        targetType: "macro",
+        targetName: action.macroId,
+      };
+    }
+    if (action.type === "openScreen") {
+      return {
+        targetType: "screen",
+        targetName: action.screenId,
+      };
+    }
+    return {};
+  };
+
+  const readClientCurrentValue = (targetType: OperatorActionTargetType | undefined, targetName: string | undefined): string | number | boolean | null | undefined => {
+    if (!targetName?.trim()) {
+      return undefined;
+    }
+    if (targetType === "tag" || targetType === "lw" || targetType === "variable") {
+      const direct = tags[targetName]?.value;
+      if (direct !== undefined) {
+        return direct as string | number | boolean | null;
+      }
+      if (targetType === "variable") {
+        const fallback = tags[`LW.${targetName}`]?.value;
+        if (fallback !== undefined) {
+          return fallback as string | number | boolean | null;
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const resolveOperatorActionKind = (
+    action: RuntimeAction,
+    objectType: HmiObject["type"],
+    context: RenderContext,
+  ): OperatorActionKind => {
+    const contextKind = typeof context.parameters?.__operatorActionKind === "string"
+      ? context.parameters.__operatorActionKind.trim()
+      : "";
+    if (
+      contextKind === "button"
+      || contextKind === "checkbox"
+      || contextKind === "slider"
+      || contextKind === "numericInput"
+      || contextKind === "write"
+      || contextKind === "toggle"
+      || contextKind === "pulse"
+      || contextKind === "macro"
+      || contextKind === "variable"
+      || contextKind === "lw"
+      || contextKind === "screen"
+    ) {
+      return contextKind;
+    }
+    if (objectType === "numeric-input") {
+      return "numericInput";
+    }
+    if (objectType === "slider") {
+      return "slider";
+    }
+    if (objectType === "checkbox") {
+      return "checkbox";
+    }
+    if (objectType === "button") {
+      if (action.type === "pulse") {
+        return "pulse";
+      }
+      if (action.type === "toggle") {
+        return "toggle";
+      }
+      if (action.type === "runMacro") {
+        return "macro";
+      }
+      return "button";
+    }
+    if (action.type === "runMacro") {
+      return "macro";
+    }
+    if (action.type === "setLW") {
+      return "lw";
+    }
+    if (action.type === "setInternalVar" || (action.type === "writeConst" && action.target === "variable")) {
+      return "variable";
+    }
+    if (action.type === "openScreen") {
+      return "screen";
+    }
+    return action.type === "toggle" ? "toggle" : action.type === "pulse" ? "pulse" : "write";
+  };
+
+  const buildOperatorActionContext = (action: RuntimeAction, context: RenderContext): OperatorActionContext | undefined => {
+    if (context.parameters?.__operatorActionLogOnThisCommand === false) {
+      return undefined;
+    }
+    if (!isProjectOperatorActionLoggingEnabled) {
+      return undefined;
+    }
+    const objectMeta = resolveRuntimeObjectMeta(context);
+    if (!objectMeta) {
+      return undefined;
+    }
+    const objectLogging = objectMeta.object.operatorActionLogging;
+    if (objectLogging?.enabled !== true) {
+      return undefined;
+    }
+    const targetMeta = resolveActionTargetMeta(action);
+    const unit = "unit" in objectMeta.object && typeof objectMeta.object.unit === "string"
+      ? objectMeta.object.unit
+      : undefined;
+    const contextDetails = (
+      context.parameters?.__operatorActionDetails
+      && typeof context.parameters.__operatorActionDetails === "object"
+    ) ? context.parameters.__operatorActionDetails as Record<string, unknown> : undefined;
+    const details: Record<string, unknown> = {
+      ...(contextDetails ?? {}),
+      runtimeActionType: action.type,
+    };
+    if (action.type === "runMacro") {
+      details.macroId = action.macroId;
+    }
+    if (action.type === "pulse") {
+      details.pulseDurationMs = action.durationMs;
+    }
+    const clientOldValueFromContext =
+      context.parameters?.__operatorActionClientOldValue as string | number | boolean | null | undefined;
+    const resolvedClientOldValue = clientOldValueFromContext ?? readClientCurrentValue(targetMeta.targetType, targetMeta.targetName);
+    const resolvedRequestedValue = targetMeta.requestedValue === undefined && action.type === "toggle"
+      ? !Boolean(resolvedClientOldValue)
+      : targetMeta.requestedValue;
+    return {
+      screenId: objectMeta.screenId ?? context.screenId,
+      screenName: objectMeta.screenName,
+      objectId: objectMeta.object.id,
+      objectName: objectMeta.object.name,
+      objectDescription: objectMeta.object.description,
+      objectType: objectMeta.object.type,
+      actionKind: resolveOperatorActionKind(action, objectMeta.object.type, context),
+      targetType: targetMeta.targetType,
+      targetName: targetMeta.targetName,
+      unit,
+      messageTemplate: objectLogging.messageTemplate,
+      clientOldValue: resolvedClientOldValue,
+      requestedValue: resolvedRequestedValue,
+      details,
+    };
   };
 
   const debugRuntimeCommand = (event: string, data: Record<string, unknown>): void => {
@@ -1044,25 +1259,27 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "write") {
+      const operatorActionContext = buildOperatorActionContext(action, context);
       await runGuardedManualCommand({
         action,
         actionId: action.tag,
         context,
         clickTs,
         commandKey: getRuntimeActionCommandKey(action, context),
-        run: (signal, commandMeta) => writeTag(action.tag, action.value, { signal, commandMeta }),
+        run: (signal, commandMeta) => writeTag(action.tag, action.value, { signal, commandMeta, operatorActionContext }),
       });
       return;
     }
 
     if (action.type === "pulse") {
+      const operatorActionContext = buildOperatorActionContext(action, context);
       const result = await runGuardedManualCommand({
         action,
         actionId: action.tag,
         context,
         clickTs,
         commandKey: getRuntimeActionCommandKey(action, context),
-        run: (signal, commandMeta) => writeTag(action.tag, action.value, { signal, commandMeta }),
+        run: (signal, commandMeta) => writeTag(action.tag, action.value, { signal, commandMeta, operatorActionContext }),
       });
       if (result === undefined) {
         return;
@@ -1075,18 +1292,20 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
     if (action.type === "toggle") {
       const current = tags[action.tag];
+      const operatorActionContext = buildOperatorActionContext(action, context);
       await runGuardedManualCommand({
         action,
         actionId: action.tag,
         context,
         clickTs,
         commandKey: getRuntimeActionCommandKey(action, context),
-        run: (signal, commandMeta) => writeTag(action.tag, !Boolean(current?.value), { signal, commandMeta }),
+        run: (signal, commandMeta) => writeTag(action.tag, !Boolean(current?.value), { signal, commandMeta, operatorActionContext }),
       });
       return;
     }
 
     if (action.type === "writeConst") {
+      const operatorActionContext = buildOperatorActionContext(action, context);
       if (action.target === "variable") {
         await runGuardedManualCommand({
           action,
@@ -1094,7 +1313,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           context,
           clickTs,
           commandKey: getRuntimeActionCommandKey(action, context),
-          run: (signal, commandMeta) => writeVariable(action.name, action.value, { signal, commandMeta }),
+          run: (signal, commandMeta) => writeVariable(action.name, action.value, { signal, commandMeta, operatorActionContext }),
         });
       } else {
         await runGuardedManualCommand({
@@ -1103,7 +1322,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           context,
           clickTs,
           commandKey: getRuntimeActionCommandKey(action, context),
-          run: (signal, commandMeta) => writeTag(action.name, action.value, { signal, commandMeta }),
+          run: (signal, commandMeta) => writeTag(action.name, action.value, { signal, commandMeta, operatorActionContext }),
         });
       }
       return;
@@ -1175,6 +1394,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       const internalOnlyMacro = isInternalOnlyMacroCode(selectedMacro?.code);
       const allowRepeatedMacroRun = action.allowRepeat === true || macroId === "inc_counter" || internalOnlyMacro;
       const macroTimeoutMs = internalOnlyMacro ? FAST_INTERNAL_MACRO_TIMEOUT_MS : COMMAND_TIMEOUT_MS;
+      const operatorActionContext = buildOperatorActionContext(action, context);
       const result = await runGuardedManualCommand({
         action,
         actionId: macroId,
@@ -1203,6 +1423,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           const macroResult = await runMacro(macroId, action.args, {
             signal,
             commandMeta,
+            operatorActionContext,
             context: {
               popupInstanceId: context.popupInstanceId,
               screenId: context.screenId,
@@ -1331,6 +1552,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "setLW") {
+      const operatorActionContext = buildOperatorActionContext(action, context);
       await runGuardedManualCommand({
         action,
         actionId: `LW${Math.max(0, Math.floor(action.address))}`,
@@ -1338,19 +1560,20 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         clickTs,
         commandKey: getRuntimeActionCommandKey(action, context),
         run: (signal, commandMeta) =>
-          writeVariable(`LW${Math.max(0, Math.floor(action.address))}`, action.value, { signal, commandMeta }),
+          writeVariable(`LW${Math.max(0, Math.floor(action.address))}`, action.value, { signal, commandMeta, operatorActionContext }),
       });
       return;
     }
 
     if (action.type === "setInternalVar") {
+      const operatorActionContext = buildOperatorActionContext(action, context);
       await runGuardedManualCommand({
         action,
         actionId: action.name,
         context,
         clickTs,
         commandKey: getRuntimeActionCommandKey(action, context),
-        run: (signal, commandMeta) => writeVariable(action.name, action.value, { signal, commandMeta }),
+        run: (signal, commandMeta) => writeVariable(action.name, action.value, { signal, commandMeta, operatorActionContext }),
       });
       return;
     }
@@ -1470,6 +1693,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       badBackgroundColor: payload.badBackgroundColor,
       badBorderColor: payload.badBorderColor,
       signalBad: payload.signalBad,
+      actionContext: payload.actionContext,
     };
     setNumericDialogState(dialogState);
     openWindow({
@@ -1690,6 +1914,19 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             onCommit={async (value) => {
               const targetTag = numericDialogState.targetTag;
               if (!targetTag) return;
+              const actionContext = numericDialogState.actionContext ?? {
+                screenId: screen?.id,
+                userRoles: runtimeUserRoles,
+                userRoleLevel,
+                isAuthenticated: Boolean(authUser),
+                parameters: {
+                  __runtimeObjectId: numericDialogState.objectId,
+                  __runtimeObjectName: numericDialogState.objectName,
+                  __operatorActionKind: "numericInput",
+                  __operatorActionLogOnThisCommand: true,
+                  __operatorActionClientOldValue: numericDialogState.currentValue,
+                },
+              };
               await executeAction(
                 {
                   type: "write",
@@ -1698,12 +1935,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
                   confirm: false,
                   requireAuth: false,
                 },
-                {
-                  screenId: screen?.id,
-                  userRoles: runtimeUserRoles,
-                  userRoleLevel,
-                  isAuthenticated: Boolean(authUser),
-                },
+                actionContext,
               );
             }}
             onCancel={() => {
@@ -1939,6 +2171,21 @@ function unwrapRuntimeTagValue(value: unknown): unknown {
     return (value as { value?: unknown }).value;
   }
   return value;
+}
+
+function findObjectDeep(objects: HmiObject[], objectId: string): HmiObject | undefined {
+  for (const object of objects) {
+    if (object.id === objectId) {
+      return object;
+    }
+    if (object.type === "group") {
+      const nested = findObjectDeep(object.objects, objectId);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+  return undefined;
 }
 
 function getRuntimeActionCommandKey(action: RuntimeAction, context: RenderContext): string {

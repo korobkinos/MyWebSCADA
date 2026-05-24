@@ -10,9 +10,19 @@ import {
   type CreateUserRequest,
   type DriverConfig,
   type EventHistoryRecord,
+  type HmiObject,
   type MacroDefinition,
   type MacroTrigger,
+  DEFAULT_OPERATOR_ACTION_BUTTON_TEMPLATE,
+  DEFAULT_OPERATOR_ACTION_CHECKBOX_TEMPLATE,
+  DEFAULT_OPERATOR_ACTION_NUMERIC_INPUT_TEMPLATE,
+  DEFAULT_OPERATOR_ACTION_SLIDER_TEMPLATE,
+  DEFAULT_OPERATOR_ACTION_VALUE_CHANGE_TEMPLATE,
   type OperatorActionArchiveSettings,
+  type OperatorActionContext,
+  type OperatorActionKind,
+  type OperatorActionResult,
+  type OperatorActionTargetType,
   type OpcUaDriverConfig,
   type PasswordPolicy,
   type ScadaProject,
@@ -112,9 +122,38 @@ const commandMetaSchema = z.object({
   createdAt: z.number().int(),
   ttlMs: z.number().int().positive(),
 });
+const operatorActionContextSchema = z.object({
+  screenId: z.string().min(1).optional(),
+  screenName: z.string().min(1).optional(),
+  objectId: z.string().min(1),
+  objectName: z.string().min(1).optional(),
+  objectDescription: z.string().min(1).optional(),
+  objectType: z.string().min(1),
+  actionKind: z.enum([
+    "write",
+    "toggle",
+    "pulse",
+    "button",
+    "checkbox",
+    "slider",
+    "numericInput",
+    "macro",
+    "variable",
+    "lw",
+    "screen",
+  ]),
+  targetType: z.enum(["tag", "variable", "lw", "macro", "screen", "unknown"]).optional(),
+  targetName: z.string().min(1).optional(),
+  unit: z.string().min(1).optional(),
+  messageTemplate: z.string().min(1).optional(),
+  clientOldValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  requestedValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  details: z.record(z.unknown()).optional(),
+}).strict();
 const writeSchema = z.object({
   value: z.union([z.boolean(), z.number(), z.string(), z.null()]),
   commandMeta: commandMetaSchema.optional(),
+  operatorActionContext: operatorActionContextSchema.optional(),
 });
 const archiveSamplesQuerySchema = z.object({
   from: z.coerce.date(),
@@ -299,6 +338,7 @@ const macroRunSchema = z.object({
   allowDisabledForTest: z.boolean().optional(),
   context: z.record(z.unknown()).optional(),
   commandMeta: commandMetaSchema.optional(),
+  operatorActionContext: operatorActionContextSchema.optional(),
 });
 const macroTriggerUpdateSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("onScreenOpen"), screenKey: z.string().min(1) }),
@@ -499,6 +539,47 @@ async function requirePermission(
   }
   const auth = toAuthContext(user);
   if (!auth.permissions.has(permission)) {
+    await reply.code(403).send({
+      error: "Forbidden",
+      requiredPermission: permission,
+      message: `Insufficient permissions. Required: ${permission}`,
+    });
+    return null;
+  }
+  return auth;
+}
+
+async function requirePermissionWithOperatorActionContext(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  deps: ApiDeps,
+  permission: AppPermission,
+  operatorActionContext: OperatorActionContext | undefined,
+): Promise<AuthContext | null> {
+  const user = await resolveAuthUser(request, deps);
+  if (!user) {
+    if (isGuestRuntimePermissionAllowed(deps, permission)) {
+      return {
+        userId: "guest-runtime",
+        username: undefined,
+        userRole: null,
+        permissions: new Set<AppPermission>(),
+        roleLevel: 0,
+      };
+    }
+    await reply.code(401).send({ error: "Unauthorized", message: "Authentication required" });
+    return null;
+  }
+  const auth = toAuthContext(user);
+  if (!auth.permissions.has(permission)) {
+    await tryCreateRuntimeOperatorAction({
+      deps,
+      request,
+      auth,
+      context: operatorActionContext,
+      result: "denied",
+      errorText: `Permission denied: ${permission}`,
+    });
     await reply.code(403).send({
       error: "Forbidden",
       requiredPermission: permission,
@@ -804,6 +885,205 @@ function resolveOperatorActionArchiveSettings(project: ScadaProject): OperatorAc
     optimizeAfterCleanup: archiveSettings?.optimizeAfterCleanup ?? false,
     updatedAt: archiveSettings?.updatedAt,
   };
+}
+
+function findObjectDeep(objects: HmiObject[], objectId: string): HmiObject | undefined {
+  for (const object of objects) {
+    if (object.id === objectId) {
+      return object;
+    }
+    if (object.type === "group") {
+      const nested = findObjectDeep(object.objects, objectId);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+  return undefined;
+}
+
+function findProjectObject(project: ScadaProject, objectId: string): HmiObject | undefined {
+  for (const screen of project.screens) {
+    const found = findObjectDeep(screen.objects, objectId);
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
+function isOperatorActionLoggingEnabled(project: ScadaProject, context: OperatorActionContext): boolean {
+  if (project.operatorActionSettings?.enabled === false) {
+    return false;
+  }
+  const object = findProjectObject(project, context.objectId);
+  return object?.operatorActionLogging?.enabled === true;
+}
+
+function toActionPlaceholder(kind: OperatorActionKind, details: Record<string, unknown> | undefined): string {
+  const durationMs = typeof details?.pulseDurationMs === "number" && Number.isFinite(details.pulseDurationMs)
+    ? Math.max(1, Math.floor(details.pulseDurationMs))
+    : undefined;
+  if (kind === "pulse" && durationMs !== undefined) {
+    return `pulse ${durationMs}ms`;
+  }
+  return kind;
+}
+
+function resolveDefaultTemplateByKind(project: ScadaProject, actionKind: OperatorActionKind): string {
+  if (actionKind === "button" || actionKind === "pulse" || actionKind === "toggle") {
+    return project.operatorActionSettings?.defaultButtonTemplate
+      ?? DEFAULT_OPERATOR_ACTION_BUTTON_TEMPLATE;
+  }
+  if (actionKind === "checkbox") {
+    return project.operatorActionSettings?.defaultCheckboxTemplate
+      ?? DEFAULT_OPERATOR_ACTION_CHECKBOX_TEMPLATE;
+  }
+  if (actionKind === "slider") {
+    return project.operatorActionSettings?.defaultSliderTemplate
+      ?? DEFAULT_OPERATOR_ACTION_SLIDER_TEMPLATE;
+  }
+  if (actionKind === "numericInput") {
+    return project.operatorActionSettings?.defaultNumericInputTemplate
+      ?? DEFAULT_OPERATOR_ACTION_NUMERIC_INPUT_TEMPLATE;
+  }
+  return project.operatorActionSettings?.defaultValueChangeTemplate
+    ?? DEFAULT_OPERATOR_ACTION_VALUE_CHANGE_TEMPLATE;
+}
+
+function formatOperatorActionValue(value: string | number | boolean | null | undefined): string {
+  if (value === undefined || value === null) {
+    return "-";
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  return String(value);
+}
+
+function renderOperatorActionTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(user|role|objectName|description|objectId|objectType|screenName|screenId|target|oldValue|newValue|unit|timestamp|actionType)\}/g, (_full, key: string) => {
+    return values[key] ?? "";
+  });
+}
+
+function isSensitiveTargetName(targetName: string | undefined): boolean {
+  if (!targetName) {
+    return false;
+  }
+  return /(password|passwd|pwd|token|secret|credential|api[_-]?key|private[_-]?key|session|auth|pin)/i.test(targetName);
+}
+
+function sanitizeOperatorActionValues(
+  targetName: string | undefined,
+  oldValue: string | number | boolean | null | undefined,
+  newValue: string | number | boolean | null | undefined,
+): { oldValue: string | number | boolean | null | undefined; newValue: string | number | boolean | null | undefined } {
+  if (!isSensitiveTargetName(targetName)) {
+    return { oldValue, newValue };
+  }
+  return {
+    oldValue: "***",
+    newValue: "***",
+  };
+}
+
+async function tryCreateRuntimeOperatorAction(params: {
+  deps: ApiDeps;
+  request: FastifyRequest;
+  auth: AuthContext;
+  context: OperatorActionContext | undefined;
+  result: OperatorActionResult;
+  oldValue?: string | number | boolean | null;
+  newValue?: string | number | boolean | null;
+  errorText?: string;
+}): Promise<void> {
+  if (!params.context) {
+    return;
+  }
+  if (!params.deps.archiveService?.isEnabled()) {
+    return;
+  }
+  const project = params.deps.projectService.getProject();
+  if (!isOperatorActionLoggingEnabled(project, params.context)) {
+    return;
+  }
+
+  const sourceOldValue = params.oldValue ?? params.context.clientOldValue;
+  const sourceNewValue = params.newValue ?? params.context.requestedValue;
+  const sensitiveTarget = isSensitiveTargetName(params.context.targetName);
+  const sanitized = sanitizeOperatorActionValues(params.context.targetName, sourceOldValue, sourceNewValue);
+  const occurredAt = new Date().toISOString();
+  const username = params.auth.username ?? params.auth.userId ?? "unknown";
+  const role = params.auth.userRole ?? "";
+  const description = params.context.objectDescription
+    ?? params.context.objectName
+    ?? params.context.targetName
+    ?? params.context.objectId;
+  const selectedTemplate = params.context.messageTemplate
+    ?? resolveDefaultTemplateByKind(project, params.context.actionKind)
+    ?? 'Пользователь {user} выполнил действие "{actionType}" у объекта "{description}"';
+  const values = {
+    user: username,
+    role,
+    objectName: params.context.objectName ?? "",
+    description: description ?? "",
+    objectId: params.context.objectId,
+    objectType: params.context.objectType,
+    screenName: params.context.screenName ?? "",
+    screenId: params.context.screenId ?? "",
+    target: params.context.targetName ?? "",
+    oldValue: formatOperatorActionValue(sanitized.oldValue),
+    newValue: formatOperatorActionValue(sanitized.newValue),
+    unit: params.context.unit ?? "",
+    timestamp: occurredAt,
+    actionType: toActionPlaceholder(params.context.actionKind, params.context.details),
+  };
+  const messageText = renderOperatorActionTemplate(selectedTemplate, values)
+    || renderOperatorActionTemplate('Пользователь {user} выполнил действие "{actionType}" у объекта "{description}"', values);
+  const safeDetails = sensitiveTarget
+    ? {
+      ...(params.context.details ?? {}),
+      sensitiveTarget: true,
+      redacted: true,
+    }
+    : (params.context.details ?? null);
+  try {
+    await params.deps.archiveService.createOperatorAction({
+      occurredAt,
+      userId: params.auth.userId ?? null,
+      username: params.auth.username ?? null,
+      userRole: params.auth.userRole ?? null,
+      ip: params.request.ip ?? null,
+      screenId: params.context.screenId ?? null,
+      screenName: params.context.screenName ?? null,
+      objectId: params.context.objectId,
+      objectName: params.context.objectName ?? null,
+      objectDescription: params.context.objectDescription ?? null,
+      objectType: params.context.objectType,
+      actionKind: params.context.actionKind,
+      targetType: params.context.targetType ?? null,
+      targetName: params.context.targetName ?? null,
+      oldValue: sanitized.oldValue,
+      newValue: sanitized.newValue,
+      unit: params.context.unit ?? null,
+      messageTemplate: selectedTemplate,
+      messageText,
+      result: params.result,
+      errorText: params.errorText ? params.errorText.slice(0, 500) : null,
+      details: safeDetails,
+    });
+  } catch (error) {
+    params.request.log.warn(
+      {
+        objectId: params.context.objectId,
+        targetName: params.context.targetName,
+        result: params.result,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "failed to create runtime operator action record",
+    );
+  }
 }
 
 function csvEscape(value: unknown): string {
@@ -1141,20 +1421,52 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.post("/api/tags/:name/write", async (request, reply) => {
-    const auth = await requirePermission(request, reply, deps, "tags.write");
+    const params = request.params as { name: string };
+    const rawContext = (
+      typeof request.body === "object"
+      && request.body
+      && "operatorActionContext" in request.body
+    ) ? (request.body as { operatorActionContext?: unknown }).operatorActionContext : undefined;
+    const parsedOperatorActionContext = operatorActionContextSchema.safeParse(rawContext);
+    const auth = await requirePermissionWithOperatorActionContext(
+      request,
+      reply,
+      deps,
+      "tags.write",
+      parsedOperatorActionContext.success ? parsedOperatorActionContext.data : undefined,
+    );
     if (!auth) {
       return;
     }
-    const params = request.params as { name: string };
-    const payload = writeSchema.parse(request.body);
+    const payload = writeSchema.parse(request.body ?? {});
+    const serverOldValue = deps.tagStore.getValue(params.name)?.value as string | number | boolean | null | undefined;
     try {
       await deps.commandService.writeTag(params.name, payload.value, {
         manual: true,
         commandMeta: payload.commandMeta,
       });
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "success",
+        oldValue: serverOldValue,
+        newValue: payload.value,
+      });
       return reply.send({ ok: true });
     } catch (error) {
       if (error instanceof ManualCommandError) {
+        await tryCreateRuntimeOperatorAction({
+          deps,
+          request,
+          auth,
+          context: payload.operatorActionContext,
+          result: "failed",
+          oldValue: serverOldValue,
+          newValue: payload.value,
+          errorText: error.reason === "driver_offline" ? "Command rejected: driver unavailable" : error.message,
+        });
         request.log.warn({
           timestamp: new Date().toISOString(),
           commandKey: payload.commandMeta?.commandKey ?? `tag:${params.name}`,
@@ -1165,9 +1477,19 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         return reply.code(toManualCommandStatusCode(error.reason)).send({
           ok: false,
           reason: error.reason,
-          message: error.message,
+            message: error.message,
         });
       }
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "failed",
+        oldValue: serverOldValue,
+        newValue: payload.value,
+        errorText: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   });
@@ -1639,20 +1961,52 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   app.get("/api/variables", async () => deps.internalVariableService.getAll());
 
   app.post("/api/variables/:name/write", async (request, reply) => {
-    const auth = await requirePermission(request, reply, deps, "tags.write");
+    const params = request.params as { name: string };
+    const rawContext = (
+      typeof request.body === "object"
+      && request.body
+      && "operatorActionContext" in request.body
+    ) ? (request.body as { operatorActionContext?: unknown }).operatorActionContext : undefined;
+    const parsedOperatorActionContext = operatorActionContextSchema.safeParse(rawContext);
+    const auth = await requirePermissionWithOperatorActionContext(
+      request,
+      reply,
+      deps,
+      "tags.write",
+      parsedOperatorActionContext.success ? parsedOperatorActionContext.data : undefined,
+    );
     if (!auth) {
       return;
     }
-    const params = request.params as { name: string };
-    const payload = writeSchema.parse(request.body);
+    const payload = writeSchema.parse(request.body ?? {});
+    const serverOldValue = deps.internalVariableService.get(params.name)?.value as string | number | boolean | null | undefined;
     try {
       await deps.commandService.writeVariable(params.name, payload.value, {
         manual: true,
         commandMeta: payload.commandMeta,
       });
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "success",
+        oldValue: serverOldValue,
+        newValue: payload.value,
+      });
       return reply.send({ ok: true });
     } catch (error) {
       if (error instanceof ManualCommandError) {
+        await tryCreateRuntimeOperatorAction({
+          deps,
+          request,
+          auth,
+          context: payload.operatorActionContext,
+          result: "failed",
+          oldValue: serverOldValue,
+          newValue: payload.value,
+          errorText: error.message,
+        });
         request.log.warn({
           timestamp: new Date().toISOString(),
           commandKey: payload.commandMeta?.commandKey ?? `variable:${params.name}`,
@@ -1663,9 +2017,19 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         return reply.code(toManualCommandStatusCode(error.reason)).send({
           ok: false,
           reason: error.reason,
-          message: error.message,
+            message: error.message,
         });
       }
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "failed",
+        oldValue: serverOldValue,
+        newValue: payload.value,
+        errorText: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   });
@@ -1741,10 +2105,23 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
   });
 
   app.post("/api/macros/:id/run", async (request, reply) => {
-    const auth = await requirePermission(request, reply, deps, "macros.run");
+    const rawContext = (
+      typeof request.body === "object"
+      && request.body
+      && "operatorActionContext" in request.body
+    ) ? (request.body as { operatorActionContext?: unknown }).operatorActionContext : undefined;
+    const parsedOperatorActionContext = operatorActionContextSchema.safeParse(rawContext);
+    const auth = await requirePermissionWithOperatorActionContext(
+      request,
+      reply,
+      deps,
+      "macros.run",
+      parsedOperatorActionContext.success ? parsedOperatorActionContext.data : undefined,
+    );
     if (!auth) {
       return;
     }
+    const payload = macroRunSchema.parse(request.body ?? {});
     const params = request.params as { id: string };
     const debugHeader = request.headers["x-debug-runtime-command"];
     const runtimeCommandDebug = (Array.isArray(debugHeader) ? debugHeader[0] : debugHeader) === "1";
@@ -1787,7 +2164,6 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         "runtime macro debug",
       );
     }
-    const payload = macroRunSchema.parse(request.body ?? {});
     if (runtimeCommandDebug) {
       request.log.info(
         {
@@ -1814,6 +2190,15 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         allowDisabledForTest: payload.allowDisabledForTest,
         context: payload.context,
         commandMeta: payload.commandMeta,
+      });
+      const logResult: OperatorActionResult = result.status === "ok" ? "success" : "failed";
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: logResult,
+        errorText: result.status === "skipped" ? `Macro skipped: ${result.reason ?? "unknown"}` : undefined,
       });
       if (runtimeCommandDebug) {
         request.log.info(
@@ -1860,6 +2245,14 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.send(responsePayload);
     } catch (error) {
       if (error instanceof ManualCommandError) {
+        await tryCreateRuntimeOperatorAction({
+          deps,
+          request,
+          auth,
+          context: payload.operatorActionContext,
+          result: "failed",
+          errorText: error.reason === "driver_offline" ? "Command rejected: driver unavailable" : error.message,
+        });
         const durationMs = Date.now() - startedAt;
         request.log.warn(
           {
@@ -1891,6 +2284,14 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
           macroId: params.id,
         });
       }
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "failed",
+        errorText: error instanceof Error ? error.message : String(error),
+      });
       const message = error instanceof Error ? error.message : String(error);
       const durationMs = Date.now() - startedAt;
       request.log.error(

@@ -19,6 +19,7 @@ import type {
   MacroRunResult,
   ManualCommandMeta,
   OperatorActionArchiveSettings,
+  OperatorActionContext,
   OperatorActionHistoryPage,
   OperatorActionHistoryQuery,
   PasswordPolicy,
@@ -768,7 +769,13 @@ export const api = {
   runMacro: (
     id: string,
     args?: Record<string, unknown>,
-    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown>; signal?: AbortSignal; commandMeta?: ManualCommandMeta },
+    options?: {
+      allowDisabledForTest?: boolean;
+      context?: Record<string, unknown>;
+      signal?: AbortSignal;
+      commandMeta?: ManualCommandMeta;
+      operatorActionContext?: OperatorActionContext;
+    },
   ) => {
     const macroId = sanitizeMacroId(id);
     const url = `/api/macros/${encodeURIComponent(macroId)}/run`;
@@ -779,6 +786,7 @@ export const api = {
       allowDisabledForTest: options?.allowDisabledForTest,
       context: options?.context,
       commandMeta: options?.commandMeta,
+      operatorActionContext: options?.operatorActionContext,
     };
     const body = JSON.stringify(payload);
     const bodySize = typeof TextEncoder !== "undefined" ? new TextEncoder().encode(body).length : body.length;
@@ -838,21 +846,25 @@ export const api = {
       throw error;
     });
   },
-  writeTag: (name: string, value: boolean | number | string | null, options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta }) =>
+  writeTag: (
+    name: string,
+    value: boolean | number | string | null,
+    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta; operatorActionContext?: OperatorActionContext },
+  ) =>
     request<{ ok: boolean }>(`/api/tags/${encodeURIComponent(name)}/write`, {
       method: "POST",
       signal: options?.signal,
-      body: JSON.stringify({ value, commandMeta: options?.commandMeta }),
+      body: JSON.stringify({ value, commandMeta: options?.commandMeta, operatorActionContext: options?.operatorActionContext }),
     }),
   writeVariable: (
     name: string,
     value: boolean | number | string | null,
-    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta },
+    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta; operatorActionContext?: OperatorActionContext },
   ) =>
     request<{ ok: boolean }>(`/api/variables/${encodeURIComponent(name)}/write`, {
       method: "POST",
       signal: options?.signal,
-      body: JSON.stringify({ value, commandMeta: options?.commandMeta }),
+      body: JSON.stringify({ value, commandMeta: options?.commandMeta, operatorActionContext: options?.operatorActionContext }),
     }),
   startRuntime: () => request<RuntimeState>("/api/runtime/start", { method: "POST" }),
   stopRuntime: () => request<RuntimeState>("/api/runtime/stop", { method: "POST" }),

@@ -35,6 +35,23 @@ export type OperatorActionResult = 'success' | 'failed' | 'denied';
 
 export type OperatorActionTargetType = 'tag' | 'variable' | 'lw' | 'macro' | 'screen' | 'unknown';
 
+export type OperatorActionContext = {
+  screenId?: string;
+  screenName?: string;
+  objectId: string;
+  objectName?: string;
+  objectDescription?: string;
+  objectType: string;
+  actionKind: OperatorActionKind;
+  targetType?: OperatorActionTargetType;
+  targetName?: string;
+  unit?: string;
+  messageTemplate?: string;
+  clientOldValue?: string | number | boolean | null;
+  requestedValue?: string | number | boolean | null;
+  details?: Record<string, unknown>;
+};
+
 export type OperatorActionRecord = {
   id: string;
   occurredAt: string;

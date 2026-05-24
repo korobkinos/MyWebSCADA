@@ -14,6 +14,7 @@ import type {
   MacroDefinition,
   MacroRunResult,
   ManualCommandMeta,
+  OperatorActionContext,
   RuntimeState,
   ScadaProject,
   ScreenKind,
@@ -54,17 +55,23 @@ type ScadaState = {
   writeTag: (
     name: string,
     value: boolean | number | string | null,
-    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta },
+    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta; operatorActionContext?: OperatorActionContext },
   ) => Promise<void>;
   writeVariable: (
     name: string,
     value: boolean | number | string | null,
-    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta },
+    options?: { signal?: AbortSignal; commandMeta?: ManualCommandMeta; operatorActionContext?: OperatorActionContext },
   ) => Promise<void>;
   runMacro: (
     macroId: string,
     args?: Record<string, unknown>,
-    options?: { allowDisabledForTest?: boolean; context?: Record<string, unknown>; signal?: AbortSignal; commandMeta?: ManualCommandMeta },
+    options?: {
+      allowDisabledForTest?: boolean;
+      context?: Record<string, unknown>;
+      signal?: AbortSignal;
+      commandMeta?: ManualCommandMeta;
+      operatorActionContext?: OperatorActionContext;
+    },
   ) => Promise<MacroRunResult>;
   updateMacro: (macroId: string, payload: {
     name: string;
