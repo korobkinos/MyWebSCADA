@@ -844,8 +844,11 @@ export type EventTableObject = HmiObjectBase & {
   showOperatorActionsToggle?: boolean;
   showAckVisibleButton?: boolean;
   showSilenceButton?: boolean;
+  showSoundMuteButton?: boolean;
   showEnableSoundsButton?: boolean;
   showSettingsButton?: boolean;
+  settingsRequiredRole?: AccessRoleLevel;
+  // TODO(eventTable): add dedicated soundMuteRequiresRole when sound button role-gating scope is approved.
   showCsvExportButton?: boolean;
   showStatusBar?: boolean;
   statusPosition?: "top" | "bottom" | "hidden";
@@ -894,6 +897,7 @@ export type EventTableObject = HmiObjectBase & {
   zebraRows?: boolean;
   compactMode?: boolean;
   soundPlaybackMode?: "once" | "loopUntilAcknowledged";
+  soundMuteMode?: "silenceCurrent" | "disableUntilEnabled";
   soundRepeatIntervalMs?: number;
   stopSoundOnAck?: boolean;
   stopSoundOnSilence?: boolean;

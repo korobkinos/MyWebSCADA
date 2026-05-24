@@ -1,4 +1,4 @@
-import type { EventDefinition, EventOccurrence, EventTableObject, HmiObject, OperatorActionRecord } from "@web-scada/shared";
+import { hasRoleAccess, type EventDefinition, type EventOccurrence, type EventTableObject, type HmiObject, type OperatorActionRecord } from "@web-scada/shared";
 import {
   AudioMutedOutlined,
   CheckCircleOutlined,
@@ -55,6 +55,8 @@ import { api } from "../../services/api";
 type EventTableRuntimeWidgetProps = {
   object: EventTableObject;
   screenId?: string;
+  userRoleLevel?: number;
+  isAuthenticated?: boolean;
 };
 
 type ColumnResizeState = {
@@ -108,6 +110,8 @@ const AUTO_COLUMN_MAX_WIDTH: Record<EventTableColumnId, number> = {
   state: 240,
   ack: 120,
 };
+
+type SoundStatusKind = "enabled" | "disabled" | "blocked" | "error";
 
 let textMeasureContext: CanvasRenderingContext2D | null | undefined;
 
@@ -563,7 +567,51 @@ function resolveEventMessageVisual(definition: EventDefinition | undefined): {
   };
 }
 
-export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeWidgetProps) {
+function isRussianUi(): boolean {
+  if (typeof document !== "undefined") {
+    const lang = document.documentElement.lang?.toLowerCase().trim();
+    if (lang?.startsWith("ru")) {
+      return true;
+    }
+  }
+  if (typeof navigator !== "undefined") {
+    return navigator.language.toLowerCase().startsWith("ru");
+  }
+  return false;
+}
+
+function getSoundStatusLabel(kind: SoundStatusKind, russianUi: boolean): string {
+  if (russianUi) {
+    if (kind === "disabled") {
+      return "звук отключён";
+    }
+    if (kind === "blocked") {
+      return "звук заблокирован";
+    }
+    if (kind === "error") {
+      return "ошибка звука";
+    }
+    return "звук включён";
+  }
+
+  if (kind === "disabled") {
+    return "sound disabled";
+  }
+  if (kind === "blocked") {
+    return "sound blocked";
+  }
+  if (kind === "error") {
+    return "sound error";
+  }
+  return "sound enabled";
+}
+
+export function EventTableRuntimeWidget({
+  object,
+  screenId,
+  userRoleLevel = 0,
+  isAuthenticated = false,
+}: EventTableRuntimeWidgetProps) {
   const runtimeEvents = useSyncExternalStore(
     eventRuntimeStore.subscribe,
     eventRuntimeStore.getSnapshot,
@@ -583,6 +631,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const [exportOpen, setExportOpen] = useState(false);
   const [runtimeColumnWidths, setRuntimeColumnWidths] = useState<Record<string, number>>({});
   const [soundSilenced, setSoundSilenced] = useState(false);
+  const [soundDisabledUntilEnabled, setSoundDisabledUntilEnabled] = useState(false);
   const [showOperatorActions, setShowOperatorActions] = useState(object.showOperatorActions === true);
   const [operatorActionHistory, setOperatorActionHistory] = useState<{
     items: OperatorActionRecord[];
@@ -611,6 +660,12 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const operatorActionRequestSeqRef = useRef(0);
 
   const config = useMemo(() => resolveEventTableConfig(object), [object]);
+  const russianUi = useMemo(() => isRussianUi(), []);
+  const usesPersistentSoundDisable = config.soundMuteMode === "disableUntilEnabled";
+  const soundMuteActive = usesPersistentSoundDisable ? soundDisabledUntilEnabled : soundSilenced;
+  const soundPlaybackDisabled = usesPersistentSoundDisable ? soundDisabledUntilEnabled : false;
+  const settingsRoleAllowed = hasRoleAccess(userRoleLevel, config.settingsRequiredRole);
+  const canOpenSettings = config.showSettingsButton && settingsRoleAllowed && (config.settingsRequiredRole ? isAuthenticated : true);
 
   const title = object.title?.trim() || "Event Table";
   const columns = config.columns;
@@ -891,6 +946,26 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   }, [object.id, object.showOperatorActions]);
 
   useEffect(() => {
+    if (usesPersistentSoundDisable) {
+      if (soundSilenced) {
+        setSoundSilenced(false);
+      }
+      silenceBlockedRef.current = false;
+      silenceSnapshotActiveIdsRef.current.clear();
+      return;
+    }
+    if (soundDisabledUntilEnabled) {
+      setSoundDisabledUntilEnabled(false);
+    }
+  }, [soundDisabledUntilEnabled, soundSilenced, usesPersistentSoundDisable]);
+
+  useEffect(() => {
+    if (settingsOpen && !canOpenSettings) {
+      setSettingsOpen(false);
+    }
+  }, [canOpenSettings, settingsOpen]);
+
+  useEffect(() => {
     setRuntimeColumnWidths(object.columnWidths ?? {});
   }, [object.columnWidths, object.id]);
 
@@ -1076,6 +1151,9 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   }, []);
 
   const playSoundForOccurrence = useCallback(async (occurrence: EventOccurrence) => {
+    if (soundPlaybackDisabled) {
+      return;
+    }
     const soundId = resolveEventOccurrenceSoundId(occurrence, object, projectEventSounds);
     if (!soundId) {
       return;
@@ -1100,9 +1178,12 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     if (soundStatusText) {
       setSoundStatusText("");
     }
-  }, [object, projectEventSounds, runtimeEvents.soundStatusMessage, soundStatusText]);
+  }, [object, projectEventSounds, runtimeEvents.soundStatusMessage, soundPlaybackDisabled, soundStatusText]);
 
   const startLoopSoundForOccurrence = useCallback(async (occurrence: EventOccurrence) => {
+    if (soundPlaybackDisabled) {
+      return { ok: false as const, reason: "sound_disabled" as const };
+    }
     const soundId = resolveEventOccurrenceSoundId(occurrence, object, projectEventSounds);
     if (!soundId) {
       return { ok: false as const, reason: "missing_sound_id" as const };
@@ -1128,7 +1209,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       setSoundStatusText("");
     }
     return { ok: true as const };
-  }, [object, projectEventSounds, runtimeEvents.soundStatusMessage, soundStatusText]);
+  }, [object, projectEventSounds, runtimeEvents.soundStatusMessage, soundPlaybackDisabled, soundStatusText]);
 
   useEffect(() => {
     if (mode !== "online" || config.soundPlaybackMode !== "once") {
@@ -1186,7 +1267,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         .filter(Boolean),
     );
 
-    if (silenceBlockedRef.current) {
+    if (!usesPersistentSoundDisable && silenceBlockedRef.current) {
       const hasNewUnackedActive = [...unackedActiveIds].some((id) => !silenceSnapshotActiveIdsRef.current.has(id));
       if (hasNewUnackedActive) {
         silenceBlockedRef.current = false;
@@ -1206,7 +1287,14 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       return;
     }
 
-    if (silenceBlockedRef.current) {
+    if (soundPlaybackDisabled) {
+      clearSoundLoopRetryTimer();
+      eventSoundPlayer.stopSeamlessLoop();
+      eventSoundPlayer.stopCurrentSound();
+      return;
+    }
+
+    if (!usesPersistentSoundDisable && silenceBlockedRef.current) {
       clearSoundLoopRetryTimer();
       eventSoundPlayer.stopSeamlessLoop();
       return;
@@ -1250,8 +1338,10 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     config.soundRepeatIntervalMs,
     config.stopSoundOnAck,
     mode,
+    soundPlaybackDisabled,
     soundSilenced,
     startLoopSoundForOccurrence,
+    usesPersistentSoundDisable,
     runtimeEvents.activeEvents,
   ]);
 
@@ -1422,25 +1512,59 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const muteSounds = useCallback(() => {
     eventSoundPlayer.stopSeamlessLoop();
     eventSoundPlayer.stopAllSounds();
-    setSoundSilenced(true);
-    silenceBlockedRef.current = true;
-    silenceSnapshotActiveIdsRef.current = new Set(
-      runtimeEvents.activeEvents
-        .filter((item) => !item.acknowledgedAt && !item.clearedAt)
-        .map((item) => normalizeOccurrenceId(item))
-        .filter(Boolean),
-    );
-    setSoundStatusText("Sound playback stopped.");
+    if (usesPersistentSoundDisable) {
+      silenceBlockedRef.current = false;
+      silenceSnapshotActiveIdsRef.current.clear();
+      setSoundSilenced(false);
+      setSoundDisabledUntilEnabled(true);
+    } else {
+      setSoundSilenced(true);
+      silenceBlockedRef.current = true;
+      silenceSnapshotActiveIdsRef.current = new Set(
+        runtimeEvents.activeEvents
+          .filter((item) => !item.acknowledgedAt && !item.clearedAt)
+          .map((item) => normalizeOccurrenceId(item))
+          .filter(Boolean),
+      );
+    }
+    setSoundStatusText("");
     eventRuntimeStore.setSoundStatusMessage(null);
-  }, [runtimeEvents.activeEvents]);
+  }, [runtimeEvents.activeEvents, usesPersistentSoundDisable]);
 
   const unsilenceSounds = useCallback(() => {
     silenceBlockedRef.current = false;
     silenceSnapshotActiveIdsRef.current.clear();
     setSoundSilenced(false);
-    setSoundStatusText("Sounds enabled.");
+    setSoundDisabledUntilEnabled(false);
+    setSoundStatusText("");
     eventRuntimeStore.setSoundStatusMessage(null);
   }, []);
+
+  const soundStatusKind: SoundStatusKind = useMemo(() => {
+    const statusText = (runtimeEvents.soundStatusMessage || soundStatusText || "").trim();
+    if (soundMuteActive) {
+      return "disabled";
+    }
+    if (eventSoundPlayer.hasAutoplayBlock()) {
+      return "blocked";
+    }
+    if (statusText) {
+      return "error";
+    }
+    return "enabled";
+  }, [runtimeEvents.soundStatusMessage, soundMuteActive, soundStatusText]);
+
+  const soundStatusLabel = useMemo(
+    () => getSoundStatusLabel(soundStatusKind, russianUi),
+    [russianUi, soundStatusKind],
+  );
+
+  const openSettingsDialog = useCallback(() => {
+    if (!canOpenSettings) {
+      return;
+    }
+    setSettingsOpen(true);
+  }, [canOpenSettings]);
 
   const renderStatus = () => {
     if (!showStatus) {
@@ -1452,6 +1576,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       `Event status: ${onlineStatusLabel}`,
       `active ${runtimeEvents.activeCount}`,
       `unacked ${runtimeEvents.unacknowledgedCount}`,
+      soundStatusLabel,
       object.showLastUpdate === false ? "update --:--:--" : `update ${formatStatusClockTime(runtimeEvents.lastUpdateAt)}`,
       object.showModeIndicator === false ? "mode --" : "mode online",
       object.showRecordCount === false ? "rows --" : `rows ${onlineRows.length}`,
@@ -1462,6 +1587,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       `Event archive: ${historyState}`,
       `period ${historyPreset.label}`,
       `records ${historyTotalRowsForMode}`,
+      soundStatusLabel,
       object.showDatabaseStatus === false ? "DB --" : `DB ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)}`,
       object.showDatabaseStatus === false ? "total --" : `total ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`,
     ];
@@ -1490,8 +1616,8 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     }
 
     const lineOne = mode === "history"
-      ? `Event archive: ${historyState} | period ${historyPreset.label} | records ${historyTotalRowsForMode}`
-      : `Event status: ${onlineStatusLabel} | active ${runtimeEvents.activeCount} | unacked ${runtimeEvents.unacknowledgedCount}`;
+      ? `Event archive: ${historyState} | period ${historyPreset.label} | records ${historyTotalRowsForMode} | ${soundStatusLabel}`
+      : `Event status: ${onlineStatusLabel} | active ${runtimeEvents.activeCount} | unacked ${runtimeEvents.unacknowledgedCount} | ${soundStatusLabel}`;
     const lineTwo = mode === "history"
       ? (object.showDatabaseStatus === false
         ? "DB -- | total --"
@@ -1584,17 +1710,13 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     [autoColumnWidths, columns, effectiveColumnWidths],
   );
 
-  const hasSoundNote = (soundSilenced ? "Sound is silenced." : "")
-    || soundStatusText
-    || runtimeEvents.soundStatusMessage
-    || (eventSoundPlayer.hasAutoplayBlock() ? "Sound playback was blocked by the browser. Click Enable sounds." : "");
   const historyFilterNote = mode === "history" && hasMultiValueHistoryFilters(object)
     ? "History filter uses single category and single priority value; extra values are ignored."
     : "";
   const operatorActionModeNote = mode === "online" && showOperatorActions
     ? "Operator actions are shown in online mode for the last 5 minutes."
     : "";
-  const statusNote = [hasSoundNote, historyFilterNote, operatorActionModeNote].filter(Boolean).join(" | ");
+  const statusNote = [historyFilterNote, operatorActionModeNote].filter(Boolean).join(" | ");
 
   const historyCanPrev = historyPage > 1;
   const historyCanNext = historyPage < totalPages;
@@ -1703,12 +1825,14 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         />
       ) : null}
 
-      {config.showSilenceButton ? (
+      {config.showSoundMuteButton ? (
         <WorkbenchIconButton
-          title={soundSilenced ? "Silence off" : "Silence sounds"}
-          active={soundSilenced}
+          title={soundMuteActive
+            ? (russianUi ? "Звук отключён до ручного включения" : "Sound disabled until manually enabled")
+            : (russianUi ? "Отключить звук" : "Disable sounds")}
+          active={soundMuteActive}
           onClick={() => {
-            if (soundSilenced) {
+            if (soundMuteActive) {
               unsilenceSounds();
               return;
             }
@@ -1720,10 +1844,12 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
 
       {config.showEnableSoundsButton ? (
         <WorkbenchIconButton
-          title={soundSilenced ? "Enable sounds" : "Sounds enabled"}
-          active={!soundSilenced}
+          title={soundMuteActive
+            ? (russianUi ? "Включить звук" : "Enable sounds")
+            : (russianUi ? "Звук включён" : "Sounds enabled")}
+          active={!soundMuteActive}
           onClick={() => {
-            if (!soundSilenced) {
+            if (!soundMuteActive) {
               return;
             }
             void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
@@ -1739,10 +1865,10 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
         />
       ) : null}
 
-      {config.showSettingsButton ? (
+      {canOpenSettings ? (
         <WorkbenchIconButton
           title="Settings"
-          onClick={() => setSettingsOpen(true)}
+          onClick={openSettingsDialog}
           icon={<SettingOutlined />}
         />
       ) : null}
@@ -2043,7 +2169,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       </div>
 
       <EventTableSettingsDialog
-        open={settingsOpen}
+        open={settingsOpen && canOpenSettings}
         object={object}
         onClose={() => setSettingsOpen(false)}
         onPatch={patchObject}

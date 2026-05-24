@@ -42,6 +42,7 @@ describe("resolveEventTableConfig", () => {
     expect(resolved.showUnackedOnlyToggle).toBe(true);
     expect(resolved.showAckVisibleButton).toBe(false);
     expect(resolved.showSilenceButton).toBe(true);
+    expect(resolved.showSoundMuteButton).toBe(true);
     expect(resolved.showEnableSoundsButton).toBe(false);
     expect(resolved.showCsvExportButton).toBe(true);
   });
@@ -54,6 +55,32 @@ describe("resolveEventTableConfig", () => {
     expect(hidden.soundRepeatIntervalMs).toBe(5000);
     expect(hidden.stopSoundOnAck).toBe(true);
     expect(hidden.stopSoundOnSilence).toBe(true);
+    expect(hidden.soundMuteMode).toBe("silenceCurrent");
+    expect(hidden.settingsRequiredRole).toBeUndefined();
+  });
+
+  it("prefers explicit sound mute toggle field and keeps legacy aliases working", () => {
+    const explicitOff = resolveEventTableConfig(makeObject({
+      showSoundMuteButton: false,
+      showSilenceButton: true,
+      enableSilenceButton: true,
+    }));
+    expect(explicitOff.showSoundMuteButton).toBe(false);
+
+    const legacy = resolveEventTableConfig(makeObject({
+      showSilenceButton: false,
+      enableSilenceButton: true,
+    }));
+    expect(legacy.showSoundMuteButton).toBe(false);
+  });
+
+  it("normalizes sound mute mode and settings required role", () => {
+    const resolved = resolveEventTableConfig(makeObject({
+      soundMuteMode: "disableUntilEnabled",
+      settingsRequiredRole: 3,
+    }));
+    expect(resolved.soundMuteMode).toBe("disableUntilEnabled");
+    expect(resolved.settingsRequiredRole).toBe(3);
   });
 
   it("defaults operator actions toggle to toolbar visibility unless overridden", () => {

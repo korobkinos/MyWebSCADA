@@ -4721,8 +4721,8 @@ function SpecificPropertyFields({
             <Switch checked={object.showAckVisibleButton ?? object.enableAckButton ?? true} onChange={(checked) => onPatch({ showAckVisibleButton: checked } as Partial<HmiObject>)} />
           </div>
           <div className="object-property-panel__switch-item">
-            <span className="object-property-panel__switch-label">Show Silence Button</span>
-            <Switch checked={object.showSilenceButton ?? object.enableSilenceButton ?? true} onChange={(checked) => onPatch({ showSilenceButton: checked } as Partial<HmiObject>)} />
+            <span className="object-property-panel__switch-label">Show Sound Mute Button</span>
+            <Switch checked={object.showSoundMuteButton ?? object.showSilenceButton ?? object.enableSilenceButton ?? true} onChange={(checked) => onPatch({ showSoundMuteButton: checked, showSilenceButton: checked } as Partial<HmiObject>)} />
           </div>
           <div className="object-property-panel__switch-item">
             <span className="object-property-panel__switch-label">Show Enable Sounds Button</span>
@@ -4737,6 +4737,13 @@ function SpecificPropertyFields({
             <Switch checked={object.showCsvExportButton ?? object.enableCsvExportButton ?? true} onChange={(checked) => onPatch({ showCsvExportButton: checked } as Partial<HmiObject>)} />
           </div>
         </div>
+        <Form.Item label="Settings Required Role">
+          <Select
+            value={(object.settingsRequiredRole ?? 0) as AccessRoleLevel}
+            options={accessRoleOptions}
+            onChange={(value) => onPatch({ settingsRequiredRole: Number(value) as AccessRoleLevel } as Partial<HmiObject>)}
+          />
+        </Form.Item>
 
         <Divider style={{ margin: "10px 0" }} />
         <Typography.Text strong>Sound</Typography.Text>
@@ -4748,6 +4755,16 @@ function SpecificPropertyFields({
               { value: "loopUntilAcknowledged", label: "loopUntilAcknowledged" },
             ]}
             onChange={(value) => onPatch({ soundPlaybackMode: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Sound Mute Mode">
+          <Select
+            value={object.soundMuteMode ?? "silenceCurrent"}
+            options={[
+              { value: "silenceCurrent", label: "Silence current sound only" },
+              { value: "disableUntilEnabled", label: "Disable sounds until manually enabled" },
+            ]}
+            onChange={(value) => onPatch({ soundMuteMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
         <Form.Item label="Repeat Interval (ms)">

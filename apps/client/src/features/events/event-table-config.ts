@@ -1,5 +1,5 @@
-import type { EventOccurrence, EventSound, EventTableObject } from "@web-scada/shared";
-import { ensureDefaultEventSounds } from "@web-scada/shared";
+import type { AccessRoleLevel, EventOccurrence, EventSound, EventTableObject } from "@web-scada/shared";
+import { clampAccessRoleLevel, ensureDefaultEventSounds } from "@web-scada/shared";
 import {
   DEFAULT_EVENT_TABLE_COLUMNS,
   type EventTableColumnId,
@@ -8,6 +8,7 @@ import {
 
 export type EventTableColumnAlign = "left" | "center" | "right";
 export type EventTableSoundPlaybackMode = "once" | "loopUntilAcknowledged";
+export type EventTableSoundMuteMode = "silenceCurrent" | "disableUntilEnabled";
 
 export type ResolvedEventTableConfig = {
   titlePosition: "top" | "bottom" | "hidden";
@@ -19,12 +20,15 @@ export type ResolvedEventTableConfig = {
   showUnackedOnlyToggle: boolean;
   showOperatorActionsToggle: boolean;
   showAckVisibleButton: boolean;
+  showSoundMuteButton: boolean;
   showSilenceButton: boolean;
   showEnableSoundsButton: boolean;
   showSettingsButton: boolean;
+  settingsRequiredRole?: AccessRoleLevel;
   showCsvExportButton: boolean;
   statusSingleLine: boolean;
   soundPlaybackMode: EventTableSoundPlaybackMode;
+  soundMuteMode: EventTableSoundMuteMode;
   soundRepeatIntervalMs: number;
   stopSoundOnAck: boolean;
   stopSoundOnSilence: boolean;
@@ -75,6 +79,13 @@ function trimOrUndefined(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
+function resolveRoleLevel(value: unknown): AccessRoleLevel | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+  return clampAccessRoleLevel(value, 0);
+}
+
 export function resolveEventTableConfig(object: EventTableObject): ResolvedEventTableConfig {
   const columns = normalizeEventTableColumns(object.columns);
   const titlePosition = object.titlePosition ?? (object.showTitle === false ? "hidden" : "top");
@@ -90,6 +101,12 @@ export function resolveEventTableConfig(object: EventTableObject): ResolvedEvent
     columnAlignments[column] = resolveColumnAlign(object.columnAlignments?.[column], fallbackAlign);
   }
 
+  const showSoundMuteButton = resolveToggle(
+    object.showSoundMuteButton,
+    object.showSilenceButton ?? object.enableSilenceButton,
+    true,
+  );
+
   return {
     titlePosition,
     titleAlign: object.titleAlign ?? "left",
@@ -100,12 +117,15 @@ export function resolveEventTableConfig(object: EventTableObject): ResolvedEvent
     showUnackedOnlyToggle: resolveToggle(object.showUnackedOnlyToggle, object.enableUnackedOnlyToggle, true),
     showOperatorActionsToggle,
     showAckVisibleButton: resolveToggle(object.showAckVisibleButton, object.enableAckButton, true),
-    showSilenceButton: resolveToggle(object.showSilenceButton, object.enableSilenceButton, true),
+    showSoundMuteButton,
+    showSilenceButton: showSoundMuteButton,
     showEnableSoundsButton: resolveToggle(object.showEnableSoundsButton, object.enableSoundsButton, true),
     showSettingsButton: resolveToggle(object.showSettingsButton, undefined, true),
+    settingsRequiredRole: resolveRoleLevel(object.settingsRequiredRole),
     showCsvExportButton: resolveToggle(object.showCsvExportButton, object.enableCsvExportButton, true),
     statusSingleLine: object.statusSingleLine !== false,
     soundPlaybackMode: object.soundPlaybackMode === "loopUntilAcknowledged" ? "loopUntilAcknowledged" : "once",
+    soundMuteMode: object.soundMuteMode === "disableUntilEnabled" ? "disableUntilEnabled" : "silenceCurrent",
     soundRepeatIntervalMs: clamp(Math.round(toFiniteNumber(object.soundRepeatIntervalMs, 5000)), 1000, 60000),
     stopSoundOnAck: object.stopSoundOnAck !== false,
     stopSoundOnSilence: object.stopSoundOnSilence !== false,

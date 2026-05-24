@@ -1,5 +1,5 @@
-import type { EventSound, EventTableObject } from "@web-scada/shared";
-import { ensureDefaultEventSounds } from "@web-scada/shared";
+import type { AccessRoleLevel, EventSound, EventTableObject } from "@web-scada/shared";
+import { ACCESS_ROLE_LABELS_RU, ensureDefaultEventSounds } from "@web-scada/shared";
 import { ColorPicker } from "antd";
 import { useMemo, useState } from "react";
 import { DEFAULT_EVENT_TABLE_COLUMN_LABELS, type EventTableColumnId } from "./event-table-columns";
@@ -36,6 +36,14 @@ const DEFAULT_COLUMNS: EventTableColumnId[] = [
   "value",
   "state",
   "ack",
+];
+
+const accessRoleOptions: Array<{ value: AccessRoleLevel; label: string }> = [
+  { value: 0, label: `0 - ${ACCESS_ROLE_LABELS_RU[0]}` },
+  { value: 1, label: `1 - ${ACCESS_ROLE_LABELS_RU[1]}` },
+  { value: 2, label: `2 - ${ACCESS_ROLE_LABELS_RU[2]}` },
+  { value: 3, label: `3 - ${ACCESS_ROLE_LABELS_RU[3]}` },
+  { value: 4, label: `4 - ${ACCESS_ROLE_LABELS_RU[4]}` },
 ];
 
 function clamp(value: number, min: number, max: number): number {
@@ -375,9 +383,15 @@ export function EventTableSettingsDialog({ open, object, onClose, onPatch }: Eve
           <label className="screen-editor-settings-check"><input type="checkbox" checked={resolved.showActiveOnlyToggle} onChange={(event) => onPatch({ showActiveOnlyToggle: event.target.checked })} /><span>Show active-only toggle</span></label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={resolved.showUnackedOnlyToggle} onChange={(event) => onPatch({ showUnackedOnlyToggle: event.target.checked })} /><span>Show unacked-only toggle</span></label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={resolved.showAckVisibleButton} onChange={(event) => onPatch({ showAckVisibleButton: event.target.checked })} /><span>Show Ack visible button</span></label>
-          <label className="screen-editor-settings-check"><input type="checkbox" checked={resolved.showSilenceButton} onChange={(event) => onPatch({ showSilenceButton: event.target.checked })} /><span>Show Silence button</span></label>
+          <label className="screen-editor-settings-check"><input type="checkbox" checked={resolved.showSoundMuteButton} onChange={(event) => onPatch({ showSoundMuteButton: event.target.checked, showSilenceButton: event.target.checked })} /><span>Show sound mute button</span></label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={resolved.showEnableSoundsButton} onChange={(event) => onPatch({ showEnableSoundsButton: event.target.checked })} /><span>Show Enable sounds button</span></label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={resolved.showSettingsButton} onChange={(event) => onPatch({ showSettingsButton: event.target.checked })} /><span>Show settings button</span></label>
+          <label className="workbench-field">
+            <span className="workbench-field__label">Settings required role</span>
+            <select className="workbench-select" value={object.settingsRequiredRole ?? 0} onChange={(event) => onPatch({ settingsRequiredRole: Number(event.target.value) as AccessRoleLevel })}>
+              {accessRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={resolved.showCsvExportButton} onChange={(event) => onPatch({ showCsvExportButton: event.target.checked })} /><span>Show CSV export button</span></label>
         </div>
       );
@@ -387,6 +401,7 @@ export function EventTableSettingsDialog({ open, object, onClose, onPatch }: Eve
       return (
         <div className="event-table-settings-fields event-table-settings-fields--two-col">
           <label className="workbench-field"><span className="workbench-field__label">Playback Mode</span><select className="workbench-select" value={object.soundPlaybackMode ?? "once"} onChange={(event) => onPatch({ soundPlaybackMode: event.target.value as EventTableObject["soundPlaybackMode"] })}><option value="once">once</option><option value="loopUntilAcknowledged">loopUntilAcknowledged</option></select></label>
+          <label className="workbench-field"><span className="workbench-field__label">Sound mute mode</span><select className="workbench-select" value={object.soundMuteMode ?? "silenceCurrent"} onChange={(event) => onPatch({ soundMuteMode: event.target.value as EventTableObject["soundMuteMode"] })}><option value="silenceCurrent">Silence current sound only</option><option value="disableUntilEnabled">Disable sounds until manually enabled</option></select></label>
           <label className="workbench-field"><span className="workbench-field__label">Repeat interval (ms)</span><input className="workbench-input" type="number" min={1000} max={60000} value={object.soundRepeatIntervalMs ?? 5000} onChange={(event) => onPatch({ soundRepeatIntervalMs: normalizeNumber(event.target.value, 5000, 1000, 60000) })} /></label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={object.stopSoundOnAck !== false} onChange={(event) => onPatch({ stopSoundOnAck: event.target.checked })} /><span>Stop sound on Ack</span></label>
           <label className="screen-editor-settings-check"><input type="checkbox" checked={object.stopSoundOnSilence !== false} onChange={(event) => onPatch({ stopSoundOnSilence: event.target.checked })} /><span>Stop sound on Silence</span></label>

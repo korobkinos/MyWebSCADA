@@ -1741,7 +1741,14 @@ function ObjectNode({
     if (resolvedObject.type === "trendChart") {
       content = <TrendRuntimeWidget object={resolvedObject} userRoleLevel={renderContext.userRoleLevel} />;
     } else {
-      content = <EventTableRuntimeWidget object={resolvedObject} screenId={renderContext.screenId} />;
+      content = (
+        <EventTableRuntimeWidget
+          object={resolvedObject}
+          screenId={renderContext.screenId}
+          userRoleLevel={renderContext.userRoleLevel}
+          isAuthenticated={renderContext.isAuthenticated}
+        />
+      );
     }
     onUpsertWidgetOverlay?.({
       objectId: resolvedObject.id,
