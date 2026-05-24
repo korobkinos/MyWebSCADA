@@ -1,43 +1,20 @@
-import { Component, lazy, Suspense, type ErrorInfo, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
-  DashboardOutlined,
-  DatabaseOutlined,
   EditOutlined,
-  FileImageOutlined,
-  HddOutlined,
   LogoutOutlined,
-  MenuFoldOutlined,
   MenuOutlined,
-  MenuUnfoldOutlined,
-  SettingOutlined,
-  TagsOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Button, ConfigProvider, Dropdown, Layout, Menu, Space, Spin, Typography, message, theme as antdTheme } from "antd";
+import { Button, ConfigProvider, Dropdown, Space, Spin, Typography, message, theme as antdTheme } from "antd";
 import type { MenuProps } from "antd";
 import type { AppPermission, ProjectTheme } from "@web-scada/shared";
 import { startRuntimePerformanceDiagnostics } from "../services/performance-diagnostics";
 import { createTagValueBatcher } from "../services/tag-value-batcher";
 import { createRuntimeSocket } from "../services/ws";
 import { useScadaStore } from "../store/scada-store";
-
-const { Header, Sider, Content } = Layout;
 const RuntimePage = lazy(() => import("../pages/runtime-page").then((m) => ({ default: m.RuntimePage })));
 const EditorPage = lazy(() => import("../pages/editor-page").then((m) => ({ default: m.EditorPage })));
-const TagsPage = lazy(() => import("../pages/tags-page").then((m) => ({ default: m.TagsPage })));
-const DriversPage = lazy(() => import("../pages/drivers-page").then((m) => ({ default: m.DriversPage })));
-const ProjectPage = lazy(() => import("../pages/project-page").then((m) => ({ default: m.ProjectPage })));
-const ScreensPage = lazy(() => import("../pages/screens-page").then((m) => ({ default: m.ScreensPage })));
-const AssetsPage = lazy(() => import("../pages/assets-page").then((m) => ({ default: m.AssetsPage })));
-const ArchivePage = lazy(() => import("../pages/archive-page").then((m) => ({ default: m.ArchivePage })));
-const LibrariesPage = lazy(() => import("../pages/libraries-page").then((m) => ({ default: m.LibrariesPage })));
-const MacrosPage = lazy(() => import("../pages/macros-page").then((m) => ({ default: m.MacrosPage })));
-const ElementEditorPage = lazy(() => import("../pages/element-editor-page").then((m) => ({ default: m.ElementEditorPage })));
-const SettingsPage = lazy(() => import("../pages/settings-page").then((m) => ({ default: m.SettingsPage })));
-const UsersPage = lazy(() => import("../pages/users-page").then((m) => ({ default: m.UsersPage })));
-const LoginPage = lazy(() => import("../pages/login-page").then((m) => ({ default: m.LoginPage })));
-const WorkbenchDemoPage = lazy(() => import("../pages/workbench-demo-page").then((m) => ({ default: m.WorkbenchDemoPage })));
 
 export function App() {
   const location = useLocation();
@@ -57,18 +34,9 @@ export function App() {
   const logout = useScadaStore((s) => s.logoutEngineer);
   const hasPermission = useScadaStore((s) => s.hasPermission);
   const isRuntimeRoute = location.pathname === "/" || location.pathname === "/runtime";
-  const isLoginRoute = location.pathname === "/login";
-  const isWorkbenchDemoRoute = location.pathname === "/workbench-demo";
   const isEditorRoute = location.pathname === "/editor";
-  const isUsersRoute = location.pathname === "/users";
-  const isProtectedRoute = !isRuntimeRoute && !isLoginRoute && !isWorkbenchDemoRoute;
+  const isProtectedRoute = isEditorRoute;
   const [bootError, setBootError] = useState<string | null>(null);
-  const [mainMenuHidden, setMainMenuHidden] = useState<boolean>(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    return window.localStorage.getItem("scada.mainMenuHidden") === "1";
-  });
   const [uiTheme, setUiTheme] = useState<ProjectTheme>(() => {
     if (typeof window === "undefined") {
       return "light";
@@ -76,13 +44,6 @@ export function App() {
     const saved = window.localStorage.getItem("scada.uiTheme");
     return saved === "dark" ? "dark" : "light";
   });
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem("scada.mainMenuHidden", mainMenuHidden ? "1" : "0");
-  }, [mainMenuHidden]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -160,12 +121,6 @@ export function App() {
   }, [project?.uiSettings?.theme]);
 
   useEffect(() => {
-    if (typeof project?.uiSettings?.hideMainMenu === "boolean") {
-      setMainMenuHidden(project.uiSettings.hideMainMenu);
-    }
-  }, [project?.uiSettings?.hideMainMenu]);
-
-  useEffect(() => {
     if (typeof document === "undefined") {
       return;
     }
@@ -213,28 +168,6 @@ export function App() {
     return <CenteredSpinner />;
   }
 
-  if (isLoginRoute) {
-    return (
-      <Suspense fallback={<CenteredSpinner />}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </Suspense>
-    );
-  }
-
-  if (isWorkbenchDemoRoute) {
-    return (
-      <Suspense fallback={<CenteredSpinner />}>
-        <Routes>
-          <Route path="/workbench-demo" element={<WorkbenchDemoPage />} />
-          <Route path="*" element={<Navigate to="/workbench-demo" replace />} />
-        </Routes>
-      </Suspense>
-    );
-  }
-
   if (!project) {
     if (bootError) {
       return (
@@ -269,28 +202,6 @@ export function App() {
               }
             />
             <Route path="*" element={<Navigate to="/editor" replace />} />
-          </Routes>
-        </Suspense>
-      </ConfigProvider>
-    );
-  }
-
-  if (isUsersRoute) {
-    return (
-      <ConfigProvider theme={themeConfig}>
-        <Suspense fallback={<CenteredSpinner />}>
-          <Routes>
-            <Route
-              path="/users"
-              element={
-                <RequirePermission permission="users.view">
-                  <ViewErrorBoundary viewName="Users">
-                    <UsersPage />
-                  </ViewErrorBoundary>
-                </RequirePermission>
-              }
-            />
-            <Route path="*" element={<Navigate to="/users" replace />} />
           </Routes>
         </Suspense>
       </ConfigProvider>
@@ -344,9 +255,11 @@ export function App() {
           }
         : {
             key: "login",
-            label: "Login",
+            label: "Authorization",
             icon: <UserOutlined />,
-            onClick: () => navigate("/login"),
+            onClick: () => {
+              void message.info("Open any protected runtime action to authorize.");
+            },
           },
     ];
 
@@ -401,100 +314,7 @@ export function App() {
     );
   }
 
-  const menuItems = [
-    { key: "/runtime", icon: <DashboardOutlined />, label: <Link to="/runtime">Runtime</Link> },
-    hasPermission("editor.view") ? { key: "/editor", icon: <EditOutlined />, label: <Link to="/editor">Editor</Link> } : null,
-    hasPermission("screens.view") ? { key: "/screens", icon: <DashboardOutlined />, label: <Link to="/screens">Screens</Link> } : null,
-    hasPermission("tags.view") ? { key: "/tags", icon: <TagsOutlined />, label: <Link to="/tags">Tags</Link> } : null,
-    hasPermission("drivers.view") ? { key: "/drivers", icon: <HddOutlined />, label: <Link to="/drivers">Drivers</Link> } : null,
-    hasPermission("tags.view") ? { key: "/archive", icon: <DatabaseOutlined />, label: <Link to="/archive">Archive</Link> } : null,
-    hasPermission("assets.view") ? { key: "/assets", icon: <FileImageOutlined />, label: <Link to="/assets">Assets</Link> } : null,
-    hasPermission("libraries.view") ? { key: "/libraries", icon: <SettingOutlined />, label: <Link to="/libraries">Libraries</Link> } : null,
-    hasPermission("macros.view") ? { key: "/macros", icon: <TagsOutlined />, label: <Link to="/macros">Macros</Link> } : null,
-    hasPermission("elements.view") ? { key: "/element-editor", icon: <EditOutlined />, label: <Link to="/element-editor">Element Editor</Link> } : null,
-    hasPermission("users.view") ? { key: "/users", icon: <UserOutlined />, label: <Link to="/users">Users</Link> } : null,
-    hasPermission("settings.view") ? { key: "/settings", icon: <SettingOutlined />, label: <Link to="/settings">Settings</Link> } : null,
-  ].filter((item): item is NonNullable<typeof item> => Boolean(item));
-
-  return (
-    <ConfigProvider theme={themeConfig}>
-    <Layout className={`app-shell app-theme-${uiTheme}`}>
-      {!mainMenuHidden ? (
-        <Sider className="app-sidebar" theme="dark" width={240}>
-          <div style={{ color: "#f3f5f8", padding: 16, fontWeight: 600 }}>
-            {project.projectInfo?.title?.trim() || "Web SCADA Lite"}
-          </div>
-          <Menu theme="dark" mode="inline" selectedKeys={[location.pathname]} items={menuItems} />
-        </Sider>
-      ) : null}
-
-      <Layout className="app-root-layout">
-        <Header className="app-header" style={{ paddingInline: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Space align="center">
-            <Button
-              icon={mainMenuHidden ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setMainMenuHidden((prev) => !prev)}
-              title={mainMenuHidden ? "Show main menu" : "Hide main menu"}
-            />
-            <Typography.Title style={{ margin: 0 }} level={4}>
-              {project.projectInfo?.title?.trim() || project.name}
-            </Typography.Title>
-          </Space>
-          <Space align="center">
-            {project.projectInfo?.subtitle ? <Typography.Text type="secondary">{project.projectInfo.subtitle}</Typography.Text> : null}
-            <Button
-              size="small"
-              onClick={() => setUiTheme((prev) => (prev === "light" ? "dark" : "light"))}
-              title={uiTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            >
-              {uiTheme === "dark" ? "Dark" : "Light"}
-            </Button>
-          <Button
-            icon={<LogoutOutlined />}
-            onClick={() => {
-              logout();
-              navigate("/runtime", { replace: true });
-            }}
-          >
-            Logout ({authUser?.username ?? "anonymous"})
-          </Button>
-          </Space>
-        </Header>
-        <Content className="app-content">
-          <Suspense fallback={<CenteredSpinner />}>
-            <div className="app-content-inner">
-              <Routes>
-                <Route
-                  path="/editor"
-                  element={
-                    <RequirePermission permission="editor.view">
-                      <FillPage>
-                        <ViewErrorBoundary viewName="Editor">
-                          <EditorPage />
-                        </ViewErrorBoundary>
-                      </FillPage>
-                    </RequirePermission>
-                  }
-                />
-                <Route path="/screens" element={<RequirePermission permission="screens.view"><ScrollPage><ScreensPage /></ScrollPage></RequirePermission>} />
-                <Route path="/tags" element={<RequirePermission permission="tags.view"><FillPage><TagsPage /></FillPage></RequirePermission>} />
-                <Route path="/drivers" element={<RequirePermission permission="drivers.view"><FillPage><DriversPage /></FillPage></RequirePermission>} />
-                <Route path="/archive" element={<RequirePermission permission="tags.view"><ScrollPage><ArchivePage /></ScrollPage></RequirePermission>} />
-                <Route path="/assets" element={<RequirePermission permission="assets.view"><FillPage><AssetsPage /></FillPage></RequirePermission>} />
-                <Route path="/libraries" element={<RequirePermission permission="libraries.view"><FillPage><LibrariesPage /></FillPage></RequirePermission>} />
-                <Route path="/macros" element={<RequirePermission permission="macros.view"><FillPage><MacrosPage /></FillPage></RequirePermission>} />
-                <Route path="/element-editor" element={<RequirePermission permission="elements.view"><FillPage><ElementEditorPage /></FillPage></RequirePermission>} />
-                <Route path="/project" element={<RequirePermission permission="settings.view"><ScrollPage><ProjectPage /></ScrollPage></RequirePermission>} />
-                <Route path="/settings" element={<RequirePermission permission="settings.view"><ScrollPage><SettingsPage /></ScrollPage></RequirePermission>} />
-                <Route path="*" element={<Navigate to="/runtime" replace />} />
-              </Routes>
-            </div>
-          </Suspense>
-        </Content>
-      </Layout>
-    </Layout>
-    </ConfigProvider>
-  );
+  return <Navigate to="/runtime" replace />;
 }
 
 function RequirePermission({ permission, children }: { permission: AppPermission; children: ReactNode }) {
@@ -507,7 +327,7 @@ function RequirePermission({ permission, children }: { permission: AppPermission
     return <CenteredSpinner />;
   }
   if (!authUser) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/runtime" replace state={{ from: location.pathname }} />;
   }
   if (!hasPermission(permission)) {
     return (
@@ -520,59 +340,10 @@ function RequirePermission({ permission, children }: { permission: AppPermission
   return <>{children}</>;
 }
 
-function ScrollPage({ children }: { children: ReactNode }) {
-  return <div className="route-page-scroll">{children}</div>;
-}
-
-function FillPage({ children }: { children: ReactNode }) {
-  return <div className="route-page-fill">{children}</div>;
-}
-
 function CenteredSpinner() {
   return (
     <div className="app-boot-screen">
       <Spin size="large" />
     </div>
   );
-}
-
-type ViewErrorBoundaryProps = {
-  viewName: string;
-  children: ReactNode;
-};
-
-type ViewErrorBoundaryState = {
-  hasError: boolean;
-  message?: string;
-};
-
-class ViewErrorBoundary extends Component<ViewErrorBoundaryProps, ViewErrorBoundaryState> {
-  public constructor(props: ViewErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  public static getDerivedStateFromError(error: unknown): ViewErrorBoundaryState {
-    return {
-      hasError: true,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-
-  public override componentDidCatch(error: unknown, errorInfo: ErrorInfo): void {
-    // eslint-disable-next-line no-console
-    console.error(`[${this.props.viewName}] render error`, error, errorInfo);
-  }
-
-  public override render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: 24 }}>
-          <Typography.Title level={4}>{this.props.viewName} crashed</Typography.Title>
-          <Typography.Text type="secondary">{this.state.message ?? "Unknown render error"}</Typography.Text>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
 }

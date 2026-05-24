@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { HmiObject, MacroDefinition, MacroRunResult, MacroTrigger } from "@web-scada/shared";
 import {
   CopyOutlined,
@@ -17,6 +18,7 @@ import {
 import { message, Modal, Select } from "antd";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { WorkbenchButton, WorkbenchResizeHandle } from "../../../components/workbench";
+import { WorkbenchWindow } from "../../../components/workbench/windows/workbench-window";
 import { macroApiDocumentation, macroExamples } from "../../../hmi/editor/macro-api-doc";
 import { useScadaStore } from "../../../store/scada-store";
 
@@ -174,6 +176,8 @@ export function ScreenEditorMacrosWindow() {
   const [consoleEntries, setConsoleEntries] = useState<MacroConsoleEntry[]>([]);
   const [listCollapsed, setListCollapsed] = useState(false);
   const [consoleCollapsed, setConsoleCollapsed] = useState(false);
+  const [helpWindowRect, setHelpWindowRect] = useState({ x: 320, y: 72, width: 860, height: 680 });
+  const [helpWindowZIndex, setHelpWindowZIndex] = useState<number>(1200);
   const listPanelRef = useRef<ImperativePanelHandle | null>(null);
   const consolePanelRef = useRef<ImperativePanelHandle | null>(null);
 
@@ -589,6 +593,11 @@ export function ScreenEditorMacrosWindow() {
     setDeleteConfirmOpen(true);
   }, [selectedMacroId]);
 
+  const openHelpWindow = useCallback(() => {
+    setHelpOpen(true);
+    setHelpWindowZIndex((prev) => prev + 1);
+  }, []);
+
   if (!project) {
     return (
       <div className="screen-editor-window-content screen-editor-macros-window">
@@ -644,7 +653,7 @@ export function ScreenEditorMacrosWindow() {
         />
         <WorkbenchButton icon={<ReloadOutlined />} title="Refresh macros" onClick={() => void refreshMacros()} />
         <WorkbenchButton icon={<SaveOutlined />} title="Save Project" onClick={() => void saveProject()} />
-        <WorkbenchButton icon={<QuestionCircleOutlined />} title="Macro help" onClick={() => setHelpOpen(true)} />
+        <WorkbenchButton icon={<QuestionCircleOutlined />} title="Macro help" onClick={openHelpWindow} />
         <WorkbenchButton icon={<SettingOutlined />} title="Macro options are preserved automatically" disabled />
       </div>
 
@@ -912,47 +921,59 @@ export function ScreenEditorMacrosWindow() {
         </div>
       </Modal>
 
-      <Modal
-        title="Macro Help & Syntax"
-        open={helpOpen}
-        onCancel={() => setHelpOpen(false)}
-        footer={null}
-        width={860}
-      >
-        <div className="screen-editor-macro-help-modal">
-          <div className="screen-editor-macro-help-modal__block">
-            <div className="screen-editor-macro-help-modal__title">Quick Syntax</div>
-            <pre>{`const value = Number(readTag("Tag.Name") ?? 0);
+      {helpOpen && typeof document !== "undefined"
+        ? createPortal(
+          <div className="screen-editor-macro-help-window-layer" onMouseDown={(event) => event.stopPropagation()}>
+            <WorkbenchWindow
+              id="screenEditorMacroHelp"
+              title="Macro Help & Syntax"
+              rect={helpWindowRect}
+              zIndex={helpWindowZIndex}
+              minWidth={560}
+              minHeight={360}
+              onClose={() => setHelpOpen(false)}
+              onFocus={() => setHelpWindowZIndex((prev) => prev + 1)}
+              onMove={(x, y) => setHelpWindowRect((prev) => ({ ...prev, x: Math.max(0, x), y: Math.max(0, y) }))}
+              onResize={(nextRect) => setHelpWindowRect(nextRect)}
+            >
+              <div className="screen-editor-macro-help-modal">
+                <div className="screen-editor-macro-help-modal__block">
+                  <div className="screen-editor-macro-help-modal__title">Quick Syntax</div>
+                  <pre>{`const value = Number(readTag("Tag.Name") ?? 0);
 if (value > 10) {
   await writeTag("Tag.Alarm", true);
 }`}</pre>
-          </div>
-          <div className="screen-editor-macro-help-modal__block">
-            <div className="screen-editor-macro-help-modal__title">API Functions</div>
-            <div className="screen-editor-macro-help-modal__api-list">
-              {macroApiDocumentation.map((item) => (
-                <div key={item.name} className="screen-editor-macro-help-modal__api-item">
-                  <div className="screen-editor-macro-help-modal__api-meta">
-                    <span>{item.category}</span>
-                  </div>
-                  <code>{item.signature}</code>
-                  <div className="screen-editor-macro-help-modal__api-desc">{item.description}</div>
-                  <pre>{item.example}</pre>
                 </div>
-              ))}
-            </div>
-          </div>
-          <div className="screen-editor-macro-help-modal__block">
-            <div className="screen-editor-macro-help-modal__title">Examples</div>
-            {macroExamples.slice(0, 3).map((example) => (
-              <div key={example.id} className="screen-editor-macro-help-modal__example">
-                <strong>{example.title}</strong>
-                <pre>{example.code}</pre>
+                <div className="screen-editor-macro-help-modal__block">
+                  <div className="screen-editor-macro-help-modal__title">API Functions</div>
+                  <div className="screen-editor-macro-help-modal__api-list">
+                    {macroApiDocumentation.map((item) => (
+                      <div key={item.name} className="screen-editor-macro-help-modal__api-item">
+                        <div className="screen-editor-macro-help-modal__api-meta">
+                          <span>{item.category}</span>
+                        </div>
+                        <code>{item.signature}</code>
+                        <div className="screen-editor-macro-help-modal__api-desc">{item.description}</div>
+                        <pre>{item.example}</pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="screen-editor-macro-help-modal__block">
+                  <div className="screen-editor-macro-help-modal__title">Examples</div>
+                  {macroExamples.slice(0, 3).map((example) => (
+                    <div key={example.id} className="screen-editor-macro-help-modal__example">
+                      <strong>{example.title}</strong>
+                      <pre>{example.code}</pre>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </Modal>
+            </WorkbenchWindow>
+          </div>,
+          document.body,
+        )
+        : null}
     </div>
   );
 }

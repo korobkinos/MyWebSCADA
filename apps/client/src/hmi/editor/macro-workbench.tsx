@@ -1,11 +1,12 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { HmiObject, HmiScreen, MacroDefinition, MacroRunResult, MacroTrigger, ScadaProject, TagDefinition } from "@web-scada/shared";
-import { LeftOutlined, RightOutlined, UpOutlined } from "@ant-design/icons";
+import { RightOutlined, UpOutlined } from "@ant-design/icons";
 import { Button, Card, Collapse, Divider, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tag, Typography, message } from "antd";
 import { macroApiDocumentation, macroExamples, macroTemplates, type MacroApiDocItem, type MacroTemplateItem } from "./macro-api-doc";
 import { MacroCodeEditor, type MacroCodeEditorHandle } from "./macro-code-editor";
 import { ResizableDockPanel } from "../../components/resizable-dock-panel";
 import { useDockLayout } from "../../hooks/use-dock-layout";
+import { WorkbenchWindow } from "../../components/workbench/windows/workbench-window";
 
 type MacroLogLevel = "info" | "warn" | "error";
 
@@ -57,7 +58,6 @@ type MacroReference = {
 
 const macroDockDefaults = [
   { id: "macros.list", side: "left", hidden: false, size: 360, lastVisibleSize: 360 },
-  { id: "macros.help", side: "right", hidden: false, size: 360, lastVisibleSize: 360 },
   { id: "macros.logs", side: "bottom", hidden: false, size: 140, lastVisibleSize: 140 },
 ] as const;
 
@@ -196,6 +196,9 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
   const [dirty, setDirty] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [helpWindowOpen, setHelpWindowOpen] = useState<boolean>(true);
+  const [helpWindowRect, setHelpWindowRect] = useState({ x: 740, y: 100, width: 560, height: 760 });
+  const [helpWindowZIndex, setHelpWindowZIndex] = useState<number>(1200);
   const codeRef = useRef<MacroCodeEditorHandle | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const centerRef = useRef<HTMLDivElement | null>(null);
@@ -236,8 +239,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
     [project, usageMacroId],
   );
   const listPanel = dockLayout.getPanelState("macros.list") ?? macroDockDefaults[0];
-  const helpPanelState = dockLayout.getPanelState("macros.help") ?? macroDockDefaults[1];
-  const logsPanel = dockLayout.getPanelState("macros.logs") ?? macroDockDefaults[2];
+  const logsPanel = dockLayout.getPanelState("macros.logs") ?? macroDockDefaults[1];
   const applyDockState = (panelId: string, next: { hidden: boolean; size: number; lastVisibleSize: number }) => {
     dockLayout.setPanelState(panelId, (prev) => ({
       ...prev,
@@ -301,6 +303,11 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
       : `${current.replace(/\s*$/, "")}\n\n${normalized}`;
     mutateMacro({ code: next });
     requestAnimationFrame(() => codeRef.current?.focus());
+  };
+
+  const openHelpWindow = (): void => {
+    setHelpWindowOpen(true);
+    setHelpWindowZIndex((prev) => prev + 1);
   };
 
   const addMacro = (): void => {
@@ -773,6 +780,7 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
               <Space wrap style={{ flex: "0 0 auto" }}>
                 <Button onClick={checkSyntax}>Check Syntax</Button>
                 <Button type="primary" onClick={() => void runTest()}>Run Test</Button>
+                <Button onClick={openHelpWindow}>Help</Button>
                 <Button type="default" onClick={() => void save()} disabled={!dirty || saving} loading={saving}>
                   {saving ? "Saving..." : dirty ? "Save *" : "Saved"}
                 </Button>
@@ -852,206 +860,206 @@ export function MacroWorkbench({ project, currentScreen, onProjectChange, onRunM
           </Card>
         </ResizableDockPanel>
       </div>
+      {helpWindowOpen ? (
+        <div className="workbench-window-layer" onMouseDown={(event) => event.stopPropagation()}>
+          <WorkbenchWindow
+            id="macroHelpSyntax"
+            title="Macro Help & Syntax"
+            rect={helpWindowRect}
+            zIndex={helpWindowZIndex}
+            minWidth={420}
+            minHeight={320}
+            onClose={() => setHelpWindowOpen(false)}
+            onFocus={() => setHelpWindowZIndex((prev) => prev + 1)}
+            onMove={(x, y) => setHelpWindowRect((prev) => ({ ...prev, x: Math.max(0, x), y: Math.max(0, y) }))}
+            onResize={(nextRect) => setHelpWindowRect(nextRect)}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0, minHeight: 0, overflow: "hidden", height: "100%", padding: 10, boxSizing: "border-box" }}>
+              <div style={{ flex: "0 0 auto", maxHeight: "40%", overflow: "auto" }}>
+                {helpPanel}
+              </div>
 
-      <ResizableDockPanel
-        id="macros.help"
-        side="right"
-        hidden={helpPanelState.hidden}
-        size={clamp(helpPanelState.size, 0, 650)}
-        lastVisibleSize={helpPanelState.lastVisibleSize}
-        minSize={280}
-        maxSize={650}
-        autoHideThreshold={80}
-        restoreSize={360}
-        workspaceRef={workspaceRef}
-        restoreTooltip="Show help panel"
-        restoreIcon={<LeftOutlined />}
-        onStateChange={(state) => applyDockState("macros.help", state)}
-      >
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0, minHeight: 0, overflow: "hidden", height: "100%" }}>
-        <div style={{ flex: "0 0 auto", maxHeight: "40%", overflow: "auto" }}>
-          {helpPanel}
-        </div>
-
-        <Card size="small" title="Insert Helpers" style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
-          <Tabs
-            size="small"
-            items={[
-              {
-                key: "functions",
-                label: "API",
-                children: (
-                  <List
+              <Card size="small" title="Insert Helpers" style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
+                  <Tabs
                     size="small"
-                    dataSource={macroApiDocumentation}
-                    renderItem={(item) => (
-                      <List.Item actions={[<Button size="small" onClick={() => insertCode(`${item.name}()`)}>Insert</Button>]}>
-                        {item.name}
-                      </List.Item>
-                    )}
-                  />
-                ),
-              },
-              {
-                key: "templates",
-                label: "Templates",
-                children: (
-                  <Space direction="vertical" style={{ width: "100%" }}>
-                    <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
-                      <Select
-                        size="small"
-                        style={{ minWidth: 180 }}
-                        value={templateCategory}
-                        onChange={setTemplateCategory}
-                        options={templateCategories.map((item) => ({ label: item, value: item }))}
-                      />
-                      <Input
-                        size="small"
-                        style={{ width: 220 }}
-                        placeholder="Search templates"
-                        value={templateQuery}
-                        onChange={(event) => setTemplateQuery(event.target.value)}
-                      />
-                    </Space>
-                    <Collapse
-                      size="small"
-                      items={templatesByCategory.map(([category, items]) => ({
-                        key: category,
-                        label: `${category} (${items.length})`,
+                    items={[
+                      {
+                        key: "functions",
+                        label: "API",
                         children: (
                           <List
                             size="small"
-                            dataSource={items}
+                            dataSource={macroApiDocumentation}
                             renderItem={(item) => (
-                              <List.Item>
-                                <Card
-                                  size="small"
-                                  style={{ width: "100%" }}
-                                  title={(
-                                    <Space size={8} wrap>
-                                      <Typography.Text strong>{item.title}</Typography.Text>
-                                      {item.safety ? <Tag color={safetyTagColor(item.safety)}>{item.safety}</Tag> : null}
-                                    </Space>
-                                  )}
-                                  extra={<Button size="small" onClick={() => insertTemplateCode(item.code)}>Insert</Button>}
-                                >
-                                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
-                                    <Typography.Text type="secondary">{item.description}</Typography.Text>
-                                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{item.code}</pre>
-                                  </Space>
-                                </Card>
+                              <List.Item actions={[<Button size="small" onClick={() => insertCode(`${item.name}()`)}>Insert</Button>]}>
+                                {item.name}
                               </List.Item>
                             )}
                           />
                         ),
-                      }))}
-                    />
-                    {templatesByCategory.length === 0 ? <Typography.Text type="secondary">No templates found.</Typography.Text> : null}
-                  </Space>
-                ),
-              },
-              {
-                key: "tags",
-                label: "Tags",
-                children: (
-                  <List
-                    size="small"
-                    dataSource={project.tags}
-                    renderItem={(tag: TagDefinition) => (
-                      <List.Item
-                        actions={[
-                          <Button size="small" onClick={() => insertCode(`readTag(\"${tag.name}\")`)}>Read</Button>,
-                          <Button size="small" onClick={() => insertCode(`writeTag(\"${tag.name}\", value)`)}>Write</Button>,
-                        ]}
-                      >
-                        {tag.name}
-                      </List.Item>
-                    )}
+                      },
+                      {
+                        key: "templates",
+                        label: "Templates",
+                        children: (
+                          <Space direction="vertical" style={{ width: "100%" }}>
+                            <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
+                              <Select
+                                size="small"
+                                style={{ minWidth: 180 }}
+                                value={templateCategory}
+                                onChange={setTemplateCategory}
+                                options={templateCategories.map((item) => ({ label: item, value: item }))}
+                              />
+                              <Input
+                                size="small"
+                                style={{ width: 220 }}
+                                placeholder="Search templates"
+                                value={templateQuery}
+                                onChange={(event) => setTemplateQuery(event.target.value)}
+                              />
+                            </Space>
+                            <Collapse
+                              size="small"
+                              items={templatesByCategory.map(([category, items]) => ({
+                                key: category,
+                                label: `${category} (${items.length})`,
+                                children: (
+                                  <List
+                                    size="small"
+                                    dataSource={items}
+                                    renderItem={(item) => (
+                                      <List.Item>
+                                        <Card
+                                          size="small"
+                                          style={{ width: "100%" }}
+                                          title={(
+                                            <Space size={8} wrap>
+                                              <Typography.Text strong>{item.title}</Typography.Text>
+                                              {item.safety ? <Tag color={safetyTagColor(item.safety)}>{item.safety}</Tag> : null}
+                                            </Space>
+                                          )}
+                                          extra={<Button size="small" onClick={() => insertTemplateCode(item.code)}>Insert</Button>}
+                                        >
+                                          <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                                            <Typography.Text type="secondary">{item.description}</Typography.Text>
+                                            <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{item.code}</pre>
+                                          </Space>
+                                        </Card>
+                                      </List.Item>
+                                    )}
+                                  />
+                                ),
+                              }))}
+                            />
+                            {templatesByCategory.length === 0 ? <Typography.Text type="secondary">No templates found.</Typography.Text> : null}
+                          </Space>
+                        ),
+                      },
+                      {
+                        key: "tags",
+                        label: "Tags",
+                        children: (
+                          <List
+                            size="small"
+                            dataSource={project.tags}
+                            renderItem={(tag: TagDefinition) => (
+                              <List.Item
+                                actions={[
+                                  <Button size="small" onClick={() => insertCode(`readTag(\"${tag.name}\")`)}>Read</Button>,
+                                  <Button size="small" onClick={() => insertCode(`writeTag(\"${tag.name}\", value)`)}>Write</Button>,
+                                ]}
+                              >
+                                {tag.name}
+                              </List.Item>
+                            )}
+                          />
+                        ),
+                      },
+                      {
+                        key: "variables",
+                        label: "LW/Vars",
+                        children: (
+                          <Space direction="vertical" style={{ width: "100%" }}>
+                            <Typography.Text strong>LW variables</Typography.Text>
+                            <Space>
+                              <InputNumber value={newLwAddress} onChange={(value) => setNewLwAddress(Number(value ?? 0))} />
+                              <InputNumber value={newLwValue} onChange={(value) => setNewLwValue(Number(value ?? 0))} />
+                              <Button size="small" onClick={addLw}>Add/Update LW</Button>
+                            </Space>
+                            <Typography.Text strong>LW addresses</Typography.Text>
+                            <List
+                              size="small"
+                              dataSource={Object.keys(project.lwStore?.values ?? {}).map((item) => Number(item)).sort((a, b) => a - b)}
+                              renderItem={(address) => (
+                                <List.Item actions={[<Button size="small" onClick={() => insertCode(`getLW(${address})`)}>get</Button>, <Button size="small" onClick={() => insertCode(`setLW(${address}, value)`)}>set</Button>, <Button size="small" danger onClick={() => removeLw(address)}>del</Button>]}>LW{address}</List.Item>
+                              )}
+                            />
+                            <Divider style={{ margin: "8px 0" }} />
+                            <Typography.Text strong>Named variables</Typography.Text>
+                            <Space>
+                              <Input value={newVarName} onChange={(e) => setNewVarName(e.target.value)} />
+                              <Select
+                                value={newVarType}
+                                style={{ width: 120 }}
+                                options={["BOOL", "INT", "DINT", "REAL", "STRING"].map((item) => ({ label: item, value: item }))}
+                                onChange={(value) => setNewVarType(value)}
+                              />
+                              <Button size="small" onClick={addNamedVar}>Add Var</Button>
+                            </Space>
+                            <List
+                              size="small"
+                              dataSource={project.variables ?? []}
+                              renderItem={(v) => (
+                                <List.Item actions={[<Button size="small" onClick={() => insertCode(`getVar(\"${v.name}\")`)}>get</Button>, <Button size="small" onClick={() => insertCode(`setVar(\"${v.name}\", value)`)}>set</Button>, <Button size="small" danger onClick={() => removeNamedVar(v.name)}>del</Button>]}> {v.name} </List.Item>
+                              )}
+                            />
+                          </Space>
+                        ),
+                      },
+                      {
+                        key: "screens",
+                        label: "Screens/Popups",
+                        children: (
+                          <Space direction="vertical" style={{ width: "100%" }}>
+                            <Typography.Text strong>Screens</Typography.Text>
+                            <List
+                              size="small"
+                              dataSource={normalScreens}
+                              renderItem={(screen) => <List.Item actions={[<Button size="small" onClick={() => insertCode(`openScreen(\"${screen.id}\")`)}>Insert</Button>]}>{screen.name}</List.Item>}
+                            />
+                            <Divider style={{ margin: "8px 0" }} />
+                            <Typography.Text strong>Popups</Typography.Text>
+                            <List
+                              size="small"
+                              dataSource={popupScreens}
+                              renderItem={(screen) => <List.Item actions={[<Button size="small" onClick={() => insertCode(`openPopup(\"${screen.id}\")`)}>Insert</Button>]}>{screen.name}</List.Item>}
+                            />
+                          </Space>
+                        ),
+                      },
+                      {
+                        key: "objects",
+                        label: "Objects",
+                        children: (
+                          <List
+                            size="small"
+                            dataSource={objectCandidates}
+                            renderItem={(obj) => (
+                              <List.Item actions={[<Button size="small" onClick={() => insertCode(`\"${obj.id}\"`)}>Insert ID</Button>]}> {obj.id} ({obj.type}) </List.Item>
+                            )}
+                          />
+                        ),
+                      },
+                    ]}
                   />
-                ),
-              },
-              {
-                key: "variables",
-                label: "LW/Vars",
-                children: (
-                  <Space direction="vertical" style={{ width: "100%" }}>
-                    <Typography.Text strong>LW variables</Typography.Text>
-                    <Space>
-                      <InputNumber value={newLwAddress} onChange={(value) => setNewLwAddress(Number(value ?? 0))} />
-                      <InputNumber value={newLwValue} onChange={(value) => setNewLwValue(Number(value ?? 0))} />
-                      <Button size="small" onClick={addLw}>Add/Update LW</Button>
-                    </Space>
-                    <Typography.Text strong>LW addresses</Typography.Text>
-                    <List
-                      size="small"
-                      dataSource={Object.keys(project.lwStore?.values ?? {}).map((item) => Number(item)).sort((a, b) => a - b)}
-                      renderItem={(address) => (
-                        <List.Item actions={[<Button size="small" onClick={() => insertCode(`getLW(${address})`)}>get</Button>, <Button size="small" onClick={() => insertCode(`setLW(${address}, value)`)}>set</Button>, <Button size="small" danger onClick={() => removeLw(address)}>del</Button>]}>LW{address}</List.Item>
-                      )}
-                    />
-                    <Divider style={{ margin: "8px 0" }} />
-                    <Typography.Text strong>Named variables</Typography.Text>
-                    <Space>
-                      <Input value={newVarName} onChange={(e) => setNewVarName(e.target.value)} />
-                      <Select
-                        value={newVarType}
-                        style={{ width: 120 }}
-                        options={["BOOL", "INT", "DINT", "REAL", "STRING"].map((item) => ({ label: item, value: item }))}
-                        onChange={(value) => setNewVarType(value)}
-                      />
-                      <Button size="small" onClick={addNamedVar}>Add Var</Button>
-                    </Space>
-                    <List
-                      size="small"
-                      dataSource={project.variables ?? []}
-                      renderItem={(v) => (
-                        <List.Item actions={[<Button size="small" onClick={() => insertCode(`getVar(\"${v.name}\")`)}>get</Button>, <Button size="small" onClick={() => insertCode(`setVar(\"${v.name}\", value)`)}>set</Button>, <Button size="small" danger onClick={() => removeNamedVar(v.name)}>del</Button>]}> {v.name} </List.Item>
-                      )}
-                    />
-                  </Space>
-                ),
-              },
-              {
-                key: "screens",
-                label: "Screens/Popups",
-                children: (
-                  <Space direction="vertical" style={{ width: "100%" }}>
-                    <Typography.Text strong>Screens</Typography.Text>
-                    <List
-                      size="small"
-                      dataSource={normalScreens}
-                      renderItem={(screen) => <List.Item actions={[<Button size="small" onClick={() => insertCode(`openScreen(\"${screen.id}\")`)}>Insert</Button>]}>{screen.name}</List.Item>}
-                    />
-                    <Divider style={{ margin: "8px 0" }} />
-                    <Typography.Text strong>Popups</Typography.Text>
-                    <List
-                      size="small"
-                      dataSource={popupScreens}
-                      renderItem={(screen) => <List.Item actions={[<Button size="small" onClick={() => insertCode(`openPopup(\"${screen.id}\")`)}>Insert</Button>]}>{screen.name}</List.Item>}
-                    />
-                  </Space>
-                ),
-              },
-              {
-                key: "objects",
-                label: "Objects",
-                children: (
-                  <List
-                    size="small"
-                    dataSource={objectCandidates}
-                    renderItem={(obj) => (
-                      <List.Item actions={[<Button size="small" onClick={() => insertCode(`\"${obj.id}\"`)}>Insert ID</Button>]}> {obj.id} ({obj.type}) </List.Item>
-                    )}
-                  />
-                ),
-              },
-            ]}
-          />
-          </div>
-        </Card>
-      </div>
-      </ResizableDockPanel>
+                </div>
+              </Card>
+            </div>
+          </WorkbenchWindow>
+        </div>
+      ) : null}
     </div>
     <Modal
       title="Macro Usage / References"
