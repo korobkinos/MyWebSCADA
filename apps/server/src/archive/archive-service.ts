@@ -1012,6 +1012,7 @@ export class ArchiveService {
         this.maintenancePauseReason = loadGuard.reason ?? "runtime_load_high";
         this.maintenanceStatusDetail = "waiting_due_to_load_guard";
         this.maintenanceLastPruneReason = this.maintenancePauseReason;
+        this.maintenanceLastPruneError = null;
         this.maintenanceState = "paused";
         this.logTrendPruningTick({
           dbSizeMb: currentDbSizeMb,

@@ -2660,7 +2660,7 @@ export class ArchiveRepository {
     const startedAt = Date.now();
     try {
       await client.query("BEGIN");
-      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${maxTransactionMs}ms`]);
       const diagnostics = await this.readTrendDeleteDiagnostics(client, limit);
       const result = await client.query(
         `
@@ -2728,7 +2728,7 @@ export class ArchiveRepository {
     const startedAt = Date.now();
     try {
       await client.query("BEGIN");
-      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${maxTransactionMs}ms`]);
       const result = await client.query(
         `
         WITH overdue AS (
@@ -2781,7 +2781,7 @@ export class ArchiveRepository {
     const startedAt = Date.now();
     try {
       await client.query("BEGIN");
-      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${maxTransactionMs}ms`]);
       const result = await client.query(
         `
         WITH oldest AS (
@@ -2835,7 +2835,7 @@ export class ArchiveRepository {
     const startedAt = Date.now();
     try {
       await client.query("BEGIN");
-      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${maxTransactionMs}ms`]);
       const result = await client.query(
         `
         WITH overdue AS (
@@ -2888,7 +2888,7 @@ export class ArchiveRepository {
     const startedAt = Date.now();
     try {
       await client.query("BEGIN");
-      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [`${maxTransactionMs}ms`]);
       const result = await client.query(
         `
         WITH oldest AS (
