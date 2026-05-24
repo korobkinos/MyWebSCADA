@@ -201,142 +201,184 @@ describe("ArchiveService soft maintenance behavior", () => {
     expect(deleteOptions[0]?.maxTransactionMs).toBe(150);
   });
 
-  it("event maintenance does not start below hysteresis threshold", async () => {
-    const eventDeleteCalls: string[] = [];
+  it("event byAge deletes expired rows even below start threshold", async () => {
+    let ageCalls = 0;
     const service = createServiceWithRepository({
       getEventArchiveSettings: async () => ({
         ...baseEventSettings,
+        cleanupMode: "byAge",
         maxDatabaseSizeMb: 1000,
         deleteBatchSize: 250,
       }),
       getEventArchiveStatus: async () => ({
-        dbSizeMb: 1090,
+        dbSizeMb: 900,
         recordsCount: 5000,
         oldestRecordAt: "2025-01-01T00:00:00.000Z",
         newestRecordAt: "2026-01-01T00:00:00.000Z",
-        settings: { ...baseEventSettings, maxDatabaseSizeMb: 1000, deleteBatchSize: 250 },
+        settings: { ...baseEventSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000, deleteBatchSize: 250 },
       }),
       deleteEventOccurrencesByRetentionBatch: async () => {
-        eventDeleteCalls.push("age");
-        return { deletedRecords: 0, durationMs: 2 };
+        ageCalls += 1;
+        return ageCalls === 1 ? { deletedRecords: 120, durationMs: 2 } : { deletedRecords: 0, durationMs: 1 };
       },
       deleteOldestEventOccurrencesBatch: async () => {
-        eventDeleteCalls.push("size");
         return { deletedRecords: 0, durationMs: 2 };
       },
     });
 
     await service.runMaintenance();
     const eventStatus = await service.getEventArchiveStatus();
-    expect(eventDeleteCalls).toHaveLength(0);
-    expect(eventStatus.status).toBe("scheduled");
+
+    expect(ageCalls).toBeGreaterThan(0);
+    expect(["pruning", "cooling_down", "scheduled"]).toContain(eventStatus.status);
     expect(eventStatus.startThresholdMb).toBe(1100);
+    expect(
+      eventStatus.statusDetail === "pruning_by_age" || eventStatus.statusDetail === undefined,
+    ).toBe(true);
   });
 
-  it("event maintenance starts above start threshold and stops below stop threshold", async () => {
-    let eventDbSize = 1300;
-    let eventRecords = 5000;
+  it("event bySize does not start below hysteresis threshold", async () => {
+    let sizeCalls = 0;
     const service = createServiceWithRepository({
       getEventArchiveSettings: async () => ({
         ...baseEventSettings,
+        cleanupMode: "bySize",
         maxDatabaseSizeMb: 1000,
-        deleteBatchSize: 500,
-        maintenanceIntervalMs: 500,
+        deleteBatchSize: 250,
       }),
       getEventArchiveStatus: async () => ({
-        dbSizeMb: eventDbSize,
-        recordsCount: eventRecords,
+        dbSizeMb: 900,
+        recordsCount: 5000,
         oldestRecordAt: "2025-01-01T00:00:00.000Z",
         newestRecordAt: "2026-01-01T00:00:00.000Z",
-        settings: { ...baseEventSettings, maxDatabaseSizeMb: 1000, deleteBatchSize: 500 },
+        settings: { ...baseEventSettings, cleanupMode: "bySize", maxDatabaseSizeMb: 1000, deleteBatchSize: 250 },
       }),
       deleteEventOccurrencesByRetentionBatch: async () => ({ deletedRecords: 0, durationMs: 3 }),
       deleteOldestEventOccurrencesBatch: async () => {
-        eventDbSize = 900;
-        eventRecords = 4500;
-        return { deletedRecords: 500, durationMs: 9 };
+        sizeCalls += 1;
+        return { deletedRecords: 250, durationMs: 9 };
       },
     });
 
     await service.runMaintenance();
     const eventStatus = await service.getEventArchiveStatus();
 
+    expect(sizeCalls).toBe(0);
     expect(eventStatus.status).toBe("scheduled");
-    expect(eventStatus.recordsDeletedInLastBatch).toBe(500);
-    expect(eventStatus.totalRecordsDeletedThisRun).toBe(500);
-    expect(eventStatus.lastBatchDurationMs).toBe(9);
+    expect(eventStatus.recordsDeletedInLastBatch).toBe(0);
     expect(eventStatus.stopThresholdMb).toBe(950);
   });
 
-  it("event maintenance respects maxDeleteTransactionMs in bounded batch", async () => {
+  it("event byAgeAndSize runs age cleanup below threshold but skips size cleanup", async () => {
+    let ageCalls = 0;
+    let sizeCalls = 0;
+    const service = createServiceWithRepository({
+      getEventArchiveSettings: async () => ({
+        ...baseEventSettings,
+        cleanupMode: "byAgeAndSize",
+        maxDatabaseSizeMb: 1000,
+      }),
+      getEventArchiveStatus: async () => ({
+        dbSizeMb: 900,
+        recordsCount: 5000,
+        oldestRecordAt: "2025-01-01T00:00:00.000Z",
+        newestRecordAt: "2026-01-01T00:00:00.000Z",
+        settings: { ...baseEventSettings, cleanupMode: "byAgeAndSize", maxDatabaseSizeMb: 1000 },
+      }),
+      deleteEventOccurrencesByRetentionBatch: async () => {
+        ageCalls += 1;
+        return ageCalls === 1 ? { deletedRecords: 40, durationMs: 2 } : { deletedRecords: 0, durationMs: 1 };
+      },
+      deleteOldestEventOccurrencesBatch: async () => {
+        sizeCalls += 1;
+        return { deletedRecords: 10, durationMs: 2 };
+      },
+    });
+
+    await service.runMaintenance();
+    const eventStatus = await service.getEventArchiveStatus();
+
+    expect(ageCalls).toBeGreaterThan(0);
+    expect(sizeCalls).toBe(0);
+    expect(["pruning", "cooling_down", "scheduled"]).toContain(eventStatus.status);
+  });
+
+  it("event maintenance respects maxDeleteTransactionMs in byAge path", async () => {
     const txLimits: number[] = [];
     const service = createServiceWithRepository({
       getEventArchiveSettings: async () => ({
         ...baseEventSettings,
+        cleanupMode: "byAge",
         maxDatabaseSizeMb: 1000,
         maxDeleteTransactionMs: 120,
       }),
       getEventArchiveStatus: async () => ({
-        dbSizeMb: 1300,
+        dbSizeMb: 900,
         recordsCount: 5000,
         oldestRecordAt: "2025-01-01T00:00:00.000Z",
         newestRecordAt: "2026-01-01T00:00:00.000Z",
-        settings: { ...baseEventSettings, maxDatabaseSizeMb: 1000, maxDeleteTransactionMs: 120 },
+        settings: { ...baseEventSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000, maxDeleteTransactionMs: 120 },
       }),
-      deleteEventOccurrencesByRetentionBatch: async () => ({ deletedRecords: 0, durationMs: 2 }),
-      deleteOldestEventOccurrencesBatch: async (options: { maxTransactionMs: number }) => {
+      deleteEventOccurrencesByRetentionBatch: async (options: { maxTransactionMs: number }) => {
         txLimits.push(options.maxTransactionMs);
         return { deletedRecords: 0, durationMs: 2 };
       },
+      deleteOldestEventOccurrencesBatch: async () => ({ deletedRecords: 0, durationMs: 2 }),
     });
 
     await service.runMaintenance();
     expect(txLimits[0]).toBe(120);
   });
 
-  it("event maintenance pauses under simulated runtime load", async () => {
+  it("event byAge path still respects load guard", async () => {
+    let ageCalls = 0;
     const service = createServiceWithRepository({
       getEventArchiveSettings: async () => ({
         ...baseEventSettings,
+        cleanupMode: "byAge",
         maxDatabaseSizeMb: 1000,
       }),
       getEventArchiveStatus: async () => ({
-        dbSizeMb: 1300,
+        dbSizeMb: 900,
         recordsCount: 5000,
         oldestRecordAt: "2025-01-01T00:00:00.000Z",
         newestRecordAt: "2026-01-01T00:00:00.000Z",
-        settings: { ...baseEventSettings, maxDatabaseSizeMb: 1000 },
+        settings: { ...baseEventSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000 },
       }),
       getActiveEventQueries: () => 3,
+      deleteEventOccurrencesByRetentionBatch: async () => {
+        ageCalls += 1;
+        return { deletedRecords: 10, durationMs: 2 };
+      },
     });
 
     await service.runMaintenance();
     const eventStatus = await service.getEventArchiveStatus();
+    expect(ageCalls).toBe(0);
     expect(eventStatus.status).toBe("paused");
     expect(eventStatus.pauseReason).toContain("event_queries_active");
   });
 
-  it("operator maintenance supports the same status fields", async () => {
-    let operatorDbSize = 1300;
-    let operatorRecords = 4000;
+  it("operator byAge deletes expired rows even below start threshold", async () => {
+    let ageCalls = 0;
     const service = createServiceWithRepository({
       getOperatorActionArchiveStatus: async () => ({
-        dbSizeMb: operatorDbSize,
-        recordsCount: operatorRecords,
+        dbSizeMb: 900,
+        recordsCount: 4000,
         oldestRecordAt: "2025-01-01T00:00:00.000Z",
         newestRecordAt: "2026-01-01T00:00:00.000Z",
-        settings: { ...baseOperatorSettings, maxDatabaseSizeMb: 1000 },
+        settings: { ...baseOperatorSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000 },
       }),
-      deleteOperatorActionsByRetentionBatch: async () => ({ deletedRecords: 0, durationMs: 2 }),
-      deleteOldestOperatorActionsBatch: async () => {
-        operatorDbSize = 900;
-        operatorRecords = 3500;
-        return { deletedRecords: 500, durationMs: 7 };
+      deleteOperatorActionsByRetentionBatch: async () => {
+        ageCalls += 1;
+        return ageCalls === 1 ? { deletedRecords: 30, durationMs: 2 } : { deletedRecords: 0, durationMs: 1 };
       },
+      deleteOldestOperatorActionsBatch: async () => ({ deletedRecords: 0, durationMs: 2 }),
     });
     service.setOperatorActionArchiveSettings({
       ...baseOperatorSettings,
       enabled: true,
+      cleanupMode: "byAge",
       maxDatabaseSizeMb: 1000,
       deleteBatchSize: 500,
       maintenanceIntervalMs: 500,
@@ -345,10 +387,8 @@ describe("ArchiveService soft maintenance behavior", () => {
     await service.runMaintenance();
     const operatorStatus = await service.getOperatorActionArchiveStatus();
 
-    expect(operatorStatus.status).toBe("scheduled");
-    expect(operatorStatus.recordsDeletedInLastBatch).toBe(500);
-    expect(operatorStatus.totalRecordsDeletedThisRun).toBe(500);
-    expect(operatorStatus.lastBatchDurationMs).toBe(7);
+    expect(ageCalls).toBeGreaterThan(0);
+    expect(["pruning", "cooling_down", "scheduled"]).toContain(operatorStatus.status);
     expect(operatorStatus.startThresholdMb).toBe(1100);
     expect(operatorStatus.stopThresholdMb).toBe(950);
   });

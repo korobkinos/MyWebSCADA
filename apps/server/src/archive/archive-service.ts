@@ -80,6 +80,7 @@ type NormalizedMessageArchiveSettings = {
 
 type MessageArchiveMaintenanceStateSnapshot = {
   status: ArchiveMaintenanceState;
+  statusDetail: string | null;
   pruningActive: boolean;
   pauseReason: string | null;
   errorMessage: string | null;
@@ -189,6 +190,7 @@ export class ArchiveService {
   };
   private readonly eventArchiveMaintenance: MessageArchiveMaintenanceStateSnapshot = {
     status: "scheduled",
+    statusDetail: null,
     pruningActive: false,
     pauseReason: null,
     errorMessage: null,
@@ -207,6 +209,7 @@ export class ArchiveService {
   };
   private readonly operatorArchiveMaintenance: MessageArchiveMaintenanceStateSnapshot = {
     status: "scheduled",
+    statusDetail: null,
     pruningActive: false,
     pauseReason: null,
     errorMessage: null,
@@ -587,6 +590,7 @@ export class ArchiveService {
     return {
       ...status,
       status: state.status,
+      statusDetail: state.statusDetail ?? undefined,
       maxDatabaseSizeMb: state.maxDatabaseSizeMb,
       startThresholdMb: state.startThresholdMb,
       stopThresholdMb: state.stopThresholdMb,
@@ -690,6 +694,7 @@ export class ArchiveService {
     return {
       ...status,
       status: state.status,
+      statusDetail: state.statusDetail ?? undefined,
       maxDatabaseSizeMb: state.maxDatabaseSizeMb,
       startThresholdMb: state.startThresholdMb,
       stopThresholdMb: state.stopThresholdMb,
@@ -739,8 +744,10 @@ export class ArchiveService {
     this.maintenanceNextRunAt = null;
     this.maintenanceState = "idle";
     this.eventArchiveMaintenance.status = "idle";
+    this.eventArchiveMaintenance.statusDetail = null;
     this.eventArchiveMaintenance.nextRunAt = null;
     this.operatorArchiveMaintenance.status = "idle";
+    this.operatorArchiveMaintenance.statusDetail = null;
     this.operatorArchiveMaintenance.nextRunAt = null;
     await this.flush().catch((error) => this.logger.error(`Archive final flush failed: ${this.errorText(error)}`));
     await this.repository.close();
@@ -1075,6 +1082,7 @@ export class ArchiveService {
     if (!settings.enabled || settings.maxDatabaseSizeMb <= 0) {
       state.pruningActive = false;
       state.status = "idle";
+      state.statusDetail = null;
       state.pauseReason = null;
       state.recordsDeletedInLastBatch = 0;
       state.totalRecordsDeletedThisRun = 0;
@@ -1087,15 +1095,24 @@ export class ArchiveService {
     const thresholds = resolveArchiveMaintenanceThresholds(settings.maxDatabaseSizeMb);
     state.startThresholdMb = thresholds.startThresholdMb;
     state.stopThresholdMb = thresholds.stopThresholdMb;
-    if (!state.pruningActive && thresholds.startThresholdMb !== null && status.dbSizeMb > thresholds.startThresholdMb) {
-      state.pruningActive = true;
-      state.totalRecordsDeletedThisRun = 0;
-    } else if (state.pruningActive && thresholds.stopThresholdMb !== null && status.dbSizeMb < thresholds.stopThresholdMb) {
+
+    const ageEnabled = settings.cleanupMode === "byAge" || settings.cleanupMode === "byAgeAndSize";
+    const sizeEnabled = settings.cleanupMode === "bySize" || settings.cleanupMode === "byAgeAndSize";
+
+    if (sizeEnabled) {
+      if (!state.pruningActive && thresholds.startThresholdMb !== null && status.dbSizeMb > thresholds.startThresholdMb) {
+        state.pruningActive = true;
+        state.totalRecordsDeletedThisRun = 0;
+      } else if (state.pruningActive && thresholds.stopThresholdMb !== null && status.dbSizeMb < thresholds.stopThresholdMb) {
+        state.pruningActive = false;
+      }
+    } else {
       state.pruningActive = false;
     }
 
-    if (!state.pruningActive) {
+    if (!ageEnabled && !state.pruningActive) {
       state.status = "scheduled";
+      state.statusDetail = null;
       state.pauseReason = null;
       state.recordsDeletedInLastBatch = 0;
       state.lastBatchDurationMs = 0;
@@ -1105,6 +1122,7 @@ export class ArchiveService {
     const loadGuard = this.loadGuard({ deleteBatchSize: settings.deleteBatchSize });
     if (loadGuard.paused) {
       state.status = "paused";
+      state.statusDetail = null;
       state.pauseReason = loadGuard.reason ?? "runtime_load_high";
       state.recordsDeletedInLastBatch = 0;
       state.lastBatchDurationMs = 0;
@@ -1112,35 +1130,16 @@ export class ArchiveService {
     }
 
     state.status = "pruning";
+    state.statusDetail = null;
     state.pauseReason = null;
 
     const deadline = Date.now() + settings.maxMaintenanceTickMs;
     let deletedTotal = 0;
     while (Date.now() < deadline) {
-      let batchResult: { deletedRecords: number; durationMs: number };
-      if (settings.cleanupMode === "byAge") {
-        batchResult = kind === "event"
-          ? await this.repository.deleteEventOccurrencesByRetentionBatch({
-            retentionDays: settings.retentionDays,
-            limit: settings.deleteBatchSize,
-            maxTransactionMs: settings.maxDeleteTransactionMs,
-          })
-          : await this.repository.deleteOperatorActionsByRetentionBatch({
-            retentionDays: settings.retentionDays,
-            limit: settings.deleteBatchSize,
-            maxTransactionMs: settings.maxDeleteTransactionMs,
-          });
-      } else if (settings.cleanupMode === "bySize") {
-        batchResult = kind === "event"
-          ? await this.repository.deleteOldestEventOccurrencesBatch({
-            limit: settings.deleteBatchSize,
-            maxTransactionMs: settings.maxDeleteTransactionMs,
-          })
-          : await this.repository.deleteOldestOperatorActionsBatch({
-            limit: settings.deleteBatchSize,
-            maxTransactionMs: settings.maxDeleteTransactionMs,
-          });
-      } else {
+      let batchResult: { deletedRecords: number; durationMs: number } = { deletedRecords: 0, durationMs: 0 };
+      let workReason: "pruning_by_age" | "pruning_by_size" | null = null;
+
+      if (ageEnabled) {
         const byAge = kind === "event"
           ? await this.repository.deleteEventOccurrencesByRetentionBatch({
             retentionDays: settings.retentionDays,
@@ -1154,16 +1153,23 @@ export class ArchiveService {
           });
         if (byAge.deletedRecords > 0) {
           batchResult = byAge;
-        } else {
-          batchResult = kind === "event"
-            ? await this.repository.deleteOldestEventOccurrencesBatch({
-              limit: settings.deleteBatchSize,
-              maxTransactionMs: settings.maxDeleteTransactionMs,
-            })
-            : await this.repository.deleteOldestOperatorActionsBatch({
-              limit: settings.deleteBatchSize,
-              maxTransactionMs: settings.maxDeleteTransactionMs,
-            });
+          workReason = "pruning_by_age";
+        }
+      }
+
+      if (workReason === null && sizeEnabled && state.pruningActive) {
+        const bySize = kind === "event"
+          ? await this.repository.deleteOldestEventOccurrencesBatch({
+            limit: settings.deleteBatchSize,
+            maxTransactionMs: settings.maxDeleteTransactionMs,
+          })
+          : await this.repository.deleteOldestOperatorActionsBatch({
+            limit: settings.deleteBatchSize,
+            maxTransactionMs: settings.maxDeleteTransactionMs,
+          });
+        batchResult = bySize;
+        if (bySize.deletedRecords > 0) {
+          workReason = "pruning_by_size";
         }
       }
 
@@ -1171,6 +1177,8 @@ export class ArchiveService {
       state.lastBatchDurationMs = batchResult.durationMs;
       state.totalRecordsDeletedThisRun += batchResult.deletedRecords;
       deletedTotal += batchResult.deletedRecords;
+      state.statusDetail = workReason;
+      state.pauseReason = workReason;
 
       const refreshedStatus = kind === "event"
         ? await this.repository.getEventArchiveStatus()
@@ -1180,14 +1188,19 @@ export class ArchiveService {
       state.oldestRecordAt = refreshedStatus.oldestRecordAt;
       state.newestRecordAt = refreshedStatus.newestRecordAt;
 
-      if (state.stopThresholdMb !== null && refreshedStatus.dbSizeMb < state.stopThresholdMb) {
-        state.pruningActive = false;
-        state.status = "scheduled";
-        break;
+      if (sizeEnabled) {
+        if (!state.pruningActive && state.startThresholdMb !== null && refreshedStatus.dbSizeMb > state.startThresholdMb) {
+          state.pruningActive = true;
+        } else if (state.pruningActive && state.stopThresholdMb !== null && refreshedStatus.dbSizeMb < state.stopThresholdMb) {
+          state.pruningActive = false;
+        }
       }
+
       if (batchResult.deletedRecords === 0) {
         state.pruningActive = false;
         state.status = "scheduled";
+        state.statusDetail = null;
+        state.pauseReason = null;
         break;
       }
       if (Date.now() >= deadline) {
@@ -1199,6 +1212,10 @@ export class ArchiveService {
 
     if (state.pruningActive && state.status === "pruning") {
       state.status = "cooling_down";
+    }
+    if (state.status !== "pruning" && state.status !== "cooling_down") {
+      state.statusDetail = null;
+      state.pauseReason = null;
     }
     return deletedTotal;
   }

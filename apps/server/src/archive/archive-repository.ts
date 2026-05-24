@@ -37,6 +37,8 @@ const MIN_MAX_MAINTENANCE_TICK_MS = 50;
 const MAX_MAX_MAINTENANCE_TICK_MS = 2_000;
 const MIN_MAX_DELETE_TRANSACTION_MS = 50;
 const MAX_MAX_DELETE_TRANSACTION_MS = 1_000;
+const DEFAULT_MANUAL_CLEANUP_MAX_BATCHES = 20;
+const DEFAULT_MANUAL_CLEANUP_MAX_DURATION_MS = 2_000;
 
 export type ArchiveLogger = {
   info(message: string): void;
@@ -143,6 +145,7 @@ export type ArchivePruneBatchResultRow = {
 
 export type EventArchiveStatusRow = {
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
+  statusDetail?: string;
   dbSizeMb: number;
   maxDatabaseSizeMb?: number | null;
   startThresholdMb?: number | null;
@@ -166,6 +169,7 @@ export type EventArchiveCleanupResultRow = {
 
 export type OperatorActionArchiveStatusRow = {
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
+  statusDetail?: string;
   dbSizeMb: number;
   maxDatabaseSizeMb?: number | null;
   startThresholdMb?: number | null;
@@ -1980,6 +1984,8 @@ export class ArchiveRepository {
     maxDatabaseSizeMb?: number;
     cleanupMode?: EventArchiveCleanupMode;
     optimizeAfterCleanup?: boolean;
+    maxBatches?: number;
+    maxManualCleanupMs?: number;
   }): Promise<EventArchiveCleanupResultRow> {
     const settings = await this.getEventArchiveSettings();
     if (!settings.enabled) {
@@ -2006,13 +2012,26 @@ export class ArchiveRepository {
       MIN_MAX_DELETE_TRANSACTION_MS,
       MAX_MAX_DELETE_TRANSACTION_MS,
     );
+    const maxBatches = this.normalizeBoundedInteger(
+      options?.maxBatches,
+      DEFAULT_MANUAL_CLEANUP_MAX_BATCHES,
+      1,
+      1_000,
+    );
+    const maxManualCleanupMs = this.normalizeBoundedInteger(
+      options?.maxManualCleanupMs,
+      DEFAULT_MANUAL_CLEANUP_MAX_DURATION_MS,
+      100,
+      60_000,
+    );
+    const startedAt = Date.now();
 
     let deletedByAge = 0;
     let deletedBySize = 0;
 
     if (cleanupMode === "byAge" || cleanupMode === "byAgeAndSize") {
       let safetyCounter = 0;
-      while (safetyCounter < 10_000) {
+      while (safetyCounter < maxBatches && (Date.now() - startedAt) < maxManualCleanupMs) {
         safetyCounter += 1;
         const deleted = await this.deleteEventOccurrencesByRetentionBatch({
           retentionDays,
@@ -2029,7 +2048,7 @@ export class ArchiveRepository {
     if (cleanupMode === "bySize" || cleanupMode === "byAgeAndSize") {
       const sizeLimitBytes = maxDatabaseSizeMb * 1024 * 1024;
       let safetyCounter = 0;
-      while (safetyCounter < 10_000) {
+      while (safetyCounter < maxBatches && (Date.now() - startedAt) < maxManualCleanupMs) {
         safetyCounter += 1;
         const sizeState = await this.readSizedTableStats("event_occurrences", "occurred_at");
         if (!Number.isFinite(sizeState.currentBytes) || sizeState.currentBytes <= sizeLimitBytes) {
@@ -2429,6 +2448,8 @@ export class ArchiveRepository {
     maintenanceIntervalMs?: number;
     maxMaintenanceTickMs?: number;
     maxDeleteTransactionMs?: number;
+    maxBatches?: number;
+    maxManualCleanupMs?: number;
   }): Promise<OperatorActionArchiveCleanupResultRow> {
     const settings = {
       ...this.defaultOperatorActionArchiveSettings(),
@@ -2457,13 +2478,26 @@ export class ArchiveRepository {
       MIN_MAX_DELETE_TRANSACTION_MS,
       MAX_MAX_DELETE_TRANSACTION_MS,
     );
+    const maxBatches = this.normalizeBoundedInteger(
+      options?.maxBatches,
+      DEFAULT_MANUAL_CLEANUP_MAX_BATCHES,
+      1,
+      1_000,
+    );
+    const maxManualCleanupMs = this.normalizeBoundedInteger(
+      options?.maxManualCleanupMs,
+      DEFAULT_MANUAL_CLEANUP_MAX_DURATION_MS,
+      100,
+      60_000,
+    );
+    const startedAt = Date.now();
 
     let deletedByAge = 0;
     let deletedBySize = 0;
 
     if (cleanupMode === "byAge" || cleanupMode === "byAgeAndSize") {
       let safetyCounter = 0;
-      while (safetyCounter < 10_000) {
+      while (safetyCounter < maxBatches && (Date.now() - startedAt) < maxManualCleanupMs) {
         safetyCounter += 1;
         const deleted = await this.deleteOperatorActionsByRetentionBatch({
           retentionDays,
@@ -2480,7 +2514,7 @@ export class ArchiveRepository {
     if (cleanupMode === "bySize" || cleanupMode === "byAgeAndSize") {
       const sizeLimitBytes = maxDatabaseSizeMb * 1024 * 1024;
       let safetyCounter = 0;
-      while (safetyCounter < 10_000) {
+      while (safetyCounter < maxBatches && (Date.now() - startedAt) < maxManualCleanupMs) {
         safetyCounter += 1;
         const sizeState = await this.readSizedTableStats("operator_actions", "occurred_at");
         if (!Number.isFinite(sizeState.currentBytes) || sizeState.currentBytes <= sizeLimitBytes) {

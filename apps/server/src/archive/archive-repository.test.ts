@@ -227,3 +227,92 @@ describe("ArchiveRepository.queryTrends diagnostics", () => {
     expect(infoMessages.some((message) => message.startsWith("trend:series-missing-history "))).toBe(true);
   });
 });
+
+describe("manual message cleanup caps", () => {
+  it("caps event manual cleanup by maxBatches", async () => {
+    const repository = new ArchiveRepository(
+      { connectionString: "postgres://unused" },
+      {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    );
+
+    let calls = 0;
+    (repository as unknown as {
+      getEventArchiveSettings: () => Promise<{
+        enabled: boolean;
+        retentionDays: number;
+        maxDatabaseSizeMb: number;
+        cleanupMode: "byAge";
+        cleanupIntervalMinutes: number;
+        optimizeAfterCleanup: boolean;
+        deleteBatchSize: number;
+        maintenanceIntervalMs: number;
+        maxMaintenanceTickMs: number;
+        maxDeleteTransactionMs: number;
+      }>;
+      deleteEventOccurrencesByRetentionBatch: (input: { retentionDays: number; limit: number; maxTransactionMs: number }) => Promise<{ deletedRecords: number; durationMs: number }>;
+    }).getEventArchiveSettings = async () => ({
+      enabled: true,
+      retentionDays: 90,
+      maxDatabaseSizeMb: 1000,
+      cleanupMode: "byAge",
+      cleanupIntervalMinutes: 60,
+      optimizeAfterCleanup: false,
+      deleteBatchSize: 10,
+      maintenanceIntervalMs: 3000,
+      maxMaintenanceTickMs: 200,
+      maxDeleteTransactionMs: 150,
+    });
+    (repository as unknown as {
+      deleteEventOccurrencesByRetentionBatch: (input: { retentionDays: number; limit: number; maxTransactionMs: number }) => Promise<{ deletedRecords: number; durationMs: number }>;
+    }).deleteEventOccurrencesByRetentionBatch = async () => {
+      calls += 1;
+      return { deletedRecords: 10, durationMs: 1 };
+    };
+
+    const result = await repository.cleanupEventArchive({
+      cleanupMode: "byAge",
+      maxBatches: 2,
+      maxManualCleanupMs: 60_000,
+    });
+
+    expect(calls).toBe(2);
+    expect(result.deletedByAge).toBe(20);
+  });
+
+  it("caps operator manual cleanup by maxBatches", async () => {
+    const repository = new ArchiveRepository(
+      { connectionString: "postgres://unused" },
+      {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    );
+
+    let calls = 0;
+    (repository as unknown as {
+      deleteOperatorActionsByRetentionBatch: (input: { retentionDays: number; limit: number; maxTransactionMs: number }) => Promise<{ deletedRecords: number; durationMs: number }>;
+    }).deleteOperatorActionsByRetentionBatch = async () => {
+      calls += 1;
+      return { deletedRecords: 10, durationMs: 1 };
+    };
+
+    const result = await repository.cleanupOperatorActionArchive({
+      enabled: true,
+      cleanupMode: "byAge",
+      retentionDays: 90,
+      maxDatabaseSizeMb: 1000,
+      deleteBatchSize: 10,
+      maxDeleteTransactionMs: 150,
+      maxBatches: 2,
+      maxManualCleanupMs: 60_000,
+    });
+
+    expect(calls).toBe(2);
+    expect(result.deletedByAge).toBe(20);
+  });
+});

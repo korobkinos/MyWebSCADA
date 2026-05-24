@@ -200,6 +200,7 @@ export type ArchivePurgeResult = {
 
 export type EventArchiveStatus = {
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
+  statusDetail?: string;
   dbSizeMb: number;
   maxDatabaseSizeMb?: number | null;
   startThresholdMb?: number | null;
@@ -223,6 +224,7 @@ export type EventArchiveCleanupResult = {
 
 export type OperatorActionArchiveStatus = {
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
+  statusDetail?: string;
   dbSizeMb: number;
   maxDatabaseSizeMb?: number | null;
   startThresholdMb?: number | null;
