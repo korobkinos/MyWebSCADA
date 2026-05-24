@@ -2,7 +2,11 @@ import type { AccessRoleLevel, EventSound, EventTableObject } from "@web-scada/s
 import { ACCESS_ROLE_LABELS_RU, ensureDefaultEventSounds } from "@web-scada/shared";
 import { ColorPicker } from "antd";
 import { useMemo, useState } from "react";
-import { DEFAULT_EVENT_TABLE_COLUMN_LABELS, type EventTableColumnId } from "./event-table-columns";
+import {
+  DEFAULT_EVENT_TABLE_COLUMN_LABELS,
+  type EventTableColumnId,
+  normalizeEventTableColumnWidths,
+} from "./event-table-columns";
 import { resolveEventTableConfig } from "./event-table-config";
 import { TrendWorkbenchDialog } from "../trends/TrendWorkbenchDialog";
 import { WorkbenchButton } from "../../components/workbench";
@@ -132,6 +136,10 @@ export function EventTableSettingsDialog({ open, object, onClose, onPatch }: Eve
     () => Array.from(new Set([...DEFAULT_COLUMNS, ...visibleColumns])) as EventTableColumnId[],
     [visibleColumns],
   );
+  const normalizedColumnWidths = useMemo(
+    () => normalizeEventTableColumnWidths(object.columnWidths),
+    [object.columnWidths],
+  );
 
   const renderFallbackSoundField = (
     label: string,
@@ -244,7 +252,7 @@ export function EventTableSettingsDialog({ open, object, onClose, onPatch }: Eve
         <div className="event-table-settings-columns">
           {allColumns.map((column) => {
             const isVisible = visibleColumns.includes(column);
-            const width = object.columnWidths?.[column];
+            const width = normalizedColumnWidths[column];
             const alignment = object.columnAlignments?.[column] ?? object.cellTextAlign ?? "left";
             return (
               <div key={column} className="event-table-settings-columns__row">

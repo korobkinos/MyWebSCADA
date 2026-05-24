@@ -62,3 +62,40 @@ export function normalizeEventTableColumns(columns: string[] | undefined): Event
 
   return normalized.length > 0 ? normalized.slice(0, 12) : [...DEFAULT_EVENT_TABLE_COLUMNS];
 }
+
+export function normalizeEventTableColumnId(raw: string | null | undefined): EventTableColumnId | undefined {
+  const candidate = String(raw ?? "").trim();
+  if (!candidate) {
+    return undefined;
+  }
+  if ((DEFAULT_EVENT_TABLE_COLUMN_LABELS as Record<string, string>)[candidate]) {
+    return candidate as EventTableColumnId;
+  }
+  return LEGACY_COLUMN_MAP[candidate];
+}
+
+export function normalizeEventTableColumnWidths(
+  input: Record<string, number> | undefined,
+): Partial<Record<EventTableColumnId, number>> {
+  const normalized: Partial<Record<EventTableColumnId, number>> = {};
+  if (!input) {
+    return normalized;
+  }
+
+  for (const [rawKey, rawValue] of Object.entries(input)) {
+    const columnId = normalizeEventTableColumnId(rawKey);
+    if (!columnId) {
+      continue;
+    }
+    const width = Number(rawValue);
+    if (!Number.isFinite(width) || width <= 0) {
+      continue;
+    }
+    const hasExisting = Number.isFinite(Number(normalized[columnId]));
+    if (rawKey === columnId || !hasExisting) {
+      normalized[columnId] = width;
+    }
+  }
+
+  return normalized;
+}

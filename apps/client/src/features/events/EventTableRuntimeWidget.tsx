@@ -20,6 +20,7 @@ import { useScadaStore } from "../../store/scada-store";
 import {
   DEFAULT_EVENT_TABLE_COLUMN_LABELS,
   type EventTableColumnId,
+  normalizeEventTableColumnWidths,
 } from "./event-table-columns";
 import {
   resolveEventTableConfig,
@@ -956,7 +957,7 @@ export function EventTableRuntimeWidget({
   }, [canOpenSettings, settingsOpen]);
 
   useEffect(() => {
-    setRuntimeColumnWidths(object.columnWidths ?? {});
+    setRuntimeColumnWidths(normalizeEventTableColumnWidths(object.columnWidths));
   }, [object.columnWidths, object.id]);
 
   useEffect(() => {
@@ -999,6 +1000,12 @@ export function EventTableRuntimeWidget({
     () => Math.min(MAX_OPERATOR_ACTION_QUERY_LIMIT, Math.max(pageSize, maxRows)),
     [maxRows, pageSize],
   );
+  const operatorActionHistoryFrom = mode === "history" ? historyQuery.from : null;
+  const operatorActionHistoryTo = mode === "history" ? historyQuery.to : null;
+  const operatorActionHistoryLimit = mode === "history"
+    ? Math.min(operatorActionQueryLimit, Math.max(1, historyQuery.limit ?? operatorActionQueryLimit))
+    : null;
+  const operatorActionHistoryOffset = mode === "history" ? historyQuery.offset : null;
 
   useEffect(() => {
     if (mode !== "history" || showOperatorActionsInHistory) {
@@ -1022,14 +1029,29 @@ export function EventTableRuntimeWidget({
 
   useEffect(() => {
     if (!showOperatorActionsInMode) {
-      setOperatorActionHistory((previous) => ({
-        ...previous,
-        items: [],
-        total: 0,
-        loading: false,
-        error: null,
-        updatedAt: null,
-      }));
+      setOperatorActionHistory((previous) => {
+        if (
+          previous.items.length === 0
+          && previous.total === 0
+          && previous.limit === 0
+          && previous.offset === 0
+          && previous.loading === false
+          && previous.error === null
+          && previous.updatedAt === null
+        ) {
+          return previous;
+        }
+        return {
+          ...previous,
+          items: [],
+          total: 0,
+          limit: 0,
+          offset: 0,
+          loading: false,
+          error: null,
+          updatedAt: null,
+        };
+      });
       return;
     }
 
@@ -1039,19 +1061,25 @@ export function EventTableRuntimeWidget({
     const loadOperatorActions = () => {
       const requestSeq = operatorActionRequestSeqRef.current + 1;
       operatorActionRequestSeqRef.current = requestSeq;
-      setOperatorActionHistory((previous) => ({
-        ...previous,
-        loading: mode === "history" || previous.updatedAt === null,
-        error: null,
-      }));
+      setOperatorActionHistory((previous) => {
+        const nextLoading = mode === "history" || previous.updatedAt === null;
+        if (previous.loading === nextLoading && previous.error === null) {
+          return previous;
+        }
+        return {
+          ...previous,
+          loading: nextLoading,
+          error: null,
+        };
+      });
 
       const query = mode === "history"
         ? {
-          from: historyQuery.from,
-          to: historyQuery.to,
+          from: operatorActionHistoryFrom ?? undefined,
+          to: operatorActionHistoryTo ?? undefined,
           search: object.searchText?.trim() || undefined,
-          limit: Math.min(operatorActionQueryLimit, Math.max(1, historyQuery.limit ?? operatorActionQueryLimit)),
-          offset: historyQuery.offset,
+          limit: operatorActionHistoryLimit ?? undefined,
+          offset: operatorActionHistoryOffset ?? undefined,
         }
         : {
           from: new Date(Date.now() - OPERATOR_ACTION_ONLINE_WINDOW_MS).toISOString(),
@@ -1101,14 +1129,14 @@ export function EventTableRuntimeWidget({
       }
     };
   }, [
-    historyQuery.from,
-    historyQuery.limit,
-    historyQuery.offset,
-    historyQuery.to,
     maxRows,
     mode,
     object.searchText,
     operatorActionQueryLimit,
+    operatorActionHistoryFrom,
+    operatorActionHistoryLimit,
+    operatorActionHistoryOffset,
+    operatorActionHistoryTo,
     pageSize,
     showOperatorActionsInMode,
   ]);
@@ -1742,8 +1770,8 @@ export function EventTableRuntimeWidget({
   };
 
   const effectiveColumnWidths = useMemo(() => ({
-    ...(object.columnWidths ?? {}),
-    ...runtimeColumnWidths,
+    ...normalizeEventTableColumnWidths(object.columnWidths),
+    ...normalizeEventTableColumnWidths(runtimeColumnWidths),
   }), [object.columnWidths, runtimeColumnWidths]);
 
   const gridTemplateColumns = useMemo(
