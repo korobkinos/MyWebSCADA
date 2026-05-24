@@ -201,6 +201,7 @@ describe("ProjectArchiveService", () => {
     const result = await harness.service.validateProjectArchive(upload(zip.toBuffer() as Buffer), { requireSignature: true });
 
     expect(result.valid).toBe(false);
+    expect(result.authenticity).toMatchObject({ signed: true, verified: false, required: true });
     expect(result.errors.some((issue) => issue.code === "ARCHIVE_SIGNATURE_MISMATCH")).toBe(true);
   });
 
@@ -215,7 +216,23 @@ describe("ProjectArchiveService", () => {
     expect(warningOnly.valid).toBe(true);
     expect(warningOnly.warnings.some((issue) => issue.code === "ARCHIVE_NOT_SIGNED")).toBe(true);
     expect(rejected.valid).toBe(false);
+    expect(rejected.authenticity).toMatchObject({ signed: false, verified: false, required: true });
     expect(rejected.errors.some((issue) => issue.code === "ARCHIVE_NOT_SIGNED")).toBe(true);
+  });
+
+  it("rejects unsigned archives by default when PROJECT_ARCHIVE_SECRET is set", async () => {
+    delete process.env.PROJECT_ARCHIVE_SECRET;
+    const source = await makeHarness(makeProject("Unsigned Source"));
+    const exported = await source.service.exportProjectArchive();
+    const target = await makeHarness(makeProject("Signed Target"));
+    process.env.PROJECT_ARCHIVE_SECRET = "test-secret";
+
+    const validation = await target.service.validateProjectArchive(upload(exported.buffer));
+
+    expect(validation.valid).toBe(false);
+    expect(validation.authenticity).toMatchObject({ signed: false, verified: false, required: true });
+    expect(validation.errors.some((issue) => issue.code === "ARCHIVE_NOT_SIGNED")).toBe(true);
+    await expect(target.service.importProjectArchive(upload(exported.buffer), { mode: "replace-current" })).rejects.toThrow(/signature\.json/);
   });
 
   it("rejects checksum mismatches before import", async () => {

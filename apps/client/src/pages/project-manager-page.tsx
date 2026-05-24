@@ -31,10 +31,57 @@ function validationTitle(result: ProjectArchiveValidationResult | ScreenArchiveV
   return "Archive is invalid";
 }
 
+function hasIssue(result: ProjectArchiveValidationResult | ScreenArchiveValidationResult, codes: string[]): boolean {
+  const codeSet = new Set(codes);
+  return [...result.errors, ...result.warnings].some((issue) => codeSet.has(issue.code));
+}
+
+function signatureStatus(result: ProjectArchiveValidationResult | ScreenArchiveValidationResult): {
+  label: "verified" | "failed" | "unsigned" | "not required";
+  alertType: "success" | "warning" | "error" | "info";
+  message: string;
+} {
+  if (hasIssue(result, ["ARCHIVE_SIGNATURE_MISMATCH", "INVALID_SIGNATURE", "INVALID_SIGNATURE_JSON"])) {
+    return { label: "failed", alertType: "error", message: "Archive signature verification failed." };
+  }
+  if (result.authenticity?.verified) {
+    return { label: "verified", alertType: "success", message: "Archive signature was verified." };
+  }
+  if (result.authenticity?.signed && !result.authenticity.verified) {
+    return {
+      label: result.authenticity.required ? "failed" : "not required",
+      alertType: result.authenticity.required ? "error" : "info",
+      message: result.authenticity.required
+        ? "Archive signature could not be verified."
+        : "Archive is signed, but signature verification is not required in this environment.",
+    };
+  }
+  return {
+    label: "unsigned",
+    alertType: result.authenticity?.required ? "error" : "warning",
+    message: result.authenticity?.required
+      ? "Archive is unsigned, but a signature is required."
+      : "Archive is unsigned.",
+  };
+}
+
+function checksumStatus(result: ProjectArchiveValidationResult | ScreenArchiveValidationResult): {
+  label: "verified" | "failed";
+  alertType: "success" | "error";
+  message: string;
+} {
+  if (result.checksum?.verified === false || hasIssue(result, ["CHECKSUM_MISMATCH", "SIZE_MISMATCH", "MANIFEST_FILE_MISSING"])) {
+    return { label: "failed", alertType: "error", message: "Archive checksum verification failed." };
+  }
+  return { label: "verified", alertType: "success", message: "Archive checksums match the manifest." };
+}
+
 function ValidationSummary({ result }: { result: ProjectArchiveValidationResult | ScreenArchiveValidationResult | null }) {
   if (!result) {
     return <Typography.Text type="secondary">Choose a ZIP archive to validate before import.</Typography.Text>;
   }
+  const signature = signatureStatus(result);
+  const checksum = checksumStatus(result);
   return (
     <Space direction="vertical" style={{ width: "100%" }}>
       <Alert type={result.valid ? "success" : "error"} showIcon message={validationTitle(result)} />
@@ -42,8 +89,8 @@ function ValidationSummary({ result }: { result: ProjectArchiveValidationResult 
         <Descriptions size="small" bordered column={2}>
           <Descriptions.Item label="Format">{result.summary.format}</Descriptions.Item>
           <Descriptions.Item label="Name">{result.summary.name}</Descriptions.Item>
-          <Descriptions.Item label="Signed">{result.authenticity?.signed ? (result.authenticity.verified ? "verified" : "yes") : "unsigned"}</Descriptions.Item>
-          <Descriptions.Item label="Checksums">{result.checksum?.verified === false ? "failed" : "verified"}</Descriptions.Item>
+          <Descriptions.Item label="Signature">{signature.label}</Descriptions.Item>
+          <Descriptions.Item label="Checksums">{checksum.label}</Descriptions.Item>
           <Descriptions.Item label="Screens">{result.summary.screens}</Descriptions.Item>
           <Descriptions.Item label="Tags">{result.summary.tags}</Descriptions.Item>
           <Descriptions.Item label="Assets">{result.summary.assets}</Descriptions.Item>
@@ -53,6 +100,8 @@ function ValidationSummary({ result }: { result: ProjectArchiveValidationResult 
           <Descriptions.Item label="Variables">{result.summary.variables}</Descriptions.Item>
         </Descriptions>
       ) : null}
+      {signature.alertType === "error" ? <Alert type="error" showIcon message={signature.message} /> : null}
+      {checksum.alertType === "error" ? <Alert type="error" showIcon message={checksum.message} /> : null}
       {"conflicts" in result && result.conflicts ? (
         <Alert
           type="warning"
@@ -174,7 +223,7 @@ export function ProjectManagerPage() {
     }
     Modal.confirm({
       title: "Replace current project?",
-      content: "The server will create an automatic backup, then replace the current project, assets, libraries, and included sound files.",
+      content: `Import "${result.summary?.name ?? projectArchiveFile.name}" and replace the current project? The server will create an automatic backup before replacing project data, assets, libraries, and included sound files.`,
       okText: "Replace project",
       okButtonProps: { danger: true },
       onOk: async () => {
@@ -236,7 +285,9 @@ export function ProjectManagerPage() {
     }
     Modal.confirm({
       title: screenMode === "replace" ? "Replace selected screen?" : "Import screen?",
-      content: screenMode === "replace" ? `Replace "${currentScreen?.name}" with the screen archive?` : "The screen and non-conflicting dependencies will be added to this project.",
+      content: screenMode === "replace"
+        ? `Replace "${currentScreen?.name}" with "${result.summary?.name ?? screenArchiveFile.name}"? The selected screen content will be overwritten.`
+        : "The screen and non-conflicting dependencies will be added to this project.",
       okText: screenMode === "replace" ? "Replace screen" : "Import screen",
       okButtonProps: { danger: screenMode === "replace" },
       onOk: async () => {

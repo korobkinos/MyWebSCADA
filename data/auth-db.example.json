@@ -1,0 +1,15 @@
+{
+  "users": [],
+  "passwordPolicies": [
+    {
+      "id": "default",
+      "minLength": 8,
+      "requireUppercase": true,
+      "requireLowercase": true,
+      "requireDigit": true,
+      "requireSpecialChar": false,
+      "updatedAt": "2026-01-01T00:00:00.000Z",
+      "updatedBy": "example"
+    }
+  ]
+}

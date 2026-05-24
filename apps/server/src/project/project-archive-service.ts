@@ -831,11 +831,17 @@ export class ProjectArchiveService {
   }
 
   public async validateProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveValidationOptions): Promise<ProjectArchiveValidationResult> {
-    return this.inspectProjectArchive(uploadedFile.content, false, projectArchiveValidationOptionsSchema.parse(options ?? {}));
+    const parsedOptions = projectArchiveValidationOptionsSchema.parse(options ?? {});
+    return this.inspectProjectArchive(uploadedFile.content, false, {
+      requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
+    });
   }
 
   public async validateScreenArchive(uploadedFile: UploadInput, options?: ScreenArchiveValidationOptions): Promise<ScreenArchiveValidationResult> {
-    return this.inspectScreenArchive(uploadedFile.content, false, screenArchiveValidationOptionsSchema.parse(options ?? {}));
+    const parsedOptions = screenArchiveValidationOptionsSchema.parse(options ?? {});
+    return this.inspectScreenArchive(uploadedFile.content, false, {
+      requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
+    });
   }
 
   public async importProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveImportOptions): Promise<ProjectArchiveImportResult> {

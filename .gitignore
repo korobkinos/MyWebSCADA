@@ -7,3 +7,4 @@ coverage
 .DS_Store
 apps/client/dist
 apps/server/dist
+data/auth-db.json
