@@ -86,6 +86,8 @@ type EventTableOperatorActionRow = {
 type EventTableRow = EventTableEventRow | EventTableOperatorActionRow;
 
 const OPERATOR_ACTION_CATEGORY_LABEL = "Действие оператора";
+const OPERATOR_ACTION_ONLINE_WINDOW_MS = 5 * 60 * 1000;
+const OPERATOR_ACTION_ONLINE_POLL_MS = 3000;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -164,6 +166,23 @@ function toOperatorActionRow(action: OperatorActionRecord): EventTableOperatorAc
     actionKind: action.actionKind,
     username: action.username?.trim() || "-",
   };
+}
+
+function dedupeOperatorActionsById(items: OperatorActionRecord[]): OperatorActionRecord[] {
+  if (items.length <= 1) {
+    return items;
+  }
+  const byId = new Map<string, OperatorActionRecord>();
+  for (const item of items) {
+    const id = normalizeOperatorActionId(item);
+    if (!id) {
+      continue;
+    }
+    if (!byId.has(id)) {
+      byId.set(id, item);
+    }
+  }
+  return [...byId.values()];
 }
 
 function matchesOperatorActionFilters(action: OperatorActionRecord, object: EventTableObject): boolean {
@@ -580,9 +599,10 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const showTitleBottom = config.titlePosition === "bottom";
   const showToolbarTop = config.showToolbar && config.toolbarPosition === "top";
   const showToolbarBottom = config.showToolbar && config.toolbarPosition === "bottom";
-  const canShowOperatorActionsToggle = config.showToolbar && config.showOperatorActionsToggle;
-  // Keep online/active alarm behavior unchanged: operator-action rows are merged only in history mode.
+  const canShowOperatorActionsToggle = config.showToolbar;
+  const showOperatorActionsInOnline = mode === "online" && showOperatorActions;
   const showOperatorActionsInHistory = mode === "history" && showOperatorActions;
+  const showOperatorActionsInMode = showOperatorActionsInOnline || showOperatorActionsInHistory;
 
   const resolvedScreenId = useMemo(
     () => screenId ?? currentScreenId ?? findObjectScreenId(project, object.id),
@@ -632,13 +652,17 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     [object],
   );
 
-  const onlineRows = useMemo(() => {
+  const onlineSortedRows = useMemo(() => {
     const filtered = filterOnlineEventRows(runtimeEvents.activeEvents, object);
-    const sorted = sortEventRows(filtered, object);
-    return sorted.slice(0, maxRows);
-  }, [maxRows, object, runtimeEvents.activeEvents]);
+    return sortEventRows(filtered, object);
+  }, [object, runtimeEvents.activeEvents]);
 
-  const onlineTableRows = useMemo<EventTableRow[]>(
+  const onlineRows = useMemo(
+    () => onlineSortedRows.slice(0, maxRows),
+    [maxRows, onlineSortedRows],
+  );
+
+  const onlineEventTableRows = useMemo<EventTableRow[]>(
     () => onlineRows
       .map((event) => {
         const rowId = getEventRowId(event);
@@ -654,6 +678,24 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       })
       .filter((item): item is EventTableEventRow => Boolean(item)),
     [onlineRows],
+  );
+
+  const onlineEventRowsForMix = useMemo(
+    () => onlineSortedRows
+      .map((event) => {
+        const rowId = getEventRowId(event);
+        if (!rowId) {
+          return null;
+        }
+        return {
+          rowType: "event",
+          rowId,
+          occurredAt: event.occurredAt,
+          event,
+        } as EventTableEventRow;
+      })
+      .filter((item): item is EventTableEventRow => Boolean(item)),
+    [onlineSortedRows],
   );
 
   const historySortedRows = useMemo(() => {
@@ -732,6 +774,22 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     const start = Math.max(0, (historyPage - 1) * pageSize);
     return mixedHistoryRows.slice(start, start + pageSize);
   }, [historyPage, mixedHistoryRows, object.serverSidePagination, pageSize, showOperatorActionsInHistory]);
+
+  const mixedOnlineRows = useMemo<EventTableRow[]>(() => {
+    if (!showOperatorActionsInOnline) {
+      return [];
+    }
+    const operatorRows = operatorActionHistory.items
+      .filter((item) => matchesOperatorActionFilters(item, object))
+      .map((item) => toOperatorActionRow(item))
+      .filter((item): item is EventTableOperatorActionRow => Boolean(item));
+    return [...onlineEventRowsForMix, ...operatorRows]
+      .sort((left, right) => compareMixedRowsByTime(left, right, object.sortDirection ?? "desc"));
+  }, [object, onlineEventRowsForMix, operatorActionHistory.items, showOperatorActionsInOnline]);
+
+  const onlineTableRows = showOperatorActionsInOnline
+    ? mixedOnlineRows.slice(0, maxRows)
+    : onlineEventTableRows;
 
   const historyTableRows = showOperatorActionsInHistory ? mixedHistoryVisibleRows : historyEventTableRows;
   const visibleRows = mode === "history" ? historyTableRows : onlineTableRows;
@@ -814,18 +872,8 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     void eventRuntimeStore.loadArchiveStatus();
   }, [historyQuery, mode, object.id]);
 
-  const operatorActionHistoryQuery = useMemo(() => {
-    return {
-      from: historyQuery.from,
-      to: historyQuery.to,
-      search: object.searchText?.trim() || undefined,
-      limit: historyQuery.limit,
-      offset: historyQuery.offset,
-    };
-  }, [historyQuery.from, historyQuery.limit, historyQuery.offset, historyQuery.to, object.searchText]);
-
   useEffect(() => {
-    if (!showOperatorActionsInHistory) {
+    if (!showOperatorActionsInMode) {
       setOperatorActionHistory((previous) => ({
         ...previous,
         items: [],
@@ -836,41 +884,84 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       return;
     }
 
-    const requestSeq = operatorActionRequestSeqRef.current + 1;
-    operatorActionRequestSeqRef.current = requestSeq;
-    setOperatorActionHistory((previous) => ({
-      ...previous,
-      loading: true,
-      error: null,
-    }));
+    let cancelled = false;
+    let timer: number | undefined;
 
-    void api.getOperatorActionHistory(operatorActionHistoryQuery)
-      .then((page) => {
-        if (operatorActionRequestSeqRef.current !== requestSeq) {
-          return;
+    const loadOperatorActions = () => {
+      const requestSeq = operatorActionRequestSeqRef.current + 1;
+      operatorActionRequestSeqRef.current = requestSeq;
+      setOperatorActionHistory((previous) => ({
+        ...previous,
+        loading: true,
+        error: null,
+      }));
+
+      const query = mode === "history"
+        ? {
+          from: historyQuery.from,
+          to: historyQuery.to,
+          search: object.searchText?.trim() || undefined,
+          limit: historyQuery.limit,
+          offset: historyQuery.offset,
         }
-        setOperatorActionHistory({
-          items: page.items ?? [],
-          total: page.total ?? 0,
-          limit: page.limit ?? 0,
-          offset: page.offset ?? 0,
-          loading: false,
-          error: null,
-          updatedAt: Date.now(),
+        : {
+          from: new Date(Date.now() - OPERATOR_ACTION_ONLINE_WINDOW_MS).toISOString(),
+          to: new Date().toISOString(),
+          search: object.searchText?.trim() || undefined,
+          limit: Math.max(200, Math.min(4000, Math.max(maxRows, pageSize) * 4)),
+          offset: 0,
+        };
+
+      void api.getOperatorActionHistory(query)
+        .then((page) => {
+          if (cancelled || operatorActionRequestSeqRef.current !== requestSeq) {
+            return;
+          }
+          const deduped = dedupeOperatorActionsById(page.items ?? []);
+          setOperatorActionHistory({
+            items: deduped,
+            total: page.total ?? deduped.length,
+            limit: page.limit ?? 0,
+            offset: page.offset ?? 0,
+            loading: false,
+            error: null,
+            updatedAt: Date.now(),
+          });
+        })
+        .catch((error: unknown) => {
+          if (cancelled || operatorActionRequestSeqRef.current !== requestSeq) {
+            return;
+          }
+          const text = error instanceof Error ? error.message : String(error);
+          setOperatorActionHistory((previous) => ({
+            ...previous,
+            loading: false,
+            error: text,
+          }));
         });
-      })
-      .catch((error: unknown) => {
-        if (operatorActionRequestSeqRef.current !== requestSeq) {
-          return;
-        }
-        const text = error instanceof Error ? error.message : String(error);
-        setOperatorActionHistory((previous) => ({
-          ...previous,
-          loading: false,
-          error: text,
-        }));
-      });
-  }, [operatorActionHistoryQuery, showOperatorActionsInHistory]);
+    };
+
+    loadOperatorActions();
+    if (mode === "online") {
+      timer = window.setInterval(loadOperatorActions, OPERATOR_ACTION_ONLINE_POLL_MS);
+    }
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearInterval(timer);
+      }
+    };
+  }, [
+    historyQuery.from,
+    historyQuery.limit,
+    historyQuery.offset,
+    historyQuery.to,
+    maxRows,
+    mode,
+    object.searchText,
+    pageSize,
+    showOperatorActionsInMode,
+  ]);
 
   useEffect(() => () => {
     eventRuntimeStore.clearHistory(object.id);
@@ -1201,8 +1292,8 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
       return `Mode: history | Period: ${historyPreset.label} | Rows: ${historyTotalRowsForMode}`;
     }
     const onlineStatusLabel = runtimeEvents.onlineStatus === "open" ? "online" : runtimeEvents.onlineStatus;
-    return `Mode: online (${onlineStatusLabel}) | Active: ${runtimeEvents.activeCount} | Unacked: ${runtimeEvents.unacknowledgedCount} | Rows: ${onlineRows.length}`;
-  }, [historyPreset.label, historyTotalRowsForMode, mode, onlineRows.length, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount]);
+    return `Mode: online (${onlineStatusLabel}) | Active: ${runtimeEvents.activeCount} | Unacked: ${runtimeEvents.unacknowledgedCount} | Rows: ${visibleRows.length}`;
+  }, [historyPreset.label, historyTotalRowsForMode, mode, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount, visibleRows.length]);
 
   const handleExport = useCallback(async (options: EventTableExportOptions) => {
     if (object.enableCsvExport === false) {
@@ -1416,7 +1507,7 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
     ? "History filter uses single category and single priority value; extra values are ignored."
     : "";
   const operatorActionModeNote = mode === "online" && showOperatorActions
-    ? "Operator actions are shown in history mode."
+    ? "Operator actions are shown in online mode for the last 5 minutes."
     : "";
   const statusNote = [hasSoundNote, historyFilterNote, operatorActionModeNote].filter(Boolean).join(" | ");
 
@@ -1424,7 +1515,9 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   const historyCanNext = historyPage < totalPages;
   const csvTooltipTitle = `${mode === "history" ? "Export history records" : "Export online messages"}${object.enableCsvExport === false ? " (disabled)" : ""}`;
   const historyLoading = historyBucket.loading || (showOperatorActionsInHistory && operatorActionHistory.loading);
+  const onlineLoading = runtimeEvents.onlineLoading || (showOperatorActionsInOnline && operatorActionHistory.loading);
   const historyError = historyBucket.error || (showOperatorActionsInHistory ? operatorActionHistory.error : null);
+  const onlineError = runtimeEvents.onlineError || (showOperatorActionsInOnline ? operatorActionHistory.error : null);
 
   const startColumnResize = (event: ReactMouseEvent<HTMLDivElement>, column: EventTableColumnId) => {
     event.preventDefault();
@@ -1702,17 +1795,17 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
               </div>
             ) : null}
 
-            {(mode === "online" && runtimeEvents.onlineLoading) || (mode === "history" && historyLoading) ? (
+            {(mode === "online" && onlineLoading) || (mode === "history" && historyLoading) ? (
               <div style={{ padding: 12, color: mutedTextColor, fontSize: Math.max(10, fontSize - 1) }}>
                 {mode === "history"
                   ? (showOperatorActionsInHistory ? "Loading history events and operator actions..." : "Loading history events...")
-                  : "Loading online events..."}
+                  : (showOperatorActionsInOnline ? "Loading online events and operator actions..." : "Loading online events...")}
               </div>
             ) : null}
 
-            {(mode === "online" && runtimeEvents.onlineError) || (mode === "history" && historyError) ? (
+            {(mode === "online" && onlineError) || (mode === "history" && historyError) ? (
               <div style={{ padding: 12, color: object.criticalColor ?? "#f48771", fontSize: Math.max(10, fontSize - 1) }}>
-                {mode === "history" ? historyError : runtimeEvents.onlineError}
+                {mode === "history" ? historyError : onlineError}
               </div>
             ) : null}
 
@@ -1729,7 +1822,9 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
                     padding: 12,
                   }}
                 >
-                  {mode === "history" ? "No history records for the selected period." : "No online events."}
+                  {mode === "history"
+                    ? "No history records for the selected period."
+                    : (showOperatorActionsInOnline ? "No online events or operator actions." : "No online events.")}
                 </div>
               ) : (
                 <div style={{ minWidth: "100%" }}>

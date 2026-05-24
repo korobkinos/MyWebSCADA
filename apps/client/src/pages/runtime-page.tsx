@@ -5,6 +5,7 @@ import {
   clampAccessRoleLevel,
   getUserRoleLevel,
   hasRoleAccess,
+  isOperatorActionEnabledForObject,
   roleLevelFromRoles,
   type HmiObject,
   type AccessRoleLevel,
@@ -651,8 +652,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     if (!objectMeta) {
       return undefined;
     }
-    const objectLogging = objectMeta.object.operatorActionLogging;
-    if (objectLogging?.enabled !== true) {
+    if (!isOperatorActionEnabledForObject(objectMeta.object, project)) {
       return undefined;
     }
     const targetMeta = resolveActionTargetMeta(action);
@@ -690,7 +690,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       targetType: targetMeta.targetType,
       targetName: targetMeta.targetName,
       unit,
-      messageTemplate: objectLogging.messageTemplate,
+      messageTemplate: objectMeta.object.operatorActionLogging?.messageTemplate,
       clientOldValue: resolvedClientOldValue,
       requestedValue: resolvedRequestedValue,
       details,

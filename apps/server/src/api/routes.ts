@@ -28,6 +28,7 @@ import {
   type ScadaProject,
   type UpdateUserRequest,
   getUserRoleLevel,
+  isOperatorActionEnabledForObject,
   libraryElementSchema,
   normalizePasswordPolicy,
   projectSchema,
@@ -913,11 +914,8 @@ function findProjectObject(project: ScadaProject, objectId: string): HmiObject |
 }
 
 function isOperatorActionLoggingEnabled(project: ScadaProject, context: OperatorActionContext): boolean {
-  if (project.operatorActionSettings?.enabled === false) {
-    return false;
-  }
   const object = findProjectObject(project, context.objectId);
-  return object?.operatorActionLogging?.enabled === true;
+  return isOperatorActionEnabledForObject(object, project);
 }
 
 function toActionPlaceholder(kind: OperatorActionKind, details: Record<string, unknown> | undefined): string {

@@ -4388,10 +4388,13 @@ function SpecificPropertyFields({
             <Switch checked={object.showOperatorActions === true} onChange={(checked) => onPatch({ showOperatorActions: checked } as Partial<HmiObject>)} />
           </div>
           <div className="object-property-panel__switch-item">
-            <span className="object-property-panel__switch-label">Кнопка показа/скрытия действий оператора</span>
-            <Switch checked={showOperatorActionsToggle} onChange={(checked) => onPatch({ showOperatorActionsToggle: checked } as Partial<HmiObject>)} />
+            <span className="object-property-panel__switch-label">Кнопка показа/скрытия действий оператора (legacy)</span>
+            <Switch checked={showOperatorActionsToggle} disabled />
           </div>
         </div>
+        <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8, fontSize: 12 }}>
+          Иконка показа/скрытия действий оператора теперь автоматически отображается, когда виден toolbar.
+        </Typography.Text>
         <Form.Item label="Max Rows">
           <InputNumber
             style={{ width: "100%" }}

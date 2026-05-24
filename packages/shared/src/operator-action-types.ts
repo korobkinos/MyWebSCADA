@@ -118,3 +118,40 @@ export type ProjectOperatorActionSettings = {
   defaultNumericInputTemplate?: string;
   archiveSettings?: OperatorActionArchiveSettings;
 };
+
+type OperatorActionObjectLike = {
+  type?: string;
+  operatorActionLogging?: OperatorActionLoggingConfig;
+} | null | undefined;
+
+type OperatorActionProjectLike = {
+  operatorActionSettings?: {
+    enabled?: boolean;
+  };
+} | null | undefined;
+
+const DEFAULT_ENABLED_OPERATOR_ACTION_TYPES = new Set<string>([
+  "button",
+  "checkbox",
+  "slider",
+  "numeric-input",
+]);
+
+export function isOperatorActionEnabledForObject(
+  object: OperatorActionObjectLike,
+  project?: OperatorActionProjectLike,
+): boolean {
+  if (project?.operatorActionSettings?.enabled === false) {
+    return false;
+  }
+  if (!object) {
+    return false;
+  }
+  if (object.operatorActionLogging?.enabled === false) {
+    return false;
+  }
+  if (object.operatorActionLogging?.enabled === true) {
+    return true;
+  }
+  return DEFAULT_ENABLED_OPERATOR_ACTION_TYPES.has(object.type ?? "");
+}
