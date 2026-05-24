@@ -26,17 +26,25 @@ export function useWorkbenchWindows() {
 
   const openWindow = useCallback((definition: WorkbenchWindowDefinition) => {
     const next = nextZ();
+    const minWidth = Math.max(1, Math.round(definition.minWidth ?? 260));
+    const minHeight = Math.max(1, Math.round(definition.minHeight ?? 160));
+    const clampRect = (rect: WorkbenchWindowRect): WorkbenchWindowRect => ({
+      ...rect,
+      width: Math.max(minWidth, Math.round(rect.width)),
+      height: Math.max(minHeight, Math.round(rect.height)),
+    });
 
     setWindows((prev) => {
       const existing = prev.find((window) => window.id === definition.id);
 
       if (existing) {
+        const nextRect = definition.resetRectOnOpen ? definition.defaultRect : existing.rect;
         return prev.map((window) =>
           window.id === definition.id
             ? {
                 ...window,
                 title: definition.title,
-                rect: definition.resetRectOnOpen ? definition.defaultRect : window.rect,
+                rect: clampRect(nextRect),
                 minWidth: definition.minWidth,
                 minHeight: definition.minHeight,
                 resizable: definition.resizable,
@@ -52,7 +60,7 @@ export function useWorkbenchWindows() {
         {
           id: definition.id,
           title: definition.title,
-          rect: definition.defaultRect,
+          rect: clampRect(definition.defaultRect),
           minWidth: definition.minWidth,
           minHeight: definition.minHeight,
           resizable: definition.resizable,

@@ -324,9 +324,9 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
       {
         id: "archive",
         title: "Archive",
-        defaultRect: { x: 140, y: 90, width: 1100, height: 680 },
-        minWidth: 720,
-        minHeight: 420,
+        defaultRect: { x: 140, y: 90, width: 1290, height: 680 },
+        minWidth: 1290,
+        minHeight: 680,
         render: () => <ArchivePage />,
       },
       {

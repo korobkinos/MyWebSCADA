@@ -2340,6 +2340,21 @@ body {
   white-space: nowrap;
 }
 
+.screen-editor-archive-window__status-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: inherit;
+  gap: 1px;
+}
+
+.screen-editor-archive-window__status-line {
+  color: inherit;
+  opacity: 0.85;
+  font-size: 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .screen-editor-archive-window__status--ok {
   color: #4ec94e;
 }

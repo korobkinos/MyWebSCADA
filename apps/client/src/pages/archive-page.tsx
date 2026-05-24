@@ -1192,8 +1192,8 @@ export function ArchivePage() {
   };
   const archiveStatusView = useMemo(() => {
     const checkTime = formatStatusCheckTime(lastStatusCheckAt);
-    const details = [
-      `DB: ${formatDbSizeMb(status.dbSizeMb)} MB`,
+    const trendDetails = [
+      `Trend DB: ${formatDbSizeMb(status.dbSizeMb)} MB`,
       `Limit: ${formatDbSizeMb(status.maxDbSizeMb)} MB`,
       `Start: ${formatDbSizeMb(status.startThresholdMb)} MB`,
       `Stop: ${formatDbSizeMb(status.stopThresholdMb)} MB`,
@@ -1204,26 +1204,49 @@ export function ArchivePage() {
       `Next run: ${formatDateTime(status.nextRunAt)}`,
       status.pauseReason ? `Pause: ${status.pauseReason}` : null,
     ].filter(Boolean).join(" | ");
+    const eventDetails = eventArchiveStatus
+      ? [
+        `Events(${eventArchiveStatus.status ?? "-"})`,
+        `DB: ${formatDbSizeMb(eventArchiveStatus.dbSizeMb)} MB`,
+        `Records: ${formatRecordsCount(eventArchiveStatus.recordsCount)}`,
+        `Deleted(batch): ${formatRecordsCount(eventArchiveStatus.recordsDeletedInLastBatch)}`,
+        `Deleted(run): ${formatRecordsCount(eventArchiveStatus.totalRecordsDeletedThisRun)}`,
+        eventArchiveStatus.statusDetail ? `Detail: ${eventArchiveStatus.statusDetail}` : null,
+        eventArchiveStatus.pauseReason ? `Pause: ${eventArchiveStatus.pauseReason}` : null,
+      ].filter(Boolean).join(" | ")
+      : "Events: -";
+    const operatorDetails = operatorArchiveStatus
+      ? [
+        `Operator(${operatorArchiveStatus.status ?? "-"})`,
+        `DB: ${formatDbSizeMb(operatorArchiveStatus.dbSizeMb)} MB`,
+        `Records: ${formatRecordsCount(operatorArchiveStatus.recordsCount)}`,
+        `Deleted(batch): ${formatRecordsCount(operatorArchiveStatus.recordsDeletedInLastBatch)}`,
+        `Deleted(run): ${formatRecordsCount(operatorArchiveStatus.totalRecordsDeletedThisRun)}`,
+        operatorArchiveStatus.statusDetail ? `Detail: ${operatorArchiveStatus.statusDetail}` : null,
+        operatorArchiveStatus.pauseReason ? `Pause: ${operatorArchiveStatus.pauseReason}` : null,
+      ].filter(Boolean).join(" | ")
+      : "Operator: -";
+    const detailsLines = [trendDetails, eventDetails, operatorDetails];
     const maintenanceState = status.status ?? (status.maintenanceRunning ? "pruning" : "scheduled");
     if (loading) {
-      return { tone: "loading", text: `Archive status: checking... | last check ${checkTime}`, details };
+      return { tone: "loading", text: `Archive status: checking... | last check ${checkTime}`, detailsLines };
     }
     if (lastLoadError) {
-      return { tone: "error", text: `Archive status: connection error - ${lastLoadError} | last check ${checkTime}`, details };
+      return { tone: "error", text: `Archive status: connection error - ${lastLoadError} | last check ${checkTime}`, detailsLines };
     }
     if (!status.enabled) {
-      return { tone: "warning", text: `Archive status: disabled${status.reason ? ` - ${status.reason}` : ""} | last check ${checkTime}`, details };
+      return { tone: "warning", text: `Archive status: disabled${status.reason ? ` - ${status.reason}` : ""} | last check ${checkTime}`, detailsLines };
     }
     if (maintenanceState === "pruning" || maintenanceState === "compacting" || maintenanceState === "cooling_down") {
-      return { tone: "loading", text: `Archive status: ${maintenanceState} | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+      return { tone: "loading", text: `Archive status: ${maintenanceState} | queue ${status.queuedSamples} | last check ${checkTime}`, detailsLines };
     }
     if (maintenanceState === "paused") {
-      return { tone: "warning", text: `Archive status: paused | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+      return { tone: "warning", text: `Archive status: paused | queue ${status.queuedSamples} | last check ${checkTime}`, detailsLines };
     }
     if (maintenanceState === "error") {
-      return { tone: "error", text: `Archive status: error | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+      return { tone: "error", text: `Archive status: error | queue ${status.queuedSamples} | last check ${checkTime}`, detailsLines };
     }
-    return { tone: "ok", text: `Archive status: ${maintenanceState} | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+    return { tone: "ok", text: `Archive status: ${maintenanceState} | queue ${status.queuedSamples} | last check ${checkTime}`, detailsLines };
   }, [
     lastLoadError,
     lastStatusCheckAt,
@@ -1244,6 +1267,20 @@ export function ArchivePage() {
     status.status,
     status.stopThresholdMb,
     status.totalRecordsDeletedThisRun,
+    eventArchiveStatus?.dbSizeMb,
+    eventArchiveStatus?.pauseReason,
+    eventArchiveStatus?.recordsCount,
+    eventArchiveStatus?.recordsDeletedInLastBatch,
+    eventArchiveStatus?.status,
+    eventArchiveStatus?.statusDetail,
+    eventArchiveStatus?.totalRecordsDeletedThisRun,
+    operatorArchiveStatus?.dbSizeMb,
+    operatorArchiveStatus?.pauseReason,
+    operatorArchiveStatus?.recordsCount,
+    operatorArchiveStatus?.recordsDeletedInLastBatch,
+    operatorArchiveStatus?.status,
+    operatorArchiveStatus?.statusDetail,
+    operatorArchiveStatus?.totalRecordsDeletedThisRun,
   ]);
 
   return (
@@ -1535,7 +1572,11 @@ export function ArchivePage() {
         </select>
         <div className={`screen-editor-archive-window__status-wrap screen-editor-archive-window__status--${archiveStatusView.tone}`}>
           <span className="screen-editor-archive-window__status">{archiveStatusView.text}</span>
-          <span className="screen-editor-archive-window__status-details">{archiveStatusView.details}</span>
+          <div className="screen-editor-archive-window__status-lines">
+            {archiveStatusView.detailsLines.map((line, index) => (
+              <span key={`${index}:${line}`} className="screen-editor-archive-window__status-line">{line}</span>
+            ))}
+          </div>
         </div>
       </div>
 

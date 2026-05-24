@@ -9488,6 +9488,21 @@
       "updatedAt": "2026-05-23T20:07:22.196Z"
     }
   ],
+  "operatorActionSettings": {
+    "archiveSettings": {
+      "enabled": true,
+      "retentionDays": 90,
+      "maxDatabaseSizeMb": 2048,
+      "cleanupMode": "byAgeAndSize",
+      "cleanupIntervalMinutes": 60,
+      "optimizeAfterCleanup": false,
+      "deleteBatchSize": 500,
+      "maintenanceIntervalMs": 3000,
+      "maxMaintenanceTickMs": 200,
+      "maxDeleteTransactionMs": 150,
+      "updatedAt": "2026-05-24T16:45:40.876Z"
+    }
+  },
   "variables": [
     {
       "name": "Counter",
