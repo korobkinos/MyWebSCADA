@@ -1,6 +1,7 @@
 import type { ElementBindingAssignment } from "./asset-library-types";
 import type { AccessRoleLevel, AppRole } from "./auth-types";
 import type { IndexedTagAddress } from "./indexed-address";
+import type { OperatorActionLoggingConfig } from "./operator-action-types";
 
 export type HmiObjectTagIndexingByField = Record<string, IndexedTagAddress>;
 
@@ -117,6 +118,8 @@ export type HmiObjectBase = {
     | "trendChart"
     | "eventTable";
   name?: string;
+  description?: string;
+  operatorActionLogging?: OperatorActionLoggingConfig;
 
   x: number;
   y: number;

@@ -17,3 +17,4 @@ export * from "./indexed-address";
 export * from "./hmi-object-tree";
 export * from "./event-types";
 export * from "./event-sound-defaults";
+export * from "./operator-action-types";
