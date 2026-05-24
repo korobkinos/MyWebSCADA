@@ -11,6 +11,7 @@ import {
   SettingOutlined,
   SoundOutlined,
   FilterOutlined,
+  UserSwitchOutlined,
 } from "@ant-design/icons";
 import { message, Spin } from "antd";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
@@ -96,59 +97,21 @@ const MAX_MIXED_SOURCE_ROWS = 1000;
 const MAX_OPERATOR_ACTION_QUERY_LIMIT = 1000;
 const ARCHIVE_STATUS_REFRESH_INTERVAL_MS = 30_000;
 const DEBUG_LOG_INTERVAL_MS = 5000;
-const AUTO_COLUMN_MIN_WIDTH: Record<EventTableColumnId, number> = {
-  timestamp: 160,
-  priority: 90,
-  category: 130,
-  message: 220,
-  source: 150,
-  value: 90,
-  state: 90,
-  ack: 60,
-};
-const AUTO_COLUMN_MAX_WIDTH: Record<EventTableColumnId, number> = {
-  timestamp: 280,
-  priority: 220,
-  category: 320,
-  message: 1200,
-  source: 600,
-  value: 240,
-  state: 240,
-  ack: 120,
+const DEFAULT_COLUMN_WIDTH_PX: Record<EventTableColumnId, number> = {
+  timestamp: 180,
+  priority: 110,
+  category: 180,
+  message: 320,
+  source: 220,
+  value: 140,
+  state: 140,
+  ack: 100,
 };
 
 type SoundStatusKind = "enabled" | "disabled" | "blocked" | "error";
 
-let textMeasureContext: CanvasRenderingContext2D | null | undefined;
-
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
-}
-
-function getTextMeasureContext(): CanvasRenderingContext2D | null {
-  if (textMeasureContext !== undefined) {
-    return textMeasureContext;
-  }
-  if (typeof document === "undefined") {
-    textMeasureContext = null;
-    return textMeasureContext;
-  }
-  const canvas = document.createElement("canvas");
-  textMeasureContext = canvas.getContext("2d");
-  return textMeasureContext;
-}
-
-function measureTextWidthPx(text: string, fontSizePx: number, fontWeight: 400 | 600): number {
-  const normalizedText = String(text ?? "");
-  if (!normalizedText) {
-    return 0;
-  }
-  const context = getTextMeasureContext();
-  if (!context) {
-    return Math.round(normalizedText.length * fontSizePx * 0.58);
-  }
-  context.font = `${fontWeight} ${fontSizePx}px "Segoe UI", Tahoma, sans-serif`;
-  return Math.ceil(context.measureText(normalizedText).width);
 }
 
 function toFiniteNumber(value: unknown, fallback: number): number {
@@ -1650,6 +1613,14 @@ export function EventTableRuntimeWidget({
     [russianUi, soundStatusKind],
   );
 
+  const historyFilterNote = mode === "history" && hasMultiValueHistoryFilters(object)
+    ? "History filter uses single category and single priority value; extra values are ignored."
+    : "";
+  const operatorActionModeNote = mode === "online" && showOperatorActions
+    ? "Operator actions are shown in online mode for the last 5 minutes."
+    : "";
+  const statusNote = [historyFilterNote, operatorActionModeNote].filter(Boolean).join(" | ");
+
   const openSettingsDialog = useCallback(() => {
     if (!canOpenSettings) {
       return;
@@ -1662,6 +1633,19 @@ export function EventTableRuntimeWidget({
       return null;
     }
 
+    const modeLoading = mode === "history"
+      ? (historyBucket.loading || (showOperatorActionsInHistory && operatorActionHistory.loading))
+      : (runtimeEvents.onlineLoading || (showOperatorActionsInOnline && operatorActionHistory.loading));
+    const modeError = mode === "history"
+      ? (historyBucket.error || (showOperatorActionsInHistory ? operatorActionHistory.error : null))
+      : (runtimeEvents.onlineError || (showOperatorActionsInOnline ? operatorActionHistory.error : null));
+    const modeLoadingNote = modeLoading
+      ? (mode === "history"
+        ? (showOperatorActionsInHistory ? "Loading history events and operator actions..." : "Loading history events...")
+        : (showOperatorActionsInOnline ? "Loading online events and operator actions..." : "Loading online events..."))
+      : "";
+    const modeErrorNote = modeError ? `Error: ${modeError}` : "";
+
     const onlineStatusLabel = runtimeEvents.onlineStatus === "open" ? "online" : runtimeEvents.onlineStatus;
     const onlineSegments = [
       `Event status: ${onlineStatusLabel}`,
@@ -1671,6 +1655,9 @@ export function EventTableRuntimeWidget({
       object.showLastUpdate === false ? "update --:--:--" : `update ${formatStatusClockTime(runtimeEvents.lastUpdateAt)}`,
       object.showModeIndicator === false ? "mode --" : "mode online",
       object.showRecordCount === false ? "rows --" : `rows ${onlineRows.length}`,
+      ...(statusNote ? [statusNote] : []),
+      ...(modeLoadingNote ? [modeLoadingNote] : []),
+      ...(modeErrorNote ? [modeErrorNote] : []),
     ];
 
     const historyState = historyBucket.loading ? "loading" : historyBucket.error ? "error" : "ready";
@@ -1681,6 +1668,9 @@ export function EventTableRuntimeWidget({
       soundStatusLabel,
       object.showDatabaseStatus === false ? "DB --" : `DB ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)}`,
       object.showDatabaseStatus === false ? "total --" : `total ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`,
+      ...(statusNote ? [statusNote] : []),
+      ...(modeLoadingNote ? [modeLoadingNote] : []),
+      ...(modeErrorNote ? [modeErrorNote] : []),
     ];
 
     const text = mode === "history" ? historySegments.join(" | ") : onlineSegments.join(" | ");
@@ -1714,6 +1704,7 @@ export function EventTableRuntimeWidget({
         ? "DB -- | total --"
         : `DB ${formatDbSizeLabel(runtimeEvents.archiveStatus?.dbSizeMb)} | total ${formatRecordCountLabel(runtimeEvents.archiveStatus?.recordsCount)}`)
       : `${object.showLastUpdate === false ? "update --:--:--" : `update ${formatStatusClockTime(runtimeEvents.lastUpdateAt)}`} | ${object.showRecordCount === false ? "rows --" : `rows ${onlineRows.length}`}`;
+    const lineTwoWithNote = [lineTwo, statusNote, modeLoadingNote, modeErrorNote].filter(Boolean).join(" | ");
 
     const archiveLikeContainerStyle: CSSProperties = {
       minHeight: Math.max(24, rowHeight),
@@ -1744,7 +1735,7 @@ export function EventTableRuntimeWidget({
           {lineOne}
         </div>
         <div style={{ color: mutedTextColor, opacity: 0.9, fontSize: Math.max(9, fontSize - 2), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {lineTwo}
+          {lineTwoWithNote}
         </div>
       </div>
     );
@@ -1755,35 +1746,6 @@ export function EventTableRuntimeWidget({
     ...runtimeColumnWidths,
   }), [object.columnWidths, runtimeColumnWidths]);
 
-  const autoColumnWidths = useMemo(() => {
-    const calculated: Record<string, number> = {};
-    const headerFontSize = Math.max(9, fontSize - 1);
-    const cellFontSize = Math.max(9, fontSize - 1);
-    const horizontalPadding = Math.max(6, config.cellPadding * 2);
-
-    for (const column of columns) {
-      const headerText = object.columnLabels?.[column]?.trim() || DEFAULT_EVENT_TABLE_COLUMN_LABELS[column] || column;
-      let maxTextWidth = measureTextWidthPx(headerText, headerFontSize, 600);
-
-      for (const row of visibleRows) {
-        const cellText = getRowCellText(column, row);
-        const width = measureTextWidthPx(cellText, cellFontSize, 400);
-        if (width > maxTextWidth) {
-          maxTextWidth = width;
-        }
-      }
-
-      const targetWidth = maxTextWidth + horizontalPadding + 14;
-      calculated[column] = clamp(
-        Math.round(targetWidth),
-        AUTO_COLUMN_MIN_WIDTH[column],
-        AUTO_COLUMN_MAX_WIDTH[column],
-      );
-    }
-
-    return calculated;
-  }, [columns, config.cellPadding, fontSize, object.columnLabels, visibleRows]);
-
   const gridTemplateColumns = useMemo(
     () => columns
       .map((column) => {
@@ -1791,23 +1753,15 @@ export function EventTableRuntimeWidget({
         if (Number.isFinite(manualWidth) && manualWidth > 32) {
           return `${manualWidth}px`;
         }
-        const autoWidth = Number(autoColumnWidths[column]);
-        if (Number.isFinite(autoWidth) && autoWidth > 32) {
-          return `${autoWidth}px`;
+        const defaultWidth = Number(DEFAULT_COLUMN_WIDTH_PX[column]);
+        if (Number.isFinite(defaultWidth) && defaultWidth > 32) {
+          return `${defaultWidth}px`;
         }
         return "minmax(80px, 1fr)";
       })
       .join(" "),
-    [autoColumnWidths, columns, effectiveColumnWidths],
+    [columns, effectiveColumnWidths],
   );
-
-  const historyFilterNote = mode === "history" && hasMultiValueHistoryFilters(object)
-    ? "History filter uses single category and single priority value; extra values are ignored."
-    : "";
-  const operatorActionModeNote = mode === "online" && showOperatorActions
-    ? "Operator actions are shown in online mode for the last 5 minutes."
-    : "";
-  const statusNote = [historyFilterNote, operatorActionModeNote].filter(Boolean).join(" | ");
 
   const historyCanPrev = historyPage > 1;
   const historyCanNext = historyPage < totalPages;
@@ -1882,7 +1836,7 @@ export function EventTableRuntimeWidget({
 
       {config.showUnackedOnlyToggle ? (
         <WorkbenchIconButton
-          title={`Show acknowledged rows (${object.showUnacknowledgedOnly === true ? "off" : "on"})`}
+          title={object.showUnacknowledgedOnly === true ? "Show acknowledged rows" : "Hide acknowledged rows"}
           active={object.showUnacknowledgedOnly !== true}
           onClick={() => patchObject({ showUnacknowledgedOnly: object.showUnacknowledgedOnly !== true })}
           icon={object.showUnacknowledgedOnly === true ? <EyeInvisibleOutlined /> : <EyeOutlined />}
@@ -1891,10 +1845,10 @@ export function EventTableRuntimeWidget({
 
       {canShowOperatorActionsToggle ? (
         <WorkbenchIconButton
-          title={showOperatorActions ? "Скрыть действия оператора" : "Показать действия оператора"}
+          title={showOperatorActions ? "Hide operator actions" : "Show operator actions"}
           active={showOperatorActions}
           onClick={() => setShowOperatorActions((previous) => !previous)}
-          icon={showOperatorActions ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          icon={<UserSwitchOutlined />}
         />
       ) : null}
 
@@ -1943,13 +1897,15 @@ export function EventTableRuntimeWidget({
             if (!soundMuteActive) {
               return;
             }
+            unsilenceSounds();
             void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
               if (!result.ok) {
                 setSoundStatusText(result.message);
                 eventRuntimeStore.setSoundStatusMessage(result.message);
                 return;
               }
-              unsilenceSounds();
+              setSoundStatusText("");
+              eventRuntimeStore.setSoundStatusMessage(null);
             });
           }}
           icon={<SoundOutlined />}
@@ -2081,23 +2037,7 @@ export function EventTableRuntimeWidget({
               overflow: "hidden",
             }}
           >
-            {statusNote ? (
-              <div
-                style={{
-                  padding: "4px 10px",
-                  borderBottom: `1px solid ${gridLineColor}`,
-                  color: object.warningColor ?? "#e6b450",
-                  fontSize: Math.max(10, fontSize - 2),
-                  whiteSpace: "nowrap",
-                  textOverflow: "ellipsis",
-                  overflow: "hidden",
-                }}
-              >
-                {statusNote}
-              </div>
-            ) : null}
-
-            {(mode === "online" && onlineLoading) || (mode === "history" && historyLoading) ? (
+            {!showStatus && ((mode === "online" && onlineLoading) || (mode === "history" && historyLoading)) ? (
               <div style={{ padding: 12, color: mutedTextColor, fontSize: Math.max(10, fontSize - 1) }}>
                 {mode === "history"
                   ? (showOperatorActionsInHistory ? "Loading history events and operator actions..." : "Loading history events...")
@@ -2105,7 +2045,7 @@ export function EventTableRuntimeWidget({
               </div>
             ) : null}
 
-            {(mode === "online" && onlineError) || (mode === "history" && historyError) ? (
+            {!showStatus && ((mode === "online" && onlineError) || (mode === "history" && historyError)) ? (
               <div style={{ padding: 12, color: object.criticalColor ?? "#f48771", fontSize: Math.max(10, fontSize - 1) }}>
                 {mode === "history" ? historyError : onlineError}
               </div>

@@ -4480,14 +4480,14 @@ function SpecificPropertyFields({
                   <InputNumber
                     style={{ width: "100%" }}
                     min={40}
-                    max={600}
+                    max={1400}
                     value={object.columnWidths?.[column]}
                     onChange={(value) => {
                       const nextWidths = { ...(object.columnWidths ?? {}) };
                       if (value === null) {
                         delete nextWidths[column];
                       } else {
-                        nextWidths[column] = Math.max(40, Math.min(600, Number(value)));
+                        nextWidths[column] = Math.max(40, Math.min(1400, Number(value)));
                       }
                       onPatch({ columnWidths: nextWidths } as Partial<HmiObject>);
                     }}
