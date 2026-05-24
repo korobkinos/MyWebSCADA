@@ -42,6 +42,41 @@ class EventSoundPlayer {
   private userGestureUnlocked = false;
   private blockedByAutoplay = false;
 
+  private resolveErrorDetails(error: unknown): { name: string; message: string } {
+    if (error instanceof DOMException) {
+      return {
+        name: error.name || "",
+        message: error.message || "",
+      };
+    }
+    if (error instanceof Error) {
+      const candidate = error as Error & { name?: string };
+      return {
+        name: candidate.name || "",
+        message: candidate.message || "",
+      };
+    }
+    const text = String(error ?? "");
+    return {
+      name: "",
+      message: text,
+    };
+  }
+
+  private isAutoplayBlockedError(error: unknown): boolean {
+    const details = this.resolveErrorDetails(error);
+    const text = `${details.name} ${details.message}`.toLowerCase();
+    return details.name === "NotAllowedError"
+      || /notallowederror|user\s+gesture|autoplay/.test(text);
+  }
+
+  private isUnsupportedProbeError(error: unknown): boolean {
+    const details = this.resolveErrorDetails(error);
+    const text = `${details.name} ${details.message}`.toLowerCase();
+    return details.name === "NotSupportedError"
+      || /notsupportederror|no supported source|operation is not supported/.test(text);
+  }
+
   public hasAutoplayBlock(): boolean {
     return this.blockedByAutoplay;
   }
@@ -72,14 +107,21 @@ class EventSoundPlayer {
       this.blockedByAutoplay = false;
       return { ok: true };
     } catch (error) {
-      this.blockedByAutoplay = true;
-      const text = error instanceof Error ? error.message : String(error);
+      if (this.isUnsupportedProbeError(error)) {
+        // Some browsers reject empty Audio() probes with NotSupportedError even on user gesture.
+        this.userGestureUnlocked = true;
+        this.blockedByAutoplay = false;
+        return { ok: true };
+      }
+      const blocked = this.isAutoplayBlockedError(error);
+      this.blockedByAutoplay = blocked;
+      const text = this.resolveErrorDetails(error).message || String(error);
       return {
         ok: false,
-        reason: "autoplay_blocked",
-        message:
-          text ||
-          "Sound playback was blocked by the browser. Click Enable sounds.",
+        reason: blocked ? "autoplay_blocked" : "unknown",
+        message: blocked
+          ? (text || "Sound playback was blocked by the browser. Click Enable sounds.")
+          : (text || "Failed to enable sound playback."),
       };
     }
   }
