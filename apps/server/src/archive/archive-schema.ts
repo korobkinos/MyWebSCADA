@@ -43,24 +43,24 @@ CREATE TABLE IF NOT EXISTS archive_runtime_settings (
     auto_cleanup_enabled BOOLEAN NOT NULL DEFAULT true,
     max_db_size_mb INTEGER,
     max_data_age_months INTEGER,
-    delete_batch_size INTEGER NOT NULL DEFAULT 1000,
-    maintenance_interval_ms INTEGER NOT NULL DEFAULT 2000,
-    max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 1500,
-    max_delete_transaction_ms INTEGER NOT NULL DEFAULT 500,
+    delete_batch_size INTEGER NOT NULL DEFAULT 500,
+    maintenance_interval_ms INTEGER NOT NULL DEFAULT 3000,
+    max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 200,
+    max_delete_transaction_ms INTEGER NOT NULL DEFAULT 150,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE archive_runtime_settings
-ADD COLUMN IF NOT EXISTS delete_batch_size INTEGER NOT NULL DEFAULT 1000;
+ADD COLUMN IF NOT EXISTS delete_batch_size INTEGER NOT NULL DEFAULT 500;
 
 ALTER TABLE archive_runtime_settings
-ADD COLUMN IF NOT EXISTS maintenance_interval_ms INTEGER NOT NULL DEFAULT 2000;
+ADD COLUMN IF NOT EXISTS maintenance_interval_ms INTEGER NOT NULL DEFAULT 3000;
 
 ALTER TABLE archive_runtime_settings
-ADD COLUMN IF NOT EXISTS max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 1500;
+ADD COLUMN IF NOT EXISTS max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 200;
 
 ALTER TABLE archive_runtime_settings
-ADD COLUMN IF NOT EXISTS max_delete_transaction_ms INTEGER NOT NULL DEFAULT 500;
+ADD COLUMN IF NOT EXISTS max_delete_transaction_ms INTEGER NOT NULL DEFAULT 150;
 
 CREATE TABLE IF NOT EXISTS tags (
     id BIGSERIAL PRIMARY KEY,
@@ -311,7 +311,7 @@ INSERT INTO archive_runtime_settings (
     max_maintenance_tick_ms,
     max_delete_transaction_ms
 )
-VALUES (1, true, 5120, NULL, 1000, 2000, 1500, 500)
+VALUES (1, true, 5120, NULL, 500, 3000, 200, 150)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO event_archive_settings (

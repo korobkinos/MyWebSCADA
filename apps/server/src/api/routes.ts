@@ -204,10 +204,22 @@ const archiveTagOverrideSchema = z.object({
 const archiveRuntimeSettingsSchema = z.object({
   autoCleanupEnabled: z.boolean(),
   maxDbSizeMb: z.number().int().positive().max(1024 * 1024).nullable(),
-  deleteBatchSize: z.number().int().positive().max(1_000_000).nullable().optional(),
-  maintenanceIntervalMs: z.number().int().positive().max(60 * 60 * 1000).nullable().optional(),
-  maxMaintenanceTickMs: z.number().int().positive().max(60 * 60 * 1000).nullable().optional(),
-  maxDeleteTransactionMs: z.number().int().positive().max(60 * 60 * 1000).nullable().optional(),
+  deleteBatchSize: z.number().int().min(10).max(10_000).nullable().optional(),
+  maintenanceIntervalMs: z.number().int().min(500).max(60_000).nullable().optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).nullable().optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).nullable().optional(),
+}).superRefine((value, ctx) => {
+  if (
+    typeof value.maxMaintenanceTickMs === "number"
+    && typeof value.maxDeleteTransactionMs === "number"
+    && value.maxMaintenanceTickMs < value.maxDeleteTransactionMs
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["maxMaintenanceTickMs"],
+      message: "maxMaintenanceTickMs must be greater than or equal to maxDeleteTransactionMs",
+    });
+  }
 });
 const eventHistoryQuerySchema = z.object({
   from: z.string().datetime().optional(),

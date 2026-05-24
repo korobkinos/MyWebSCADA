@@ -242,12 +242,49 @@ type ArchiveSettingsDraft = {
   maxDeleteTransactionMs: number;
 };
 
+type ArchiveMaintenancePresetId = "safe" | "balanced" | "fast";
+
+const ARCHIVE_MAINTENANCE_PRESETS: Record<ArchiveMaintenancePresetId, Omit<ArchiveSettingsDraft, "autoCleanupEnabled" | "maxDbSizeMb">> = {
+  safe: {
+    deleteBatchSize: 500,
+    maintenanceIntervalMs: 3000,
+    maxMaintenanceTickMs: 200,
+    maxDeleteTransactionMs: 150,
+  },
+  balanced: {
+    deleteBatchSize: 1000,
+    maintenanceIntervalMs: 2000,
+    maxMaintenanceTickMs: 300,
+    maxDeleteTransactionMs: 150,
+  },
+  fast: {
+    deleteBatchSize: 2500,
+    maintenanceIntervalMs: 1000,
+    maxMaintenanceTickMs: 800,
+    maxDeleteTransactionMs: 300,
+  },
+};
+
+const MIN_DELETE_BATCH_SIZE = 10;
+const MAX_DELETE_BATCH_SIZE = 10_000;
+const MIN_MAINTENANCE_INTERVAL_MS = 500;
+const MAX_MAINTENANCE_INTERVAL_MS = 60_000;
+const MIN_MAX_MAINTENANCE_TICK_MS = 50;
+const MAX_MAX_MAINTENANCE_TICK_MS = 2_000;
+const MIN_MAX_DELETE_TRANSACTION_MS = 50;
+const MAX_MAX_DELETE_TRANSACTION_MS = 1_000;
+
 const DEFAULT_DETAILS_WIDTH = 420;
 const MIN_DETAILS_WIDTH = 300;
 const MAX_DETAILS_WIDTH = 720;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function clampArchiveSetting(value: number | null | undefined, fallback: number, min: number, max: number): number {
+  const numeric = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return clamp(Math.round(numeric), min, max);
 }
 
 function formatStatusCheckTime(timestamp: number | null): string {
@@ -298,10 +335,10 @@ export function ArchivePage() {
   const [settingsDraft, setSettingsDraft] = useState<ArchiveSettingsDraft>({
     autoCleanupEnabled: true,
     maxDbSizeMb: 5120,
-    deleteBatchSize: 1000,
-    maintenanceIntervalMs: 2000,
-    maxMaintenanceTickMs: 1500,
-    maxDeleteTransactionMs: 500,
+    deleteBatchSize: ARCHIVE_MAINTENANCE_PRESETS.safe.deleteBatchSize,
+    maintenanceIntervalMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+    maxMaintenanceTickMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+    maxDeleteTransactionMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
   });
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [confirmState, setConfirmState] = useState<ArchiveConfirmState | null>(null);
@@ -884,10 +921,10 @@ export function ArchivePage() {
     const source = runtimeSettings ?? {
       autoCleanupEnabled: true,
       maxDbSizeMb: 5120,
-      deleteBatchSize: 1000,
-      maintenanceIntervalMs: 2000,
-      maxMaintenanceTickMs: 1500,
-      maxDeleteTransactionMs: 500,
+      deleteBatchSize: ARCHIVE_MAINTENANCE_PRESETS.safe.deleteBatchSize,
+      maintenanceIntervalMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+      maxMaintenanceTickMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+      maxDeleteTransactionMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
     };
     setSettingsDraft({
       autoCleanupEnabled: source.autoCleanupEnabled,
@@ -903,13 +940,38 @@ export function ArchivePage() {
   const saveSettings = async (): Promise<void> => {
     setSettingsBusy(true);
     try {
+      const deleteBatchSize = clampArchiveSetting(
+        settingsDraft.deleteBatchSize,
+        ARCHIVE_MAINTENANCE_PRESETS.safe.deleteBatchSize,
+        MIN_DELETE_BATCH_SIZE,
+        MAX_DELETE_BATCH_SIZE,
+      );
+      const maintenanceIntervalMs = clampArchiveSetting(
+        settingsDraft.maintenanceIntervalMs,
+        ARCHIVE_MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      );
+      const maxDeleteTransactionMs = clampArchiveSetting(
+        settingsDraft.maxDeleteTransactionMs,
+        ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
+        MIN_MAX_DELETE_TRANSACTION_MS,
+        MAX_MAX_DELETE_TRANSACTION_MS,
+      );
+      const maxMaintenanceTickMsRaw = clampArchiveSetting(
+        settingsDraft.maxMaintenanceTickMs,
+        ARCHIVE_MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+        MIN_MAX_MAINTENANCE_TICK_MS,
+        MAX_MAX_MAINTENANCE_TICK_MS,
+      );
+      const maxMaintenanceTickMs = Math.max(maxMaintenanceTickMsRaw, maxDeleteTransactionMs);
       const payload: ArchiveSettingsDraft = {
         autoCleanupEnabled: settingsDraft.autoCleanupEnabled,
         maxDbSizeMb: settingsDraft.maxDbSizeMb && settingsDraft.maxDbSizeMb > 0 ? Math.round(settingsDraft.maxDbSizeMb) : null,
-        deleteBatchSize: Math.max(1, Math.round(settingsDraft.deleteBatchSize)),
-        maintenanceIntervalMs: Math.max(1, Math.round(settingsDraft.maintenanceIntervalMs)),
-        maxMaintenanceTickMs: Math.max(1, Math.round(settingsDraft.maxMaintenanceTickMs)),
-        maxDeleteTransactionMs: Math.max(1, Math.round(settingsDraft.maxDeleteTransactionMs)),
+        deleteBatchSize,
+        maintenanceIntervalMs,
+        maxMaintenanceTickMs,
+        maxDeleteTransactionMs,
       };
       const saved = await api.updateArchiveSettings(payload);
       setRuntimeSettings(saved);
@@ -1374,43 +1436,86 @@ export function ArchivePage() {
           </label>
 
           <label className="workbench-field">
+            <span className="workbench-field__label">Maintenance Preset</span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <WorkbenchButton
+                onClick={() => setSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.safe }))}
+                disabled={settingsBusy}
+              >
+                Safe
+              </WorkbenchButton>
+              <WorkbenchButton
+                onClick={() => setSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.balanced }))}
+                disabled={settingsBusy}
+              >
+                Balanced
+              </WorkbenchButton>
+              <WorkbenchButton
+                onClick={() => setSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.fast }))}
+                disabled={settingsBusy}
+              >
+                Fast
+              </WorkbenchButton>
+            </div>
+            <span className="screen-editor-tag-editor__hint">
+              Safe is recommended for live runtime workloads.
+            </span>
+          </label>
+
+          <label className="workbench-field">
             <span className="workbench-field__label">Delete Batch Size (records)</span>
             <InputNumber
-              min={1}
+              min={MIN_DELETE_BATCH_SIZE}
+              max={MAX_DELETE_BATCH_SIZE}
               value={settingsDraft.deleteBatchSize}
               onChange={(value) => setSettingsDraft((prev) => ({ ...prev, deleteBatchSize: Number(value ?? prev.deleteBatchSize) }))}
               style={{ width: 220 }}
             />
+            <span className="screen-editor-tag-editor__hint">
+              Smaller batch reduces DB pressure and UI lag, but cleanup takes longer.
+            </span>
           </label>
 
           <label className="workbench-field">
             <span className="workbench-field__label">Maintenance Interval (ms)</span>
             <InputNumber
-              min={100}
+              min={MIN_MAINTENANCE_INTERVAL_MS}
+              max={MAX_MAINTENANCE_INTERVAL_MS}
               value={settingsDraft.maintenanceIntervalMs}
               onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maintenanceIntervalMs: Number(value ?? prev.maintenanceIntervalMs) }))}
               style={{ width: 220 }}
             />
+            <span className="screen-editor-tag-editor__hint">
+              Larger interval keeps runtime smoother, but cleanup reacts slower.
+            </span>
           </label>
 
           <label className="workbench-field">
             <span className="workbench-field__label">Max Maintenance Tick (ms)</span>
             <InputNumber
-              min={50}
+              min={MIN_MAX_MAINTENANCE_TICK_MS}
+              max={MAX_MAX_MAINTENANCE_TICK_MS}
               value={settingsDraft.maxMaintenanceTickMs}
               onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxMaintenanceTickMs: Number(value ?? prev.maxMaintenanceTickMs) }))}
               style={{ width: 220 }}
             />
+            <span className="screen-editor-tag-editor__hint">
+              Tick budget caps total background archive work per cycle. It must be greater than or equal to transaction timeout.
+            </span>
           </label>
 
           <label className="workbench-field">
             <span className="workbench-field__label">Max Delete Transaction (ms)</span>
             <InputNumber
-              min={50}
+              min={MIN_MAX_DELETE_TRANSACTION_MS}
+              max={MAX_MAX_DELETE_TRANSACTION_MS}
               value={settingsDraft.maxDeleteTransactionMs}
               onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxDeleteTransactionMs: Number(value ?? prev.maxDeleteTransactionMs) }))}
               style={{ width: 220 }}
             />
+            <span className="screen-editor-tag-editor__hint">
+              Transaction timeout protects runtime by aborting long blocking delete batches.
+            </span>
           </label>
 
           <div className="screen-editor-tag-editor">

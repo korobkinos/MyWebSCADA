@@ -64,10 +64,18 @@ type ArchiveLoadGuardResult = {
   reason?: string;
 };
 
-const DEFAULT_MAINTENANCE_INTERVAL_MS = 2_000;
-const DEFAULT_DELETE_BATCH_SIZE = 1_000;
-const DEFAULT_MAX_MAINTENANCE_TICK_MS = 1_500;
-const DEFAULT_MAX_DELETE_TRANSACTION_MS = 500;
+const DEFAULT_MAINTENANCE_INTERVAL_MS = 3_000;
+const DEFAULT_DELETE_BATCH_SIZE = 500;
+const DEFAULT_MAX_MAINTENANCE_TICK_MS = 200;
+const DEFAULT_MAX_DELETE_TRANSACTION_MS = 150;
+const MIN_DELETE_BATCH_SIZE = 10;
+const MAX_DELETE_BATCH_SIZE = 10_000;
+const MIN_MAINTENANCE_INTERVAL_MS = 500;
+const MAX_MAINTENANCE_INTERVAL_MS = 60_000;
+const MIN_MAX_MAINTENANCE_TICK_MS = 50;
+const MAX_MAX_MAINTENANCE_TICK_MS = 2_000;
+const MIN_MAX_DELETE_TRANSACTION_MS = 50;
+const MAX_MAX_DELETE_TRANSACTION_MS = 1_000;
 
 export function resolveArchiveMaintenanceThresholds(maxDbSizeMb: number | null | undefined): ArchiveMaintenanceThresholds {
   const max = typeof maxDbSizeMb === "number" && Number.isFinite(maxDbSizeMb) && maxDbSizeMb > 0
@@ -367,17 +375,40 @@ export class ArchiveService {
     maxDeleteTransactionMs?: number | null;
   }): Promise<ArchiveRuntimeSettingsRow> {
     const previous = await this.repository.getRuntimeSettings();
+    const boundedDeleteBatchSize = this.normalizeBoundedInteger(
+      settings.deleteBatchSize ?? previous.deleteBatchSize,
+      previous.deleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const boundedMaintenanceIntervalMs = this.normalizeBoundedInteger(
+      settings.maintenanceIntervalMs ?? previous.maintenanceIntervalMs,
+      previous.maintenanceIntervalMs,
+      MIN_MAINTENANCE_INTERVAL_MS,
+      MAX_MAINTENANCE_INTERVAL_MS,
+    );
+    const boundedMaxDeleteTransactionMs = this.normalizeBoundedInteger(
+      settings.maxDeleteTransactionMs ?? previous.maxDeleteTransactionMs,
+      previous.maxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const boundedMaxMaintenanceTickMsRaw = this.normalizeBoundedInteger(
+      settings.maxMaintenanceTickMs ?? previous.maxMaintenanceTickMs,
+      previous.maxMaintenanceTickMs,
+      MIN_MAX_MAINTENANCE_TICK_MS,
+      MAX_MAX_MAINTENANCE_TICK_MS,
+    );
+    const boundedMaxMaintenanceTickMs = Math.max(boundedMaxMaintenanceTickMsRaw, boundedMaxDeleteTransactionMs);
+
     const merged: ArchiveRuntimeSettingsRow = {
       ...previous,
       autoCleanupEnabled: settings.autoCleanupEnabled,
       maxDbSizeMb: settings.maxDbSizeMb,
-      deleteBatchSize: this.normalizePositiveInteger(settings.deleteBatchSize ?? previous.deleteBatchSize, previous.deleteBatchSize),
-      maintenanceIntervalMs: this.normalizePositiveInteger(settings.maintenanceIntervalMs ?? previous.maintenanceIntervalMs, previous.maintenanceIntervalMs),
-      maxMaintenanceTickMs: this.normalizePositiveInteger(settings.maxMaintenanceTickMs ?? previous.maxMaintenanceTickMs, previous.maxMaintenanceTickMs),
-      maxDeleteTransactionMs: this.normalizePositiveInteger(
-        settings.maxDeleteTransactionMs ?? previous.maxDeleteTransactionMs,
-        previous.maxDeleteTransactionMs,
-      ),
+      deleteBatchSize: boundedDeleteBatchSize,
+      maintenanceIntervalMs: boundedMaintenanceIntervalMs,
+      maxMaintenanceTickMs: boundedMaxMaintenanceTickMs,
+      maxDeleteTransactionMs: boundedMaxDeleteTransactionMs,
     };
     const saved = await this.repository.updateRuntimeSettings({
       autoCleanupEnabled: merged.autoCleanupEnabled,
@@ -652,12 +683,38 @@ export class ArchiveService {
   private async performMaintenanceTick(): Promise<number> {
     await this.flush();
     const settings = await this.repository.getRuntimeSettings();
+    const boundedDeleteBatchSize = this.normalizeBoundedInteger(
+      settings.deleteBatchSize,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const boundedMaintenanceIntervalMs = this.normalizeBoundedInteger(
+      settings.maintenanceIntervalMs,
+      this.defaultMaintenanceIntervalMs,
+      MIN_MAINTENANCE_INTERVAL_MS,
+      MAX_MAINTENANCE_INTERVAL_MS,
+    );
+    const boundedMaxDeleteTransactionMs = this.normalizeBoundedInteger(
+      settings.maxDeleteTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const boundedMaxMaintenanceTickMsRaw = this.normalizeBoundedInteger(
+      settings.maxMaintenanceTickMs,
+      this.defaultMaxMaintenanceTickMs,
+      MIN_MAX_MAINTENANCE_TICK_MS,
+      MAX_MAX_MAINTENANCE_TICK_MS,
+    );
+    const boundedMaxMaintenanceTickMs = Math.max(boundedMaxMaintenanceTickMsRaw, boundedMaxDeleteTransactionMs);
+
     const normalizedSettings = {
       ...settings,
-      deleteBatchSize: this.normalizePositiveInteger(settings.deleteBatchSize, this.defaultDeleteBatchSize),
-      maintenanceIntervalMs: this.normalizePositiveInteger(settings.maintenanceIntervalMs, this.defaultMaintenanceIntervalMs),
-      maxMaintenanceTickMs: this.normalizePositiveInteger(settings.maxMaintenanceTickMs, this.defaultMaxMaintenanceTickMs),
-      maxDeleteTransactionMs: this.normalizePositiveInteger(settings.maxDeleteTransactionMs, this.defaultMaxDeleteTransactionMs),
+      deleteBatchSize: boundedDeleteBatchSize,
+      maintenanceIntervalMs: boundedMaintenanceIntervalMs,
+      maxMaintenanceTickMs: boundedMaxMaintenanceTickMs,
+      maxDeleteTransactionMs: boundedMaxDeleteTransactionMs,
     };
     const thresholds = resolveArchiveMaintenanceThresholds(normalizedSettings.maxDbSizeMb);
     const stats = await this.repository.getStorageStats();
@@ -813,7 +870,9 @@ export class ArchiveService {
     if (now - this.lastEventArchiveCleanupAt < minIntervalMs) {
       return;
     }
-    await this.repository.cleanupEventArchive();
+    await this.repository.cleanupEventArchive({
+      optimizeAfterCleanup: false,
+    });
     this.lastEventArchiveCleanupAt = now;
   }
 
@@ -839,7 +898,12 @@ export class ArchiveService {
   private async resolveNextInterval(): Promise<number> {
     try {
       const settings = await this.repository.getRuntimeSettings();
-      return this.normalizePositiveInteger(settings.maintenanceIntervalMs, this.defaultMaintenanceIntervalMs);
+      return this.normalizeBoundedInteger(
+        settings.maintenanceIntervalMs,
+        this.defaultMaintenanceIntervalMs,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      );
     } catch {
       return this.defaultMaintenanceIntervalMs;
     }
@@ -857,6 +921,11 @@ export class ArchiveService {
       return fallbackValue;
     }
     return Math.max(1, Math.round(numeric));
+  }
+
+  private normalizeBoundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+    const normalized = this.normalizePositiveInteger(value, fallback);
+    return Math.min(max, Math.max(min, normalized));
   }
 
   private sleep(ms: number): Promise<void> {

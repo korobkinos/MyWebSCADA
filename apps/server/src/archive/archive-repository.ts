@@ -25,10 +25,18 @@ const { Pool } = pg;
 const ARCHIVE_SIZE_DELETE_MIN_ROWS = 100_000;
 const ARCHIVE_SIZE_DELETE_MAX_ROWS = 500_000;
 const ARCHIVE_SIZE_DELETE_HEADROOM = 1.15;
-const DEFAULT_DELETE_BATCH_SIZE = 1_000;
-const DEFAULT_MAINTENANCE_INTERVAL_MS = 2_000;
-const DEFAULT_MAX_MAINTENANCE_TICK_MS = 1_500;
-const DEFAULT_MAX_DELETE_TRANSACTION_MS = 500;
+const DEFAULT_DELETE_BATCH_SIZE = 500;
+const DEFAULT_MAINTENANCE_INTERVAL_MS = 3_000;
+const DEFAULT_MAX_MAINTENANCE_TICK_MS = 200;
+const DEFAULT_MAX_DELETE_TRANSACTION_MS = 150;
+const MIN_DELETE_BATCH_SIZE = 10;
+const MAX_DELETE_BATCH_SIZE = 10_000;
+const MIN_MAINTENANCE_INTERVAL_MS = 500;
+const MAX_MAINTENANCE_INTERVAL_MS = 60_000;
+const MIN_MAX_MAINTENANCE_TICK_MS = 50;
+const MAX_MAX_MAINTENANCE_TICK_MS = 2_000;
+const MIN_MAX_DELETE_TRANSACTION_MS = 50;
+const MAX_MAX_DELETE_TRANSACTION_MS = 1_000;
 
 export type ArchiveLogger = {
   info(message: string): void;
@@ -1038,10 +1046,38 @@ export class ArchiveRepository {
     return {
       autoCleanupEnabled: row.auto_cleanup_enabled,
       maxDbSizeMb: row.max_db_size_mb,
-      deleteBatchSize: this.normalizePositiveInteger(row.delete_batch_size, this.defaultDeleteBatchSize),
-      maintenanceIntervalMs: this.normalizePositiveInteger(row.maintenance_interval_ms, this.defaultMaintenanceIntervalMs),
-      maxMaintenanceTickMs: this.normalizePositiveInteger(row.max_maintenance_tick_ms, this.defaultMaxMaintenanceTickMs),
-      maxDeleteTransactionMs: this.normalizePositiveInteger(row.max_delete_transaction_ms, this.defaultMaxDeleteTransactionMs),
+      deleteBatchSize: this.normalizeBoundedInteger(
+        row.delete_batch_size,
+        this.defaultDeleteBatchSize,
+        MIN_DELETE_BATCH_SIZE,
+        MAX_DELETE_BATCH_SIZE,
+      ),
+      maintenanceIntervalMs: this.normalizeBoundedInteger(
+        row.maintenance_interval_ms,
+        this.defaultMaintenanceIntervalMs,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      ),
+      maxMaintenanceTickMs: Math.max(
+        this.normalizeBoundedInteger(
+          row.max_maintenance_tick_ms,
+          this.defaultMaxMaintenanceTickMs,
+          MIN_MAX_MAINTENANCE_TICK_MS,
+          MAX_MAX_MAINTENANCE_TICK_MS,
+        ),
+        this.normalizeBoundedInteger(
+          row.max_delete_transaction_ms,
+          this.defaultMaxDeleteTransactionMs,
+          MIN_MAX_DELETE_TRANSACTION_MS,
+          MAX_MAX_DELETE_TRANSACTION_MS,
+        ),
+      ),
+      maxDeleteTransactionMs: this.normalizeBoundedInteger(
+        row.max_delete_transaction_ms,
+        this.defaultMaxDeleteTransactionMs,
+        MIN_MAX_DELETE_TRANSACTION_MS,
+        MAX_MAX_DELETE_TRANSACTION_MS,
+      ),
       updatedAt: row.updated_at.toISOString(),
     };
   }
@@ -1054,6 +1090,34 @@ export class ArchiveRepository {
     maxMaintenanceTickMs: number;
     maxDeleteTransactionMs: number;
   }): Promise<ArchiveRuntimeSettingsRow> {
+    const boundedDeleteBatchSize = this.normalizeBoundedInteger(
+      settings.deleteBatchSize,
+      this.defaultDeleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const boundedMaintenanceIntervalMs = this.normalizeBoundedInteger(
+      settings.maintenanceIntervalMs,
+      this.defaultMaintenanceIntervalMs,
+      MIN_MAINTENANCE_INTERVAL_MS,
+      MAX_MAINTENANCE_INTERVAL_MS,
+    );
+    const boundedMaxDeleteTransactionMs = this.normalizeBoundedInteger(
+      settings.maxDeleteTransactionMs,
+      this.defaultMaxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const boundedMaxMaintenanceTickMs = Math.max(
+      this.normalizeBoundedInteger(
+        settings.maxMaintenanceTickMs,
+        this.defaultMaxMaintenanceTickMs,
+        MIN_MAX_MAINTENANCE_TICK_MS,
+        MAX_MAX_MAINTENANCE_TICK_MS,
+      ),
+      boundedMaxDeleteTransactionMs,
+    );
+
     const result = await this.pool.query<{
       auto_cleanup_enabled: boolean;
       max_db_size_mb: number | null;
@@ -1097,10 +1161,10 @@ export class ArchiveRepository {
       [
         settings.autoCleanupEnabled,
         settings.maxDbSizeMb,
-        this.normalizePositiveInteger(settings.deleteBatchSize, this.defaultDeleteBatchSize),
-        this.normalizePositiveInteger(settings.maintenanceIntervalMs, this.defaultMaintenanceIntervalMs),
-        this.normalizePositiveInteger(settings.maxMaintenanceTickMs, this.defaultMaxMaintenanceTickMs),
-        this.normalizePositiveInteger(settings.maxDeleteTransactionMs, this.defaultMaxDeleteTransactionMs),
+        boundedDeleteBatchSize,
+        boundedMaintenanceIntervalMs,
+        boundedMaxMaintenanceTickMs,
+        boundedMaxDeleteTransactionMs,
       ],
     );
     const row = result.rows[0];
@@ -1110,10 +1174,38 @@ export class ArchiveRepository {
     return {
       autoCleanupEnabled: row.auto_cleanup_enabled,
       maxDbSizeMb: row.max_db_size_mb,
-      deleteBatchSize: this.normalizePositiveInteger(row.delete_batch_size, this.defaultDeleteBatchSize),
-      maintenanceIntervalMs: this.normalizePositiveInteger(row.maintenance_interval_ms, this.defaultMaintenanceIntervalMs),
-      maxMaintenanceTickMs: this.normalizePositiveInteger(row.max_maintenance_tick_ms, this.defaultMaxMaintenanceTickMs),
-      maxDeleteTransactionMs: this.normalizePositiveInteger(row.max_delete_transaction_ms, this.defaultMaxDeleteTransactionMs),
+      deleteBatchSize: this.normalizeBoundedInteger(
+        row.delete_batch_size,
+        this.defaultDeleteBatchSize,
+        MIN_DELETE_BATCH_SIZE,
+        MAX_DELETE_BATCH_SIZE,
+      ),
+      maintenanceIntervalMs: this.normalizeBoundedInteger(
+        row.maintenance_interval_ms,
+        this.defaultMaintenanceIntervalMs,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      ),
+      maxMaintenanceTickMs: Math.max(
+        this.normalizeBoundedInteger(
+          row.max_maintenance_tick_ms,
+          this.defaultMaxMaintenanceTickMs,
+          MIN_MAX_MAINTENANCE_TICK_MS,
+          MAX_MAX_MAINTENANCE_TICK_MS,
+        ),
+        this.normalizeBoundedInteger(
+          row.max_delete_transaction_ms,
+          this.defaultMaxDeleteTransactionMs,
+          MIN_MAX_DELETE_TRANSACTION_MS,
+          MAX_MAX_DELETE_TRANSACTION_MS,
+        ),
+      ),
+      maxDeleteTransactionMs: this.normalizeBoundedInteger(
+        row.max_delete_transaction_ms,
+        this.defaultMaxDeleteTransactionMs,
+        MIN_MAX_DELETE_TRANSACTION_MS,
+        MAX_MAX_DELETE_TRANSACTION_MS,
+      ),
       updatedAt: row.updated_at.toISOString(),
     };
   }
@@ -3162,6 +3254,11 @@ export class ArchiveRepository {
       return fallbackValue;
     }
     return Math.max(1, Math.round(numeric));
+  }
+
+  private normalizeBoundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+    const normalized = this.normalizePositiveInteger(value, fallback);
+    return Math.min(max, Math.max(min, normalized));
   }
 
   private errorText(error: unknown): string {

@@ -8,10 +8,10 @@ import {
 const baseSettings = {
   autoCleanupEnabled: true,
   maxDbSizeMb: 5120,
-  deleteBatchSize: 1000,
-  maintenanceIntervalMs: 2000,
-  maxMaintenanceTickMs: 1500,
-  maxDeleteTransactionMs: 500,
+  deleteBatchSize: 500,
+  maintenanceIntervalMs: 3000,
+  maxMaintenanceTickMs: 200,
+  maxDeleteTransactionMs: 150,
   updatedAt: "2026-05-22T00:00:00.000Z",
 };
 
@@ -212,5 +212,156 @@ describe("ArchiveService soft maintenance behavior", () => {
     expect(status.status).toBe("paused");
     expect(status.pauseReason).toContain("trend_queries_active");
     expect(status.recordsDeletedInLastBatch).toBe(0);
+  });
+
+  it("clamps unsafe tick budget so it is never below delete transaction timeout", async () => {
+    const service = new ArchiveService(
+      {
+        connectionString: "postgres://unused",
+      },
+      {
+        subscribeUpdates: () => () => undefined,
+        getSnapshots: () => [],
+      } as never,
+      {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    );
+
+    const deleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    let statsCall = 0;
+    (service as unknown as {
+      initialized: boolean;
+      repository: {
+        getRuntimeSettings: () => Promise<typeof baseSettings>;
+        getStorageStats: () => Promise<{ dbSizeMb: number; recordsCount: number }>;
+        getActiveTrendQueries: () => number;
+        applyRetentionBatch: (limit: number) => Promise<number>;
+        deleteOldestSamplesBatch: (options: { limit: number; maxTransactionMs: number }) => Promise<{ deletedRecords: number; durationMs: number }>;
+        getEventArchiveSettings: () => Promise<{ enabled: boolean; cleanupIntervalMinutes: number }>;
+        cleanupEventArchive: () => Promise<void>;
+      };
+    }).initialized = true;
+
+    (service as unknown as {
+      repository: {
+        getRuntimeSettings: () => Promise<typeof baseSettings>;
+        getStorageStats: () => Promise<{ dbSizeMb: number; recordsCount: number }>;
+        getActiveTrendQueries: () => number;
+        applyRetentionBatch: (limit: number) => Promise<number>;
+        deleteOldestSamplesBatch: (options: { limit: number; maxTransactionMs: number }) => Promise<{ deletedRecords: number; durationMs: number }>;
+        getEventArchiveSettings: () => Promise<{ enabled: boolean; cleanupIntervalMinutes: number }>;
+        cleanupEventArchive: () => Promise<void>;
+      };
+    }).repository = {
+      getRuntimeSettings: async () => ({
+        ...baseSettings,
+        maxDbSizeMb: 1000,
+        maxMaintenanceTickMs: 80,
+        maxDeleteTransactionMs: 150,
+      }),
+      getStorageStats: async () => {
+        statsCall += 1;
+        if (statsCall === 1) {
+          return { dbSizeMb: 1300, recordsCount: 5000 };
+        }
+        return { dbSizeMb: 900, recordsCount: 4500 };
+      },
+      getActiveTrendQueries: () => 0,
+      applyRetentionBatch: async () => 0,
+      deleteOldestSamplesBatch: async (options) => {
+        deleteOptions.push(options);
+        return { deletedRecords: 500, durationMs: 12 };
+      },
+      getEventArchiveSettings: async () => ({ enabled: false, cleanupIntervalMinutes: 60 }),
+      cleanupEventArchive: async () => undefined,
+    };
+
+    await service.runMaintenance();
+
+    expect(deleteOptions).toHaveLength(1);
+    expect(deleteOptions[0]?.maxTransactionMs).toBe(150);
+  });
+
+  it("pauses under active trend load and avoids continuous delete loops in a short tick window", async () => {
+    const service = new ArchiveService(
+      {
+        connectionString: "postgres://unused",
+      },
+      {
+        subscribeUpdates: () => () => undefined,
+        getSnapshots: () => [],
+      } as never,
+      {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    );
+
+    let activeTrendQueries = 2;
+    let statsCall = 0;
+    let deleteCalls = 0;
+    (service as unknown as {
+      initialized: boolean;
+      repository: {
+        getRuntimeSettings: () => Promise<typeof baseSettings>;
+        getStorageStats: () => Promise<{ dbSizeMb: number; recordsCount: number }>;
+        getActiveTrendQueries: () => number;
+        applyRetentionBatch: (limit: number) => Promise<number>;
+        deleteOldestSamplesBatch: (options: { limit: number; maxTransactionMs: number }) => Promise<{ deletedRecords: number; durationMs: number }>;
+        getEventArchiveSettings: () => Promise<{ enabled: boolean; cleanupIntervalMinutes: number }>;
+        cleanupEventArchive: () => Promise<void>;
+      };
+    }).initialized = true;
+
+    (service as unknown as {
+      repository: {
+        getRuntimeSettings: () => Promise<typeof baseSettings>;
+        getStorageStats: () => Promise<{ dbSizeMb: number; recordsCount: number }>;
+        getActiveTrendQueries: () => number;
+        applyRetentionBatch: (limit: number) => Promise<number>;
+        deleteOldestSamplesBatch: (options: { limit: number; maxTransactionMs: number }) => Promise<{ deletedRecords: number; durationMs: number }>;
+        getEventArchiveSettings: () => Promise<{ enabled: boolean; cleanupIntervalMinutes: number }>;
+        cleanupEventArchive: () => Promise<void>;
+      };
+    }).repository = {
+      getRuntimeSettings: async () => ({
+        ...baseSettings,
+        maxDbSizeMb: 1000,
+        deleteBatchSize: 500,
+        maintenanceIntervalMs: 500,
+        maxMaintenanceTickMs: 50,
+        maxDeleteTransactionMs: 50,
+      }),
+      getStorageStats: async () => {
+        statsCall += 1;
+        if (statsCall <= 2) {
+          return { dbSizeMb: 1300, recordsCount: 5000 };
+        }
+        return { dbSizeMb: 900, recordsCount: 4500 };
+      },
+      getActiveTrendQueries: () => activeTrendQueries,
+      applyRetentionBatch: async () => 0,
+      deleteOldestSamplesBatch: async () => {
+        deleteCalls += 1;
+        return { deletedRecords: 500, durationMs: 10 };
+      },
+      getEventArchiveSettings: async () => ({ enabled: false, cleanupIntervalMinutes: 60 }),
+      cleanupEventArchive: async () => undefined,
+    };
+
+    const pausedRun = await service.runMaintenance();
+    const pausedStatus = await service.getStatus();
+    expect(pausedRun.deletedSamples).toBe(0);
+    expect(pausedStatus.status).toBe("paused");
+    expect(deleteCalls).toBe(0);
+
+    activeTrendQueries = 0;
+    const pruningRun = await service.runMaintenance();
+    expect(pruningRun.deletedSamples).toBe(500);
+    expect(deleteCalls).toBe(1);
   });
 });
