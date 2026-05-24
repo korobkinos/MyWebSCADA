@@ -815,16 +815,14 @@ export function EventTableRuntimeWidget({ object, screenId }: EventTableRuntimeW
   }, [historyQuery, mode, object.id]);
 
   const operatorActionHistoryQuery = useMemo(() => {
-    const sourceFilter = object.sourceTagFilter?.trim();
     return {
       from: historyQuery.from,
       to: historyQuery.to,
       search: object.searchText?.trim() || undefined,
-      targetName: sourceFilter || undefined,
       limit: historyQuery.limit,
       offset: historyQuery.offset,
     };
-  }, [historyQuery.from, historyQuery.limit, historyQuery.offset, historyQuery.to, object.searchText, object.sourceTagFilter]);
+  }, [historyQuery.from, historyQuery.limit, historyQuery.offset, historyQuery.to, object.searchText]);
 
   useEffect(() => {
     if (!showOperatorActionsInHistory) {
