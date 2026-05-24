@@ -43,8 +43,24 @@ CREATE TABLE IF NOT EXISTS archive_runtime_settings (
     auto_cleanup_enabled BOOLEAN NOT NULL DEFAULT true,
     max_db_size_mb INTEGER,
     max_data_age_months INTEGER,
+    delete_batch_size INTEGER NOT NULL DEFAULT 1000,
+    maintenance_interval_ms INTEGER NOT NULL DEFAULT 2000,
+    max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 1500,
+    max_delete_transaction_ms INTEGER NOT NULL DEFAULT 500,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE archive_runtime_settings
+ADD COLUMN IF NOT EXISTS delete_batch_size INTEGER NOT NULL DEFAULT 1000;
+
+ALTER TABLE archive_runtime_settings
+ADD COLUMN IF NOT EXISTS maintenance_interval_ms INTEGER NOT NULL DEFAULT 2000;
+
+ALTER TABLE archive_runtime_settings
+ADD COLUMN IF NOT EXISTS max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 1500;
+
+ALTER TABLE archive_runtime_settings
+ADD COLUMN IF NOT EXISTS max_delete_transaction_ms INTEGER NOT NULL DEFAULT 500;
 
 CREATE TABLE IF NOT EXISTS tags (
     id BIGSERIAL PRIMARY KEY,
@@ -110,6 +126,9 @@ ON archive_samples (tag_id, time DESC);
 
 CREATE INDEX IF NOT EXISTS idx_archive_samples_time
 ON archive_samples (time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_archive_samples_time_asc
+ON archive_samples (time ASC);
 
 CREATE TABLE IF NOT EXISTS archive_aggregates_1m (
     bucket TIMESTAMPTZ NOT NULL,
@@ -282,8 +301,17 @@ INSERT INTO archive_sources (code)
 VALUES ('modbus'), ('opcua'), ('simulated'), ('manual'), ('internal'), ('init')
 ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO archive_runtime_settings (id, auto_cleanup_enabled, max_db_size_mb, max_data_age_months)
-VALUES (1, true, 5120, NULL)
+INSERT INTO archive_runtime_settings (
+    id,
+    auto_cleanup_enabled,
+    max_db_size_mb,
+    max_data_age_months,
+    delete_batch_size,
+    maintenance_interval_ms,
+    max_maintenance_tick_ms,
+    max_delete_transaction_ms
+)
+VALUES (1, true, 5120, NULL, 1000, 2000, 1500, 500)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO event_archive_settings (

@@ -9,23 +9,32 @@ type QueryResult = {
 class FakePool {
   public readonly calls: string[] = [];
   private sizeCalls = 0;
+  private transactionCalls = 0;
 
   public async query(sql: string, _params?: unknown[]): Promise<QueryResult> {
     this.calls.push(sql);
     if (sql.includes("pg_total_relation_size")) {
       this.sizeCalls += 1;
-      if (this.sizeCalls === 1) {
-        return { rows: [{ size_bytes: 3892 * 1024 * 1024, records_count: 8_461_183 }] };
-      }
-      return { rows: [{ size_bytes: 875 * 1024 * 1024, records_count: 8_461_183 }] };
-    }
-    if (sql.includes("VACUUM")) {
-      return { rows: [] };
-    }
-    if (sql.includes("DELETE FROM archive_samples")) {
-      return { rowCount: 100_000, rows: [] };
+      return { rows: [{ size_bytes: 3892 * 1024 * 1024, records_count: 8_461_183 }] };
     }
     return { rows: [] };
+  }
+
+  public async connect(): Promise<{
+    query: (sql: string, _params?: unknown[]) => Promise<QueryResult>;
+    release: () => void;
+  }> {
+    return {
+      query: async (sql: string, _params?: unknown[]) => {
+        this.calls.push(sql);
+        if (sql.includes("DELETE FROM archive_samples")) {
+          this.transactionCalls += 1;
+          return { rowCount: this.transactionCalls === 1 ? 100_000 : 0, rows: [] };
+        }
+        return { rows: [] };
+      },
+      release: () => undefined,
+    };
   }
 }
 
@@ -77,7 +86,7 @@ class TrendQueryFakePool {
 }
 
 describe("ArchiveRepository.enforceRuntimeLimits", () => {
-  it("compacts before deleting samples when physical compaction can satisfy the size limit", async () => {
+  it("deletes old samples in a limited transaction without running vacuum", async () => {
     const repository = new ArchiveRepository(
       { connectionString: "postgres://unused" },
       {
@@ -94,9 +103,9 @@ describe("ArchiveRepository.enforceRuntimeLimits", () => {
       maxDbSizeMb: 3000,
     });
 
-    expect(result.deletedBySize).toBe(0);
-    expect(pool.calls.some((call) => call.includes("VACUUM (FULL, ANALYZE) archive_samples"))).toBe(true);
-    expect(pool.calls.some((call) => call.includes("DELETE FROM archive_samples"))).toBe(false);
+    expect(result.deletedBySize).toBeGreaterThan(0);
+    expect(pool.calls.some((call) => call.includes("VACUUM"))).toBe(false);
+    expect(pool.calls.some((call) => call.includes("DELETE FROM archive_samples"))).toBe(true);
   });
 });
 

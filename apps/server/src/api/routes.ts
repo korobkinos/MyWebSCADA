@@ -204,6 +204,10 @@ const archiveTagOverrideSchema = z.object({
 const archiveRuntimeSettingsSchema = z.object({
   autoCleanupEnabled: z.boolean(),
   maxDbSizeMb: z.number().int().positive().max(1024 * 1024).nullable(),
+  deleteBatchSize: z.number().int().positive().max(1_000_000).nullable().optional(),
+  maintenanceIntervalMs: z.number().int().positive().max(60 * 60 * 1000).nullable().optional(),
+  maxMaintenanceTickMs: z.number().int().positive().max(60 * 60 * 1000).nullable().optional(),
+  maxDeleteTransactionMs: z.number().int().positive().max(60 * 60 * 1000).nullable().optional(),
 });
 const eventHistoryQuerySchema = z.object({
   from: z.string().datetime().optional(),

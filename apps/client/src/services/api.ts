@@ -113,8 +113,18 @@ export type ArchiveStatus = {
   queuedSamples: number;
   reason?: string;
   dbSizeMb?: number | null;
+  maxDbSizeMb?: number | null;
+  startThresholdMb?: number | null;
+  stopThresholdMb?: number | null;
   recordsCount?: number | null;
+  recordsTotal?: number | null;
   maintenanceRunning?: boolean;
+  status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
+  recordsDeletedInLastBatch?: number;
+  totalRecordsDeletedThisRun?: number;
+  lastBatchDurationMs?: number;
+  nextRunAt?: string | null;
+  pauseReason?: string;
 };
 
 export type ArchivePolicyPayload = {
@@ -164,6 +174,10 @@ export type ArchiveTagConfig = {
 export type ArchiveRuntimeSettings = {
   autoCleanupEnabled: boolean;
   maxDbSizeMb: number | null;
+  deleteBatchSize: number;
+  maintenanceIntervalMs: number;
+  maxMaintenanceTickMs: number;
+  maxDeleteTransactionMs: number;
   updatedAt: string;
 };
 

@@ -236,6 +236,10 @@ type ArchiveConfirmState = {
 type ArchiveSettingsDraft = {
   autoCleanupEnabled: boolean;
   maxDbSizeMb: number | null;
+  deleteBatchSize: number;
+  maintenanceIntervalMs: number;
+  maxMaintenanceTickMs: number;
+  maxDeleteTransactionMs: number;
 };
 
 const DEFAULT_DETAILS_WIDTH = 420;
@@ -268,6 +272,17 @@ function formatRecordsCount(value: number | null | undefined): string {
   return Math.max(0, Math.round(value)).toLocaleString("ru-RU");
 }
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return date.toLocaleString("ru-RU", { hour12: false });
+}
+
 export function ArchivePage() {
   const [status, setStatus] = useState<ArchiveStatus>({ enabled: false, queuedSamples: 0 });
   const [lastLoadError, setLastLoadError] = useState<string | null>(null);
@@ -283,6 +298,10 @@ export function ArchivePage() {
   const [settingsDraft, setSettingsDraft] = useState<ArchiveSettingsDraft>({
     autoCleanupEnabled: true,
     maxDbSizeMb: 5120,
+    deleteBatchSize: 1000,
+    maintenanceIntervalMs: 2000,
+    maxMaintenanceTickMs: 1500,
+    maxDeleteTransactionMs: 500,
   });
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [confirmState, setConfirmState] = useState<ArchiveConfirmState | null>(null);
@@ -361,6 +380,10 @@ export function ArchivePage() {
       setSettingsDraft({
         autoCleanupEnabled: nextSettings.autoCleanupEnabled,
         maxDbSizeMb: nextSettings.maxDbSizeMb,
+        deleteBatchSize: nextSettings.deleteBatchSize,
+        maintenanceIntervalMs: nextSettings.maintenanceIntervalMs,
+        maxMaintenanceTickMs: nextSettings.maxMaintenanceTickMs,
+        maxDeleteTransactionMs: nextSettings.maxDeleteTransactionMs,
       });
     } catch (error) {
       const errorText = error instanceof Error ? error.message : "Archive load failed";
@@ -861,10 +884,18 @@ export function ArchivePage() {
     const source = runtimeSettings ?? {
       autoCleanupEnabled: true,
       maxDbSizeMb: 5120,
+      deleteBatchSize: 1000,
+      maintenanceIntervalMs: 2000,
+      maxMaintenanceTickMs: 1500,
+      maxDeleteTransactionMs: 500,
     };
     setSettingsDraft({
       autoCleanupEnabled: source.autoCleanupEnabled,
       maxDbSizeMb: source.maxDbSizeMb,
+      deleteBatchSize: source.deleteBatchSize,
+      maintenanceIntervalMs: source.maintenanceIntervalMs,
+      maxMaintenanceTickMs: source.maxMaintenanceTickMs,
+      maxDeleteTransactionMs: source.maxDeleteTransactionMs,
     });
     setSettingsModalOpen(true);
   };
@@ -875,12 +906,20 @@ export function ArchivePage() {
       const payload: ArchiveSettingsDraft = {
         autoCleanupEnabled: settingsDraft.autoCleanupEnabled,
         maxDbSizeMb: settingsDraft.maxDbSizeMb && settingsDraft.maxDbSizeMb > 0 ? Math.round(settingsDraft.maxDbSizeMb) : null,
+        deleteBatchSize: Math.max(1, Math.round(settingsDraft.deleteBatchSize)),
+        maintenanceIntervalMs: Math.max(1, Math.round(settingsDraft.maintenanceIntervalMs)),
+        maxMaintenanceTickMs: Math.max(1, Math.round(settingsDraft.maxMaintenanceTickMs)),
+        maxDeleteTransactionMs: Math.max(1, Math.round(settingsDraft.maxDeleteTransactionMs)),
       };
       const saved = await api.updateArchiveSettings(payload);
       setRuntimeSettings(saved);
       setSettingsDraft({
         autoCleanupEnabled: saved.autoCleanupEnabled,
         maxDbSizeMb: saved.maxDbSizeMb,
+        deleteBatchSize: saved.deleteBatchSize,
+        maintenanceIntervalMs: saved.maintenanceIntervalMs,
+        maxMaintenanceTickMs: saved.maxMaintenanceTickMs,
+        maxDeleteTransactionMs: saved.maxDeleteTransactionMs,
       });
       setSettingsModalOpen(false);
       void message.success("Archive settings saved");
@@ -925,7 +964,19 @@ export function ArchivePage() {
   };
   const archiveStatusView = useMemo(() => {
     const checkTime = formatStatusCheckTime(lastStatusCheckAt);
-    const details = `DB: ${formatDbSizeMb(status.dbSizeMb)} MB | Records: ${formatRecordsCount(status.recordsCount)}`;
+    const details = [
+      `DB: ${formatDbSizeMb(status.dbSizeMb)} MB`,
+      `Limit: ${formatDbSizeMb(status.maxDbSizeMb)} MB`,
+      `Start: ${formatDbSizeMb(status.startThresholdMb)} MB`,
+      `Stop: ${formatDbSizeMb(status.stopThresholdMb)} MB`,
+      `Records: ${formatRecordsCount(status.recordsTotal ?? status.recordsCount)}`,
+      `Deleted(batch): ${formatRecordsCount(status.recordsDeletedInLastBatch)}`,
+      `Deleted(run): ${formatRecordsCount(status.totalRecordsDeletedThisRun)}`,
+      `Last batch: ${typeof status.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(status.lastBatchDurationMs))} ms` : "-"}`,
+      `Next run: ${formatDateTime(status.nextRunAt)}`,
+      status.pauseReason ? `Pause: ${status.pauseReason}` : null,
+    ].filter(Boolean).join(" | ");
+    const maintenanceState = status.status ?? (status.maintenanceRunning ? "pruning" : "scheduled");
     if (loading) {
       return { tone: "loading", text: `Archive status: checking... | last check ${checkTime}`, details };
     }
@@ -935,11 +986,37 @@ export function ArchivePage() {
     if (!status.enabled) {
       return { tone: "warning", text: `Archive status: disabled${status.reason ? ` - ${status.reason}` : ""} | last check ${checkTime}`, details };
     }
-    if (status.maintenanceRunning) {
-      return { tone: "loading", text: `Archive status: optimizing | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+    if (maintenanceState === "pruning" || maintenanceState === "compacting" || maintenanceState === "cooling_down") {
+      return { tone: "loading", text: `Archive status: ${maintenanceState} | queue ${status.queuedSamples} | last check ${checkTime}`, details };
     }
-    return { tone: "ok", text: `Archive status: running | queue ${status.queuedSamples} | last check ${checkTime}`, details };
-  }, [lastLoadError, lastStatusCheckAt, loading, status.dbSizeMb, status.enabled, status.maintenanceRunning, status.queuedSamples, status.reason, status.recordsCount]);
+    if (maintenanceState === "paused") {
+      return { tone: "warning", text: `Archive status: paused | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+    }
+    if (maintenanceState === "error") {
+      return { tone: "error", text: `Archive status: error | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+    }
+    return { tone: "ok", text: `Archive status: ${maintenanceState} | queue ${status.queuedSamples} | last check ${checkTime}`, details };
+  }, [
+    lastLoadError,
+    lastStatusCheckAt,
+    loading,
+    status.dbSizeMb,
+    status.enabled,
+    status.lastBatchDurationMs,
+    status.maxDbSizeMb,
+    status.maintenanceRunning,
+    status.nextRunAt,
+    status.pauseReason,
+    status.queuedSamples,
+    status.reason,
+    status.recordsCount,
+    status.recordsDeletedInLastBatch,
+    status.recordsTotal,
+    status.startThresholdMb,
+    status.status,
+    status.stopThresholdMb,
+    status.totalRecordsDeletedThisRun,
+  ]);
 
   return (
     <div className="screen-editor-window-content screen-editor-tags-window screen-editor-archive-window route-page-fill">
@@ -1291,8 +1368,65 @@ export function ArchivePage() {
               onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxDbSizeMb: value === null ? null : Number(value) }))}
               style={{ width: 220 }}
             />
-            <span className="screen-editor-tag-editor__hint">When exceeded, the archive is compacted first; oldest samples are deleted only if it is still over the limit.</span>
+            <span className="screen-editor-tag-editor__hint">
+              Pruning starts only above start threshold and stops below stop threshold (hysteresis is automatic).
+            </span>
           </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Delete Batch Size (records)</span>
+            <InputNumber
+              min={1}
+              value={settingsDraft.deleteBatchSize}
+              onChange={(value) => setSettingsDraft((prev) => ({ ...prev, deleteBatchSize: Number(value ?? prev.deleteBatchSize) }))}
+              style={{ width: 220 }}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Maintenance Interval (ms)</span>
+            <InputNumber
+              min={100}
+              value={settingsDraft.maintenanceIntervalMs}
+              onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maintenanceIntervalMs: Number(value ?? prev.maintenanceIntervalMs) }))}
+              style={{ width: 220 }}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Max Maintenance Tick (ms)</span>
+            <InputNumber
+              min={50}
+              value={settingsDraft.maxMaintenanceTickMs}
+              onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxMaintenanceTickMs: Number(value ?? prev.maxMaintenanceTickMs) }))}
+              style={{ width: 220 }}
+            />
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Max Delete Transaction (ms)</span>
+            <InputNumber
+              min={50}
+              value={settingsDraft.maxDeleteTransactionMs}
+              onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxDeleteTransactionMs: Number(value ?? prev.maxDeleteTransactionMs) }))}
+              style={{ width: 220 }}
+            />
+          </label>
+
+          <div className="screen-editor-tag-editor">
+            <div className="screen-editor-tag-editor__title">Maintenance Status</div>
+            <div className="screen-editor-tag-editor__kv"><span>Status</span><strong>{status.status ?? (status.maintenanceRunning ? "pruning" : "scheduled")}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>DB Size</span><strong>{formatDbSizeMb(status.dbSizeMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Max DB</span><strong>{formatDbSizeMb(status.maxDbSizeMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(status.startThresholdMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(status.stopThresholdMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(status.recordsTotal ?? status.recordsCount)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Deleted last batch</span><strong>{formatRecordsCount(status.recordsDeletedInLastBatch)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(status.totalRecordsDeletedThisRun)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof status.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(status.lastBatchDurationMs))} ms` : "-"}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(status.nextRunAt)}</strong></div>
+            {status.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {status.pauseReason}</div> : null}
+          </div>
 
           <div className="archive-workbench-settings__danger-zone">
             <div className="screen-editor-tag-editor__title">Danger Zone</div>

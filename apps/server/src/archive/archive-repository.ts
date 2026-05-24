@@ -25,6 +25,10 @@ const { Pool } = pg;
 const ARCHIVE_SIZE_DELETE_MIN_ROWS = 100_000;
 const ARCHIVE_SIZE_DELETE_MAX_ROWS = 500_000;
 const ARCHIVE_SIZE_DELETE_HEADROOM = 1.15;
+const DEFAULT_DELETE_BATCH_SIZE = 1_000;
+const DEFAULT_MAINTENANCE_INTERVAL_MS = 2_000;
+const DEFAULT_MAX_MAINTENANCE_TICK_MS = 1_500;
+const DEFAULT_MAX_DELETE_TRANSACTION_MS = 500;
 
 export type ArchiveLogger = {
   info(message: string): void;
@@ -117,7 +121,16 @@ export type ArchiveStorageStatsRow = {
 export type ArchiveRuntimeSettingsRow = {
   autoCleanupEnabled: boolean;
   maxDbSizeMb: number | null;
+  deleteBatchSize: number;
+  maintenanceIntervalMs: number;
+  maxMaintenanceTickMs: number;
+  maxDeleteTransactionMs: number;
   updatedAt: string;
+};
+
+export type ArchivePruneBatchResultRow = {
+  deletedRecords: number;
+  durationMs: number;
 };
 
 export type EventArchiveStatusRow = {
@@ -254,11 +267,20 @@ type ArchiveRepositoryOptions = {
   connectionString: string;
   maxPoolSize?: number;
   defaultArchiveEnabled?: boolean;
+  defaultDeleteBatchSize?: number;
+  defaultMaintenanceIntervalMs?: number;
+  defaultMaxMaintenanceTickMs?: number;
+  defaultMaxDeleteTransactionMs?: number;
 };
 
 export class ArchiveRepository {
   private readonly pool: PgPool;
   private readonly defaultArchiveEnabled: boolean;
+  private readonly defaultDeleteBatchSize: number;
+  private readonly defaultMaintenanceIntervalMs: number;
+  private readonly defaultMaxMaintenanceTickMs: number;
+  private readonly defaultMaxDeleteTransactionMs: number;
+  private activeTrendQueries = 0;
   private readonly tags = new Map<string, TagArchiveCacheItem>();
   private readonly qualities = new Map<string, number>();
   private readonly sources = new Map<string, number>();
@@ -273,6 +295,10 @@ export class ArchiveRepository {
       max: options.maxPoolSize ?? 5,
     });
     this.defaultArchiveEnabled = options.defaultArchiveEnabled ?? false;
+    this.defaultDeleteBatchSize = this.normalizePositiveInteger(options.defaultDeleteBatchSize, DEFAULT_DELETE_BATCH_SIZE);
+    this.defaultMaintenanceIntervalMs = this.normalizePositiveInteger(options.defaultMaintenanceIntervalMs, DEFAULT_MAINTENANCE_INTERVAL_MS);
+    this.defaultMaxMaintenanceTickMs = this.normalizePositiveInteger(options.defaultMaxMaintenanceTickMs, DEFAULT_MAX_MAINTENANCE_TICK_MS);
+    this.defaultMaxDeleteTransactionMs = this.normalizePositiveInteger(options.defaultMaxDeleteTransactionMs, DEFAULT_MAX_DELETE_TRANSACTION_MS);
   }
 
   public async initialize(): Promise<void> {
@@ -412,46 +438,48 @@ export class ArchiveRepository {
   }
 
   public async querySamples(tagName: string, from: Date, to: Date, limit: number): Promise<ArchiveSampleRow[]> {
-    const result = await this.pool.query<{
-      time: Date;
-      tag_name: string;
-      value_double: number | null;
-      value_bool: boolean | null;
-      value_text: string | null;
-      quality: string;
-      source: string | null;
-    }>(
-      `
-      SELECT
-          s.time,
-          t.name AS tag_name,
-          s.value_double,
-          s.value_bool,
-          s.value_text,
-          q.code AS quality,
-          src.code AS source
-      FROM archive_samples s
-      JOIN tags t ON t.id = s.tag_id
-      JOIN archive_qualities q ON q.id = s.quality_id
-      LEFT JOIN archive_sources src ON src.id = s.source_id
-      WHERE t.name = $1
-        AND s.time >= $2
-        AND s.time <= $3
-      ORDER BY s.time ASC
-      LIMIT $4
-      `,
-      [tagName, from, to, limit],
-    );
+    return this.withTrendQueryActivity(async () => {
+      const result = await this.pool.query<{
+        time: Date;
+        tag_name: string;
+        value_double: number | null;
+        value_bool: boolean | null;
+        value_text: string | null;
+        quality: string;
+        source: string | null;
+      }>(
+        `
+        SELECT
+            s.time,
+            t.name AS tag_name,
+            s.value_double,
+            s.value_bool,
+            s.value_text,
+            q.code AS quality,
+            src.code AS source
+        FROM archive_samples s
+        JOIN tags t ON t.id = s.tag_id
+        JOIN archive_qualities q ON q.id = s.quality_id
+        LEFT JOIN archive_sources src ON src.id = s.source_id
+        WHERE t.name = $1
+          AND s.time >= $2
+          AND s.time <= $3
+        ORDER BY s.time ASC
+        LIMIT $4
+        `,
+        [tagName, from, to, limit],
+      );
 
-    return result.rows.map((row) => ({
-      time: row.time.toISOString(),
-      tagName: row.tag_name,
-      valueDouble: row.value_double,
-      valueBool: row.value_bool,
-      valueText: row.value_text,
-      quality: row.quality,
-      source: row.source,
-    }));
+      return result.rows.map((row) => ({
+        time: row.time.toISOString(),
+        tagName: row.tag_name,
+        valueDouble: row.value_double,
+        valueBool: row.value_bool,
+        valueText: row.value_text,
+        quality: row.quality,
+        source: row.source,
+      }));
+    });
   }
 
   public async listTrendTags(): Promise<TrendTagInfoRow[]> {
@@ -474,11 +502,30 @@ export class ArchiveRepository {
   }
 
   public async queryTrendsRange(tags: string[]): Promise<{ from: string | null; to: string | null }> {
-    if (tags.length > 0) {
-      const rows = await this.loadTrendTagMeta(tags);
-      if (rows.length === 0) {
-        return { from: null, to: null };
+    return this.withTrendQueryActivity(async () => {
+      if (tags.length > 0) {
+        const rows = await this.loadTrendTagMeta(tags);
+        if (rows.length === 0) {
+          return { from: null, to: null };
+        }
+        const result = await this.pool.query<{
+          min_time: Date | null;
+          max_time: Date | null;
+        }>(
+          `
+          SELECT MIN(s.time) AS min_time, MAX(s.time) AS max_time
+          FROM archive_samples s
+          WHERE s.tag_id = ANY($1::bigint[])
+          `,
+          [rows.map((row) => row.id)],
+        );
+        const range = result.rows[0];
+        return {
+          from: range?.min_time ? range.min_time.toISOString() : null,
+          to: range?.max_time ? range.max_time.toISOString() : null,
+        };
       }
+
       const result = await this.pool.query<{
         min_time: Date | null;
         max_time: Date | null;
@@ -486,147 +533,132 @@ export class ArchiveRepository {
         `
         SELECT MIN(s.time) AS min_time, MAX(s.time) AS max_time
         FROM archive_samples s
-        WHERE s.tag_id = ANY($1::bigint[])
+        JOIN tags t ON t.id = s.tag_id
+        LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
+        LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
+        WHERE COALESCE(o.enabled, p.enabled, false) = true
         `,
-        [rows.map((row) => row.id)],
       );
       const range = result.rows[0];
       return {
         from: range?.min_time ? range.min_time.toISOString() : null,
         to: range?.max_time ? range.max_time.toISOString() : null,
       };
-    }
-
-    const result = await this.pool.query<{
-      min_time: Date | null;
-      max_time: Date | null;
-    }>(
-      `
-      SELECT MIN(s.time) AS min_time, MAX(s.time) AS max_time
-      FROM archive_samples s
-      JOIN tags t ON t.id = s.tag_id
-      LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
-      LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
-      WHERE COALESCE(o.enabled, p.enabled, false) = true
-      `,
-    );
-    const range = result.rows[0];
-    return {
-      from: range?.min_time ? range.min_time.toISOString() : null,
-      to: range?.max_time ? range.max_time.toISOString() : null,
-    };
+    });
   }
 
   public async queryTrends(params: TrendQueryParams): Promise<TrendQueryRow> {
-    const requestedFrom = params.from;
-    const requestedTo = params.to;
-    const maxPoints = Math.max(100, params.maxPoints);
-    const hardLimit = Math.max(200, params.hardLimitPerSeries);
-    const rangeMs = Math.max(1, requestedTo.getTime() - requestedFrom.getTime());
+    return this.withTrendQueryActivity(async () => {
+      const requestedFrom = params.from;
+      const requestedTo = params.to;
+      const maxPoints = Math.max(100, params.maxPoints);
+      const hardLimit = Math.max(200, params.hardLimitPerSeries);
+      const rangeMs = Math.max(1, requestedTo.getTime() - requestedFrom.getTime());
 
-    const metaRows = await this.loadTrendTagMeta(params.tags);
-    const series: TrendSeriesRow[] = [];
-    let resolvedAggregation: TrendResolvedAggregation = "raw";
+      const metaRows = await this.loadTrendTagMeta(params.tags);
+      const series: TrendSeriesRow[] = [];
+      let resolvedAggregation: TrendResolvedAggregation = "raw";
 
-    for (const meta of metaRows) {
-      const dataType = this.mapTrendDataType(meta.dataTypeCode);
-      const rangeStats = await this.queryTrendRangeStats(meta.id, requestedFrom, requestedTo, dataType);
-      const rawCount = rangeStats.pointsInRange;
-      const effectiveAggregation = this.resolveTrendAggregation({
-        requested: params.aggregation,
-        dataType,
-        rawCount,
-        maxPoints,
-      });
-      resolvedAggregation = this.pickWiderAggregation(resolvedAggregation, effectiveAggregation);
-      const targetBuckets = effectiveAggregation === "minmax"
-        ? Math.max(1, Math.floor(maxPoints / 2))
-        : maxPoints;
-      const bucketMs = Math.max(1, Math.ceil(rangeMs / targetBuckets));
+      for (const meta of metaRows) {
+        const dataType = this.mapTrendDataType(meta.dataTypeCode);
+        const rangeStats = await this.queryTrendRangeStats(meta.id, requestedFrom, requestedTo, dataType);
+        const rawCount = rangeStats.pointsInRange;
+        const effectiveAggregation = this.resolveTrendAggregation({
+          requested: params.aggregation,
+          dataType,
+          rawCount,
+          maxPoints,
+        });
+        resolvedAggregation = this.pickWiderAggregation(resolvedAggregation, effectiveAggregation);
+        const targetBuckets = effectiveAggregation === "minmax"
+          ? Math.max(1, Math.floor(maxPoints / 2))
+          : maxPoints;
+        const bucketMs = Math.max(1, Math.ceil(rangeMs / targetBuckets));
 
-      let points: TrendPointRow[] = [];
-      if (effectiveAggregation === "raw") {
-        points = await this.queryRawTrendPoints(meta.id, requestedFrom, requestedTo, hardLimit, dataType);
-      } else if (dataType === "boolean" || dataType === "enum") {
-        points = await this.queryBucketedDiscreteTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
-      } else if (effectiveAggregation === "minmax") {
-        points = await this.queryBucketedMinMaxTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
-      } else {
-        points = await this.queryBucketedAvgTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
+        let points: TrendPointRow[] = [];
+        if (effectiveAggregation === "raw") {
+          points = await this.queryRawTrendPoints(meta.id, requestedFrom, requestedTo, hardLimit, dataType);
+        } else if (dataType === "boolean" || dataType === "enum") {
+          points = await this.queryBucketedDiscreteTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
+        } else if (effectiveAggregation === "minmax") {
+          points = await this.queryBucketedMinMaxTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
+        } else {
+          points = await this.queryBucketedAvgTrendPoints(meta.id, requestedFrom, requestedTo, bucketMs, hardLimit);
+        }
+        const carryForwardPoint = await this.queryTrendPointAtOrBefore(meta.id, requestedFrom, dataType);
+        const fromTs = requestedFrom.getTime();
+        const previousPointBeforeRangeTs = carryForwardPoint?.t ?? null;
+        const missingHistoryBeforeRange = rangeStats.firstPointTs !== null && previousPointBeforeRangeTs === null && rangeStats.firstPointTs > fromTs;
+        const seriesDiagnostics: TrendSeriesDiagnosticsRow = {
+          tag: meta.name,
+          policyMode: meta.policyMode,
+          policyPeriodMs: meta.policyPeriodMs,
+          policyRequiresIncomingSamples: this.archivePolicyRequiresIncomingSamples(meta.policyMode),
+          archiveHeartbeatEnabled: false,
+          policyGuidance: this.archivePolicyGuidance(meta.policyMode),
+          rangeFrom: requestedFrom.toISOString(),
+          rangeTo: requestedTo.toISOString(),
+          pointsInRange: rangeStats.pointsInRange,
+          firstPointTs: rangeStats.firstPointTs,
+          lastPointTs: rangeStats.lastPointTs,
+          previousPointBeforeRangeTs,
+          hasPreviousBeforeRange: previousPointBeforeRangeTs !== null,
+          missingHistoryBeforeRange,
+        };
+        if (missingHistoryBeforeRange) {
+          this.logger.info(`trend:series-missing-history ${JSON.stringify(seriesDiagnostics)}`);
+        }
+        const normalizedBeforeCarryForward = this.normalizeTrendPointRows(points)
+          .filter((point) => point.t >= fromTs && point.t <= requestedTo.getTime());
+        const insertsCarryForwardFromBeforeRange = Boolean(
+          carryForwardPoint
+          && carryForwardPoint.t < fromTs
+          && normalizedBeforeCarryForward.length > 0
+          && normalizedBeforeCarryForward[0]!.t > fromTs,
+        );
+        const pointsWithCarryForward = this.applyTrendCarryForward(points, carryForwardPoint, requestedFrom, requestedTo);
+        const insertsConstantCarryForwardSeries = Boolean(
+          carryForwardPoint
+          && normalizedBeforeCarryForward.length === 0
+          && pointsWithCarryForward.length === 2
+          && pointsWithCarryForward[0]?.t === fromTs
+          && pointsWithCarryForward[1]?.t === requestedTo.getTime(),
+        );
+        if (insertsConstantCarryForwardSeries && carryForwardPoint) {
+          this.logger.info(`trend:carry-forward-constant-series ${JSON.stringify({
+            tag: meta.name,
+            from: requestedFrom.toISOString(),
+            to: requestedTo.toISOString(),
+            previousPointTimestamp: carryForwardPoint.t,
+            insertedPointCount: 2,
+          })}`);
+        }
+        if (insertsCarryForwardFromBeforeRange && carryForwardPoint) {
+          this.logger.info(`trend:carry-forward-from-before-range ${JSON.stringify({
+            tag: meta.name,
+            from: requestedFrom.toISOString(),
+            to: requestedTo.toISOString(),
+            previousPointTimestamp: carryForwardPoint.t,
+            insertedPointCount: 1,
+          })}`);
+        }
+
+        series.push({
+          tag: meta.name,
+          displayName: meta.displayName || meta.name,
+          unit: meta.unit ?? undefined,
+          points: this.enforceTrendPointLimit(pointsWithCarryForward, hardLimit),
+          diagnostics: seriesDiagnostics,
+        });
       }
-      const carryForwardPoint = await this.queryTrendPointAtOrBefore(meta.id, requestedFrom, dataType);
-      const fromTs = requestedFrom.getTime();
-      const previousPointBeforeRangeTs = carryForwardPoint?.t ?? null;
-      const missingHistoryBeforeRange = rangeStats.firstPointTs !== null && previousPointBeforeRangeTs === null && rangeStats.firstPointTs > fromTs;
-      const seriesDiagnostics: TrendSeriesDiagnosticsRow = {
-        tag: meta.name,
-        policyMode: meta.policyMode,
-        policyPeriodMs: meta.policyPeriodMs,
-        policyRequiresIncomingSamples: this.archivePolicyRequiresIncomingSamples(meta.policyMode),
-        archiveHeartbeatEnabled: false,
-        policyGuidance: this.archivePolicyGuidance(meta.policyMode),
-        rangeFrom: requestedFrom.toISOString(),
-        rangeTo: requestedTo.toISOString(),
-        pointsInRange: rangeStats.pointsInRange,
-        firstPointTs: rangeStats.firstPointTs,
-        lastPointTs: rangeStats.lastPointTs,
-        previousPointBeforeRangeTs,
-        hasPreviousBeforeRange: previousPointBeforeRangeTs !== null,
-        missingHistoryBeforeRange,
+
+      return {
+        from: requestedFrom.toISOString(),
+        to: requestedTo.toISOString(),
+        aggregation: resolvedAggregation,
+        series,
       };
-      if (missingHistoryBeforeRange) {
-        this.logger.info(`trend:series-missing-history ${JSON.stringify(seriesDiagnostics)}`);
-      }
-      const normalizedBeforeCarryForward = this.normalizeTrendPointRows(points)
-        .filter((point) => point.t >= fromTs && point.t <= requestedTo.getTime());
-      const insertsCarryForwardFromBeforeRange = Boolean(
-        carryForwardPoint
-        && carryForwardPoint.t < fromTs
-        && normalizedBeforeCarryForward.length > 0
-        && normalizedBeforeCarryForward[0]!.t > fromTs,
-      );
-      const pointsWithCarryForward = this.applyTrendCarryForward(points, carryForwardPoint, requestedFrom, requestedTo);
-      const insertsConstantCarryForwardSeries = Boolean(
-        carryForwardPoint
-        && normalizedBeforeCarryForward.length === 0
-        && pointsWithCarryForward.length === 2
-        && pointsWithCarryForward[0]?.t === fromTs
-        && pointsWithCarryForward[1]?.t === requestedTo.getTime(),
-      );
-      if (insertsConstantCarryForwardSeries && carryForwardPoint) {
-        this.logger.info(`trend:carry-forward-constant-series ${JSON.stringify({
-          tag: meta.name,
-          from: requestedFrom.toISOString(),
-          to: requestedTo.toISOString(),
-          previousPointTimestamp: carryForwardPoint.t,
-          insertedPointCount: 2,
-        })}`);
-      }
-      if (insertsCarryForwardFromBeforeRange && carryForwardPoint) {
-        this.logger.info(`trend:carry-forward-from-before-range ${JSON.stringify({
-          tag: meta.name,
-          from: requestedFrom.toISOString(),
-          to: requestedTo.toISOString(),
-          previousPointTimestamp: carryForwardPoint.t,
-          insertedPointCount: 1,
-        })}`);
-      }
-
-      series.push({
-        tag: meta.name,
-        displayName: meta.displayName || meta.name,
-        unit: meta.unit ?? undefined,
-        points: this.enforceTrendPointLimit(pointsWithCarryForward, hardLimit),
-        diagnostics: seriesDiagnostics,
-      });
-    }
-
-    return {
-      from: requestedFrom.toISOString(),
-      to: requestedTo.toISOString(),
-      aggregation: resolvedAggregation,
-      series,
-    };
+    });
   }
 
   public async listPolicies(): Promise<ArchivePolicyRow[]> {
@@ -887,23 +919,29 @@ export class ArchiveRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  public async applyRetention(): Promise<number> {
+  public async applyRetentionBatch(limit: number): Promise<number> {
+    const safeLimit = this.normalizePositiveInteger(limit, this.defaultDeleteBatchSize);
     const result = await this.pool.query(
       `
+      WITH overdue AS (
+        SELECT s.tag_id, s.time
+        FROM archive_samples s
+        JOIN tags t ON t.id = s.tag_id
+        LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
+        LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
+        WHERE COALESCE(o.retention_days, p.retention_days) IS NOT NULL
+          AND s.time < now() - make_interval(days => COALESCE(o.retention_days, p.retention_days))
+        ORDER BY s.time ASC
+        LIMIT $1
+      )
       DELETE FROM archive_samples s
-      USING tags t
-      LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
-      LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
-      WHERE s.tag_id = t.id
-        AND COALESCE(o.retention_days, p.retention_days) IS NOT NULL
-        AND s.time < now() - make_interval(days => COALESCE(o.retention_days, p.retention_days))
+      USING overdue
+      WHERE s.tag_id = overdue.tag_id
+        AND s.time = overdue.time
       `,
+      [safeLimit],
     );
-    const deleted = result.rowCount ?? 0;
-    if (deleted > 0) {
-      await this.compactArchiveSamples();
-    }
-    return deleted;
+    return result.rowCount ?? 0;
   }
 
   public async configureCompressionPolicy(): Promise<void> {
@@ -966,10 +1004,21 @@ export class ArchiveRepository {
     const result = await this.pool.query<{
       auto_cleanup_enabled: boolean;
       max_db_size_mb: number | null;
+      delete_batch_size: number | null;
+      maintenance_interval_ms: number | null;
+      max_maintenance_tick_ms: number | null;
+      max_delete_transaction_ms: number | null;
       updated_at: Date;
     }>(
       `
-      SELECT auto_cleanup_enabled, max_db_size_mb, updated_at
+      SELECT
+          auto_cleanup_enabled,
+          max_db_size_mb,
+          delete_batch_size,
+          maintenance_interval_ms,
+          max_maintenance_tick_ms,
+          max_delete_transaction_ms,
+          updated_at
       FROM archive_runtime_settings
       WHERE id = 1
       `,
@@ -979,12 +1028,20 @@ export class ArchiveRepository {
       return {
         autoCleanupEnabled: true,
         maxDbSizeMb: 5120,
+        deleteBatchSize: this.defaultDeleteBatchSize,
+        maintenanceIntervalMs: this.defaultMaintenanceIntervalMs,
+        maxMaintenanceTickMs: this.defaultMaxMaintenanceTickMs,
+        maxDeleteTransactionMs: this.defaultMaxDeleteTransactionMs,
         updatedAt: new Date(0).toISOString(),
       };
     }
     return {
       autoCleanupEnabled: row.auto_cleanup_enabled,
       maxDbSizeMb: row.max_db_size_mb,
+      deleteBatchSize: this.normalizePositiveInteger(row.delete_batch_size, this.defaultDeleteBatchSize),
+      maintenanceIntervalMs: this.normalizePositiveInteger(row.maintenance_interval_ms, this.defaultMaintenanceIntervalMs),
+      maxMaintenanceTickMs: this.normalizePositiveInteger(row.max_maintenance_tick_ms, this.defaultMaxMaintenanceTickMs),
+      maxDeleteTransactionMs: this.normalizePositiveInteger(row.max_delete_transaction_ms, this.defaultMaxDeleteTransactionMs),
       updatedAt: row.updated_at.toISOString(),
     };
   }
@@ -992,23 +1049,59 @@ export class ArchiveRepository {
   public async updateRuntimeSettings(settings: {
     autoCleanupEnabled: boolean;
     maxDbSizeMb: number | null;
+    deleteBatchSize: number;
+    maintenanceIntervalMs: number;
+    maxMaintenanceTickMs: number;
+    maxDeleteTransactionMs: number;
   }): Promise<ArchiveRuntimeSettingsRow> {
     const result = await this.pool.query<{
       auto_cleanup_enabled: boolean;
       max_db_size_mb: number | null;
+      delete_batch_size: number | null;
+      maintenance_interval_ms: number | null;
+      max_maintenance_tick_ms: number | null;
+      max_delete_transaction_ms: number | null;
       updated_at: Date;
     }>(
       `
-      INSERT INTO archive_runtime_settings (id, auto_cleanup_enabled, max_db_size_mb, max_data_age_months, updated_at)
-      VALUES (1, $1, $2, NULL, now())
+      INSERT INTO archive_runtime_settings (
+          id,
+          auto_cleanup_enabled,
+          max_db_size_mb,
+          max_data_age_months,
+          delete_batch_size,
+          maintenance_interval_ms,
+          max_maintenance_tick_ms,
+          max_delete_transaction_ms,
+          updated_at
+      )
+      VALUES (1, $1, $2, NULL, $3, $4, $5, $6, now())
       ON CONFLICT (id) DO UPDATE
       SET auto_cleanup_enabled = EXCLUDED.auto_cleanup_enabled,
           max_db_size_mb = EXCLUDED.max_db_size_mb,
           max_data_age_months = NULL,
+          delete_batch_size = EXCLUDED.delete_batch_size,
+          maintenance_interval_ms = EXCLUDED.maintenance_interval_ms,
+          max_maintenance_tick_ms = EXCLUDED.max_maintenance_tick_ms,
+          max_delete_transaction_ms = EXCLUDED.max_delete_transaction_ms,
           updated_at = now()
-      RETURNING auto_cleanup_enabled, max_db_size_mb, updated_at
+      RETURNING
+          auto_cleanup_enabled,
+          max_db_size_mb,
+          delete_batch_size,
+          maintenance_interval_ms,
+          max_maintenance_tick_ms,
+          max_delete_transaction_ms,
+          updated_at
       `,
-      [settings.autoCleanupEnabled, settings.maxDbSizeMb],
+      [
+        settings.autoCleanupEnabled,
+        settings.maxDbSizeMb,
+        this.normalizePositiveInteger(settings.deleteBatchSize, this.defaultDeleteBatchSize),
+        this.normalizePositiveInteger(settings.maintenanceIntervalMs, this.defaultMaintenanceIntervalMs),
+        this.normalizePositiveInteger(settings.maxMaintenanceTickMs, this.defaultMaxMaintenanceTickMs),
+        this.normalizePositiveInteger(settings.maxDeleteTransactionMs, this.defaultMaxDeleteTransactionMs),
+      ],
     );
     const row = result.rows[0];
     if (!row) {
@@ -1017,6 +1110,10 @@ export class ArchiveRepository {
     return {
       autoCleanupEnabled: row.auto_cleanup_enabled,
       maxDbSizeMb: row.max_db_size_mb,
+      deleteBatchSize: this.normalizePositiveInteger(row.delete_batch_size, this.defaultDeleteBatchSize),
+      maintenanceIntervalMs: this.normalizePositiveInteger(row.maintenance_interval_ms, this.defaultMaintenanceIntervalMs),
+      maxMaintenanceTickMs: this.normalizePositiveInteger(row.max_maintenance_tick_ms, this.defaultMaxMaintenanceTickMs),
+      maxDeleteTransactionMs: this.normalizePositiveInteger(row.max_delete_transaction_ms, this.defaultMaxDeleteTransactionMs),
       updatedAt: row.updated_at.toISOString(),
     };
   }
@@ -2166,6 +2263,53 @@ export class ArchiveRepository {
     }
   }
 
+  public getActiveTrendQueries(): number {
+    return this.activeTrendQueries;
+  }
+
+  public async deleteOldestSamplesBatch(options: {
+    limit: number;
+    maxTransactionMs: number;
+  }): Promise<ArchivePruneBatchResultRow> {
+    const limit = this.normalizePositiveInteger(options.limit, this.defaultDeleteBatchSize);
+    const maxTransactionMs = this.normalizePositiveInteger(options.maxTransactionMs, this.defaultMaxDeleteTransactionMs);
+    const client = await this.pool.connect();
+    const startedAt = Date.now();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL statement_timeout = $1", [maxTransactionMs]);
+      const result = await client.query(
+        `
+        WITH oldest AS (
+          SELECT tag_id, time
+          FROM archive_samples
+          ORDER BY time ASC
+          LIMIT $1
+        )
+        DELETE FROM archive_samples s
+        USING oldest
+        WHERE s.tag_id = oldest.tag_id
+          AND s.time = oldest.time
+        `,
+        [limit],
+      );
+      await client.query("COMMIT");
+      return {
+        deletedRecords: result.rowCount ?? 0,
+        durationMs: Math.max(0, Date.now() - startedAt),
+      };
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   public async enforceRuntimeLimits(settings: {
     autoCleanupEnabled: boolean;
     maxDbSizeMb: number | null;
@@ -2173,55 +2317,27 @@ export class ArchiveRepository {
     if (!settings.autoCleanupEnabled) {
       return { deletedByAge: 0, deletedBySize: 0 };
     }
-    let deletedByAge = 0;
     let deletedBySize = 0;
 
     if ((settings.maxDbSizeMb ?? 0) > 0) {
       const maxBytes = (settings.maxDbSizeMb ?? 0) * 1024 * 1024;
-      let safetyCounter = 0;
-      while (safetyCounter < 100) {
-        safetyCounter += 1;
-        let { currentBytes, recordsCount } = await this.readArchiveSamplesSize();
-        if (!Number.isFinite(currentBytes) || currentBytes <= maxBytes) {
-          break;
-        }
-        await this.compactArchiveSamples();
-        ({ currentBytes, recordsCount } = await this.readArchiveSamplesSize());
-        if (!Number.isFinite(currentBytes) || currentBytes <= maxBytes) {
-          break;
-        }
-        if (!Number.isFinite(recordsCount) || recordsCount <= 0) {
-          break;
-        }
+      const { currentBytes, recordsCount } = await this.readArchiveSamplesSize();
+      if (Number.isFinite(currentBytes) && currentBytes > maxBytes && Number.isFinite(recordsCount) && recordsCount > 0) {
         const overflowRatio = Math.min(1, Math.max(0, (currentBytes - maxBytes) / currentBytes));
         const deleteLimit = Math.min(
           recordsCount,
           ARCHIVE_SIZE_DELETE_MAX_ROWS,
           Math.max(ARCHIVE_SIZE_DELETE_MIN_ROWS, Math.ceil(recordsCount * overflowRatio * ARCHIVE_SIZE_DELETE_HEADROOM)),
         );
-        const deleteResult = await this.pool.query(
-          `
-          DELETE FROM archive_samples
-          WHERE ctid IN (
-            SELECT ctid
-            FROM archive_samples
-            ORDER BY time ASC
-            LIMIT $1
-          )
-          `,
-          [deleteLimit],
-        );
-        const chunkDeleted = deleteResult.rowCount ?? 0;
-        deletedBySize += chunkDeleted;
-        if (chunkDeleted === 0) {
-          await this.compactArchiveSamples();
-          break;
-        }
-        await this.compactArchiveSamples();
+        const deleted = await this.deleteOldestSamplesBatch({
+          limit: deleteLimit,
+          maxTransactionMs: this.defaultMaxDeleteTransactionMs,
+        });
+        deletedBySize += deleted.deletedRecords;
       }
     }
 
-    return { deletedByAge, deletedBySize };
+    return { deletedByAge: 0, deletedBySize };
   }
 
   private async readArchiveSamplesSize(): Promise<{ currentBytes: number; recordsCount: number }> {
@@ -2237,19 +2353,6 @@ export class ArchiveRepository {
     const currentBytes = typeof sizeRaw === "string" ? Number.parseInt(sizeRaw, 10) : Number(sizeRaw);
     const recordsCount = typeof recordsRaw === "string" ? Number.parseInt(recordsRaw, 10) : Number(recordsRaw);
     return { currentBytes, recordsCount };
-  }
-
-  private async compactArchiveSamples(): Promise<void> {
-    try {
-      await this.pool.query("VACUUM (FULL, ANALYZE) archive_samples");
-    } catch (error) {
-      this.logger.warn(`Archive samples compaction failed: ${this.errorText(error)}`);
-      try {
-        await this.pool.query("VACUUM (ANALYZE) archive_samples");
-      } catch (fallbackError) {
-        this.logger.warn(`Archive samples analyze failed: ${this.errorText(fallbackError)}`);
-      }
-    }
   }
 
   private async loadTrendTagMeta(tagNames?: string[]): Promise<TrendTagMetaRow[]> {
@@ -3041,6 +3144,24 @@ export class ArchiveRepository {
   private async getIdByCode(client: PoolClient, table: string, codeColumn: string, code: string): Promise<number | undefined> {
     const result = await client.query<{ id: number }>(`SELECT id FROM ${table} WHERE ${codeColumn} = $1`, [code]);
     return result.rows[0]?.id;
+  }
+
+  private async withTrendQueryActivity<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeTrendQueries += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeTrendQueries = Math.max(0, this.activeTrendQueries - 1);
+    }
+  }
+
+  private normalizePositiveInteger(value: unknown, fallback: number): number {
+    const fallbackValue = Number.isFinite(fallback) && fallback > 0 ? Math.round(fallback) : 1;
+    const numeric = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return fallbackValue;
+    }
+    return Math.max(1, Math.round(numeric));
   }
 
   private errorText(error: unknown): string {
