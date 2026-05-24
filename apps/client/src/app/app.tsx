@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   EditOutlined,
@@ -17,9 +17,14 @@ import {
 import { startRuntimePerformanceDiagnostics } from "../services/performance-diagnostics";
 import { createTagValueBatcher } from "../services/tag-value-batcher";
 import { createRuntimeSocket } from "../services/ws";
+import { isAbortError } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 const RuntimePage = lazy(() => import("../pages/runtime-page").then((m) => ({ default: m.RuntimePage })));
 const EditorPage = lazy(() => import("../pages/editor-page").then((m) => ({ default: m.EditorPage })));
+
+function isBootstrapCancellation(error: unknown): boolean {
+  return isAbortError(error);
+}
 
 export function App() {
   const location = useLocation();
@@ -44,6 +49,7 @@ export function App() {
   const isEditorRoute = location.pathname === "/editor" || isMacrosRoute;
   const isProtectedRoute = isEditorRoute;
   const [bootError, setBootError] = useState<string | null>(null);
+  const bootstrapRunIdRef = useRef(0);
   const [uiTheme, setUiTheme] = useState<ProjectTheme>(() => {
     if (typeof window === "undefined") {
       return "light";
@@ -60,6 +66,9 @@ export function App() {
   }, [uiTheme]);
 
   const bootstrapApp = useCallback(async () => {
+    const runId = bootstrapRunIdRef.current + 1;
+    bootstrapRunIdRef.current = runId;
+    const isLatestRun = () => bootstrapRunIdRef.current === runId;
     setBootError(null);
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -72,19 +81,34 @@ export function App() {
       }
     }
     await initializeAuth();
+    if (!isLatestRun()) {
+      return;
+    }
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await loadProject();
         await Promise.all([loadTags(), loadDrivers(), loadMacros(), loadAssets(), loadLibraries(), loadRuntimeStatus()]);
+        if (!isLatestRun()) {
+          return;
+        }
         return;
       } catch (error) {
+        if (!isLatestRun()) {
+          return;
+        }
+        if (isBootstrapCancellation(error)) {
+          continue;
+        }
         lastError = error;
         await new Promise((resolve) => setTimeout(resolve, 900));
       }
     }
 
+    if (!isLatestRun() || !lastError || isBootstrapCancellation(lastError)) {
+      return;
+    }
     const text = lastError instanceof Error ? lastError.message : String(lastError);
     setBootError(text || "Failed to connect to backend");
   }, [initializeAuth, loadAssets, loadDrivers, loadLibraries, loadMacros, loadProject, loadRuntimeStatus, loadTags, logout]);
