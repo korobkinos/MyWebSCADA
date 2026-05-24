@@ -2160,14 +2160,9 @@ export class ArchiveRepository {
 
   public async optimizeOperatorActionArchive(): Promise<void> {
     try {
-      await this.pool.query("VACUUM (FULL, ANALYZE) operator_actions");
+      await this.pool.query("VACUUM (ANALYZE) operator_actions");
     } catch (error) {
-      this.logger.warn(`Operator action archive full vacuum failed: ${this.errorText(error)}`);
-      try {
-        await this.pool.query("VACUUM (ANALYZE) operator_actions");
-      } catch (fallbackError) {
-        this.logger.warn(`Operator action archive analyze failed: ${this.errorText(fallbackError)}`);
-      }
+      this.logger.warn(`Operator action archive analyze failed: ${this.errorText(error)}`);
     }
   }
 

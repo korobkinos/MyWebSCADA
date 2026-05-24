@@ -218,10 +218,6 @@ const operatorActionHistoryQuerySchema = z.object({
 const operatorActionScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const operatorActionLogSchema = z.object({
   occurredAt: z.string().datetime().optional(),
-  userId: z.string().min(1).nullable().optional(),
-  username: z.string().min(1).nullable().optional(),
-  userRole: z.string().min(1).nullable().optional(),
-  ip: z.string().min(1).nullable().optional(),
   screenId: z.string().min(1).nullable().optional(),
   screenName: z.string().min(1).nullable().optional(),
   objectId: z.string().min(1),
@@ -239,7 +235,7 @@ const operatorActionLogSchema = z.object({
   result: operatorActionResultSchema.optional(),
   errorText: z.string().min(1).nullable().optional(),
   details: z.record(z.unknown()).nullable().optional(),
-});
+}).strict();
 const operatorActionArchiveCleanupSchema = z.object({
   enabled: z.boolean().optional(),
   retentionDays: z.number().int().positive().optional(),
@@ -455,6 +451,8 @@ type MacroTagReferenceResult = {
 
 type AuthContext = {
   userId: string;
+  username?: string;
+  userRole?: string | null;
   permissions: Set<AppPermission>;
   roleLevel: number;
 };
@@ -490,6 +488,8 @@ async function requirePermission(
     if (isGuestRuntimePermissionAllowed(deps, permission)) {
       return {
         userId: "guest-runtime",
+        username: undefined,
+        userRole: null,
         permissions: new Set<AppPermission>(),
         roleLevel: 0,
       };
@@ -541,6 +541,8 @@ async function resolveAuthUser(request: FastifyRequest, deps: ApiDeps): Promise<
 function toAuthContext(user: AuthUser): AuthContext {
   return {
     userId: user.id,
+    username: user.username,
+    userRole: user.roles.length > 0 ? user.roles.join(",") : null,
     permissions: new Set(user.permissions),
     roleLevel: getUserRoleLevel(user),
   };
@@ -1318,9 +1320,10 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     const payload = operatorActionLogSchema.parse(request.body ?? {});
     const created = await deps.archiveService.createOperatorAction({
       ...payload,
-      userId: payload.userId ?? auth.userId ?? null,
-      username: payload.username ?? null,
-      userRole: payload.userRole ?? null,
+      userId: auth.userId ?? null,
+      username: auth.username ?? null,
+      userRole: auth.userRole ?? null,
+      ip: request.ip ?? null,
     });
     return reply.code(201).send(created);
   });
