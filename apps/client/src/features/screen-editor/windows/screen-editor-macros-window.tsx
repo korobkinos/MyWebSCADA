@@ -12,11 +12,10 @@ import {
   QuestionCircleOutlined,
   ReloadOutlined,
   SaveOutlined,
-  SettingOutlined,
   UnorderedListOutlined,
   UpOutlined,
 } from "@ant-design/icons";
-import { message, Modal, Select } from "antd";
+import { message, Modal, Select, Tabs } from "antd";
 import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { WorkbenchButton, WorkbenchResizeHandle } from "../../../components/workbench";
 import { WorkbenchWindow } from "../../../components/workbench/windows/workbench-window";
@@ -56,6 +55,8 @@ type MacroConsoleEntry = {
   level: "info" | "success" | "warn" | "error";
   text: string;
 };
+
+type HelpTabKey = "quickStart" | "api" | "templates" | "tagsObjects" | "examples";
 
 function formatTimestamp(date = new Date()): string {
   return date.toLocaleTimeString();
@@ -186,6 +187,7 @@ export function ScreenEditorMacrosWindow() {
   const [consoleCollapsed, setConsoleCollapsed] = useState(false);
   const [helpWindowRect, setHelpWindowRect] = useState({ x: 320, y: 72, width: 860, height: 680 });
   const [helpWindowZIndex, setHelpWindowZIndex] = useState<number>(1200);
+  const [helpTab, setHelpTab] = useState<HelpTabKey>("quickStart");
   const [templateQuery, setTemplateQuery] = useState("");
   const listPanelRef = useRef<ImperativePanelHandle | null>(null);
   const consolePanelRef = useRef<ImperativePanelHandle | null>(null);
@@ -716,7 +718,6 @@ export function ScreenEditorMacrosWindow() {
         <WorkbenchButton icon={<ReloadOutlined />} title="Refresh macros" onClick={() => void refreshMacros()} />
         <WorkbenchButton icon={<SaveOutlined />} title="Save Project" onClick={() => void saveProject()} />
         <WorkbenchButton icon={<QuestionCircleOutlined />} title="Macro help" onClick={openHelpWindow} />
-        <WorkbenchButton icon={<SettingOutlined />} title="Macro options are preserved automatically" disabled />
       </div>
 
       <PanelGroup direction="vertical" autoSaveId="screen-editor-macros-window:v" className="screen-editor-macros-layout">
@@ -915,9 +916,6 @@ export function ScreenEditorMacrosWindow() {
                           <div className="screen-editor-empty-state">No triggers</div>
                         ) : null}
                       </div>
-                      {draftMacro.options ? (
-                        <div className="screen-editor-macro-help">Macro options are preserved automatically on save.</div>
-                      ) : null}
                     </div>
                     <div className="screen-editor-macros-window__status">
                       <span>{dirty ? "Unsaved changes" : "Saved"}</span>
@@ -1003,100 +1001,143 @@ export function ScreenEditorMacrosWindow() {
               onResize={(nextRect) => setHelpWindowRect(nextRect)}
             >
               <div className="screen-editor-macro-help-modal">
-                <div className="screen-editor-macro-help-modal__block">
-                  <div className="screen-editor-macro-help-modal__title">Quick Syntax</div>
-                  <pre>{`const value = Number(readTag("Tag.Name") ?? 0);
+                <Tabs
+                  className="screen-editor-macro-help-tabs"
+                  activeKey={helpTab}
+                  onChange={(key) => setHelpTab(key as HelpTabKey)}
+                  items={[
+                    {
+                      key: "quickStart",
+                      label: "Quick Start",
+                      children: (
+                        <div className="screen-editor-macro-help-modal__block">
+                          <div className="screen-editor-macro-help-modal__title">Quick Start</div>
+                          <ul>
+                            <li>Create or select a macro in the list.</li>
+                            <li>Write or insert code snippets in the editor.</li>
+                            <li>Click Check Syntax, then Run/Test Macro.</li>
+                            <li>Save Macro and Save Project.</li>
+                          </ul>
+                          <pre>{`const value = Number(readTag("Tag.Name") ?? 0);
 if (value > 10) {
   await writeTag("Tag.Alarm", true);
 }`}</pre>
-                </div>
-                <div className="screen-editor-macro-help-modal__block">
-                  <div className="screen-editor-macro-help-modal__title">API Functions</div>
-                  <div className="screen-editor-macro-help-modal__api-list">
-                    {macroApiDocumentation.map((item) => (
-                      <div key={item.name} className="screen-editor-macro-help-modal__api-item">
-                        <div className="screen-editor-macro-help-modal__api-meta">
-                          <span>{item.category}</span>
                         </div>
-                        <code>{item.signature}</code>
-                        <div className="screen-editor-macro-help-modal__api-desc">{item.description}</div>
-                        <div>
-                          <WorkbenchButton onClick={() => insertCode(`${normalizeSnippetForInsert(buildApiSnippet(item))}\n`)}>
-                            Insert
-                          </WorkbenchButton>
+                      ),
+                    },
+                    {
+                      key: "api",
+                      label: "API",
+                      children: (
+                        <div className="screen-editor-macro-help-modal__block">
+                          <div className="screen-editor-macro-help-modal__title">API Functions</div>
+                          <div className="screen-editor-macro-help-modal__api-list">
+                            {macroApiDocumentation.map((item) => (
+                              <div key={item.name} className="screen-editor-macro-help-modal__api-item">
+                                <div className="screen-editor-macro-help-modal__api-meta">
+                                  <span>{item.category}</span>
+                                </div>
+                                <code>{item.signature}</code>
+                                <div className="screen-editor-macro-help-modal__api-desc">{item.description}</div>
+                                <div>
+                                  <WorkbenchButton onClick={() => insertCode(`${normalizeSnippetForInsert(buildApiSnippet(item))}\n`)}>
+                                    Insert
+                                  </WorkbenchButton>
+                                </div>
+                                <pre>{item.example}</pre>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <pre>{item.example}</pre>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="screen-editor-macro-help-modal__block">
-                  <div className="screen-editor-macro-help-modal__title">Templates</div>
-                  <input
-                    className="workbench-input"
-                    value={templateQuery}
-                    placeholder="Search templates"
-                    onChange={(event) => setTemplateQuery(event.target.value)}
-                    style={{ marginBottom: 8, width: "100%" }}
-                  />
-                  <div className="screen-editor-macro-help-modal__api-list">
-                    {filteredTemplates.map((template) => (
-                      <div key={template.id} className="screen-editor-macro-help-modal__api-item">
-                        <div className="screen-editor-macro-help-modal__api-meta">
-                          <span>{template.category}</span>
+                      ),
+                    },
+                    {
+                      key: "templates",
+                      label: "Templates",
+                      children: (
+                        <div className="screen-editor-macro-help-modal__block">
+                          <div className="screen-editor-macro-help-modal__title">Templates</div>
+                          <input
+                            className="workbench-input"
+                            value={templateQuery}
+                            placeholder="Search templates"
+                            onChange={(event) => setTemplateQuery(event.target.value)}
+                            style={{ marginBottom: 8, width: "100%" }}
+                          />
+                          <div className="screen-editor-macro-help-modal__api-list">
+                            {filteredTemplates.map((template) => (
+                              <div key={template.id} className="screen-editor-macro-help-modal__api-item">
+                                <div className="screen-editor-macro-help-modal__api-meta">
+                                  <span>{template.category}</span>
+                                </div>
+                                <code>{template.title}</code>
+                                <div className="screen-editor-macro-help-modal__api-desc">{template.description}</div>
+                                <div>
+                                  <WorkbenchButton onClick={() => insertCode(`\n${template.code}\n`)}>
+                                    Insert
+                                  </WorkbenchButton>
+                                </div>
+                                <pre>{template.code}</pre>
+                              </div>
+                            ))}
+                            {filteredTemplates.length === 0 ? <div className="screen-editor-empty-state">No templates found</div> : null}
+                          </div>
                         </div>
-                        <code>{template.title}</code>
-                        <div className="screen-editor-macro-help-modal__api-desc">{template.description}</div>
-                        <div>
-                          <WorkbenchButton onClick={() => insertCode(`\n${template.code}\n`)}>
-                            Insert
-                          </WorkbenchButton>
+                      ),
+                    },
+                    {
+                      key: "tagsObjects",
+                      label: "Tags/Objects",
+                      children: (
+                        <div className="screen-editor-macro-help-modal__block">
+                          <div className="screen-editor-macro-help-modal__title">Tags / Objects</div>
+                          <div className="screen-editor-macro-help-modal__api-list">
+                            {project.tags.slice(0, 30).map((tag) => (
+                              <div key={tag.name} className="screen-editor-macro-help-modal__api-item">
+                                <code>{tag.name}</code>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <WorkbenchButton onClick={() => insertCode(`readTag("${tag.name}")`)}>Read</WorkbenchButton>
+                                  <WorkbenchButton onClick={() => insertCode(`writeTag("${tag.name}", value)`)}>Write</WorkbenchButton>
+                                </div>
+                              </div>
+                            ))}
+                            {currentScreenObjects.slice(0, 30).map((obj) => (
+                              <div key={obj.id} className="screen-editor-macro-help-modal__api-item">
+                                <code>{obj.id}</code>
+                                <div className="screen-editor-macro-help-modal__api-desc">{obj.type}</div>
+                                <div>
+                                  <WorkbenchButton onClick={() => insertCode(`"${obj.id}"`)}>
+                                    Insert ID
+                                  </WorkbenchButton>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <pre>{template.code}</pre>
-                      </div>
-                    ))}
-                    {filteredTemplates.length === 0 ? <div className="screen-editor-empty-state">No templates found</div> : null}
-                  </div>
-                </div>
-                <div className="screen-editor-macro-help-modal__block">
-                  <div className="screen-editor-macro-help-modal__title">Tags / Objects</div>
-                  <div className="screen-editor-macro-help-modal__api-list">
-                    {project.tags.slice(0, 30).map((tag) => (
-                      <div key={tag.name} className="screen-editor-macro-help-modal__api-item">
-                        <code>{tag.name}</code>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <WorkbenchButton onClick={() => insertCode(`readTag("${tag.name}")`)}>Read</WorkbenchButton>
-                          <WorkbenchButton onClick={() => insertCode(`writeTag("${tag.name}", value)`)}>Write</WorkbenchButton>
+                      ),
+                    },
+                    {
+                      key: "examples",
+                      label: "Examples",
+                      children: (
+                        <div className="screen-editor-macro-help-modal__block">
+                          <div className="screen-editor-macro-help-modal__title">Examples</div>
+                          {macroExamples.slice(0, 3).map((example) => (
+                            <div key={example.id} className="screen-editor-macro-help-modal__example">
+                              <strong>{example.title}</strong>
+                              <div>
+                                <WorkbenchButton onClick={() => insertCode(`\n${example.code}\n`)}>
+                                  Insert
+                                </WorkbenchButton>
+                              </div>
+                              <pre>{example.code}</pre>
+                            </div>
+                          ))}
                         </div>
-                      </div>
-                    ))}
-                    {currentScreenObjects.slice(0, 30).map((obj) => (
-                      <div key={obj.id} className="screen-editor-macro-help-modal__api-item">
-                        <code>{obj.id}</code>
-                        <div className="screen-editor-macro-help-modal__api-desc">{obj.type}</div>
-                        <div>
-                          <WorkbenchButton onClick={() => insertCode(`"${obj.id}"`)}>
-                            Insert ID
-                          </WorkbenchButton>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="screen-editor-macro-help-modal__block">
-                  <div className="screen-editor-macro-help-modal__title">Examples</div>
-                  {macroExamples.slice(0, 3).map((example) => (
-                    <div key={example.id} className="screen-editor-macro-help-modal__example">
-                      <strong>{example.title}</strong>
-                      <div>
-                        <WorkbenchButton onClick={() => insertCode(`\n${example.code}\n`)}>
-                          Insert
-                        </WorkbenchButton>
-                      </div>
-                      <pre>{example.code}</pre>
-                    </div>
-                  ))}
-                </div>
+                      ),
+                    },
+                  ]}
+                />
               </div>
             </WorkbenchWindow>
           </div>,
