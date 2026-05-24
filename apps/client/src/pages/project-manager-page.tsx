@@ -28,6 +28,9 @@ import { useScadaStore } from "../store/scada-store";
 
 type ArchiveFileSlot = "project" | "screenZip" | "screenProject" | "libraryZip" | "libraryProject" | "macroProject" | "assetsProject";
 type ProjectManagerTab = "project" | "screens" | "libraries" | "macros" | "assets" | "backups";
+type ScreensWorkflow = "export" | "import-screen-zip" | "copy-from-project" | "manage";
+type ResourceWorkflow = "import-project" | "manage";
+type BackupsWorkflow = "backups" | "reset";
 type MacroConflictMode = "keep-existing" | "replace" | "copy";
 type LibraryConflictMode = "keep-existing" | "replace" | "copy";
 
@@ -42,6 +45,11 @@ type ConfirmState = {
 type DetailRow = {
   label: string;
   value: string | number;
+};
+
+type WorkflowOption<T extends string> = {
+  id: T;
+  label: string;
 };
 
 function downloadBlob(blob: Blob, fileName: string): void {
@@ -169,9 +177,10 @@ function ProjectSummaryTable({ project }: { project: ScadaProject }) {
       rows={rows}
       getRowId={(row) => row.label}
       emptyText="Project summary is not available"
+      columnStorageKey="projectManager.table.projectSummary"
       columns={[
-        { id: "label", title: "FIELD", width: "180px", render: (row) => row.label },
-        { id: "value", title: "VALUE", width: "minmax(180px, 1fr)", render: (row) => row.value },
+        { id: "label", title: "FIELD", width: 200, minWidth: 130, render: (row) => row.label },
+        { id: "value", title: "VALUE", width: 280, minWidth: 140, render: (row) => row.value },
       ]}
     />
   );
@@ -183,11 +192,44 @@ function DetailTable({ rows, emptyText = "No details" }: { rows: DetailRow[]; em
       rows={rows}
       getRowId={(row) => row.label}
       emptyText={emptyText}
+      columnStorageKey="projectManager.table.detail"
       columns={[
-        { id: "label", title: "FIELD", width: "170px", render: (row) => row.label },
-        { id: "value", title: "VALUE", width: "minmax(170px, 1fr)", render: (row) => row.value },
+        { id: "label", title: "FIELD", width: 180, minWidth: 120, render: (row) => row.label },
+        { id: "value", title: "VALUE", width: 260, minWidth: 140, render: (row) => row.value },
       ]}
     />
+  );
+}
+
+function InlineHint({ children }: { children: string }) {
+  return <div className="project-manager-inline-hint">{children}</div>;
+}
+
+function WorkflowSelector<T extends string>({
+  options,
+  active,
+  onChange,
+}: {
+  options: Array<WorkflowOption<T>>;
+  active: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="project-manager-workflow-selector">
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          className={[
+            "project-manager-workflow-selector__item",
+            option.id === active ? "project-manager-workflow-selector__item--active" : "",
+          ].filter(Boolean).join(" ")}
+          onClick={() => onChange(option.id)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -201,23 +243,11 @@ function ArchiveStatusPanel({
   result: ProjectArchiveInspectionResult | null;
 }) {
   if (!file) {
-    return (
-      <WorkbenchStatusBlock
-        variant="info"
-        title="No archive selected"
-        description={`${label} No archive selected. Choose an archive, then validate it. Nothing is imported after file selection.`}
-      />
-    );
+    return <InlineHint>{`${label} No archive selected.`}</InlineHint>;
   }
 
   if (!result) {
-    return (
-      <WorkbenchStatusBlock
-        variant="info"
-        title="Archive not checked yet"
-        description={`${label} ${file.name}. Validate this ZIP before import actions become available.`}
-      />
-    );
+    return <InlineHint>{`${label} ${file.name}. Validate this ZIP before import actions become available.`}</InlineHint>;
   }
 
   const summary = result.summary;
@@ -270,24 +300,28 @@ function ResourceTable({
   selectedIds,
   onSelectedIdsChange,
   emptyText,
+  columnStorageKey,
 }: {
   items: ArchiveInspectionItem[];
   selectedIds: string[];
   onSelectedIdsChange: (ids: string[]) => void;
   emptyText: string;
+  columnStorageKey: string;
 }) {
   return (
     <WorkbenchTable
       rows={items}
       getRowId={(item) => item.id}
       emptyText={emptyText}
+      columnStorageKey={columnStorageKey}
       selectedIds={selectedIds}
       onToggleRow={(item) => onSelectedIdsChange(toggleId(selectedIds, item.id))}
+      onToggleAllRows={(checked) => onSelectedIdsChange(checked ? items.map((item) => item.id) : [])}
       columns={[
-        { id: "name", title: "NAME", width: "minmax(180px, 1fr)", render: (item) => item.name },
-        { id: "id", title: "ID", width: "minmax(160px, 1fr)", render: (item) => item.id },
-        { id: "kind", title: "KIND", width: "120px", render: (item) => item.kind ?? "-" },
-        { id: "count", title: "COUNT", width: "80px", render: (item) => item.count ?? "-" },
+        { id: "name", title: "NAME", width: 240, minWidth: 150, render: (item) => item.name },
+        { id: "id", title: "ID", width: 230, minWidth: 150, render: (item) => item.id },
+        { id: "kind", title: "KIND", width: 130, minWidth: 100, render: (item) => item.kind ?? "-" },
+        { id: "count", title: "COUNT", width: 90, minWidth: 70, render: (item) => item.count ?? "-" },
       ]}
     />
   );
@@ -295,7 +329,7 @@ function ResourceTable({
 
 function ConflictPreview({ items }: { items: ArchiveConflictPreviewItem[] }) {
   if (items.length === 0) {
-    return <WorkbenchStatusBlock variant="success" title="No conflicts detected for this selection" />;
+    return null;
   }
 
   return (
@@ -303,11 +337,12 @@ function ConflictPreview({ items }: { items: ArchiveConflictPreviewItem[] }) {
       rows={items}
       getRowId={(item) => `${item.id}-${item.status}`}
       emptyText="No conflicts detected for this selection"
+      columnStorageKey="projectManager.table.conflicts"
       columns={[
-        { id: "name", title: "NAME", width: "minmax(180px, 1fr)", render: (item) => item.name },
-        { id: "id", title: "ID", width: "minmax(160px, 1fr)", render: (item) => item.id },
-        { id: "status", title: "STATUS", width: "150px", render: (item) => item.status },
-        { id: "message", title: "MESSAGE", width: "minmax(220px, 1.5fr)", render: (item) => item.message },
+        { id: "name", title: "NAME", width: 220, minWidth: 140, render: (item) => item.name },
+        { id: "id", title: "ID", width: 220, minWidth: 140, render: (item) => item.id },
+        { id: "status", title: "STATUS", width: 160, minWidth: 120, render: (item) => item.status },
+        { id: "message", title: "MESSAGE", width: 320, minWidth: 160, render: (item) => item.message },
       ]}
     />
   );
@@ -339,6 +374,11 @@ export function ProjectManagerPage() {
     assetsProject: useRef<HTMLInputElement | null>(null),
   };
   const [activeTab, setActiveTab] = useState<ProjectManagerTab>("project");
+  const [screensWorkflow, setScreensWorkflow] = useState<ScreensWorkflow>("export");
+  const [librariesWorkflow, setLibrariesWorkflow] = useState<ResourceWorkflow>("import-project");
+  const [macrosWorkflow, setMacrosWorkflow] = useState<ResourceWorkflow>("import-project");
+  const [assetsWorkflow, setAssetsWorkflow] = useState<ResourceWorkflow>("import-project");
+  const [backupsWorkflow, setBackupsWorkflow] = useState<BackupsWorkflow>("backups");
   const [files, setFiles] = useState<Record<ArchiveFileSlot, File | null>>({
     project: null,
     screenZip: null,
@@ -904,10 +944,10 @@ export function ProjectManagerPage() {
   );
 
   const screenColumns: WorkbenchTableColumn<ScadaProject["screens"][number]>[] = [
-    { id: "name", title: "NAME", width: "minmax(180px, 1fr)", render: (screen) => screen.name },
-    { id: "id", title: "ID", width: "minmax(160px, 1fr)", render: (screen) => screen.id },
-    { id: "kind", title: "KIND", width: "100px", render: (screen) => screen.kind ?? "screen" },
-    { id: "size", title: "SIZE", width: "120px", render: (screen) => `${screen.width} x ${screen.height}` },
+    { id: "name", title: "NAME", width: 220, minWidth: 140, render: (screen) => screen.name },
+    { id: "id", title: "ID", width: 220, minWidth: 140, render: (screen) => screen.id },
+    { id: "kind", title: "KIND", width: 110, minWidth: 90, render: (screen) => screen.kind ?? "screen" },
+    { id: "size", title: "SIZE", width: 120, minWidth: 100, render: (screen) => `${screen.width} x ${screen.height}` },
   ];
   const selectedScreenDetails: DetailRow[] = currentScreen
     ? [
@@ -919,19 +959,42 @@ export function ProjectManagerPage() {
       ]
     : [];
   const libraryColumns = [
-    { id: "name", title: "NAME", width: "minmax(180px, 1fr)", render: (library: typeof libraries[number]) => library.name },
-    { id: "id", title: "ID", width: "minmax(160px, 1fr)", render: (library: typeof libraries[number]) => library.id },
-    { id: "version", title: "VERSION", width: "110px", render: (library: typeof libraries[number]) => library.version ?? "-" },
+    { id: "name", title: "NAME", width: 220, minWidth: 140, render: (library: typeof libraries[number]) => library.name },
+    { id: "id", title: "ID", width: 220, minWidth: 140, render: (library: typeof libraries[number]) => library.id },
+    { id: "version", title: "VERSION", width: 120, minWidth: 90, render: (library: typeof libraries[number]) => library.version ?? "-" },
   ];
   const macroColumns = [
-    { id: "name", title: "NAME", width: "minmax(180px, 1fr)", render: (macro: typeof macros[number]) => macro.name },
-    { id: "id", title: "ID", width: "minmax(160px, 1fr)", render: (macro: typeof macros[number]) => macro.id },
-    { id: "enabled", title: "ENABLED", width: "90px", render: (macro: typeof macros[number]) => macro.enabled === false ? "No" : "Yes" },
+    { id: "name", title: "NAME", width: 220, minWidth: 140, render: (macro: typeof macros[number]) => macro.name },
+    { id: "id", title: "ID", width: 220, minWidth: 140, render: (macro: typeof macros[number]) => macro.id },
+    { id: "enabled", title: "ENABLED", width: 100, minWidth: 80, render: (macro: typeof macros[number]) => macro.enabled === false ? "No" : "Yes" },
   ];
   const assetColumns = [
-    { id: "name", title: "NAME", width: "minmax(180px, 1fr)", render: (asset: typeof assets[number]) => asset.name },
-    { id: "id", title: "ID", width: "minmax(160px, 1fr)", render: (asset: typeof assets[number]) => asset.id },
-    { id: "mime", title: "MIME TYPE", width: "minmax(130px, 1fr)", render: (asset: typeof assets[number]) => asset.mimeType },
+    { id: "name", title: "NAME", width: 220, minWidth: 140, render: (asset: typeof assets[number]) => asset.name },
+    { id: "id", title: "ID", width: 220, minWidth: 140, render: (asset: typeof assets[number]) => asset.id },
+    { id: "mime", title: "MIME TYPE", width: 150, minWidth: 120, render: (asset: typeof assets[number]) => asset.mimeType },
+  ];
+  const screenOptions = project.screens.map((screen) => ({ value: screen.id, label: `${screen.name} (${screen.id})` }));
+  const screenWorkflowOptions: Array<WorkflowOption<ScreensWorkflow>> = [
+    { id: "export", label: "Export Current Screen" },
+    { id: "import-screen-zip", label: "Import Screen ZIP" },
+    { id: "copy-from-project", label: "Copy Screen from Project ZIP" },
+    { id: "manage", label: "Manage Current Screens" },
+  ];
+  const librariesWorkflowOptions: Array<WorkflowOption<ResourceWorkflow>> = [
+    { id: "import-project", label: "Import Library from Project ZIP" },
+    { id: "manage", label: "Manage Current Libraries" },
+  ];
+  const macrosWorkflowOptions: Array<WorkflowOption<ResourceWorkflow>> = [
+    { id: "import-project", label: "Import Macro from Project ZIP" },
+    { id: "manage", label: "Manage Current Macros" },
+  ];
+  const assetsWorkflowOptions: Array<WorkflowOption<ResourceWorkflow>> = [
+    { id: "import-project", label: "Import Assets from Project ZIP" },
+    { id: "manage", label: "Manage Current Assets" },
+  ];
+  const backupsWorkflowOptions: Array<WorkflowOption<BackupsWorkflow>> = [
+    { id: "backups", label: "Backups" },
+    { id: "reset", label: "Reset Project" },
   ];
   const tabs: WorkbenchTabItem[] = [
     { id: "project", title: "Project", active: activeTab === "project", onClick: () => setActiveTab("project") },
@@ -945,7 +1008,6 @@ export function ProjectManagerPage() {
   return (
     <div className="screen-editor-window-content project-manager-window">
       <div className="project-manager-window__toolbar">
-        <div className="project-manager-window__toolbar-title">Project Manager</div>
         <div className="project-manager-window__toolbar-meta">
           Project: {project.name} | Screens: {project.screens.length} | Tags: {project.tags.length} | Assets: {assets.length}
         </div>
@@ -955,14 +1017,11 @@ export function ProjectManagerPage() {
 
       <div className="project-manager-window__body">
         {activeTab === "project" ? (
-          <div className="project-manager-grid project-manager-grid--two">
-            <WorkbenchSection title="Current Project Summary">
-              <ProjectSummaryTable project={project} />
-            </WorkbenchSection>
+          <div className="project-manager-tab-panel">
             <WorkbenchSection title="Project Archive Actions">
-              <div className="project-manager-stack">
+              <div className="project-manager-workflow">
                 <div className="project-manager-actions">
-                  <WorkbenchButton variant="primary" disabled={busy} onClick={() => void exportProject()}>Export Project</WorkbenchButton>
+                  <WorkbenchButton variant="primary" disabled={busy} onClick={() => void exportProject()}>Export Project ZIP</WorkbenchButton>
                 </div>
                 <WorkbenchFilePickerRow
                   label="Selected project archive:"
@@ -975,7 +1034,7 @@ export function ProjectManagerPage() {
                   busy={busy}
                 />
                 {fileInput("project")}
-                <ArchiveStatusPanel label="Selected project archive:" file={files.project} result={inspections.project} />
+                {inspections.project ? <ArchiveStatusPanel label="Selected project archive:" file={files.project} result={inspections.project} /> : null}
                 <div className="project-manager-actions project-manager-actions--end">
                   <WorkbenchButton
                     variant="danger"
@@ -991,50 +1050,44 @@ export function ProjectManagerPage() {
         ) : null}
 
         {activeTab === "screens" ? (
-          <div className="project-manager-stack">
-            <div className="project-manager-grid project-manager-grid--two">
-              <WorkbenchSection title="Current Project Screens">
-                <div className="project-manager-stack">
-                  <WorkbenchTable
-                    rows={project.screens}
-                    getRowId={(screen) => screen.id}
-                    emptyText="No screens"
-                    columns={screenColumns}
-                    selectedRowId={currentScreen?.id}
-                    onRowClick={(screen) => {
-                      setSelectedScreenId(screen.id);
-                      setCurrentScreen(screen.id);
+          <div className="project-manager-tab-panel">
+            <WorkflowSelector options={screenWorkflowOptions} active={screensWorkflow} onChange={setScreensWorkflow} />
+
+            {screensWorkflow === "export" ? (
+              <WorkbenchSection title="Export Current Screen">
+                <div className="project-manager-workflow">
+                  <WorkbenchSelect
+                    label="Current screen"
+                    value={currentScreen?.id ?? ""}
+                    onChange={(event) => {
+                      setSelectedScreenId(event.target.value);
+                      setCurrentScreen(event.target.value);
                     }}
+                    options={screenOptions}
                   />
-                  <div className="project-manager-inline-controls">
-                    <WorkbenchSelect
-                      value={dependencyMode}
-                      onChange={(event) => setDependencyMode(event.target.value as ScreenArchiveDependencyMode)}
-                      options={[
-                        { value: "safe", label: "Safe dependencies: include all required project resources" },
-                        { value: "minimal", label: "Minimal dependencies: include only detected dependencies" },
-                      ]}
-                    />
-                  </div>
+                  <WorkbenchSelect
+                    label="Dependency mode"
+                    value={dependencyMode}
+                    onChange={(event) => setDependencyMode(event.target.value as ScreenArchiveDependencyMode)}
+                    options={[
+                      { value: "safe", label: "Safe dependencies: include all required project resources" },
+                      { value: "minimal", label: "Minimal dependencies: include only detected dependencies" },
+                    ]}
+                  />
                   <div className="project-manager-actions">
-                    <WorkbenchButton variant="primary" disabled={!currentScreen || busy} onClick={() => void exportScreen()}>Export Screen</WorkbenchButton>
-                    <WorkbenchButton disabled={!currentScreen || busy} onClick={() => void duplicateScreen()}>Duplicate</WorkbenchButton>
-                    <WorkbenchButton variant="danger" disabled={!currentScreen || project.screens.length <= 1 || busy} onClick={deleteScreen}>Delete</WorkbenchButton>
+                    <WorkbenchButton variant="primary" disabled={!currentScreen || busy} onClick={() => void exportScreen()}>Export Screen ZIP</WorkbenchButton>
                   </div>
                 </div>
               </WorkbenchSection>
-              <WorkbenchSection title="Selected Screen Details">
-                <DetailTable rows={selectedScreenDetails} emptyText="No screen selected" />
-              </WorkbenchSection>
-            </div>
+            ) : null}
 
-            <div className="project-manager-grid project-manager-grid--two">
-              <WorkbenchSection title="Import Screen from ZIP">
-                <div className="project-manager-stack">
+            {screensWorkflow === "import-screen-zip" ? (
+              <WorkbenchSection title="Import Screen ZIP">
+                <div className="project-manager-workflow">
                   <WorkbenchFilePickerRow
                     label="Selected screen archive:"
                     file={files.screenZip}
-                    chooseLabel="Import Screen from ZIP"
+                    chooseLabel="Choose Screen ZIP"
                     validateLabel="Validate Archive"
                     onChoose={() => fileRefs.screenZip.current?.click()}
                     onValidate={() => void inspectFile("screenZip")}
@@ -1042,7 +1095,9 @@ export function ProjectManagerPage() {
                     busy={busy}
                   />
                   {fileInput("screenZip")}
+                  {inspections.screenZip ? <ArchiveStatusPanel label="Selected screen archive:" file={files.screenZip} result={inspections.screenZip} /> : null}
                   <WorkbenchSelect
+                    label="Import mode"
                     value={screenMode}
                     onChange={(event) => setScreenMode(event.target.value as ScreenArchiveImportOptions["mode"])}
                     options={[
@@ -1050,7 +1105,17 @@ export function ProjectManagerPage() {
                       { value: "replace", label: "Replace Selected Screen" },
                     ]}
                   />
-                  <ArchiveStatusPanel label="Selected screen archive:" file={files.screenZip} result={inspections.screenZip} />
+                  {screenMode === "replace" ? (
+                    <WorkbenchSelect
+                      label="Target screen"
+                      value={currentScreen?.id ?? ""}
+                      onChange={(event) => {
+                        setSelectedScreenId(event.target.value);
+                        setCurrentScreen(event.target.value);
+                      }}
+                      options={screenOptions}
+                    />
+                  ) : null}
                   <ConflictPreview items={inspections.screenZip?.conflicts?.assets ?? []} />
                   <div className="project-manager-actions project-manager-actions--end">
                     <WorkbenchButton
@@ -1058,18 +1123,20 @@ export function ProjectManagerPage() {
                       disabled={!files.screenZip || !inspections.screenZip?.valid || inspections.screenZip.archiveType !== "screen" || busy}
                       onClick={importScreenZip}
                     >
-                      {screenMode === "replace" ? "Replace Selected Screen" : "Add as New"}
+                      Import Screen
                     </WorkbenchButton>
                   </div>
                 </div>
               </WorkbenchSection>
+            ) : null}
 
-              <WorkbenchSection title="Import Screen from Project ZIP">
-                <div className="project-manager-stack">
+            {screensWorkflow === "copy-from-project" ? (
+              <WorkbenchSection title="Copy Screen from Project ZIP">
+                <div className="project-manager-workflow">
                   <WorkbenchFilePickerRow
                     label="Source project archive:"
                     file={files.screenProject}
-                    chooseLabel="Import Screen from Project"
+                    chooseLabel="Choose Project ZIP"
                     validateLabel="Validate Archive"
                     onChoose={() => fileRefs.screenProject.current?.click()}
                     onValidate={() => void inspectFile("screenProject")}
@@ -1077,40 +1144,91 @@ export function ProjectManagerPage() {
                     busy={busy}
                   />
                   {fileInput("screenProject")}
-                  <ArchiveStatusPanel label="Source project archive:" file={files.screenProject} result={inspections.screenProject} />
-                  <ResourceTable items={inspections.screenProject?.screens ?? []} selectedIds={archiveScreenIds} onSelectedIdsChange={setArchiveScreenIds} emptyText="Validate a Project ZIP to show screens" />
+                  {inspections.screenProject ? <ArchiveStatusPanel label="Source project archive:" file={files.screenProject} result={inspections.screenProject} /> : null}
+                  {inspections.screenProject?.valid ? (
+                    <WorkbenchTable
+                      rows={inspections.screenProject.screens}
+                      getRowId={(item) => item.id}
+                      emptyText="No screens in archive"
+                      columnStorageKey="projectManager.table.archiveScreens"
+                      columns={[
+                        { id: "name", title: "NAME", width: 240, minWidth: 150, render: (item) => item.name },
+                        { id: "id", title: "ID", width: 230, minWidth: 150, render: (item) => item.id },
+                        { id: "kind", title: "KIND", width: 120, minWidth: 90, render: (item) => item.kind ?? "-" },
+                      ]}
+                      selectedRowId={archiveScreenIds[0] ?? null}
+                      onRowClick={(item) => setArchiveScreenIds([item.id])}
+                    />
+                  ) : null}
+                  <WorkbenchSelect
+                    label="Import mode"
+                    value={screenMode}
+                    onChange={(event) => setScreenMode(event.target.value as ScreenArchiveImportOptions["mode"])}
+                    options={[
+                      { value: "add", label: "Add as New" },
+                      { value: "replace", label: "Replace Selected Screen" },
+                    ]}
+                  />
+                  {screenMode === "replace" ? (
+                    <WorkbenchSelect
+                      label="Target screen"
+                      value={currentScreen?.id ?? ""}
+                      onChange={(event) => {
+                        setSelectedScreenId(event.target.value);
+                        setCurrentScreen(event.target.value);
+                      }}
+                      options={screenOptions}
+                    />
+                  ) : null}
                   <ConflictPreview items={inspections.screenProject?.conflicts?.screens.filter((item) => archiveScreenIds.includes(item.id)) ?? []} />
                   <div className="project-manager-actions project-manager-actions--end">
-                    <WorkbenchButton disabled={!inspections.screenProject?.valid || archiveScreenIds.length === 0 || busy} onClick={() => importScreensFromProject("add")}>Add as New</WorkbenchButton>
-                    <WorkbenchButton variant="danger" disabled={!inspections.screenProject?.valid || archiveScreenIds.length !== 1 || !currentScreen || busy} onClick={() => importScreensFromProject("replace")}>Replace Selected Screen</WorkbenchButton>
+                    <WorkbenchButton
+                      variant={screenMode === "replace" ? "danger" : "primary"}
+                      disabled={!inspections.screenProject?.valid || archiveScreenIds.length !== 1 || (screenMode === "replace" && !currentScreen) || busy}
+                      onClick={() => importScreensFromProject(screenMode)}
+                    >
+                      Import Selected Screen
+                    </WorkbenchButton>
                   </div>
                 </div>
               </WorkbenchSection>
-            </div>
+            ) : null}
+
+            {screensWorkflow === "manage" ? (
+              <WorkbenchSection title="Manage Current Screens">
+                <div className="project-manager-workflow">
+                  <WorkbenchTable
+                    rows={project.screens}
+                    getRowId={(screen) => screen.id}
+                    emptyText="No screens"
+                    columnStorageKey="projectManager.table.currentScreens"
+                    columns={screenColumns}
+                    selectedRowId={currentScreen?.id}
+                    onRowClick={(screen) => {
+                      setSelectedScreenId(screen.id);
+                      setCurrentScreen(screen.id);
+                    }}
+                  />
+                  <DetailTable rows={selectedScreenDetails} emptyText="No screen selected" />
+                  <div className="project-manager-actions">
+                    <WorkbenchButton disabled={!currentScreen || busy} onClick={() => void duplicateScreen()}>Duplicate</WorkbenchButton>
+                    <WorkbenchButton variant="danger" disabled={!currentScreen || project.screens.length <= 1 || busy} onClick={deleteScreen}>Delete</WorkbenchButton>
+                  </div>
+                </div>
+              </WorkbenchSection>
+            ) : null}
           </div>
         ) : null}
 
         {activeTab === "libraries" ? (
-          <div className="project-manager-grid project-manager-grid--two">
-            <WorkbenchSection title="Current Libraries">
-              <div className="project-manager-stack">
-                <WorkbenchTable
-                  rows={libraries}
-                  getRowId={(library) => library.id}
-                  emptyText="No libraries"
-                  columns={libraryColumns}
-                  selectedRowId={selectedLibraryId}
-                  onRowClick={(library) => setSelectedLibraryId(library.id)}
-                />
-                <div className="project-manager-actions">
-                  <WorkbenchButton variant="primary" disabled={!selectedLibraryId || busy} onClick={() => void exportLibrary()}>Export Library</WorkbenchButton>
-                  <WorkbenchButton variant="danger" disabled={!selectedLibraryId || busy} onClick={deleteLibrary}>Delete</WorkbenchButton>
-                </div>
-              </div>
-            </WorkbenchSection>
-            <WorkbenchSection title="Import Libraries">
-              <div className="project-manager-stack">
+          <div className="project-manager-tab-panel">
+            <WorkflowSelector options={librariesWorkflowOptions} active={librariesWorkflow} onChange={setLibrariesWorkflow} />
+
+            {librariesWorkflow === "import-project" ? (
+              <WorkbenchSection title="Import Library from Project ZIP">
+                <div className="project-manager-workflow">
                 <WorkbenchSelect
+                  label="Conflict mode"
                   value={libraryConflictMode}
                   onChange={(event) => setLibraryConflictMode(event.target.value as LibraryConflictMode)}
                   options={[
@@ -1119,17 +1237,6 @@ export function ProjectManagerPage() {
                     { value: "copy", label: "Import as copy" },
                   ]}
                 />
-                <WorkbenchFilePickerRow
-                  label="Selected library archive:"
-                  file={files.libraryZip}
-                  chooseLabel="Choose Library ZIP"
-                  onChoose={() => fileRefs.libraryZip.current?.click()}
-                  busy={busy}
-                />
-                <div className="project-manager-actions">
-                  <WorkbenchButton disabled={!files.libraryZip || busy} onClick={importLibraryZip}>Import Library</WorkbenchButton>
-                </div>
-                {fileInput("libraryZip")}
                 <WorkbenchFilePickerRow
                   label="Source project archive:"
                   file={files.libraryProject}
@@ -1141,39 +1248,49 @@ export function ProjectManagerPage() {
                   busy={busy}
                 />
                 {fileInput("libraryProject")}
-                <ArchiveStatusPanel label="Source project archive:" file={files.libraryProject} result={inspections.libraryProject} />
-                <ResourceTable items={inspections.libraryProject?.libraries ?? []} selectedIds={archiveLibraryIds} onSelectedIdsChange={setArchiveLibraryIds} emptyText="Validate a Project ZIP to show libraries" />
+                {inspections.libraryProject ? <ArchiveStatusPanel label="Source project archive:" file={files.libraryProject} result={inspections.libraryProject} /> : null}
+                {inspections.libraryProject?.valid ? (
+                  <ResourceTable items={inspections.libraryProject.libraries} selectedIds={archiveLibraryIds} onSelectedIdsChange={setArchiveLibraryIds} emptyText="No libraries in archive" columnStorageKey="projectManager.table.archiveLibraries" />
+                ) : null}
                 <ConflictPreview items={inspections.libraryProject?.conflicts?.libraries.filter((item) => archiveLibraryIds.includes(item.id)) ?? []} />
                 <div className="project-manager-actions project-manager-actions--end">
                   <WorkbenchButton disabled={!inspections.libraryProject?.valid || archiveLibraryIds.length === 0 || busy} onClick={importLibrariesFromProject}>Import selected libraries</WorkbenchButton>
                 </div>
               </div>
             </WorkbenchSection>
+            ) : null}
+
+            {librariesWorkflow === "manage" ? (
+              <WorkbenchSection title="Manage Current Libraries">
+                <div className="project-manager-workflow">
+                  <WorkbenchTable
+                    rows={libraries}
+                    getRowId={(library) => library.id}
+                    emptyText="No libraries"
+                    columnStorageKey="projectManager.table.currentLibraries"
+                    columns={libraryColumns}
+                    selectedRowId={selectedLibraryId}
+                    onRowClick={(library) => setSelectedLibraryId(library.id)}
+                  />
+                  <div className="project-manager-actions">
+                    <WorkbenchButton variant="primary" disabled={!selectedLibraryId || busy} onClick={() => void exportLibrary()}>Export Library</WorkbenchButton>
+                    <WorkbenchButton variant="danger" disabled={!selectedLibraryId || busy} onClick={deleteLibrary}>Delete</WorkbenchButton>
+                  </div>
+                </div>
+              </WorkbenchSection>
+            ) : null}
           </div>
         ) : null}
 
         {activeTab === "macros" ? (
-          <div className="project-manager-grid project-manager-grid--two">
-            <WorkbenchSection title="Current Macros">
-              <div className="project-manager-stack">
-                <WorkbenchTable
-                  rows={macros}
-                  getRowId={(macro) => macro.id}
-                  emptyText="No macros"
-                  columns={macroColumns}
-                  selectedRowId={selectedMacroId}
-                  onRowClick={(macro) => setSelectedMacroId(macro.id)}
-                />
-                <div className="project-manager-actions">
-                  <WorkbenchButton disabled={!selectedMacroId || busy} onClick={exportMacro}>Export Macro JSON</WorkbenchButton>
-                  <WorkbenchButton disabled={!selectedMacroId || busy} onClick={() => void duplicateMacro()}>Duplicate</WorkbenchButton>
-                  <WorkbenchButton variant="danger" disabled={!selectedMacroId || busy} onClick={deleteMacro}>Delete</WorkbenchButton>
-                </div>
-              </div>
-            </WorkbenchSection>
-            <WorkbenchSection title="Import Macros from Project ZIP">
-              <div className="project-manager-stack">
+          <div className="project-manager-tab-panel">
+            <WorkflowSelector options={macrosWorkflowOptions} active={macrosWorkflow} onChange={setMacrosWorkflow} />
+
+            {macrosWorkflow === "import-project" ? (
+              <WorkbenchSection title="Import Macro from Project ZIP">
+                <div className="project-manager-workflow">
                 <WorkbenchSelect
+                  label="Conflict mode"
                   value={macroConflictMode}
                   onChange={(event) => setMacroConflictMode(event.target.value as MacroConflictMode)}
                   options={[
@@ -1182,9 +1299,6 @@ export function ProjectManagerPage() {
                     { value: "copy", label: "Import as copy" },
                   ]}
                 />
-                <div className="project-manager-actions">
-                  <WorkbenchButton disabled title="Not implemented yet">Import macro from Macro ZIP</WorkbenchButton>
-                </div>
                 <WorkbenchFilePickerRow
                   label="Source project archive:"
                   file={files.macroProject}
@@ -1196,38 +1310,48 @@ export function ProjectManagerPage() {
                   busy={busy}
                 />
                 {fileInput("macroProject")}
-                <ArchiveStatusPanel label="Source project archive:" file={files.macroProject} result={inspections.macroProject} />
-                <ResourceTable items={inspections.macroProject?.macros ?? []} selectedIds={archiveMacroIds} onSelectedIdsChange={setArchiveMacroIds} emptyText="Validate a Project ZIP to show macros" />
+                {inspections.macroProject ? <ArchiveStatusPanel label="Source project archive:" file={files.macroProject} result={inspections.macroProject} /> : null}
+                {inspections.macroProject?.valid ? (
+                  <ResourceTable items={inspections.macroProject.macros} selectedIds={archiveMacroIds} onSelectedIdsChange={setArchiveMacroIds} emptyText="No macros in archive" columnStorageKey="projectManager.table.archiveMacros" />
+                ) : null}
                 <ConflictPreview items={inspections.macroProject?.conflicts?.macros.filter((item) => archiveMacroIds.includes(item.id)) ?? []} />
                 <div className="project-manager-actions project-manager-actions--end">
                   <WorkbenchButton disabled={!inspections.macroProject?.valid || archiveMacroIds.length === 0 || busy} onClick={importMacrosFromProject}>Import selected macros</WorkbenchButton>
                 </div>
               </div>
             </WorkbenchSection>
+            ) : null}
+
+            {macrosWorkflow === "manage" ? (
+              <WorkbenchSection title="Manage Current Macros">
+                <div className="project-manager-workflow">
+                  <WorkbenchTable
+                    rows={macros}
+                    getRowId={(macro) => macro.id}
+                    emptyText="No macros"
+                    columnStorageKey="projectManager.table.currentMacros"
+                    columns={macroColumns}
+                    selectedRowId={selectedMacroId}
+                    onRowClick={(macro) => setSelectedMacroId(macro.id)}
+                  />
+                  <div className="project-manager-actions">
+                    <WorkbenchButton disabled={!selectedMacroId || busy} onClick={exportMacro}>Export Macro JSON</WorkbenchButton>
+                    <WorkbenchButton disabled={!selectedMacroId || busy} onClick={() => void duplicateMacro()}>Duplicate</WorkbenchButton>
+                    <WorkbenchButton variant="danger" disabled={!selectedMacroId || busy} onClick={deleteMacro}>Delete</WorkbenchButton>
+                  </div>
+                </div>
+              </WorkbenchSection>
+            ) : null}
           </div>
         ) : null}
 
         {activeTab === "assets" ? (
-          <div className="project-manager-grid project-manager-grid--two">
-            <WorkbenchSection title="Current Assets / Images">
-              <div className="project-manager-stack">
-                <WorkbenchTable
-                  rows={assets}
-                  getRowId={(asset) => asset.id}
-                  emptyText="No assets"
-                  columns={assetColumns}
-                  selectedIds={selectedAssetIds}
-                  onToggleRow={(asset) => setSelectedAssetIds((prev) => toggleId(prev, asset.id))}
-                />
-                <div className="project-manager-actions">
-                  <WorkbenchButton disabled title="Not implemented yet">Import image/assets from ZIP</WorkbenchButton>
-                  <WorkbenchButton disabled title="Not implemented yet">Export selected assets</WorkbenchButton>
-                  <WorkbenchButton variant="danger" disabled={busy} onClick={deleteUnusedAssets}>Delete unused assets</WorkbenchButton>
-                </div>
-              </div>
-            </WorkbenchSection>
-            <WorkbenchSection title="Import Assets / Images from Project ZIP">
-              <div className="project-manager-stack">
+          <div className="project-manager-tab-panel">
+            <WorkflowSelector options={assetsWorkflowOptions} active={assetsWorkflow} onChange={setAssetsWorkflow} />
+
+            {assetsWorkflow === "import-project" ? (
+              <WorkbenchSection title="Import Assets from Project ZIP">
+                <div className="project-manager-workflow">
                 <WorkbenchFilePickerRow
                   label="Source project archive:"
                   file={files.assetsProject}
@@ -1239,21 +1363,47 @@ export function ProjectManagerPage() {
                   busy={busy}
                 />
                 {fileInput("assetsProject")}
-                <ArchiveStatusPanel label="Source project archive:" file={files.assetsProject} result={inspections.assetsProject} />
-                <ResourceTable items={inspections.assetsProject?.assets ?? []} selectedIds={archiveAssetIds} onSelectedIdsChange={setArchiveAssetIds} emptyText="Validate a Project ZIP to show assets" />
+                {inspections.assetsProject ? <ArchiveStatusPanel label="Source project archive:" file={files.assetsProject} result={inspections.assetsProject} /> : null}
+                {inspections.assetsProject?.valid ? (
+                  <ResourceTable items={inspections.assetsProject.assets} selectedIds={archiveAssetIds} onSelectedIdsChange={setArchiveAssetIds} emptyText="No assets in archive" columnStorageKey="projectManager.table.archiveAssets" />
+                ) : null}
                 <ConflictPreview items={inspections.assetsProject?.conflicts?.assets.filter((item) => archiveAssetIds.includes(item.id)) ?? []} />
                 <div className="project-manager-actions project-manager-actions--end">
                   <WorkbenchButton disabled={!inspections.assetsProject?.valid || archiveAssetIds.length === 0 || busy} onClick={() => void importAssetsFromProject()}>Import selected assets</WorkbenchButton>
                 </div>
               </div>
             </WorkbenchSection>
+            ) : null}
+
+            {assetsWorkflow === "manage" ? (
+              <WorkbenchSection title="Manage Current Assets">
+                <div className="project-manager-workflow">
+                  <WorkbenchTable
+                    rows={assets}
+                    getRowId={(asset) => asset.id}
+                    emptyText="No assets"
+                    columnStorageKey="projectManager.table.currentAssets"
+                    columns={assetColumns}
+                    selectedIds={selectedAssetIds}
+                    onToggleRow={(asset) => setSelectedAssetIds((prev) => toggleId(prev, asset.id))}
+                    onToggleAllRows={(checked) => setSelectedAssetIds(checked ? assets.map((asset) => asset.id) : [])}
+                  />
+                  <div className="project-manager-actions">
+                    <WorkbenchButton variant="danger" disabled={busy} onClick={deleteUnusedAssets}>Delete unused assets</WorkbenchButton>
+                  </div>
+                </div>
+              </WorkbenchSection>
+            ) : null}
           </div>
         ) : null}
 
         {activeTab === "backups" ? (
-          <div className="project-manager-grid project-manager-grid--two">
-            <WorkbenchSection title="Backups Created by Project Import">
-              <div className="project-manager-stack">
+          <div className="project-manager-tab-panel">
+            <WorkflowSelector options={backupsWorkflowOptions} active={backupsWorkflow} onChange={setBackupsWorkflow} />
+
+            {backupsWorkflow === "backups" ? (
+              <WorkbenchSection title="Backups Created by Project Import">
+                <div className="project-manager-workflow">
                 <WorkbenchStatusBlock
                   variant="info"
                   title={lastBackupPath ? "Latest backup ZIP" : "No backup created in this session"}
@@ -1265,8 +1415,11 @@ export function ProjectManagerPage() {
                 </div>
               </div>
             </WorkbenchSection>
-            <WorkbenchDangerZone>
-              <div className="project-manager-stack">
+            ) : null}
+
+            {backupsWorkflow === "reset" ? (
+              <WorkbenchDangerZone>
+                <div className="project-manager-workflow">
                 <div className="project-manager-danger-text">
                   Reset clears screens, tags, assets, libraries, events, variables, and macros in the editable project.
                 </div>
@@ -1276,6 +1429,7 @@ export function ProjectManagerPage() {
                 </div>
               </div>
             </WorkbenchDangerZone>
+            ) : null}
           </div>
         ) : null}
       </div>

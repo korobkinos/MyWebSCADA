@@ -1579,7 +1579,7 @@ body {
   min-width: 0;
   border: 1px solid #2d2d2d;
   background: #1e1e1e;
-  overflow: auto;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
@@ -1616,6 +1616,7 @@ body {
 }
 
 .workbench-table__cell {
+  position: relative;
   min-width: 0;
   padding: 5px 8px;
   border-right: 1px solid #2d2d2d;
@@ -1644,6 +1645,20 @@ body {
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+.workbench-table__resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.workbench-table__resize-handle:hover {
+  background: rgba(0, 122, 204, 0.35);
 }
 
 .workbench-table__empty {
@@ -1760,6 +1775,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -2809,7 +2825,7 @@ body {
   background: #252526;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   box-sizing: border-box;
 }
@@ -2839,12 +2855,79 @@ body {
   min-width: 128px;
 }
 
+.project-manager-window .workbench-section,
+.project-manager-window .workbench-section__content {
+  min-width: 0;
+}
+
 .project-manager-window__body {
   flex: 1;
   min-height: 0;
   padding: 8px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   box-sizing: border-box;
+}
+
+.project-manager-tab-panel {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-manager-workflow {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-manager-workflow > .workbench-select,
+.project-manager-workflow > .workbench-field {
+  max-width: 520px;
+}
+
+.project-manager-workflow-selector {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-bottom: 1px solid #2d2d2d;
+  background: #252526;
+}
+
+.project-manager-workflow-selector__item {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid #3c3c3c;
+  background: #2d2d2d;
+  color: #cccccc;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.project-manager-workflow-selector__item:hover {
+  background: #37373d;
+  color: #ffffff;
+}
+
+.project-manager-workflow-selector__item--active {
+  border-color: #007acc;
+  background: #0e639c;
+  color: #ffffff;
+}
+
+.project-manager-inline-hint {
+  padding: 6px 8px;
+  color: #969696;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .project-manager-stack {
