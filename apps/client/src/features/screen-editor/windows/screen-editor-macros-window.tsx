@@ -58,6 +58,135 @@ type MacroConsoleEntry = {
 
 type HelpTabKey = "quickStart" | "api" | "templates" | "tagsObjects" | "examples";
 
+type HelpObjectCandidate = {
+  key: string;
+  insertId: string;
+  label: string;
+  type: string;
+  source: "screen" | "libraryInstance";
+};
+
+const practicalMacroExamples: Array<{ id: string; title: string; description: string; code: string }> = [
+  {
+    id: "practical-start-permission",
+    title: "Start command with permissive checks",
+    description: "Проверка межблокировок перед запуском агрегата.",
+    code: `const ready = readTag("Pump_1.Ready") === true;
+const alarm = readTag("Pump_1.Alarm") === true;
+if (!ready || alarm) {
+  warn("Start blocked", { ready, alarm });
+  return;
+}
+await pulseTag("Pump_1.StartCmd", true, 300, false);`,
+  },
+  {
+    id: "practical-auto-stop-on-fault",
+    title: "Auto stop on fault",
+    description: "Останов агрегата при аварии и запись события.",
+    code: `if (readTag("Pump_1.Fault") === true) {
+  await writeTag("Pump_1.StopCmd", true);
+  setVar("LastFaultSource", "Pump_1");
+  error("Pump_1 fault -> StopCmd");
+}`,
+  },
+  {
+    id: "practical-hysteresis",
+    title: "Temperature hysteresis control",
+    description: "Управление нагревом с гистерезисом.",
+    code: `const t = Number(readTag("Tank.Temp") ?? 0);
+const low = Number(getVar("TempLow") ?? 58);
+const high = Number(getVar("TempHigh") ?? 62);
+const heaterOn = readTag("Tank.HeaterOn") === true;
+if (!heaterOn && t <= low) await writeTag("Tank.HeaterCmd", true);
+if (heaterOn && t >= high) await writeTag("Tank.HeaterCmd", false);`,
+  },
+  {
+    id: "practical-popup-context",
+    title: "Open popup for selected equipment",
+    description: "Открытие универсального popup с tagPrefix и args.",
+    code: `const line = Number(getLW(10) ?? 1);
+const unit = Number(getLW(11) ?? 1);
+const prefix = "LINES.L" + line + ".U" + unit;
+openPopup("Popup_UnitControl", {
+  title: "Unit L" + line + ".U" + unit,
+  tagPrefix: prefix,
+  args: { line, unit }
+});`,
+  },
+  {
+    id: "practical-quality-fallback",
+    title: "Bad quality fallback",
+    description: "Резервная логика при плохом качестве тега.",
+    code: `const q = getTagQuality("FlowMeter.Value");
+if (q !== "Good") {
+  warn("FlowMeter quality:", q);
+  setVar("FlowFallbackMode", true);
+  return;
+}
+setVar("FlowFallbackMode", false);`,
+  },
+  {
+    id: "practical-index-calc-flat",
+    title: "Index calculation (flat mapping)",
+    description: "Преобразование пары [burner, valve] в плоский индекс для таблиц/шаблонов.",
+    code: `const burner = Number(getLW(20) ?? 1);      // 1..N
+const valve = Number(getLW(10) ?? 1);       // 1..M
+const valvesPerBurner = 32;
+const index = (burner - 1) * valvesPerBurner + valve;
+setLW(9200, index);
+setVar("SelectedIndex", index);
+log("SelectedIndex =", index);`,
+  },
+  {
+    id: "practical-window-template-popup",
+    title: "Window template popup by index",
+    description: "Открытие шаблонного popup-окна по рассчитанному индексу.",
+    code: `const index = Number(getVar("SelectedIndex") ?? 1);
+const prefix = "VALVES.V" + index;
+openPopup("Popup_ValveTemplate", {
+  title: "Valve Template #" + index,
+  tagPrefix: prefix,
+  args: {
+    template: "valve-control",
+    index,
+    prefix
+  }
+});`,
+  },
+  {
+    id: "practical-prefix-from-index",
+    title: "Build prefix from index",
+    description: "Формирование runtime-префикса из индекса и использование resolveTag.",
+    code: `const index = Number(getVar("SelectedIndex") ?? 1);
+const prefix = "UNITS.U" + index;
+const runTag = resolveTag(".Run", prefix);
+const cmdTag = resolveTag(".StartCmd", prefix);
+if (readTag(runTag) !== true) {
+  await pulseTag(cmdTag, true, 300, false);
+}
+log("prefix =", prefix, "runTag =", runTag);`,
+  },
+  {
+    id: "practical-window-template-matrix",
+    title: "Popup template matrix (row/col -> prefix)",
+    description: "Шаблон окна для матрицы оборудования с row/col индексами.",
+    code: `const row = Number(getLW(30) ?? 1);
+const col = Number(getLW(31) ?? 1);
+const cellIndex = (row - 1) * 10 + col;
+const prefix = "MATRIX.R" + row + ".C" + col;
+openPopup("Popup_CellTemplate", {
+  title: "Cell R" + row + " C" + col,
+  tagPrefix: prefix,
+  args: {
+    template: "matrix-cell",
+    row,
+    col,
+    cellIndex
+  }
+});`,
+  },
+];
+
 function formatTimestamp(date = new Date()): string {
   return date.toLocaleTimeString();
 }
@@ -157,6 +286,7 @@ export function ScreenEditorMacrosWindow() {
   const project = useScadaStore((s) => s.project);
   const currentScreenId = useScadaStore((s) => s.currentScreenId);
   const macros = useScadaStore((s) => s.macros);
+  const libraries = useScadaStore((s) => s.libraries);
   const loadMacros = useScadaStore((s) => s.loadMacros);
   const updateMacro = useScadaStore((s) => s.updateMacro);
   const runMacro = useScadaStore((s) => s.runMacro);
@@ -189,6 +319,7 @@ export function ScreenEditorMacrosWindow() {
   const [helpWindowZIndex, setHelpWindowZIndex] = useState<number>(1200);
   const [helpTab, setHelpTab] = useState<HelpTabKey>("quickStart");
   const [templateQuery, setTemplateQuery] = useState("");
+  const [tagsObjectsQuery, setTagsObjectsQuery] = useState("");
   const listPanelRef = useRef<ImperativePanelHandle | null>(null);
   const consolePanelRef = useRef<ImperativePanelHandle | null>(null);
   const codeEditorRef = useRef<MacroCodeEditorHandle | null>(null);
@@ -298,14 +429,6 @@ export function ScreenEditorMacrosWindow() {
     () => (currentScreenId ? project?.screens.find((screen) => screen.id === currentScreenId) : undefined),
     [currentScreenId, project?.screens],
   );
-  const currentScreenObjects = useMemo(() => {
-    const result: HmiObject[] = [];
-    if (!currentScreen) {
-      return result;
-    }
-    walkObjects(currentScreen.objects, (obj) => result.push(obj));
-    return result;
-  }, [currentScreen]);
   const filteredTemplates = useMemo(() => {
     const q = templateQuery.trim().toLowerCase();
     if (!q) {
@@ -313,6 +436,88 @@ export function ScreenEditorMacrosWindow() {
     }
     return macroTemplates.filter((item) => `${item.title} ${item.description} ${item.code}`.toLowerCase().includes(q));
   }, [templateQuery]);
+  const objectCandidates = useMemo<HelpObjectCandidate[]>(() => {
+    if (!currentScreen) {
+      return [];
+    }
+
+    const candidates: HelpObjectCandidate[] = [];
+    const libraryById = new Map(libraries.map((library) => [library.id, library]));
+    const seen = new Set<string>();
+
+    const pushCandidate = (candidate: HelpObjectCandidate) => {
+      if (seen.has(candidate.key)) {
+        return;
+      }
+      seen.add(candidate.key);
+      candidates.push(candidate);
+    };
+
+    const collectLibraryTemplateObjects = (
+      instanceObject: Extract<HmiObject, { type: "libraryElementInstance" }>,
+      objects: HmiObject[],
+      pathPrefix: string,
+    ): void => {
+      for (const object of objects) {
+        const path = `${pathPrefix}/${object.id}`;
+        pushCandidate({
+          key: `lib:${instanceObject.id}:${path}`,
+          insertId: object.id,
+          label: `${path} (${object.type})`,
+          type: object.type,
+          source: "libraryInstance",
+        });
+        if (object.type === "group") {
+          collectLibraryTemplateObjects(instanceObject, object.objects, path);
+        }
+      }
+    };
+
+    const collectScreenObjects = (objects: HmiObject[], pathPrefix: string): void => {
+      for (const object of objects) {
+        const path = `${pathPrefix}/${object.id}`;
+        pushCandidate({
+          key: `screen:${object.id}:${path}`,
+          insertId: object.id,
+          label: `${path} (${object.type})`,
+          type: object.type,
+          source: "screen",
+        });
+        if (object.type === "group") {
+          collectScreenObjects(object.objects, path);
+        }
+        if (object.type === "libraryElementInstance") {
+          const sourceLibrary = libraryById.get(object.libraryId);
+          const sourceElement = sourceLibrary?.elements.find((element) => element.id === object.elementId);
+          if (sourceLibrary && sourceElement) {
+            collectLibraryTemplateObjects(object, sourceElement.objects, `${path}[${sourceLibrary.id}:${sourceElement.name}]`);
+          }
+        }
+      }
+    };
+
+    collectScreenObjects(currentScreen.objects, currentScreen.id);
+    return candidates;
+  }, [currentScreen, libraries]);
+  const filteredTags = useMemo(() => {
+    const query = tagsObjectsQuery.trim().toLowerCase();
+    const source = project?.tags ?? [];
+    if (!query) {
+      return source.slice(0, 100);
+    }
+    return source
+      .filter((tag) => tag.name.toLowerCase().includes(query))
+      .slice(0, 200);
+  }, [project?.tags, tagsObjectsQuery]);
+  const filteredObjectCandidates = useMemo(() => {
+    const query = tagsObjectsQuery.trim().toLowerCase();
+    if (!query) {
+      return objectCandidates.slice(0, 150);
+    }
+    return objectCandidates
+      .filter((item) => item.label.toLowerCase().includes(query) || item.insertId.toLowerCase().includes(query))
+      .slice(0, 300);
+  }, [objectCandidates, tagsObjectsQuery]);
 
   const updateDraft = useCallback((patch: Partial<MacroDraft>) => {
     setDraftMacro((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -1014,14 +1219,32 @@ export function ScreenEditorMacrosWindow() {
                           <div className="screen-editor-macro-help-modal__title">Quick Start</div>
                           <ul>
                             <li>Create or select a macro in the list.</li>
-                            <li>Write or insert code snippets in the editor.</li>
-                            <li>Click Check Syntax, then Run/Test Macro.</li>
-                            <li>Save Macro and Save Project.</li>
+                            <li>Write code in JavaScript-lite style (read tags, decide, write command tags).</li>
+                            <li>Use helpers in other tabs to insert API calls, templates, tags, and object IDs.</li>
+                            <li>Run Check Syntax, then Run/Test Macro, then Save Macro and Save Project.</li>
                           </ul>
-                          <pre>{`const value = Number(readTag("Tag.Name") ?? 0);
-if (value > 10) {
-  await writeTag("Tag.Alarm", true);
-}`}</pre>
+                          <pre>{`// 1) Basic read + action
+const pressure = Number(readTag("Boiler.Pressure") ?? 0);
+if (pressure > 10) {
+  await writeTag("Boiler.HighPressureAlarm", true);
+}
+
+// 2) Safe start command (permissive interlock)
+const ready = readTag("Pump_1.Ready") === true;
+const fault = readTag("Pump_1.Fault") === true;
+if (ready && !fault) {
+  await pulseTag("Pump_1.StartCmd", true, 300, false);
+} else {
+  warn("Start blocked", { ready, fault });
+}
+
+// 3) Popup with runtime context
+const prefix = "LINES.L1.U1";
+openPopup("Popup_UnitControl", {
+  title: "Unit Control",
+  tagPrefix: prefix,
+  args: { source: "macro", prefix }
+});`}</pre>
                         </div>
                       ),
                     },
@@ -1091,8 +1314,15 @@ if (value > 10) {
                       children: (
                         <div className="screen-editor-macro-help-modal__block">
                           <div className="screen-editor-macro-help-modal__title">Tags / Objects</div>
+                          <input
+                            className="workbench-input"
+                            value={tagsObjectsQuery}
+                            placeholder="Search tags, groups, nested objects, library instance objects"
+                            onChange={(event) => setTagsObjectsQuery(event.target.value)}
+                            style={{ marginBottom: 8, width: "100%" }}
+                          />
                           <div className="screen-editor-macro-help-modal__api-list">
-                            {project.tags.slice(0, 30).map((tag) => (
+                            {filteredTags.map((tag) => (
                               <div key={tag.name} className="screen-editor-macro-help-modal__api-item">
                                 <code>{tag.name}</code>
                                 <div style={{ display: "flex", gap: 8 }}>
@@ -1101,17 +1331,22 @@ if (value > 10) {
                                 </div>
                               </div>
                             ))}
-                            {currentScreenObjects.slice(0, 30).map((obj) => (
-                              <div key={obj.id} className="screen-editor-macro-help-modal__api-item">
-                                <code>{obj.id}</code>
-                                <div className="screen-editor-macro-help-modal__api-desc">{obj.type}</div>
+                            {filteredObjectCandidates.map((obj) => (
+                              <div key={obj.key} className="screen-editor-macro-help-modal__api-item">
+                                <code>{obj.insertId}</code>
+                                <div className="screen-editor-macro-help-modal__api-desc">
+                                  {obj.label} · {obj.source === "libraryInstance" ? "Library instance" : "Screen object"}
+                                </div>
                                 <div>
-                                  <WorkbenchButton onClick={() => insertCode(`"${obj.id}"`)}>
+                                  <WorkbenchButton onClick={() => insertCode(`"${obj.insertId}"`)}>
                                     Insert ID
                                   </WorkbenchButton>
                                 </div>
                               </div>
                             ))}
+                            {filteredTags.length === 0 && filteredObjectCandidates.length === 0 ? (
+                              <div className="screen-editor-empty-state">No matches found</div>
+                            ) : null}
                           </div>
                         </div>
                       ),
@@ -1122,9 +1357,10 @@ if (value > 10) {
                       children: (
                         <div className="screen-editor-macro-help-modal__block">
                           <div className="screen-editor-macro-help-modal__title">Examples</div>
-                          {macroExamples.slice(0, 3).map((example) => (
+                          {[...practicalMacroExamples, ...macroExamples].map((example) => (
                             <div key={example.id} className="screen-editor-macro-help-modal__example">
                               <strong>{example.title}</strong>
+                              <div className="screen-editor-macro-help-modal__api-desc">{example.description}</div>
                               <div>
                                 <WorkbenchButton onClick={() => insertCode(`\n${example.code}\n`)}>
                                   Insert
