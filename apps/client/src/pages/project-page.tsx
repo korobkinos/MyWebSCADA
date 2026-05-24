@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Form, Input, Select, Space, Switch, Tabs, Typography, message } from "antd";
 import { projectSchema, type ProjectTheme, type ScadaProject } from "@web-scada/shared";
 import { useScadaStore } from "../store/scada-store";
+import { ProjectManagerPage } from "./project-manager-page";
 
 const { TextArea } = Input;
 
@@ -189,6 +190,11 @@ export function ProjectPage() {
           ),
         },
         {
+          key: "manager",
+          label: "Project Manager",
+          children: <ProjectManagerPage />,
+        },
+        {
           key: "advanced",
           label: "Advanced JSON",
           children: (
@@ -207,4 +213,3 @@ export function ProjectPage() {
     />
   );
 }
-

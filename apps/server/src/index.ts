@@ -14,6 +14,7 @@ import { DriverManager } from "./drivers/driver-manager.js";
 import { EventSoundService } from "./events/event-sound-service.js";
 import { EventEngine } from "./events/event-engine.js";
 import { LibraryService } from "./libraries/library-service.js";
+import { ProjectArchiveService } from "./project/project-archive-service.js";
 import { ProjectService } from "./project/project-service.js";
 import { CommandService } from "./runtime/command-service.js";
 import { buildInternalAndLwTagDefinitions, InternalVariableService } from "./runtime/internal-variable-service.js";
@@ -50,7 +51,7 @@ async function bootstrap(): Promise<void> {
   await app.register(websocket);
   await app.register(multipart, {
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10 MB
+      fileSize: 100 * 1024 * 1024, // project/screen archive imports can be larger than single assets
     },
   });
 
@@ -58,6 +59,7 @@ async function bootstrap(): Promise<void> {
   const assetService = new AssetService(projectService);
   const eventSoundService = new EventSoundService(projectService, eventSoundsDir);
   const libraryService = new LibraryService(librariesRoot, projectService);
+  const projectArchiveService = new ProjectArchiveService(projectService, libraryService, eventSoundService);
   const tagStore = new TagStore();
   const driverManager = new DriverManager();
   const internalVariableService = new InternalVariableService(tagStore);
@@ -129,6 +131,7 @@ async function bootstrap(): Promise<void> {
     assetService,
     eventSoundService,
     libraryService,
+    projectArchiveService,
     tagStore,
     driverManager,
     runtimeService,

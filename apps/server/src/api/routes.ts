@@ -31,6 +31,8 @@ import {
   isOperatorActionEnabledForObject,
   libraryElementSchema,
   normalizePasswordPolicy,
+  projectArchiveImportOptionsSchema,
+  screenArchiveImportOptionsSchema,
   projectSchema,
 } from "@web-scada/shared";
 import { z } from "zod";
@@ -48,6 +50,7 @@ import {
   withOpcUaSession,
 } from "../drivers/opcua-inspector.js";
 import { LibraryService } from "../libraries/library-service.js";
+import { ProjectArchiveService } from "../project/project-archive-service.js";
 import { ProjectService } from "../project/project-service.js";
 import { CommandService } from "../runtime/command-service.js";
 import { buildInternalAndLwTagDefinitions, InternalVariableService } from "../runtime/internal-variable-service.js";
@@ -61,6 +64,7 @@ type ApiDeps = {
   assetService: AssetService;
   eventSoundService: EventSoundService;
   libraryService: LibraryService;
+  projectArchiveService: ProjectArchiveService;
   tagStore: TagStore;
   driverManager: DriverManager;
   runtimeService: RuntimeService;
@@ -1264,7 +1268,7 @@ function withUpdatedDriver(project: ScadaProject, nextDriver: DriverConfig, driv
   };
 }
 
-async function parseUpload(request: FastifyRequest): Promise<{
+async function parseUpload(request: FastifyRequest, uploadOptions?: { maxSizeBytes?: number; maxSizeLabel?: string }): Promise<{
   fileName: string;
   mimeType: string;
   size: number;
@@ -1278,7 +1282,7 @@ async function parseUpload(request: FastifyRequest): Promise<{
   }
 
   if (part.file.truncated) {
-    throw new Error("File is too large. Max size is 10 MB.");
+    throw new Error(`File is too large. Max size is ${uploadOptions?.maxSizeLabel ?? "10 MB"}.`);
   }
 
   const chunks: Buffer[] = [];
@@ -1287,9 +1291,9 @@ async function parseUpload(request: FastifyRequest): Promise<{
   }
   const content = Buffer.concat(chunks);
 
-  const MAX_ASSET_SIZE_BYTES = 10 * 1024 * 1024;
-  if (content.byteLength > MAX_ASSET_SIZE_BYTES) {
-    throw new Error("File is too large. Max size is 10 MB.");
+  const maxSizeBytes = uploadOptions?.maxSizeBytes ?? 10 * 1024 * 1024;
+  if (content.byteLength > maxSizeBytes) {
+    throw new Error(`File is too large. Max size is ${uploadOptions?.maxSizeLabel ?? "10 MB"}.`);
   }
 
   const namePart = (part.fields as Record<string, { value?: unknown }> | undefined)?.name;
@@ -1491,6 +1495,105 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     const saved = await persistProjectUpdate(deps, parsed);
 
     return reply.send(saved);
+  });
+
+  app.get("/api/project/archive/export", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.view");
+    if (!auth) {
+      return;
+    }
+    const exported = await deps.projectArchiveService.exportProjectArchive();
+    reply.header("Content-Type", "application/zip");
+    reply.header("Content-Disposition", `attachment; filename=\"${exported.fileName}\"`);
+    return reply.send(exported.buffer);
+  });
+
+  app.post("/api/project/archive/validate", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    const result = await deps.projectArchiveService.validateProjectArchive(uploaded);
+    return reply.send({ ok: true, ...result });
+  });
+
+  app.post("/api/project/archive/import", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    let options: z.infer<typeof projectArchiveImportOptionsSchema> = { mode: "replace-current" };
+    if (uploaded.options?.trim()) {
+      try {
+        options = projectArchiveImportOptionsSchema.parse(JSON.parse(uploaded.options));
+      } catch {
+        return reply.code(400).send({ error: "Bad Request", message: "Invalid import options" });
+      }
+    }
+    try {
+      const result = await deps.projectArchiveService.importProjectArchive(uploaded, options);
+      await persistProjectUpdate(deps, result.project);
+      return reply.send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.get("/api/screens/:screenId/archive/export", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.view");
+    if (!auth) {
+      return;
+    }
+    const { screenId } = request.params as { screenId: string };
+    try {
+      const exported = await deps.projectArchiveService.exportScreenArchive(screenId);
+      reply.header("Content-Type", "application/zip");
+      reply.header("Content-Disposition", `attachment; filename=\"${exported.fileName}\"`);
+      return reply.send(exported.buffer);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("not found")) {
+        return reply.code(404).send({ error: "Not Found", message });
+      }
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.post("/api/screens/archive/validate", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    const result = await deps.projectArchiveService.validateScreenArchive(uploaded);
+    return reply.send({ ok: true, ...result });
+  });
+
+  app.post("/api/screens/archive/import", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    let options: z.infer<typeof screenArchiveImportOptionsSchema> = { mode: "add" };
+    if (uploaded.options?.trim()) {
+      try {
+        options = screenArchiveImportOptionsSchema.parse(JSON.parse(uploaded.options));
+      } catch {
+        return reply.code(400).send({ error: "Bad Request", message: "Invalid import options" });
+      }
+    }
+    try {
+      const result = await deps.projectArchiveService.importScreenArchive(uploaded, options);
+      await persistProjectUpdate(deps, result.project);
+      return reply.send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
   });
 
   app.get("/api/tags", async () => deps.tagStore.getSnapshots());

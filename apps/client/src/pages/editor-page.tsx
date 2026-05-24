@@ -22,6 +22,7 @@ import {
   DeleteOutlined,
   FileImageOutlined,
   FolderOpenOutlined,
+  ImportOutlined,
   PlayCircleOutlined,
   SettingOutlined,
   SearchOutlined,
@@ -1085,6 +1086,7 @@ export function EditorPage() {
     { id: "drivers", title: "Drivers", icon: <ApiOutlined />, active: isWindowOpen("drivers"), onClick: () => openDefinedWindow("drivers") },
     { id: "runtime", title: "Runtime", icon: <PlayCircleOutlined />, active: isWindowOpen("runtime"), onClick: () => openDefinedWindow("runtime") },
     { id: "layers", title: "Layers", icon: <UnorderedListOutlined />, active: isWindowOpen("layers"), onClick: () => openDefinedWindow("layers") },
+    { id: "projectManager", title: "Project Manager", icon: <ImportOutlined />, active: isWindowOpen("projectManager"), onClick: () => openDefinedWindow("projectManager") },
     { id: "projectSettings", title: "Project Settings", icon: <SettingOutlined />, active: isWindowOpen("projectSettings"), onClick: () => openDefinedWindow("projectSettings") },
     canUsersView
       ? { id: "userManagement", title: "Users", icon: <UserOutlined />, active: isWindowOpen("userManagement"), onClick: () => openDefinedWindow("userManagement") }

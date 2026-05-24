@@ -80,6 +80,10 @@ export class EventSoundService {
     return this.listProjectEventSounds().find((item) => item.id === soundId);
   }
 
+  public getStorageDir(): string {
+    return this.storageDir;
+  }
+
   public resolveProjectEventSoundFile(
     soundId: string,
   ): { sound: EventSound; absolutePath: string } | undefined {

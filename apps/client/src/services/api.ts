@@ -23,8 +23,14 @@ import type {
   OperatorActionHistoryPage,
   OperatorActionHistoryQuery,
   PasswordPolicy,
+  ProjectArchiveImportOptions,
+  ProjectArchiveImportResult,
+  ProjectArchiveValidationResult,
   RuntimeState,
   ScadaProject,
+  ScreenArchiveImportOptions,
+  ScreenArchiveImportResult,
+  ScreenArchiveValidationResult,
   TagSnapshot,
   TagValue,
   AppUser,
@@ -597,6 +603,70 @@ export const api = {
       method: "POST",
       body: JSON.stringify(project),
     }),
+  exportProjectArchive: async () => {
+    const token = getEngineerToken();
+    const response = await fetch(resolveRequestUrl("/api/project/archive/export"), {
+      method: "GET",
+      headers: token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `${response.status} ${response.statusText}`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const nameMatch = /filename=\"?([^\";]+)\"?/i.exec(disposition);
+    return { blob, fileName: (nameMatch?.[1] ?? "mywebscada-project.zip").trim() };
+  },
+  validateProjectArchive: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ ok: boolean } & ProjectArchiveValidationResult>("/api/project/archive/validate", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importProjectArchive: (file: File, options?: ProjectArchiveImportOptions) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("options", JSON.stringify(options ?? { mode: "replace-current" }));
+    return request<ProjectArchiveImportResult>("/api/project/archive/import", {
+      method: "POST",
+      body: form,
+    });
+  },
+  exportScreenArchive: async (screenId: string) => {
+    const token = getEngineerToken();
+    const response = await fetch(resolveRequestUrl(`/api/screens/${encodeURIComponent(screenId)}/archive/export`), {
+      method: "GET",
+      headers: token ? { "x-engineer-token": token, Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `${response.status} ${response.statusText}`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const nameMatch = /filename=\"?([^\";]+)\"?/i.exec(disposition);
+    return { blob, fileName: (nameMatch?.[1] ?? `${screenId}.webscada-screen.zip`).trim() };
+  },
+  validateScreenArchive: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ ok: boolean } & ScreenArchiveValidationResult>("/api/screens/archive/validate", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importScreenArchive: (file: File, options?: ScreenArchiveImportOptions) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("options", JSON.stringify(options ?? { mode: "add" }));
+    return request<ScreenArchiveImportResult>("/api/screens/archive/import", {
+      method: "POST",
+      body: form,
+    });
+  },
   getTags: () => request<TagSnapshot[]>("/api/tags"),
   getTrendTags: (options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean }) =>
     request<TrendTagInfo[]>("/api/trends/tags", {

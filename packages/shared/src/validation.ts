@@ -1258,7 +1258,7 @@ const tagSimulationSchema = z.object({
 
 const tagDataTypeSchema = z.enum(["BOOL", "INT", "UINT", "DINT", "UDINT", "REAL", "STRING"]);
 
-const tagSchema = z.object({
+export const tagSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
@@ -1483,7 +1483,7 @@ const popupOptionsSchema = z.object({
   titleTextStyle: textStyleSchema.optional(),
 });
 
-const screenSchema = z.object({
+export const hmiScreenSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   kind: z.enum(["screen", "popup", "template"]),
@@ -1637,7 +1637,7 @@ export const projectSchema = z.object({
         .optional(),
     })
     .optional(),
-  screens: z.array(screenSchema).min(1),
+  screens: z.array(hmiScreenSchema).min(1),
   startScreenId: z.string().optional(),
 });
 

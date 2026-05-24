@@ -16,6 +16,7 @@ import { WorkbenchButton, type WorkbenchWindowDefinition } from "../../../compon
 import { ObjectPropertyPanel } from "../../../components/object-property-panel";
 import { ArchivePage } from "../../../pages/archive-page";
 import { EventsPage } from "../../../pages/events-page";
+import { ProjectManagerPage } from "../../../pages/project-manager-page";
 import { getAssetDisplayPath } from "../../../utils/asset-path";
 import { findLibraryOriginForObject } from "../utils/library-origin";
 import {
@@ -193,6 +194,14 @@ export function useEditorWindowDefinitions(params: UseEditorWindowDefinitionsPar
             }}
           />
         ),
+      },
+      {
+        id: "projectManager",
+        title: "Project Manager",
+        defaultRect: { x: 160, y: 90, width: 980, height: 720 },
+        minWidth: 720,
+        minHeight: 460,
+        render: () => <ProjectManagerPage />,
       },
       {
         id: "projectSettings",
