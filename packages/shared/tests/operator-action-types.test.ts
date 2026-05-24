@@ -7,6 +7,11 @@ describe("isOperatorActionEnabledForObject", () => {
     expect(isOperatorActionEnabledForObject({ type: "checkbox" })).toBe(true);
     expect(isOperatorActionEnabledForObject({ type: "slider" })).toBe(true);
     expect(isOperatorActionEnabledForObject({ type: "numeric-input" })).toBe(true);
+    expect(isOperatorActionEnabledForObject({ type: "select" })).toBe(true);
+    expect(isOperatorActionEnabledForObject({ type: "radio-group" })).toBe(true);
+    expect(isOperatorActionEnabledForObject({ type: "switch" })).toBe(true);
+    expect(isOperatorActionEnabledForObject({ type: "valueSelect" })).toBe(true);
+    expect(isOperatorActionEnabledForObject({ type: "value-input" })).toBe(true);
   });
 
   it("keeps unsupported object types disabled by default", () => {

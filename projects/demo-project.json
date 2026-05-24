@@ -9860,6 +9860,7 @@
         {
           "id": "sel_88zyo1",
           "type": "select",
+          "description": "Выбор горелки",
           "x": 1498.926435743365,
           "y": 30.154805752589557,
           "width": 315.61680484995225,
@@ -9868,6 +9869,8 @@
           "shadowEnabled": true,
           "minWidth": 80,
           "minHeight": 24,
+          "tag": "Counter2",
+          "writeTag": "Counter2",
           "options": [
             {
               "label": "Горелка№1",
@@ -10326,7 +10329,8 @@
             "priority": 112,
             "timestamp": 162,
             "category": 149,
-            "source": 229
+            "source": 229,
+            "ack": 150
           },
           "fontSize": 12,
           "rowHeight": 28,
@@ -10342,6 +10346,39 @@
           "soundPlaybackMode": "loopUntilAcknowledged",
           "enableAckButton": true,
           "enableSilenceButton": true
+        },
+        {
+          "id": "btn_yn6fu0",
+          "type": "button",
+          "x": 637.6774367709206,
+          "y": 182.51211980442383,
+          "width": 130,
+          "height": 44,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "Start",
+          "showText": true,
+          "backgroundColor": "#0958d9",
+          "pressedBackgroundColor": "#0747b3",
+          "disabledBackgroundColor": "#434343",
+          "borderColor": "#0958d9",
+          "borderWidth": 1,
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          },
+          "action": {
+            "type": "write",
+            "tag": "Counter",
+            "value": true
+          }
         }
       ]
     },

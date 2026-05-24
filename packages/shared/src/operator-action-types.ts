@@ -135,6 +135,11 @@ const DEFAULT_ENABLED_OPERATOR_ACTION_TYPES = new Set<string>([
   "checkbox",
   "slider",
   "numeric-input",
+  "select",
+  "radio-group",
+  "switch",
+  "valueSelect",
+  "value-input",
 ]);
 
 export function isOperatorActionEnabledForObject(
