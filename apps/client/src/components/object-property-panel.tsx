@@ -17,6 +17,11 @@ import type {
   TextStyle,
 } from "@web-scada/shared";
 import {
+  DEFAULT_OPERATOR_ACTION_BUTTON_TEMPLATE,
+  DEFAULT_OPERATOR_ACTION_CHECKBOX_TEMPLATE,
+  DEFAULT_OPERATOR_ACTION_NUMERIC_INPUT_TEMPLATE,
+  DEFAULT_OPERATOR_ACTION_SLIDER_TEMPLATE,
+  DEFAULT_OPERATOR_ACTION_VALUE_CHANGE_TEMPLATE,
   extractIndexedAddressSlots,
   resolveIndexedAddress,
   resolveLibraryElementInstanceBindingsDetailed,
@@ -62,6 +67,8 @@ type GroupEditableOption = {
   label: string;
   isRoot: boolean;
 };
+
+type OperatorActionPreviewObject = Extract<HmiObject, { type: "button" | "checkbox" | "slider" | "numeric-input" }>;
 
 const fontOptions = ["Arial", "Tahoma", "Verdana", "Consolas", "Segoe UI", "Roboto", "Noto Sans"];
 const gradientDirectionOptions = [
@@ -1088,6 +1095,188 @@ function ActionAccessFields({
   );
 }
 
+const OPERATOR_ACTION_PREVIEW_TIMESTAMP = "2026-01-01T12:00:00.000Z";
+const OPERATOR_ACTION_SUPPORTED_PLACEHOLDERS =
+  "{user}, {role}, {objectName}, {description}, {objectId}, {objectType}, {screenName}, {screenId}, {target}, {oldValue}, {newValue}, {unit}, {timestamp}, {actionType}";
+
+function formatOperatorActionPreviewValue(value: string | number | boolean | null | undefined): string {
+  if (value === undefined || value === null) {
+    return "-";
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  return String(value);
+}
+
+function renderOperatorActionPreviewTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(user|role|objectName|description|objectId|objectType|screenName|screenId|target|oldValue|newValue|unit|timestamp|actionType)\}/g, (_full, key: string) => {
+    return values[key] ?? "";
+  });
+}
+
+function resolveOperatorActionPreviewKind(object: OperatorActionPreviewObject): string {
+  if (object.type === "checkbox") {
+    return "checkbox";
+  }
+  if (object.type === "slider") {
+    return "slider";
+  }
+  if (object.type === "numeric-input") {
+    return "numericInput";
+  }
+  if (object.action.type === "pulse") {
+    return "pulse";
+  }
+  if (object.action.type === "toggle") {
+    return "toggle";
+  }
+  if (object.action.type === "runMacro") {
+    return "macro";
+  }
+  return "button";
+}
+
+function resolveOperatorActionPreviewActionType(object: OperatorActionPreviewObject, kind: string): string {
+  if (
+    kind === "pulse"
+    && object.type === "button"
+    && object.action.type === "pulse"
+    && Number.isFinite(object.action.durationMs)
+  ) {
+    return `pulse ${Math.max(1, Math.floor(object.action.durationMs))}ms`;
+  }
+  return kind;
+}
+
+function resolveOperatorActionPreviewTemplate(object: OperatorActionPreviewObject): string {
+  const objectTemplate = object.operatorActionLogging?.messageTemplate;
+  if (objectTemplate?.trim()) {
+    return objectTemplate;
+  }
+  if (object.type === "button") {
+    return DEFAULT_OPERATOR_ACTION_BUTTON_TEMPLATE;
+  }
+  if (object.type === "checkbox") {
+    return DEFAULT_OPERATOR_ACTION_CHECKBOX_TEMPLATE;
+  }
+  if (object.type === "slider") {
+    return DEFAULT_OPERATOR_ACTION_SLIDER_TEMPLATE;
+  }
+  if (object.type === "numeric-input") {
+    return DEFAULT_OPERATOR_ACTION_NUMERIC_INPUT_TEMPLATE;
+  }
+  return DEFAULT_OPERATOR_ACTION_VALUE_CHANGE_TEMPLATE;
+}
+
+function resolveOperatorActionPreviewTarget(object: OperatorActionPreviewObject): string {
+  if (object.type === "button") {
+    if (object.action.type === "write" || object.action.type === "pulse" || object.action.type === "toggle") {
+      return object.action.tag?.trim() || "Tag.Name";
+    }
+    if (object.action.type === "writeConst" || object.action.type === "setInternalVar") {
+      return object.action.name?.trim() || "Tag.Name";
+    }
+    if (object.action.type === "setLW") {
+      return `LW${Math.max(0, Math.floor(object.action.address))}`;
+    }
+    if (object.action.type === "runMacro") {
+      return object.action.macroId?.trim() || "Tag.Name";
+    }
+    return "Tag.Name";
+  }
+  if (object.type === "checkbox") {
+    return object.writeTag?.trim() || object.tag?.trim() || "Tag.Name";
+  }
+  if (object.type === "slider") {
+    return object.writeTag?.trim() || object.tag?.trim() || "Tag.Name";
+  }
+  const maybeTarget = (object as { targetTag?: string }).targetTag;
+  return maybeTarget?.trim() || object.writeTag?.trim() || object.tag?.trim() || "Tag.Name";
+}
+
+function buildOperatorActionPreviewMessage(object: OperatorActionPreviewObject): string {
+  const actionKind = resolveOperatorActionPreviewKind(object);
+  const description = object.description?.trim() || object.name?.trim() || object.id;
+  const unit = "unit" in object && typeof object.unit === "string" ? object.unit : "";
+  const values = {
+    user: "admin",
+    role: "engineer",
+    objectName: object.name ?? "",
+    description,
+    objectId: object.id,
+    objectType: object.type,
+    screenName: "Main",
+    screenId: "main",
+    target: resolveOperatorActionPreviewTarget(object),
+    oldValue: formatOperatorActionPreviewValue(10),
+    newValue: formatOperatorActionPreviewValue(25),
+    unit: unit ?? "",
+    timestamp: OPERATOR_ACTION_PREVIEW_TIMESTAMP,
+    actionType: resolveOperatorActionPreviewActionType(object, actionKind),
+  };
+  const template = resolveOperatorActionPreviewTemplate(object);
+  const preview = renderOperatorActionPreviewTemplate(template, values);
+  return preview || renderOperatorActionPreviewTemplate(DEFAULT_OPERATOR_ACTION_VALUE_CHANGE_TEMPLATE, values);
+}
+
+function OperatorActionLogSection({
+  object,
+  onPatch,
+}: {
+  object: OperatorActionPreviewObject;
+  onPatch: (patch: Partial<HmiObject>) => void;
+}) {
+  const loggingConfig = object.operatorActionLogging;
+  const preview = buildOperatorActionPreviewMessage(object);
+  return (
+    <>
+      <Divider style={{ margin: "10px 0" }} />
+      <Typography.Text strong>Operator Action Log</Typography.Text>
+      <Space style={{ marginTop: 8, marginBottom: 8 }}>
+        <span>Enable logging</span>
+        <Switch
+          checked={loggingConfig?.enabled === true}
+          onChange={(checked) =>
+            onPatch({
+              operatorActionLogging: {
+                ...(loggingConfig ?? {}),
+                enabled: checked,
+              },
+            } as Partial<HmiObject>)
+          }
+        />
+      </Space>
+      <Form.Item label="Message template">
+        <Input.TextArea
+          rows={3}
+          value={loggingConfig?.messageTemplate ?? ""}
+          placeholder={resolveOperatorActionPreviewTemplate(object)}
+          onChange={(event) => {
+            const nextTemplate = event.target.value;
+            if (!(loggingConfig?.enabled) && !nextTemplate.trim() && !loggingConfig?.messageTemplate) {
+              onPatch({ operatorActionLogging: undefined } as Partial<HmiObject>);
+              return;
+            }
+            onPatch({
+              operatorActionLogging: {
+                ...(loggingConfig ?? { enabled: false }),
+                messageTemplate: nextTemplate.trim() ? nextTemplate : undefined,
+              },
+            } as Partial<HmiObject>);
+          }}
+        />
+      </Form.Item>
+      <Form.Item label="Preview">
+        <Input.TextArea rows={3} value={preview} readOnly />
+      </Form.Item>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        Supported placeholders: {OPERATOR_ACTION_SUPPORTED_PLACEHOLDERS}
+      </Typography.Text>
+    </>
+  );
+}
+
 function objectTypeLabel(type: HmiObject["type"]): string {
   switch (type) {
     case "stateImage":
@@ -1335,6 +1524,16 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
       </Form.Item>
       <Form.Item label="Name">
         <Input value={object.name ?? ""} onChange={(e) => onPatch({ name: e.target.value })} />
+      </Form.Item>
+      <Form.Item label="Description">
+        <Input.TextArea
+          rows={2}
+          value={object.description ?? ""}
+          onChange={(event) => {
+            const nextDescription = event.target.value;
+            onPatch({ description: nextDescription.trim() ? nextDescription : undefined });
+          }}
+        />
       </Form.Item>
       <Form.Item label="X">
         <InputNumber
@@ -2483,6 +2682,7 @@ function SpecificPropertyFields({
             </Form.Item>
           </>
         ) : null}
+        <OperatorActionLogSection object={object} onPatch={onPatch} />
       </>
     );
     const buttonGradientContent = (
@@ -3717,6 +3917,7 @@ function SpecificPropertyFields({
         </Form.Item>
         <ColorField label="Checked Color" value={object.checkedColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ checkedColor: next } as Partial<HmiObject>)} />
         <ColorField label="Unchecked Color" value={object.uncheckedColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ uncheckedColor: next } as Partial<HmiObject>)} />
+        <OperatorActionLogSection object={object} onPatch={onPatch} />
       </>
     );
   }
@@ -3859,6 +4060,7 @@ function SpecificPropertyFields({
         <ColorField label="Bad Text Color" value={object.badTextColor ?? "#f14c4c"} fallback="#f14c4c" onChange={(next) => onPatch({ badTextColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Color" value={object.disabledColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
+        <OperatorActionLogSection object={object} onPatch={onPatch} />
       </>
     );
   }
@@ -4895,6 +5097,7 @@ function SpecificPropertyFields({
         <Form.Item label="Placeholder">
           <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
+        <OperatorActionLogSection object={object} onPatch={onPatch} />
       </>
     );
 
