@@ -12,6 +12,7 @@ import {
   type EventHistoryRecord,
   type MacroDefinition,
   type MacroTrigger,
+  type OperatorActionArchiveSettings,
   type OpcUaDriverConfig,
   type PasswordPolicy,
   type ScadaProject,
@@ -186,6 +187,65 @@ const eventArchiveSettingsSchema = z.object({
   cleanupIntervalMinutes: z.number().int().positive(),
   optimizeAfterCleanup: z.boolean(),
   updatedAt: z.string().optional(),
+});
+const operatorActionResultSchema = z.enum(["success", "failed", "denied"]);
+const operatorActionKindSchema = z.enum([
+  "write",
+  "toggle",
+  "pulse",
+  "button",
+  "checkbox",
+  "slider",
+  "numericInput",
+  "macro",
+  "variable",
+  "lw",
+  "screen",
+]);
+const operatorActionTargetTypeSchema = z.enum(["tag", "variable", "lw", "macro", "screen", "unknown"]);
+const operatorActionHistoryQuerySchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  user: z.string().optional(),
+  objectId: z.string().min(1).optional(),
+  objectType: z.string().min(1).optional(),
+  targetName: z.string().min(1).optional(),
+  result: operatorActionResultSchema.optional(),
+  search: z.string().optional(),
+  limit: z.coerce.number().int().positive().max(1000).optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
+const operatorActionScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const operatorActionLogSchema = z.object({
+  occurredAt: z.string().datetime().optional(),
+  userId: z.string().min(1).nullable().optional(),
+  username: z.string().min(1).nullable().optional(),
+  userRole: z.string().min(1).nullable().optional(),
+  ip: z.string().min(1).nullable().optional(),
+  screenId: z.string().min(1).nullable().optional(),
+  screenName: z.string().min(1).nullable().optional(),
+  objectId: z.string().min(1),
+  objectName: z.string().min(1).nullable().optional(),
+  objectDescription: z.string().min(1).nullable().optional(),
+  objectType: z.string().min(1),
+  actionKind: operatorActionKindSchema,
+  targetType: operatorActionTargetTypeSchema.nullable().optional(),
+  targetName: z.string().min(1).nullable().optional(),
+  oldValue: operatorActionScalarSchema.optional(),
+  newValue: operatorActionScalarSchema.optional(),
+  unit: z.string().min(1).nullable().optional(),
+  messageTemplate: z.string().min(1).nullable().optional(),
+  messageText: z.string().min(1),
+  result: operatorActionResultSchema.optional(),
+  errorText: z.string().min(1).nullable().optional(),
+  details: z.record(z.unknown()).nullable().optional(),
+});
+const operatorActionArchiveCleanupSchema = z.object({
+  enabled: z.boolean().optional(),
+  retentionDays: z.number().int().positive().optional(),
+  maxDatabaseSizeMb: z.number().int().positive().optional(),
+  cleanupMode: eventArchiveCleanupModeSchema.optional(),
+  optimizeAfterCleanup: z.boolean().optional(),
 });
 const eventAckSchema = z.object({
   ids: z.array(z.union([z.string().min(1), z.number().int().positive()])).min(1).max(1000),
@@ -716,6 +776,34 @@ function toEventHistoryQuery(query: z.infer<typeof eventHistoryQuerySchema>) {
   };
 }
 
+function toOperatorActionHistoryQuery(query: z.infer<typeof operatorActionHistoryQuerySchema>) {
+  return {
+    from: query.from,
+    to: query.to,
+    user: query.user,
+    objectId: query.objectId,
+    objectType: query.objectType,
+    targetName: query.targetName,
+    result: query.result,
+    search: query.search,
+    limit: query.limit,
+    offset: query.offset,
+  };
+}
+
+function resolveOperatorActionArchiveSettings(project: ScadaProject): OperatorActionArchiveSettings {
+  const archiveSettings = project.operatorActionSettings?.archiveSettings;
+  return {
+    enabled: archiveSettings?.enabled ?? true,
+    retentionDays: archiveSettings?.retentionDays ?? 90,
+    maxDatabaseSizeMb: archiveSettings?.maxDatabaseSizeMb ?? 2048,
+    cleanupMode: archiveSettings?.cleanupMode ?? "byAgeAndSize",
+    cleanupIntervalMinutes: archiveSettings?.cleanupIntervalMinutes ?? 60,
+    optimizeAfterCleanup: archiveSettings?.optimizeAfterCleanup ?? false,
+    updatedAt: archiveSettings?.updatedAt,
+  };
+}
+
 function csvEscape(value: unknown): string {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
 }
@@ -1205,6 +1293,78 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     const updated = await deps.archiveService.updateEventArchiveSettings(payload);
     deps.eventEngine?.setArchiveEnabled(updated.enabled);
     return reply.send(updated);
+  });
+
+  app.get("/api/operator-actions/history", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Operator action archive database is not configured" });
+    }
+    const parsed = operatorActionHistoryQuerySchema.parse(request.query ?? {});
+    return reply.send(await deps.archiveService.queryOperatorActions(toOperatorActionHistoryQuery(parsed)));
+  });
+
+  app.post("/api/operator-actions/log", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "runtime.control");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Operator action archive database is not configured" });
+    }
+    const payload = operatorActionLogSchema.parse(request.body ?? {});
+    const created = await deps.archiveService.createOperatorAction({
+      ...payload,
+      userId: payload.userId ?? auth.userId ?? null,
+      username: payload.username ?? null,
+      userRole: payload.userRole ?? null,
+    });
+    return reply.code(201).send(created);
+  });
+
+  app.get("/api/operator-actions/archive/status", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.view");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Operator action archive database is not configured" });
+    }
+    const settings = resolveOperatorActionArchiveSettings(deps.projectService.getProject());
+    return reply.send(await deps.archiveService.getOperatorActionArchiveStatus(settings));
+  });
+
+  app.post("/api/operator-actions/archive/cleanup", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "runtime.control");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Operator action archive database is not configured" });
+    }
+    const payload = operatorActionArchiveCleanupSchema.parse(request.body ?? {});
+    const settings = resolveOperatorActionArchiveSettings(deps.projectService.getProject());
+    return reply.send(await deps.archiveService.cleanupOperatorActionArchive({
+      enabled: payload.enabled ?? settings.enabled,
+      retentionDays: payload.retentionDays ?? settings.retentionDays,
+      maxDatabaseSizeMb: payload.maxDatabaseSizeMb ?? settings.maxDatabaseSizeMb,
+      cleanupMode: payload.cleanupMode ?? settings.cleanupMode,
+      optimizeAfterCleanup: payload.optimizeAfterCleanup ?? settings.optimizeAfterCleanup,
+    }));
+  });
+
+  app.post("/api/operator-actions/archive/optimize", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "runtime.control");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Operator action archive database is not configured" });
+    }
+    return reply.send(await deps.archiveService.optimizeOperatorActionArchive());
   });
 
   app.post("/api/events/ack", async (request, reply) => {

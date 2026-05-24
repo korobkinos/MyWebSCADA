@@ -8,6 +8,13 @@ import type {
   EventHistoryRecord,
   EventOccurrence,
   EventOccurrenceState,
+  OperatorActionArchiveSettings,
+  OperatorActionHistoryPage,
+  OperatorActionHistoryQuery,
+  OperatorActionKind,
+  OperatorActionRecord,
+  OperatorActionResult,
+  OperatorActionTargetType,
   TagDefinition,
   TagScalarValue,
   TagValue,
@@ -122,6 +129,20 @@ export type EventArchiveStatusRow = {
 };
 
 export type EventArchiveCleanupResultRow = {
+  deletedByAge: number;
+  deletedBySize: number;
+  optimized: boolean;
+};
+
+export type OperatorActionArchiveStatusRow = {
+  dbSizeMb: number;
+  recordsCount: number;
+  oldestRecordAt: string | null;
+  newestRecordAt: string | null;
+  settings: OperatorActionArchiveSettings;
+};
+
+export type OperatorActionArchiveCleanupResultRow = {
   deletedByAge: number;
   deletedBySize: number;
   optimized: boolean;
@@ -1726,6 +1747,430 @@ export class ArchiveRepository {
     }
   }
 
+  public async createOperatorAction(input: {
+    occurredAt?: string;
+    userId?: string | null;
+    username?: string | null;
+    userRole?: string | null;
+    ip?: string | null;
+    screenId?: string | null;
+    screenName?: string | null;
+    objectId: string;
+    objectName?: string | null;
+    objectDescription?: string | null;
+    objectType: string;
+    actionKind: OperatorActionKind;
+    targetType?: OperatorActionTargetType | null;
+    targetName?: string | null;
+    oldValue?: string | number | boolean | null;
+    newValue?: string | number | boolean | null;
+    unit?: string | null;
+    messageTemplate?: string | null;
+    messageText: string;
+    result?: OperatorActionResult;
+    errorText?: string | null;
+    details?: Record<string, unknown> | null;
+  }): Promise<OperatorActionRecord> {
+    const occurredAt = input.occurredAt ? new Date(input.occurredAt) : new Date();
+    const result = await this.pool.query<{
+      id: number;
+      occurred_at: Date;
+      user_id: string | null;
+      username: string | null;
+      user_role: string | null;
+      ip: string | null;
+      screen_id: string | null;
+      screen_name: string | null;
+      object_id: string;
+      object_name: string | null;
+      object_description: string | null;
+      object_type: string;
+      action_kind: string;
+      target_type: string | null;
+      target_name: string | null;
+      old_value: string | null;
+      new_value: string | null;
+      unit: string | null;
+      message_template: string | null;
+      message_text: string;
+      result: string;
+      error_text: string | null;
+      details: Record<string, unknown> | null;
+      created_at: Date;
+    }>(
+      `
+      INSERT INTO operator_actions (
+        occurred_at,
+        user_id,
+        username,
+        user_role,
+        ip,
+        screen_id,
+        screen_name,
+        object_id,
+        object_name,
+        object_description,
+        object_type,
+        action_kind,
+        target_type,
+        target_name,
+        old_value,
+        new_value,
+        unit,
+        message_template,
+        message_text,
+        result,
+        error_text,
+        details
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10,
+        $11,
+        $12,
+        $13,
+        $14,
+        $15,
+        $16,
+        $17,
+        $18,
+        $19,
+        $20,
+        $21,
+        $22
+      )
+      RETURNING
+        id,
+        occurred_at,
+        user_id,
+        username,
+        user_role,
+        ip,
+        screen_id,
+        screen_name,
+        object_id,
+        object_name,
+        object_description,
+        object_type,
+        action_kind,
+        target_type,
+        target_name,
+        old_value,
+        new_value,
+        unit,
+        message_template,
+        message_text,
+        result,
+        error_text,
+        details,
+        created_at
+      `,
+      [
+        occurredAt,
+        input.userId ?? null,
+        input.username ?? null,
+        input.userRole ?? null,
+        input.ip ?? null,
+        input.screenId ?? null,
+        input.screenName ?? null,
+        input.objectId,
+        input.objectName ?? null,
+        input.objectDescription ?? null,
+        input.objectType,
+        input.actionKind,
+        input.targetType ?? null,
+        input.targetName ?? null,
+        this.serializeOperatorActionValue(input.oldValue),
+        this.serializeOperatorActionValue(input.newValue),
+        input.unit ?? null,
+        input.messageTemplate ?? null,
+        input.messageText,
+        input.result ?? "success",
+        input.errorText ?? null,
+        input.details ?? null,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Failed to create operator action record");
+    }
+    return this.mapOperatorActionRow(row);
+  }
+
+  public async queryOperatorActions(filters: OperatorActionHistoryQuery): Promise<OperatorActionHistoryPage> {
+    const whereParts: string[] = [];
+    const params: unknown[] = [];
+
+    const addParam = (value: unknown): string => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+
+    if (filters.from) {
+      whereParts.push(`occurred_at >= ${addParam(new Date(filters.from))}`);
+    }
+    if (filters.to) {
+      whereParts.push(`occurred_at <= ${addParam(new Date(filters.to))}`);
+    }
+    if (filters.user?.trim()) {
+      const pattern = `%${filters.user.trim()}%`;
+      whereParts.push(`(
+        COALESCE(username, '') ILIKE ${addParam(pattern)}
+        OR COALESCE(user_id, '') ILIKE ${addParam(pattern)}
+      )`);
+    }
+    if (filters.objectId) {
+      whereParts.push(`object_id = ${addParam(filters.objectId)}`);
+    }
+    if (filters.objectType) {
+      whereParts.push(`object_type = ${addParam(filters.objectType)}`);
+    }
+    if (filters.targetName) {
+      whereParts.push(`target_name = ${addParam(filters.targetName)}`);
+    }
+    if (filters.result) {
+      whereParts.push(`result = ${addParam(filters.result)}`);
+    }
+    if (filters.search?.trim()) {
+      const pattern = `%${filters.search.trim()}%`;
+      whereParts.push(`(
+        COALESCE(message_text, '') ILIKE ${addParam(pattern)}
+        OR COALESCE(object_description, '') ILIKE ${addParam(pattern)}
+        OR COALESCE(object_name, '') ILIKE ${addParam(pattern)}
+        OR COALESCE(target_name, '') ILIKE ${addParam(pattern)}
+        OR COALESCE(username, '') ILIKE ${addParam(pattern)}
+      )`);
+    }
+
+    const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const limit = Math.max(1, Math.min(1000, filters.limit ?? 200));
+    const offset = Math.max(0, filters.offset ?? 0);
+
+    const countQuery = await this.pool.query<{ total: string | number }>(
+      `SELECT COUNT(*)::bigint AS total FROM operator_actions ${whereSql}`,
+      params,
+    );
+    const totalRaw = countQuery.rows[0]?.total ?? 0;
+    const total = typeof totalRaw === "string" ? Number.parseInt(totalRaw, 10) : Number(totalRaw);
+
+    const queryParams = [...params, limit, offset];
+    const rows = await this.pool.query<{
+      id: number;
+      occurred_at: Date;
+      user_id: string | null;
+      username: string | null;
+      user_role: string | null;
+      ip: string | null;
+      screen_id: string | null;
+      screen_name: string | null;
+      object_id: string;
+      object_name: string | null;
+      object_description: string | null;
+      object_type: string;
+      action_kind: string;
+      target_type: string | null;
+      target_name: string | null;
+      old_value: string | null;
+      new_value: string | null;
+      unit: string | null;
+      message_template: string | null;
+      message_text: string;
+      result: string;
+      error_text: string | null;
+      details: Record<string, unknown> | null;
+      created_at: Date;
+    }>(
+      `
+      SELECT
+        id,
+        occurred_at,
+        user_id,
+        username,
+        user_role,
+        ip,
+        screen_id,
+        screen_name,
+        object_id,
+        object_name,
+        object_description,
+        object_type,
+        action_kind,
+        target_type,
+        target_name,
+        old_value,
+        new_value,
+        unit,
+        message_template,
+        message_text,
+        result,
+        error_text,
+        details,
+        created_at
+      FROM operator_actions
+      ${whereSql}
+      ORDER BY occurred_at DESC, id DESC
+      LIMIT $${params.length + 1}
+      OFFSET $${params.length + 2}
+      `,
+      queryParams,
+    );
+
+    return {
+      items: rows.rows.map((row) => this.mapOperatorActionRow(row)),
+      total: Number.isFinite(total) ? Math.max(0, Math.round(total)) : 0,
+      limit,
+      offset,
+    };
+  }
+
+  public async getOperatorActionArchiveStatus(settings?: OperatorActionArchiveSettings): Promise<OperatorActionArchiveStatusRow> {
+    const result = await this.pool.query<{
+      records_count: string | number;
+      db_size_bytes: string | number;
+      oldest_record_at: Date | null;
+      newest_record_at: Date | null;
+    }>(
+      `
+      SELECT
+          (SELECT COUNT(*)::bigint FROM operator_actions) AS records_count,
+          COALESCE(pg_total_relation_size('operator_actions'), 0) AS db_size_bytes,
+          (SELECT MIN(occurred_at) FROM operator_actions) AS oldest_record_at,
+          (SELECT MAX(occurred_at) FROM operator_actions) AS newest_record_at
+      `,
+    );
+    const row = result.rows[0];
+    const recordsCountRaw = row?.records_count ?? 0;
+    const dbSizeBytesRaw = row?.db_size_bytes ?? 0;
+    const recordsCount = typeof recordsCountRaw === "string" ? Number.parseInt(recordsCountRaw, 10) : Number(recordsCountRaw);
+    const dbSizeBytes = typeof dbSizeBytesRaw === "string" ? Number.parseInt(dbSizeBytesRaw, 10) : Number(dbSizeBytesRaw);
+    return {
+      dbSizeMb: Number.isFinite(dbSizeBytes) ? Math.max(0, dbSizeBytes / (1024 * 1024)) : 0,
+      recordsCount: Number.isFinite(recordsCount) ? Math.max(0, Math.round(recordsCount)) : 0,
+      oldestRecordAt: row?.oldest_record_at ? row.oldest_record_at.toISOString() : null,
+      newestRecordAt: row?.newest_record_at ? row.newest_record_at.toISOString() : null,
+      settings: settings ?? this.defaultOperatorActionArchiveSettings(),
+    };
+  }
+
+  public async cleanupOperatorActionArchive(options?: {
+    enabled?: boolean;
+    retentionDays?: number;
+    maxDatabaseSizeMb?: number;
+    cleanupMode?: OperatorActionArchiveSettings["cleanupMode"];
+    optimizeAfterCleanup?: boolean;
+  }): Promise<OperatorActionArchiveCleanupResultRow> {
+    const settings = {
+      ...this.defaultOperatorActionArchiveSettings(),
+      ...options,
+    };
+    if (!settings.enabled) {
+      return {
+        deletedByAge: 0,
+        deletedBySize: 0,
+        optimized: false,
+      };
+    }
+
+    const cleanupMode = settings.cleanupMode;
+    const retentionDays = Math.max(1, Math.round(settings.retentionDays));
+    const maxDatabaseSizeMb = Math.max(1, Math.round(settings.maxDatabaseSizeMb));
+
+    let deletedByAge = 0;
+    let deletedBySize = 0;
+
+    if (cleanupMode === "byAge" || cleanupMode === "byAgeAndSize") {
+      const byAge = await this.pool.query(
+        `
+        DELETE FROM operator_actions
+        WHERE occurred_at < now() - make_interval(days => $1::int)
+        `,
+        [retentionDays],
+      );
+      deletedByAge = byAge.rowCount ?? 0;
+    }
+
+    if (cleanupMode === "bySize" || cleanupMode === "byAgeAndSize") {
+      const sizeLimitBytes = maxDatabaseSizeMb * 1024 * 1024;
+      let safetyCounter = 0;
+      while (safetyCounter < 100) {
+        safetyCounter += 1;
+        const sizeState = await this.pool.query<{ db_size_bytes: string | number; records_count: string | number }>(
+          `
+          SELECT
+              COALESCE(pg_total_relation_size('operator_actions'), 0) AS db_size_bytes,
+              (SELECT COUNT(*)::bigint FROM operator_actions) AS records_count
+          `,
+        );
+        const dbSizeRaw = sizeState.rows[0]?.db_size_bytes ?? 0;
+        const recordsRaw = sizeState.rows[0]?.records_count ?? 0;
+        const dbSizeBytes = typeof dbSizeRaw === "string" ? Number.parseInt(dbSizeRaw, 10) : Number(dbSizeRaw);
+        const recordsCount = typeof recordsRaw === "string" ? Number.parseInt(recordsRaw, 10) : Number(recordsRaw);
+        if (!Number.isFinite(dbSizeBytes) || dbSizeBytes <= sizeLimitBytes) {
+          break;
+        }
+        if (!Number.isFinite(recordsCount) || recordsCount <= 0) {
+          break;
+        }
+        const overflowRatio = Math.min(1, Math.max(0, (dbSizeBytes - sizeLimitBytes) / dbSizeBytes));
+        const deleteLimit = Math.min(
+          recordsCount,
+          ARCHIVE_SIZE_DELETE_MAX_ROWS,
+          Math.max(ARCHIVE_SIZE_DELETE_MIN_ROWS, Math.ceil(recordsCount * overflowRatio * ARCHIVE_SIZE_DELETE_HEADROOM)),
+        );
+        const deleteResult = await this.pool.query(
+          `
+          DELETE FROM operator_actions
+          WHERE ctid IN (
+            SELECT ctid
+            FROM operator_actions
+            ORDER BY occurred_at ASC, id ASC
+            LIMIT $1
+          )
+          `,
+          [deleteLimit],
+        );
+        const chunkDeleted = deleteResult.rowCount ?? 0;
+        deletedBySize += chunkDeleted;
+        if (chunkDeleted === 0) {
+          break;
+        }
+      }
+    }
+
+    let optimized = false;
+    if (settings.optimizeAfterCleanup) {
+      await this.optimizeOperatorActionArchive();
+      optimized = true;
+    }
+
+    return {
+      deletedByAge,
+      deletedBySize,
+      optimized,
+    };
+  }
+
+  public async optimizeOperatorActionArchive(): Promise<void> {
+    try {
+      await this.pool.query("VACUUM (FULL, ANALYZE) operator_actions");
+    } catch (error) {
+      this.logger.warn(`Operator action archive full vacuum failed: ${this.errorText(error)}`);
+      try {
+        await this.pool.query("VACUUM (ANALYZE) operator_actions");
+      } catch (fallbackError) {
+        this.logger.warn(`Operator action archive analyze failed: ${this.errorText(fallbackError)}`);
+      }
+    }
+  }
+
   public async enforceRuntimeLimits(settings: {
     autoCleanupEnabled: boolean;
     maxDbSizeMb: number | null;
@@ -2627,6 +3072,94 @@ export class ArchiveRepository {
     } catch {
       return value;
     }
+  }
+
+  private defaultOperatorActionArchiveSettings(): OperatorActionArchiveSettings {
+    return {
+      enabled: true,
+      retentionDays: 90,
+      maxDatabaseSizeMb: 2048,
+      cleanupMode: "byAgeAndSize",
+      cleanupIntervalMinutes: 60,
+      optimizeAfterCleanup: false,
+    };
+  }
+
+  private serializeOperatorActionValue(value: string | number | boolean | null | undefined): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    return JSON.stringify(value);
+  }
+
+  private deserializeOperatorActionValue(value: string | null): string | number | boolean | null {
+    if (value === null) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed === null || typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
+        return parsed;
+      }
+      return value;
+    } catch {
+      return value;
+    }
+  }
+
+  private mapOperatorActionRow(row: {
+    id: number;
+    occurred_at: Date;
+    user_id: string | null;
+    username: string | null;
+    user_role: string | null;
+    ip: string | null;
+    screen_id: string | null;
+    screen_name: string | null;
+    object_id: string;
+    object_name: string | null;
+    object_description: string | null;
+    object_type: string;
+    action_kind: string;
+    target_type: string | null;
+    target_name: string | null;
+    old_value: string | null;
+    new_value: string | null;
+    unit: string | null;
+    message_template: string | null;
+    message_text: string;
+    result: string;
+    error_text: string | null;
+    details: Record<string, unknown> | null;
+    created_at: Date;
+  }): OperatorActionRecord {
+    const details = row.details && typeof row.details === "object" && !Array.isArray(row.details) ? row.details : null;
+    return {
+      id: String(row.id),
+      occurredAt: row.occurred_at.toISOString(),
+      userId: row.user_id,
+      username: row.username,
+      userRole: row.user_role,
+      ip: row.ip,
+      screenId: row.screen_id,
+      screenName: row.screen_name,
+      objectId: row.object_id,
+      objectName: row.object_name,
+      objectDescription: row.object_description,
+      objectType: row.object_type,
+      actionKind: row.action_kind as OperatorActionKind,
+      targetType: (row.target_type as OperatorActionTargetType | null) ?? null,
+      targetName: row.target_name,
+      oldValue: this.deserializeOperatorActionValue(row.old_value),
+      newValue: this.deserializeOperatorActionValue(row.new_value),
+      unit: row.unit,
+      messageTemplate: row.message_template,
+      messageText: row.message_text,
+      result: row.result as OperatorActionResult,
+      errorText: row.error_text,
+      details,
+      createdAt: row.created_at.toISOString(),
+    };
   }
 
   private mapEventOccurrenceRow(row: {

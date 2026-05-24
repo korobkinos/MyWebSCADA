@@ -18,6 +18,9 @@ import type {
   MacroDefinition,
   MacroRunResult,
   ManualCommandMeta,
+  OperatorActionArchiveSettings,
+  OperatorActionHistoryPage,
+  OperatorActionHistoryQuery,
   PasswordPolicy,
   RuntimeState,
   ScadaProject,
@@ -189,6 +192,20 @@ export type EventArchiveStatus = {
 };
 
 export type EventArchiveCleanupResult = {
+  deletedByAge: number;
+  deletedBySize: number;
+  optimized: boolean;
+};
+
+export type OperatorActionArchiveStatus = {
+  dbSizeMb: number;
+  recordsCount: number;
+  oldestRecordAt: string | null;
+  newestRecordAt: string | null;
+  settings: OperatorActionArchiveSettings;
+};
+
+export type OperatorActionArchiveCleanupResult = {
   deletedByAge: number;
   deletedBySize: number;
   optimized: boolean;
@@ -599,6 +616,10 @@ export const api = {
     request<EventHistoryPage>(
       `/api/events/history${toQueryString(query ?? {})}`,
     ),
+  getOperatorActionHistory: (query?: OperatorActionHistoryQuery) =>
+    request<OperatorActionHistoryPage>(
+      `/api/operator-actions/history${toQueryString(query ?? {})}`,
+    ),
   acknowledgeEvents: (ids: Array<string | number>) =>
     request<EventAcknowledgeResponse>("/api/events/ack", {
       method: "POST",
@@ -632,6 +653,19 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+  getOperatorActionArchiveStatus: () => request<OperatorActionArchiveStatus>("/api/operator-actions/archive/status"),
+  cleanupOperatorActionArchive: (payload?: {
+    enabled?: boolean;
+    retentionDays?: number;
+    maxDatabaseSizeMb?: number;
+    cleanupMode?: OperatorActionArchiveSettings["cleanupMode"];
+    optimizeAfterCleanup?: boolean;
+  }) => request<OperatorActionArchiveCleanupResult>("/api/operator-actions/archive/cleanup", {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  }),
+  optimizeOperatorActionArchive: () =>
+    request<{ ok: boolean }>("/api/operator-actions/archive/optimize", { method: "POST" }),
   getDrivers: () => request<DriverStatus[]>("/api/drivers"),
   opcUaTest: (config: OpcUaDriverConfigInput) =>
     request<{ ok: boolean; message?: string }>("/api/drivers/opcua/test", {

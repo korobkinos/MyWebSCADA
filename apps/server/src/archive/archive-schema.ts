@@ -193,6 +193,59 @@ ON event_occurrences (priority_snapshot);
 CREATE INDEX IF NOT EXISTS idx_event_occurrences_source
 ON event_occurrences (source_tag_name_snapshot);
 
+CREATE TABLE IF NOT EXISTS operator_actions (
+    id BIGSERIAL PRIMARY KEY,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    user_id TEXT,
+    username TEXT,
+    user_role TEXT,
+    ip TEXT,
+
+    screen_id TEXT,
+    screen_name TEXT,
+
+    object_id TEXT NOT NULL,
+    object_name TEXT,
+    object_description TEXT,
+    object_type TEXT NOT NULL,
+
+    action_kind TEXT NOT NULL,
+    target_type TEXT,
+    target_name TEXT,
+
+    old_value TEXT,
+    new_value TEXT,
+    unit TEXT,
+
+    message_template TEXT,
+    message_text TEXT NOT NULL,
+
+    result TEXT NOT NULL DEFAULT 'success',
+    error_text TEXT,
+
+    details JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_operator_actions_occurred_at
+ON operator_actions (occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_operator_actions_username_occurred_at
+ON operator_actions (username, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_operator_actions_object_id_occurred_at
+ON operator_actions (object_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_operator_actions_target_name_occurred_at
+ON operator_actions (target_name, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_operator_actions_result_occurred_at
+ON operator_actions (result, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_operator_actions_action_kind_occurred_at
+ON operator_actions (action_kind, occurred_at DESC);
+
 CREATE TABLE IF NOT EXISTS archive_alarms (
     id BIGSERIAL PRIMARY KEY,
     tag_id BIGINT REFERENCES tags(id),

@@ -6,6 +6,13 @@ import type {
   EventHistoryQuery,
   EventOccurrence,
   EventOccurrenceState,
+  OperatorActionArchiveSettings,
+  OperatorActionHistoryPage,
+  OperatorActionHistoryQuery,
+  OperatorActionKind,
+  OperatorActionRecord,
+  OperatorActionResult,
+  OperatorActionTargetType,
   TagDefinition,
   TagScalarValue,
   TagValue,
@@ -15,6 +22,8 @@ import {
   ArchiveRepository,
   type EventArchiveCleanupResultRow,
   type EventArchiveStatusRow,
+  type OperatorActionArchiveCleanupResultRow,
+  type OperatorActionArchiveStatusRow,
   type ArchivePurgePreviewRow,
   type ArchivePurgeResultRow,
   type ArchiveLogger,
@@ -343,6 +352,56 @@ export class ArchiveService {
 
   public async optimizeEventArchive(): Promise<{ ok: boolean }> {
     await this.repository.optimizeEventArchive();
+    return { ok: true };
+  }
+
+  public async createOperatorAction(input: {
+    occurredAt?: string;
+    userId?: string | null;
+    username?: string | null;
+    userRole?: string | null;
+    ip?: string | null;
+    screenId?: string | null;
+    screenName?: string | null;
+    objectId: string;
+    objectName?: string | null;
+    objectDescription?: string | null;
+    objectType: string;
+    actionKind: OperatorActionKind;
+    targetType?: OperatorActionTargetType | null;
+    targetName?: string | null;
+    oldValue?: string | number | boolean | null;
+    newValue?: string | number | boolean | null;
+    unit?: string | null;
+    messageTemplate?: string | null;
+    messageText: string;
+    result?: OperatorActionResult;
+    errorText?: string | null;
+    details?: Record<string, unknown> | null;
+  }): Promise<OperatorActionRecord> {
+    return this.repository.createOperatorAction(input);
+  }
+
+  public async queryOperatorActions(query: OperatorActionHistoryQuery): Promise<OperatorActionHistoryPage> {
+    return this.repository.queryOperatorActions(query);
+  }
+
+  public async getOperatorActionArchiveStatus(settings?: OperatorActionArchiveSettings): Promise<OperatorActionArchiveStatusRow> {
+    return this.repository.getOperatorActionArchiveStatus(settings);
+  }
+
+  public async cleanupOperatorActionArchive(options?: {
+    enabled?: boolean;
+    retentionDays?: number;
+    maxDatabaseSizeMb?: number;
+    cleanupMode?: OperatorActionArchiveSettings["cleanupMode"];
+    optimizeAfterCleanup?: boolean;
+  }): Promise<OperatorActionArchiveCleanupResultRow> {
+    return this.repository.cleanupOperatorActionArchive(options);
+  }
+
+  public async optimizeOperatorActionArchive(): Promise<{ ok: boolean }> {
+    await this.repository.optimizeOperatorActionArchive();
     return { ok: true };
   }
 
