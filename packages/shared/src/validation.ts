@@ -71,10 +71,17 @@ const flowAnimationSchema = z.object({
   gapLength: z.number().optional(),
 });
 
+const operatorActionLoggingConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  messageTemplate: z.string().optional(),
+});
+
 const hmiBaseSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1),
   name: z.string().optional(),
+  description: z.string().optional(),
+  operatorActionLogging: operatorActionLoggingConfigSchema.optional(),
   x: z.number(),
   y: z.number(),
   width: z.number().positive(),
@@ -1364,6 +1371,26 @@ const eventArchiveSettingsSchema = z.object({
   updatedAt: z.string().optional(),
 });
 
+const operatorActionArchiveSettingsSchema = z.object({
+  enabled: z.boolean(),
+  retentionDays: z.number().int().positive(),
+  maxDatabaseSizeMb: z.number().int().positive(),
+  cleanupMode: z.enum(["byAge", "bySize", "byAgeAndSize"]),
+  cleanupIntervalMinutes: z.number().int().positive(),
+  optimizeAfterCleanup: z.boolean(),
+  updatedAt: z.string().optional(),
+});
+
+const projectOperatorActionSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  defaultValueChangeTemplate: z.string().optional(),
+  defaultButtonTemplate: z.string().optional(),
+  defaultCheckboxTemplate: z.string().optional(),
+  defaultSliderTemplate: z.string().optional(),
+  defaultNumericInputTemplate: z.string().optional(),
+  archiveSettings: operatorActionArchiveSettingsSchema.optional(),
+});
+
 export const macroSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -1494,6 +1521,7 @@ export const projectSchema = z.object({
   eventCategories: z.array(eventCategorySchema).optional(),
   eventSounds: z.array(eventSoundSchema).optional(),
   eventArchiveSettings: eventArchiveSettingsSchema.optional(),
+  operatorActionSettings: projectOperatorActionSettingsSchema.optional(),
   variables: z.array(variableSchema).optional(),
   lwStore: z
     .object({
