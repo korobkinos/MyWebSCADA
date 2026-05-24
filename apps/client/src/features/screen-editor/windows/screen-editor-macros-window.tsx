@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { HmiObject, MacroDefinition, MacroRunResult, MacroTrigger } from "@web-scada/shared";
 import {
@@ -61,16 +61,87 @@ type HelpTabKey = "quickStart" | "api" | "templates" | "tagsObjects" | "examples
 type HelpObjectCandidate = {
   key: string;
   insertId: string;
-  label: string;
+  path: string;
   type: string;
+  context?: string;
+  screenId: string;
+  screenName: string;
   source: "screen" | "libraryInstance";
 };
+
+type MacroHelpColumnId = "type" | "idTag" | "pathContext" | "source" | "actions";
+type MacroHelpColumnConfig = {
+  id: MacroHelpColumnId;
+  title: string;
+  defaultWidth: number;
+  minWidth: number;
+};
+
+type MacroHelpRow = {
+  key: string;
+  type: string;
+  idTag: string;
+  pathContext: string;
+  source: string;
+  sourceKey: "projectTags" | "screen" | "libraryInstance";
+  objectType: string;
+  search: string;
+  rowType: "tag" | "object";
+};
+
+type TagsObjectsScopeFilter = "all" | "tags" | "screenObjects" | "libraryObjects";
+type TagsObjectsSourceFilter = "all" | "projectTags" | "screen" | "libraryInstance";
+
+const MACRO_HELP_COLUMNS: MacroHelpColumnConfig[] = [
+  { id: "type", title: "TYPE", defaultWidth: 100, minWidth: 80 },
+  { id: "idTag", title: "ID / TAG", defaultWidth: 230, minWidth: 140 },
+  { id: "pathContext", title: "PATH / CONTEXT", defaultWidth: 420, minWidth: 220 },
+  { id: "source", title: "SOURCE", defaultWidth: 160, minWidth: 110 },
+  { id: "actions", title: "ACTIONS", defaultWidth: 150, minWidth: 120 },
+];
+
+const MACRO_HELP_COLUMNS_WIDTH_STORAGE_KEY = "screenEditor.macros.helpColumnsWidth";
+const MACRO_HELP_PAGE_SIZE_STORAGE_KEY = "screenEditor.macros.helpPageSize";
+
+function createDefaultMacroHelpColumnWidths(): Record<MacroHelpColumnId, number> {
+  return MACRO_HELP_COLUMNS.reduce<Record<MacroHelpColumnId, number>>(
+    (acc, column) => ({ ...acc, [column.id]: column.defaultWidth }),
+    {
+      type: 0,
+      idTag: 0,
+      pathContext: 0,
+      source: 0,
+      actions: 0,
+    },
+  );
+}
+
+function parseStoredMacroHelpColumnWidths(raw: string | null): Record<MacroHelpColumnId, number> {
+  const defaults = createDefaultMacroHelpColumnWidths();
+  if (!raw) {
+    return defaults;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<Record<MacroHelpColumnId, unknown>>;
+    return MACRO_HELP_COLUMNS.reduce<Record<MacroHelpColumnId, number>>((acc, column) => {
+      const candidate = parsed[column.id];
+      acc[column.id] =
+        typeof candidate === "number" && Number.isFinite(candidate)
+          ? Math.max(column.minWidth, candidate)
+          : defaults[column.id];
+      return acc;
+    }, { ...defaults });
+  } catch {
+    return defaults;
+  }
+}
 
 const practicalMacroExamples: Array<{ id: string; title: string; description: string; code: string }> = [
   {
     id: "practical-start-permission",
     title: "Start command with permissive checks",
-    description: "Проверка межблокировок перед запуском агрегата.",
+    description: "Check interlocks before sending a start command.",
     code: `const ready = readTag("Pump_1.Ready") === true;
 const alarm = readTag("Pump_1.Alarm") === true;
 if (!ready || alarm) {
@@ -82,7 +153,7 @@ await pulseTag("Pump_1.StartCmd", true, 300, false);`,
   {
     id: "practical-auto-stop-on-fault",
     title: "Auto stop on fault",
-    description: "Останов агрегата при аварии и запись события.",
+    description: "Stop equipment on fault and store fault source.",
     code: `if (readTag("Pump_1.Fault") === true) {
   await writeTag("Pump_1.StopCmd", true);
   setVar("LastFaultSource", "Pump_1");
@@ -92,7 +163,7 @@ await pulseTag("Pump_1.StartCmd", true, 300, false);`,
   {
     id: "practical-hysteresis",
     title: "Temperature hysteresis control",
-    description: "Управление нагревом с гистерезисом.",
+    description: "Heater control using low/high hysteresis limits.",
     code: `const t = Number(readTag("Tank.Temp") ?? 0);
 const low = Number(getVar("TempLow") ?? 58);
 const high = Number(getVar("TempHigh") ?? 62);
@@ -103,7 +174,7 @@ if (heaterOn && t >= high) await writeTag("Tank.HeaterCmd", false);`,
   {
     id: "practical-popup-context",
     title: "Open popup for selected equipment",
-    description: "Открытие универсального popup с tagPrefix и args.",
+    description: "Open a reusable popup with tagPrefix and args.",
     code: `const line = Number(getLW(10) ?? 1);
 const unit = Number(getLW(11) ?? 1);
 const prefix = "LINES.L" + line + ".U" + unit;
@@ -116,7 +187,7 @@ openPopup("Popup_UnitControl", {
   {
     id: "practical-quality-fallback",
     title: "Bad quality fallback",
-    description: "Резервная логика при плохом качестве тега.",
+    description: "Fallback behavior when tag quality is not Good.",
     code: `const q = getTagQuality("FlowMeter.Value");
 if (q !== "Good") {
   warn("FlowMeter quality:", q);
@@ -128,7 +199,7 @@ setVar("FlowFallbackMode", false);`,
   {
     id: "practical-index-calc-flat",
     title: "Index calculation (flat mapping)",
-    description: "Преобразование пары [burner, valve] в плоский индекс для таблиц/шаблонов.",
+    description: "Map [burner, valve] into a flat index.",
     code: `const burner = Number(getLW(20) ?? 1);      // 1..N
 const valve = Number(getLW(10) ?? 1);       // 1..M
 const valvesPerBurner = 32;
@@ -140,7 +211,7 @@ log("SelectedIndex =", index);`,
   {
     id: "practical-window-template-popup",
     title: "Window template popup by index",
-    description: "Открытие шаблонного popup-окна по рассчитанному индексу.",
+    description: "Open a template popup by computed index.",
     code: `const index = Number(getVar("SelectedIndex") ?? 1);
 const prefix = "VALVES.V" + index;
 openPopup("Popup_ValveTemplate", {
@@ -156,7 +227,7 @@ openPopup("Popup_ValveTemplate", {
   {
     id: "practical-prefix-from-index",
     title: "Build prefix from index",
-    description: "Формирование runtime-префикса из индекса и использование resolveTag.",
+    description: "Build runtime prefix from index and use resolveTag.",
     code: `const index = Number(getVar("SelectedIndex") ?? 1);
 const prefix = "UNITS.U" + index;
 const runTag = resolveTag(".Run", prefix);
@@ -169,7 +240,7 @@ log("prefix =", prefix, "runTag =", runTag);`,
   {
     id: "practical-window-template-matrix",
     title: "Popup template matrix (row/col -> prefix)",
-    description: "Шаблон окна для матрицы оборудования с row/col индексами.",
+    description: "Template popup for matrix equipment by row/col index.",
     code: `const row = Number(getLW(30) ?? 1);
 const col = Number(getLW(31) ?? 1);
 const cellIndex = (row - 1) * 10 + col;
@@ -282,6 +353,17 @@ function normalizeSnippetForInsert(snippet: string): string {
     .replace(/\$(\d+)/g, "");
 }
 
+function formatObjectTypeLabel(value: string): string {
+  if (!value) {
+    return "Unknown";
+  }
+  const spaced = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim();
+  return spaced.replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
 export function ScreenEditorMacrosWindow() {
   const project = useScadaStore((s) => s.project);
   const currentScreenId = useScadaStore((s) => s.currentScreenId);
@@ -320,6 +402,26 @@ export function ScreenEditorMacrosWindow() {
   const [helpTab, setHelpTab] = useState<HelpTabKey>("quickStart");
   const [templateQuery, setTemplateQuery] = useState("");
   const [tagsObjectsQuery, setTagsObjectsQuery] = useState("");
+  const [helpColumnWidths, setHelpColumnWidths] = useState<Record<MacroHelpColumnId, number>>(() => {
+    if (typeof window === "undefined") {
+      return createDefaultMacroHelpColumnWidths();
+    }
+    return parseStoredMacroHelpColumnWidths(window.localStorage.getItem(MACRO_HELP_COLUMNS_WIDTH_STORAGE_KEY));
+  });
+  const [tagsObjectsPage, setTagsObjectsPage] = useState(1);
+  const [tagsObjectsPageSize, setTagsObjectsPageSize] = useState<number>(() => {
+    if (typeof window === "undefined") {
+      return 100;
+    }
+    const parsed = Number(window.localStorage.getItem(MACRO_HELP_PAGE_SIZE_STORAGE_KEY) ?? "100");
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 100;
+    }
+    return parsed;
+  });
+  const [tagsObjectsScopeFilter, setTagsObjectsScopeFilter] = useState<TagsObjectsScopeFilter>("all");
+  const [tagsObjectsSourceFilter, setTagsObjectsSourceFilter] = useState<TagsObjectsSourceFilter>("all");
+  const [tagsObjectsTypeFilter, setTagsObjectsTypeFilter] = useState("all");
   const listPanelRef = useRef<ImperativePanelHandle | null>(null);
   const consolePanelRef = useRef<ImperativePanelHandle | null>(null);
   const codeEditorRef = useRef<MacroCodeEditorHandle | null>(null);
@@ -425,10 +527,6 @@ export function ScreenEditorMacrosWindow() {
     }
     return options;
   }, [project?.screens]);
-  const currentScreen = useMemo(
-    () => (currentScreenId ? project?.screens.find((screen) => screen.id === currentScreenId) : undefined),
-    [currentScreenId, project?.screens],
-  );
   const filteredTemplates = useMemo(() => {
     const q = templateQuery.trim().toLowerCase();
     if (!q) {
@@ -437,7 +535,8 @@ export function ScreenEditorMacrosWindow() {
     return macroTemplates.filter((item) => `${item.title} ${item.description} ${item.code}`.toLowerCase().includes(q));
   }, [templateQuery]);
   const objectCandidates = useMemo<HelpObjectCandidate[]>(() => {
-    if (!currentScreen) {
+    const screens = project?.screens ?? [];
+    if (screens.length === 0) {
       return [];
     }
 
@@ -457,67 +556,159 @@ export function ScreenEditorMacrosWindow() {
       instanceObject: Extract<HmiObject, { type: "libraryElementInstance" }>,
       objects: HmiObject[],
       pathPrefix: string,
+      screenId: string,
+      screenName: string,
     ): void => {
       for (const object of objects) {
         const path = `${pathPrefix}/${object.id}`;
         pushCandidate({
           key: `lib:${instanceObject.id}:${path}`,
           insertId: object.id,
-          label: `${path} (${object.type})`,
+          path,
           type: object.type,
+          context: pathPrefix,
+          screenId,
+          screenName,
           source: "libraryInstance",
         });
         if (object.type === "group") {
-          collectLibraryTemplateObjects(instanceObject, object.objects, path);
+          collectLibraryTemplateObjects(instanceObject, object.objects, path, screenId, screenName);
         }
       }
     };
 
-    const collectScreenObjects = (objects: HmiObject[], pathPrefix: string): void => {
+    const collectScreenObjects = (objects: HmiObject[], pathPrefix: string, screenId: string, screenName: string): void => {
       for (const object of objects) {
         const path = `${pathPrefix}/${object.id}`;
         pushCandidate({
           key: `screen:${object.id}:${path}`,
           insertId: object.id,
-          label: `${path} (${object.type})`,
+          path,
           type: object.type,
+          screenId,
+          screenName,
           source: "screen",
         });
         if (object.type === "group") {
-          collectScreenObjects(object.objects, path);
+          collectScreenObjects(object.objects, path, screenId, screenName);
         }
         if (object.type === "libraryElementInstance") {
           const sourceLibrary = libraryById.get(object.libraryId);
           const sourceElement = sourceLibrary?.elements.find((element) => element.id === object.elementId);
           if (sourceLibrary && sourceElement) {
-            collectLibraryTemplateObjects(object, sourceElement.objects, `${path}[${sourceLibrary.id}:${sourceElement.name}]`);
+            collectLibraryTemplateObjects(
+              object,
+              sourceElement.objects,
+              `${path}[${sourceLibrary.id}:${sourceElement.name}]`,
+              screenId,
+              screenName,
+            );
           }
         }
       }
     };
 
-    collectScreenObjects(currentScreen.objects, currentScreen.id);
+    for (const screen of screens) {
+      collectScreenObjects(screen.objects, screen.id, screen.id, screen.name ?? screen.id);
+    }
     return candidates;
-  }, [currentScreen, libraries]);
-  const filteredTags = useMemo(() => {
-    const query = tagsObjectsQuery.trim().toLowerCase();
-    const source = project?.tags ?? [];
-    if (!query) {
-      return source.slice(0, 100);
+  }, [libraries, project?.screens]);
+  const tagsObjectsRows = useMemo<MacroHelpRow[]>(() => {
+    const rows: MacroHelpRow[] = [];
+    for (const tag of project?.tags ?? []) {
+      const group = tag.group?.trim() || "-";
+      rows.push({
+        key: `tag:${tag.name}`,
+        type: "Tag",
+        idTag: tag.name,
+        pathContext: group,
+        source: "ProjectTags",
+        sourceKey: "projectTags",
+        objectType: "tag",
+        search: `${tag.name} ${group} projecttags tag`.toLowerCase(),
+        rowType: "tag",
+      });
     }
-    return source
-      .filter((tag) => tag.name.toLowerCase().includes(query))
-      .slice(0, 200);
-  }, [project?.tags, tagsObjectsQuery]);
-  const filteredObjectCandidates = useMemo(() => {
-    const query = tagsObjectsQuery.trim().toLowerCase();
-    if (!query) {
-      return objectCandidates.slice(0, 150);
+    for (const obj of objectCandidates) {
+      const screenContext = `${obj.screenName} (${obj.screenId})`;
+      const pathContext = `${screenContext} | ${obj.path}${obj.context ? ` | ${obj.context}` : ""}`;
+      rows.push({
+        key: obj.key,
+        type: obj.source === "libraryInstance" ? "Library Object" : "Object",
+        idTag: obj.insertId,
+        pathContext,
+        source: obj.source === "libraryInstance" ? "LibraryInstance" : "Screen",
+        sourceKey: obj.source === "libraryInstance" ? "libraryInstance" : "screen",
+        objectType: obj.type,
+        search: `${obj.insertId} ${obj.path} ${obj.context ?? ""} ${obj.screenId} ${obj.screenName} ${
+          obj.source === "libraryInstance" ? "libraryinstance" : "screen"
+        } ${obj.type} ${
+          obj.source === "libraryInstance" ? "library object" : "object"
+        }`.toLowerCase(),
+        rowType: "object",
+      });
     }
-    return objectCandidates
-      .filter((item) => item.label.toLowerCase().includes(query) || item.insertId.toLowerCase().includes(query))
-      .slice(0, 300);
-  }, [objectCandidates, tagsObjectsQuery]);
+    return rows;
+  }, [objectCandidates, project?.tags]);
+  const tagsObjectsTypeOptions = useMemo(() => {
+    const set = new Set(tagsObjectsRows.map((row) => row.objectType).filter(Boolean));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [tagsObjectsRows]);
+  const filteredTagsObjectsRows = useMemo(() => {
+    const query = tagsObjectsQuery.trim().toLowerCase();
+    return tagsObjectsRows.filter((row) => {
+      if (tagsObjectsScopeFilter === "tags" && row.rowType !== "tag") {
+        return false;
+      }
+      if (tagsObjectsScopeFilter === "screenObjects" && !(row.rowType === "object" && row.sourceKey === "screen")) {
+        return false;
+      }
+      if (tagsObjectsScopeFilter === "libraryObjects" && !(row.rowType === "object" && row.sourceKey === "libraryInstance")) {
+        return false;
+      }
+      if (tagsObjectsSourceFilter !== "all" && row.sourceKey !== tagsObjectsSourceFilter) {
+        return false;
+      }
+      if (tagsObjectsTypeFilter !== "all" && row.objectType !== tagsObjectsTypeFilter) {
+        return false;
+      }
+      if (query && !row.search.includes(query)) {
+        return false;
+      }
+      return true;
+    });
+  }, [tagsObjectsQuery, tagsObjectsRows, tagsObjectsScopeFilter, tagsObjectsSourceFilter, tagsObjectsTypeFilter]);
+  const tagsObjectsTotalRows = filteredTagsObjectsRows.length;
+  const tagsObjectsTotalPages = Math.max(1, Math.ceil(tagsObjectsTotalRows / tagsObjectsPageSize));
+  const tagsObjectsSafePage = Math.min(tagsObjectsPage, tagsObjectsTotalPages);
+  const tagsObjectsPageRows = useMemo(
+    () => filteredTagsObjectsRows.slice((tagsObjectsSafePage - 1) * tagsObjectsPageSize, tagsObjectsSafePage * tagsObjectsPageSize),
+    [filteredTagsObjectsRows, tagsObjectsPageSize, tagsObjectsSafePage],
+  );
+  const macroHelpGridTemplateColumns = useMemo(
+    () => MACRO_HELP_COLUMNS.map((column) => `${helpColumnWidths[column.id] ?? column.defaultWidth}px`).join(" "),
+    [helpColumnWidths],
+  );
+  const exampleRows = useMemo(
+    () => [...practicalMacroExamples, ...macroExamples].map((example) => ({
+      ...example,
+      description: example.description
+        .replaceAll("Проверка текущего значения аналогового тега.", "Check current value of an analog tag.")
+        .replaceAll("Отправка команды ПУСК.", "Send a start command.")
+        .replaceAll("Подача импульса 300 мс с авто-сбросом.", "Send a 300 ms pulse with auto reset.")
+        .replaceAll("Открытие универсального popup для выбранного агрегата.", "Open a reusable popup for selected equipment.")
+        .replaceAll("Выбор активного насоса через LW10.", "Select active pump via LW10.")
+        .replaceAll("Сохранение этапа операции между запусками.", "Persist operation step between runs.")
+        .replaceAll("Безопасная работа с .Tag внутри popup по prefix.", "Use .Tag safely in popup context with prefix.")
+        .replaceAll("Пример вычисления и записи индекса.", "Compute and store index value.")
+        .replaceAll("Один popup для разных клапанов.", "Use one popup template for different valves.")
+        .replaceAll("Переключение префикса через internal variable.", "Switch prefix via internal variable.")
+        .replaceAll("Инкремент internal var и LW.", "Increment internal var and LW register.")
+        .replaceAll("Лог и var при плохом качестве.", "Log and set var on bad quality."),
+      code: example.code,
+    })),
+    [],
+  );
 
   const updateDraft = useCallback((patch: Partial<MacroDraft>) => {
     setDraftMacro((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -534,6 +725,76 @@ export function ScreenEditorMacrosWindow() {
     }
     updateDraft({ code: `${draftMacro.code}${snippet}` });
   }, [draftMacro, updateDraft]);
+
+  const startMacroHelpColumnResize = useCallback((
+    event: React.MouseEvent<HTMLSpanElement>,
+    columnId: MacroHelpColumnId,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const column = MACRO_HELP_COLUMNS.find((item) => item.id === columnId);
+    if (!column) {
+      return;
+    }
+
+    const startX = event.clientX;
+    const startWidth = helpColumnWidths[columnId] ?? column.defaultWidth;
+
+    const onMove = (moveEvent: MouseEvent): void => {
+      const delta = moveEvent.clientX - startX;
+      const next = Math.max(column.minWidth, startWidth + delta);
+      setHelpColumnWidths((prev) => ({
+        ...prev,
+        [columnId]: next,
+      }));
+    };
+
+    const onUp = (): void => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [helpColumnWidths]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(MACRO_HELP_COLUMNS_WIDTH_STORAGE_KEY, JSON.stringify(helpColumnWidths));
+  }, [helpColumnWidths]);
+
+  useEffect(() => {
+    setTagsObjectsPage(1);
+  }, [tagsObjectsQuery, tagsObjectsScopeFilter, tagsObjectsSourceFilter, tagsObjectsTypeFilter]);
+
+  useEffect(() => {
+    if (tagsObjectsPage > tagsObjectsTotalPages) {
+      setTagsObjectsPage(tagsObjectsTotalPages);
+    }
+  }, [tagsObjectsPage, tagsObjectsTotalPages]);
+
+  useEffect(() => {
+    if (tagsObjectsTypeFilter === "all") {
+      return;
+    }
+    if (!tagsObjectsTypeOptions.includes(tagsObjectsTypeFilter)) {
+      setTagsObjectsTypeFilter("all");
+    }
+  }, [tagsObjectsTypeFilter, tagsObjectsTypeOptions]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(MACRO_HELP_PAGE_SIZE_STORAGE_KEY, String(tagsObjectsPageSize));
+  }, [tagsObjectsPageSize]);
 
   const checkSyntax = useCallback(() => {
     if (!draftMacro) {
@@ -1217,34 +1478,66 @@ export function ScreenEditorMacrosWindow() {
                       children: (
                         <div className="screen-editor-macro-help-modal__block">
                           <div className="screen-editor-macro-help-modal__title">Quick Start</div>
-                          <ul>
-                            <li>Create or select a macro in the list.</li>
-                            <li>Write code in JavaScript-lite style (read tags, decide, write command tags).</li>
-                            <li>Use helpers in other tabs to insert API calls, templates, tags, and object IDs.</li>
-                            <li>Run Check Syntax, then Run/Test Macro, then Save Macro and Save Project.</li>
-                          </ul>
-                          <pre>{`// 1) Basic read + action
-const pressure = Number(readTag("Boiler.Pressure") ?? 0);
-if (pressure > 10) {
-  await writeTag("Boiler.HighPressureAlarm", true);
-}
-
-// 2) Safe start command (permissive interlock)
-const ready = readTag("Pump_1.Ready") === true;
-const fault = readTag("Pump_1.Fault") === true;
-if (ready && !fault) {
-  await pulseTag("Pump_1.StartCmd", true, 300, false);
-} else {
-  warn("Start blocked", { ready, fault });
-}
-
-// 3) Popup with runtime context
-const prefix = "LINES.L1.U1";
-openPopup("Popup_UnitControl", {
-  title: "Unit Control",
-  tagPrefix: prefix,
-  args: { source: "macro", prefix }
+                          <div className="screen-editor-macro-help-section-grid">
+                            <div className="screen-editor-macro-help-section">
+                              <div className="screen-editor-macro-help-section__title">Syntax Basics</div>
+                              <ul>
+                                <li>Read values with <code>readTag</code> / <code>getVar</code>.</li>
+                                <li>Use conditionals to decide actions.</li>
+                                <li>Write outputs with <code>writeTag</code> or <code>pulseTag</code>.</li>
+                              </ul>
+                              <pre>{`const pressure = Number(readTag("Boiler.Pressure") ?? 0);
+if (pressure > 10) await writeTag("Boiler.HighPressureAlarm", true);`}</pre>
+                              <pre>{`const enabled = readTag("Pump_1.Enable") === true;
+if (enabled) await pulseTag("Pump_1.StartCmd", true, 300, false);`}</pre>
+                            </div>
+                            <div className="screen-editor-macro-help-section">
+                              <div className="screen-editor-macro-help-section__title">Indexing Patterns</div>
+                              <ul>
+                                <li>Map multi-dimensional selectors to one flat index.</li>
+                                <li>Store index in LW/internal variable for reuse.</li>
+                              </ul>
+                              <pre>{`const burner = Number(getLW(20) ?? 1);
+const valve = Number(getLW(10) ?? 1);
+const index = (burner - 1) * 32 + valve;
+setLW(9200, index);`}</pre>
+                              <pre>{`const row = Number(getLW(30) ?? 1);
+const col = Number(getLW(31) ?? 1);
+const cellIndex = (row - 1) * 10 + col;
+setVar("CellIndex", cellIndex);`}</pre>
+                            </div>
+                            <div className="screen-editor-macro-help-section">
+                              <div className="screen-editor-macro-help-section__title">Window Template Patterns</div>
+                              <ul>
+                                <li>Open one popup template for many assets via <code>tagPrefix</code>.</li>
+                                <li>Pass calculated values via <code>args</code>.</li>
+                              </ul>
+                              <pre>{`const index = Number(getVar("SelectedIndex") ?? 1);
+openPopup("Popup_ValveTemplate", {
+  title: "Valve #" + index,
+  tagPrefix: "VALVES.V" + index,
+  args: { index }
 });`}</pre>
+                              <pre>{`openPopup("Popup_CellTemplate", {
+  title: "Cell Details",
+  tagPrefix: "MATRIX.R1.C1",
+  args: { mode: "inspect", source: "macro" }
+});`}</pre>
+                            </div>
+                            <div className="screen-editor-macro-help-section">
+                              <div className="screen-editor-macro-help-section__title">Prefix & resolveTag Patterns</div>
+                              <ul>
+                                <li>Build dynamic prefixes from runtime selectors.</li>
+                                <li>Resolve relative tags like <code>.Run</code>, <code>.StartCmd</code>.</li>
+                              </ul>
+                              <pre>{`const prefix = "UNITS.U" + Number(getVar("SelectedIndex") ?? 1);
+const runTag = resolveTag(".Run", prefix);
+const cmdTag = resolveTag(".StartCmd", prefix);`}</pre>
+                              <pre>{`if (readTag(resolveTag(".Fault", prefix)) !== true) {
+  await pulseTag(resolveTag(".StartCmd", prefix), true, 300, false);
+}`}</pre>
+                            </div>
+                          </div>
                         </div>
                       ),
                     },
@@ -1314,39 +1607,135 @@ openPopup("Popup_UnitControl", {
                       children: (
                         <div className="screen-editor-macro-help-modal__block">
                           <div className="screen-editor-macro-help-modal__title">Tags / Objects</div>
-                          <input
-                            className="workbench-input"
-                            value={tagsObjectsQuery}
-                            placeholder="Search tags, groups, nested objects, library instance objects"
-                            onChange={(event) => setTagsObjectsQuery(event.target.value)}
-                            style={{ marginBottom: 8, width: "100%" }}
-                          />
-                          <div className="screen-editor-macro-help-modal__api-list">
-                            {filteredTags.map((tag) => (
-                              <div key={tag.name} className="screen-editor-macro-help-modal__api-item">
-                                <code>{tag.name}</code>
-                                <div style={{ display: "flex", gap: 8 }}>
-                                  <WorkbenchButton onClick={() => insertCode(`readTag("${tag.name}")`)}>Read</WorkbenchButton>
-                                  <WorkbenchButton onClick={() => insertCode(`writeTag("${tag.name}", value)`)}>Write</WorkbenchButton>
-                                </div>
+                          <div className="screen-editor-macro-help-tags-filters">
+                            <select
+                              className="workbench-select"
+                              value={tagsObjectsScopeFilter}
+                              onChange={(event) => setTagsObjectsScopeFilter(event.target.value as TagsObjectsScopeFilter)}
+                            >
+                              <option value="all">Scope: All Items</option>
+                              <option value="tags">Scope: Tags</option>
+                              <option value="screenObjects">Scope: Screen Objects</option>
+                              <option value="libraryObjects">Scope: Library Objects</option>
+                            </select>
+                            <select
+                              className="workbench-select"
+                              value={tagsObjectsSourceFilter}
+                              onChange={(event) => setTagsObjectsSourceFilter(event.target.value as TagsObjectsSourceFilter)}
+                            >
+                              <option value="all">Source: All</option>
+                              <option value="projectTags">Source: ProjectTags</option>
+                              <option value="screen">Source: Screen</option>
+                              <option value="libraryInstance">Source: LibraryInstance</option>
+                            </select>
+                            <select
+                              className="workbench-select"
+                              value={tagsObjectsTypeFilter}
+                              onChange={(event) => setTagsObjectsTypeFilter(event.target.value)}
+                            >
+                              <option value="all">Type: All</option>
+                              {tagsObjectsTypeOptions.map((typeValue) => (
+                                <option key={typeValue} value={typeValue}>
+                                  {`Type: ${formatObjectTypeLabel(typeValue)}`}
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              className="workbench-input screen-editor-macro-help-tags-search"
+                              value={tagsObjectsQuery}
+                              placeholder="Search tag/id/path/screen/context"
+                              onChange={(event) => setTagsObjectsQuery(event.target.value)}
+                            />
+                          </div>
+                          <div className="screen-editor-macro-help-tags-table-wrap">
+                            <div className="screen-editor-tags-table">
+                              <div
+                                className="screen-editor-tags-row screen-editor-tags-row--header"
+                                style={{ gridTemplateColumns: macroHelpGridTemplateColumns } as CSSProperties}
+                              >
+                                {MACRO_HELP_COLUMNS.map((column) => (
+                                  <div key={column.id} className="screen-editor-tags-cell screen-editor-tags-header-cell">
+                                    <span>{column.title}</span>
+                                    <span
+                                      className="screen-editor-tags-column-resize-handle"
+                                      onMouseDown={(event) => startMacroHelpColumnResize(event, column.id)}
+                                    />
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                            {filteredObjectCandidates.map((obj) => (
-                              <div key={obj.key} className="screen-editor-macro-help-modal__api-item">
-                                <code>{obj.insertId}</code>
-                                <div className="screen-editor-macro-help-modal__api-desc">
-                                  {obj.label} · {obj.source === "libraryInstance" ? "Library instance" : "Screen object"}
+                              {tagsObjectsPageRows.map((row) => (
+                                <div
+                                  key={row.key}
+                                  className="screen-editor-tags-row"
+                                  style={{ gridTemplateColumns: macroHelpGridTemplateColumns } as CSSProperties}
+                                >
+                                  <div className="screen-editor-tags-cell">{row.type}</div>
+                                  <div className="screen-editor-tags-cell screen-editor-macro-help-tags-table__mono" title={row.idTag}>
+                                    {row.idTag}
+                                  </div>
+                                  <div className="screen-editor-tags-cell" title={row.pathContext}>
+                                    {row.pathContext}
+                                  </div>
+                                  <div className="screen-editor-tags-cell">{row.source}</div>
+                                  <div className="screen-editor-tags-cell">
+                                    <div className="screen-editor-macro-help-tags-table__actions">
+                                      {row.rowType === "tag" ? (
+                                        <>
+                                          <WorkbenchButton onClick={() => insertCode(`readTag("${row.idTag}")`)}>Read</WorkbenchButton>
+                                          <WorkbenchButton onClick={() => insertCode(`writeTag("${row.idTag}", value)`)}>Write</WorkbenchButton>
+                                        </>
+                                      ) : (
+                                        <WorkbenchButton onClick={() => insertCode(`"${row.idTag}"`)}>
+                                          Insert ID
+                                        </WorkbenchButton>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div>
-                                  <WorkbenchButton onClick={() => insertCode(`"${obj.insertId}"`)}>
-                                    Insert ID
-                                  </WorkbenchButton>
-                                </div>
-                              </div>
-                            ))}
-                            {filteredTags.length === 0 && filteredObjectCandidates.length === 0 ? (
+                              ))}
+                            </div>
+                            {tagsObjectsPageRows.length === 0 ? (
                               <div className="screen-editor-empty-state">No matches found</div>
                             ) : null}
+                          </div>
+                          <div className="screen-editor-tags-pagination screen-editor-macro-help-tags-pagination">
+                            <span>
+                              Rows: {tagsObjectsTotalRows} · Page {tagsObjectsSafePage} / {tagsObjectsTotalPages}
+                            </span>
+                            <WorkbenchButton disabled={tagsObjectsSafePage <= 1} onClick={() => setTagsObjectsPage(1)}>
+                              First
+                            </WorkbenchButton>
+                            <WorkbenchButton
+                              disabled={tagsObjectsSafePage <= 1}
+                              onClick={() => setTagsObjectsPage((prev) => Math.max(1, prev - 1))}
+                            >
+                              Prev
+                            </WorkbenchButton>
+                            <WorkbenchButton
+                              disabled={tagsObjectsSafePage >= tagsObjectsTotalPages}
+                              onClick={() => setTagsObjectsPage((prev) => Math.min(tagsObjectsTotalPages, prev + 1))}
+                            >
+                              Next
+                            </WorkbenchButton>
+                            <WorkbenchButton
+                              disabled={tagsObjectsSafePage >= tagsObjectsTotalPages}
+                              onClick={() => setTagsObjectsPage(tagsObjectsTotalPages)}
+                            >
+                              Last
+                            </WorkbenchButton>
+                            <select
+                              className="workbench-select screen-editor-tags-page-size"
+                              value={tagsObjectsPageSize}
+                              onChange={(event) => {
+                                setTagsObjectsPageSize(Number(event.target.value));
+                                setTagsObjectsPage(1);
+                              }}
+                            >
+                              <option value={50}>50</option>
+                              <option value={100}>100</option>
+                              <option value={200}>200</option>
+                              <option value={500}>500</option>
+                            </select>
                           </div>
                         </div>
                       ),
@@ -1357,7 +1746,7 @@ openPopup("Popup_UnitControl", {
                       children: (
                         <div className="screen-editor-macro-help-modal__block">
                           <div className="screen-editor-macro-help-modal__title">Examples</div>
-                          {[...practicalMacroExamples, ...macroExamples].map((example) => (
+                          {exampleRows.map((example) => (
                             <div key={example.id} className="screen-editor-macro-help-modal__example">
                               <strong>{example.title}</strong>
                               <div className="screen-editor-macro-help-modal__api-desc">{example.description}</div>
