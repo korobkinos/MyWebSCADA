@@ -32,6 +32,10 @@ import {
   libraryElementSchema,
   normalizePasswordPolicy,
   projectArchiveImportOptionsSchema,
+  projectArchiveAssetsImportOptionsSchema,
+  projectArchiveLibraryImportOptionsSchema,
+  projectArchiveMacroImportOptionsSchema,
+  projectArchiveScreenImportOptionsSchema,
   screenArchiveExportOptionsSchema,
   screenArchiveImportOptionsSchema,
   projectSchema,
@@ -1519,6 +1523,16 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     return reply.send({ ok: true, ...result });
   });
 
+  app.post("/api/project/archive/inspect", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    const result = await deps.projectArchiveService.inspectUploadedArchive(uploaded);
+    return reply.send({ ok: true, ...result });
+  });
+
   app.post("/api/project/archive/import", async (request, reply) => {
     const auth = await requirePermission(request, reply, deps, "editor.write");
     if (!auth) {
@@ -1535,6 +1549,86 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     try {
       const result = await deps.projectArchiveService.importProjectArchive(uploaded, options);
+      await persistProjectUpdate(deps, result.project);
+      return reply.send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.post("/api/project/archive/import-screen-from-project", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    if (!uploaded.options?.trim()) {
+      return reply.code(400).send({ error: "Bad Request", message: "Import options are required" });
+    }
+    try {
+      const options = projectArchiveScreenImportOptionsSchema.parse(JSON.parse(uploaded.options));
+      const result = await deps.projectArchiveService.importScreenFromProjectArchive(uploaded, options);
+      await persistProjectUpdate(deps, result.project);
+      return reply.send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.post("/api/project/archive/import-library-from-project", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    if (!uploaded.options?.trim()) {
+      return reply.code(400).send({ error: "Bad Request", message: "Import options are required" });
+    }
+    try {
+      const options = projectArchiveLibraryImportOptionsSchema.parse(JSON.parse(uploaded.options));
+      const result = await deps.projectArchiveService.importLibraryFromProjectArchive(uploaded, options);
+      await persistProjectUpdate(deps, result.project);
+      return reply.send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.post("/api/project/archive/import-macro-from-project", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    if (!uploaded.options?.trim()) {
+      return reply.code(400).send({ error: "Bad Request", message: "Import options are required" });
+    }
+    try {
+      const options = projectArchiveMacroImportOptionsSchema.parse(JSON.parse(uploaded.options));
+      const result = await deps.projectArchiveService.importMacroFromProjectArchive(uploaded, options);
+      await persistProjectUpdate(deps, result.project);
+      return reply.send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.post("/api/project/archive/import-assets-from-project", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    const uploaded = await parseUpload(request, { maxSizeBytes: 100 * 1024 * 1024, maxSizeLabel: "100 MB" });
+    if (!uploaded.options?.trim()) {
+      return reply.code(400).send({ error: "Bad Request", message: "Import options are required" });
+    }
+    try {
+      const options = projectArchiveAssetsImportOptionsSchema.parse(JSON.parse(uploaded.options));
+      const result = await deps.projectArchiveService.importAssetsFromProjectArchive(uploaded, options);
       await persistProjectUpdate(deps, result.project);
       return reply.send(result);
     } catch (error) {

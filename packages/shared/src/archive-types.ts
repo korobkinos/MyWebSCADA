@@ -119,6 +119,7 @@ export type ScreenArchiveValidationResult = ProjectArchiveValidationResult & {
 
 export type ProjectArchiveImportMode = "replace-current" | "import-as-copy";
 export type ScreenArchiveImportMode = "add" | "replace";
+export type ArchiveResourceImportMode = "add" | "replace" | "copy" | "keep-existing";
 
 export type ProjectArchiveImportOptions = {
   mode: ProjectArchiveImportMode;
@@ -128,6 +129,28 @@ export type ProjectArchiveImportOptions = {
 export type ScreenArchiveImportOptions = {
   mode: ScreenArchiveImportMode;
   replaceScreenId?: string;
+  requireSignature?: boolean;
+};
+
+export type ProjectArchiveScreenImportOptions = ScreenArchiveImportOptions & {
+  screenIds: string[];
+  dependencyMode?: ScreenArchiveDependencyMode;
+};
+
+export type ProjectArchiveLibraryImportOptions = {
+  libraryIds: string[];
+  conflictMode?: Extract<ArchiveResourceImportMode, "copy" | "replace" | "keep-existing">;
+  requireSignature?: boolean;
+};
+
+export type ProjectArchiveMacroImportOptions = {
+  macroIds: string[];
+  conflictMode?: ArchiveResourceImportMode;
+  requireSignature?: boolean;
+};
+
+export type ProjectArchiveAssetsImportOptions = {
+  assetIds: string[];
   requireSignature?: boolean;
 };
 
@@ -163,6 +186,75 @@ export type ScreenArchiveImportResult = {
   skippedTags: number;
   reusedLibraries: number;
   copiedLibraries: number;
+  warnings: ProjectArchiveIssue[];
+  project: ScadaProject;
+};
+
+export type ArchiveInspectionItem = {
+  id: string;
+  name: string;
+  checksum?: string;
+  kind?: string;
+  count?: number;
+};
+
+export type ArchiveConflictPreviewItem = {
+  id: string;
+  name: string;
+  status:
+    | "new"
+    | "reuse-same-checksum"
+    | "copy-different-checksum"
+    | "keep-existing"
+    | "replace"
+    | "import-as-copy";
+  message: string;
+};
+
+export type ArchiveDependencySummary = {
+  assets: number;
+  libraries: number;
+  macros: number;
+  tags: number;
+  events: number;
+};
+
+export type ProjectArchiveInspectionResult = ProjectArchiveValidationResult & {
+  archiveType?: "project" | "screen";
+  screens: ArchiveInspectionItem[];
+  libraries: ArchiveInspectionItem[];
+  macros: ArchiveInspectionItem[];
+  assets: ArchiveInspectionItem[];
+  tags: ArchiveInspectionItem[];
+  events: ArchiveInspectionItem[];
+  dependencies?: ArchiveDependencySummary;
+  conflicts?: {
+    assets: ArchiveConflictPreviewItem[];
+    libraries: ArchiveConflictPreviewItem[];
+    macros: ArchiveConflictPreviewItem[];
+    tags: ArchiveConflictPreviewItem[];
+    screens: ArchiveConflictPreviewItem[];
+  };
+};
+
+export type ProjectArchivePartialImportResult = {
+  ok: boolean;
+  imported: {
+    screens?: number;
+    libraries?: number;
+    macros?: number;
+    assets?: number;
+  };
+  reused: {
+    assets?: number;
+    libraries?: number;
+    macros?: number;
+  };
+  copied: {
+    assets?: number;
+    libraries?: number;
+    macros?: number;
+  };
   warnings: ProjectArchiveIssue[];
   project: ScadaProject;
 };
@@ -235,6 +327,28 @@ export const projectArchiveImportOptionsSchema = z.object({
 export const screenArchiveImportOptionsSchema = z.object({
   mode: z.enum(["add", "replace"]).default("add"),
   replaceScreenId: z.string().min(1).optional(),
+  requireSignature: z.boolean().optional(),
+});
+
+export const projectArchiveScreenImportOptionsSchema = screenArchiveImportOptionsSchema.extend({
+  screenIds: z.array(z.string().min(1)).min(1),
+  dependencyMode: z.enum(["minimal", "safe"]).default("safe"),
+});
+
+export const projectArchiveLibraryImportOptionsSchema = z.object({
+  libraryIds: z.array(z.string().min(1)).min(1),
+  conflictMode: z.enum(["copy", "replace", "keep-existing"]).default("copy"),
+  requireSignature: z.boolean().optional(),
+});
+
+export const projectArchiveMacroImportOptionsSchema = z.object({
+  macroIds: z.array(z.string().min(1)).min(1),
+  conflictMode: z.enum(["add", "replace", "copy", "keep-existing"]).default("copy"),
+  requireSignature: z.boolean().optional(),
+});
+
+export const projectArchiveAssetsImportOptionsSchema = z.object({
+  assetIds: z.array(z.string().min(1)).min(1),
   requireSignature: z.boolean().optional(),
 });
 

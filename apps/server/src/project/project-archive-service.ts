@@ -12,8 +12,14 @@ import type {
   HmiObject,
   HmiScreen,
   MacroDefinition,
+  ProjectArchiveAssetsImportOptions,
   ProjectArchiveImportOptions,
   ProjectArchiveImportResult,
+  ProjectArchiveInspectionResult,
+  ProjectArchiveLibraryImportOptions,
+  ProjectArchiveMacroImportOptions,
+  ProjectArchivePartialImportResult,
+  ProjectArchiveScreenImportOptions,
   ProjectArchiveIssue,
   ProjectArchiveManifest,
   ProjectArchiveSignature,
@@ -32,7 +38,11 @@ import type {
 } from "@web-scada/shared";
 import {
   projectArchiveImportOptionsSchema,
+  projectArchiveAssetsImportOptionsSchema,
+  projectArchiveLibraryImportOptionsSchema,
+  projectArchiveMacroImportOptionsSchema,
   projectArchiveManifestSchema,
+  projectArchiveScreenImportOptionsSchema,
   projectArchiveSignatureSchema,
   projectArchiveValidationOptionsSchema,
   projectSchema,
@@ -883,9 +893,248 @@ export class ProjectArchiveService {
       throw new Error(inspected.errors[0]?.message ?? "Screen archive is invalid");
     }
 
+    return this.importScreenData(inspected.parsed, inspected.parsed.data, parsedOptions, [...inspected.warnings]);
+  }
+
+  public async inspectUploadedArchive(uploadedFile: UploadInput): Promise<ProjectArchiveInspectionResult> {
+    const projectInspection = await this.inspectProjectArchive(uploadedFile.content, true, {
+      requireSignature: Boolean(archiveSecret()),
+    });
+    if (projectInspection.parsed?.kind === "project") {
+      return this.buildProjectInspection(projectInspection, projectInspection.parsed);
+    }
+
+    const screenInspection = await this.inspectScreenArchive(uploadedFile.content, true, {
+      requireSignature: Boolean(archiveSecret()),
+    });
+    if (screenInspection.parsed?.kind === "screen") {
+      return this.buildScreenInspection(screenInspection, screenInspection.parsed);
+    }
+
+    return {
+      ...projectInspection,
+      archiveType: undefined,
+      screens: [],
+      libraries: [],
+      macros: [],
+      assets: [],
+      tags: [],
+      events: [],
+    };
+  }
+
+  public async importScreenFromProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveScreenImportOptions): Promise<ScreenArchiveImportResult> {
+    const parsedOptions = projectArchiveScreenImportOptionsSchema.parse(options ?? {});
+    const inspected = await this.inspectProjectArchive(uploadedFile.content, true, {
+      requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
+    });
+    if (!inspected.valid || !inspected.parsed || inspected.parsed.kind !== "project") {
+      throw new Error(inspected.errors[0]?.message ?? "Project archive is invalid");
+    }
+
+    const selectedScreens = inspected.parsed.project.screens.filter((screen) => parsedOptions.screenIds.includes(screen.id));
+    if (selectedScreens.length === 0) {
+      throw new Error("No matching screens were found in the project archive");
+    }
+    if (parsedOptions.mode === "replace" && selectedScreens.length !== 1) {
+      throw new Error("Replacing a screen requires selecting exactly one archive screen");
+    }
+
+    let lastResult: ScreenArchiveImportResult | undefined;
+    for (const screen of selectedScreens) {
+      const dependencies = this.collectScreenArchiveDependencies(inspected.parsed.project, screen, parsedOptions.dependencyMode ?? "safe");
+      const librarySet = new Set(dependencies.libraries);
+      const data: ScreenArchiveData = {
+        screen,
+        assets: dependencies.assets,
+        libraries: this.readProjectArchiveLibraries(inspected.parsed).filter((library) => librarySet.has(library.id)),
+        tags: dependencies.tags,
+        macros: dependencies.macros,
+        events: dependencies.events,
+      };
+      lastResult = await this.importScreenData(inspected.parsed, data, {
+        mode: parsedOptions.mode,
+        replaceScreenId: parsedOptions.replaceScreenId,
+        requireSignature: parsedOptions.requireSignature,
+      }, [...inspected.warnings, ...dependencies.warnings]);
+    }
+    if (!lastResult) {
+      throw new Error("No screens were imported");
+    }
+    return lastResult;
+  }
+
+  public async importLibraryFromProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveLibraryImportOptions): Promise<ProjectArchivePartialImportResult> {
+    const parsedOptions = projectArchiveLibraryImportOptionsSchema.parse(options ?? {});
+    const inspected = await this.inspectProjectArchive(uploadedFile.content, true, {
+      requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
+    });
+    if (!inspected.valid || !inspected.parsed || inspected.parsed.kind !== "project") {
+      throw new Error(inspected.errors[0]?.message ?? "Project archive is invalid");
+    }
+
+    const project = this.projectService.getProject();
+    const warnings: ProjectArchiveIssue[] = [...inspected.warnings];
+    const existingLibraries = await this.libraryService.listLibraries();
+    const existingById = new Map(existingLibraries.map((library) => [library.id, library]));
+    const takenLibraryIds = new Set(existingLibraries.map((library) => library.id));
+    const sourceLibraries = this.readProjectArchiveLibraries(inspected.parsed).filter((library) => parsedOptions.libraryIds.includes(library.id));
+    let imported = 0;
+    let reused = 0;
+    let copied = 0;
+    const nextProjectLibraryRefs = [...(project.libraries ?? [])];
+
+    for (const sourceLibrary of sourceLibraries) {
+      const prefix = `libraries/${sourceLibrary.id}/`;
+      const sourceHash = sha256(canonicalLibraryPayload(sourceLibrary, inspected.parsed.files, prefix));
+      const existing = existingById.get(sourceLibrary.id);
+      let targetId = sourceLibrary.id;
+      if (existing) {
+        const localFiles = await this.readLocalLibraryFiles(existing.id);
+        const existingHash = sha256(canonicalLibraryPayload(existing, localFiles, ""));
+        if (existingHash === sourceHash || parsedOptions.conflictMode === "keep-existing") {
+          reused += 1;
+          this.ensureProjectLibraryRef(nextProjectLibraryRefs, existing.id, existing);
+          continue;
+        }
+        if (parsedOptions.conflictMode === "copy") {
+          targetId = makeUniqueId(sourceLibrary.id, takenLibraryIds, "library");
+          copied += 1;
+          addIssue(warnings, "LIBRARY_IMPORTED_AS_COPY", `Library '${sourceLibrary.id}' already exists with different content; imported as '${targetId}'.`);
+        }
+      }
+      takenLibraryIds.add(targetId);
+      const library = normalizeImportedLibrary(sourceLibrary, targetId);
+      await this.restoreLibrary(inspected.parsed, sourceLibrary.id, library);
+      this.ensureProjectLibraryRef(nextProjectLibraryRefs, targetId, library);
+      imported += 1;
+    }
+
+    const nextProject = await this.projectService.saveProject({
+      ...project,
+      libraries: nextProjectLibraryRefs,
+    });
+    return { ok: true, imported: { libraries: imported }, reused: { libraries: reused }, copied: { libraries: copied }, warnings, project: nextProject };
+  }
+
+  public async importMacroFromProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveMacroImportOptions): Promise<ProjectArchivePartialImportResult> {
+    const parsedOptions = projectArchiveMacroImportOptionsSchema.parse(options ?? {});
+    const inspected = await this.inspectProjectArchive(uploadedFile.content, true, {
+      requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
+    });
+    if (!inspected.valid || !inspected.parsed || inspected.parsed.kind !== "project") {
+      throw new Error(inspected.errors[0]?.message ?? "Project archive is invalid");
+    }
+
+    const project = this.projectService.getProject();
+    const warnings: ProjectArchiveIssue[] = [...inspected.warnings];
+    const selected = (inspected.parsed.project.macros ?? []).filter((macro) => parsedOptions.macroIds.includes(macro.id));
+    const nextMacros = [...(project.macros ?? [])];
+    const existingById = new Map(nextMacros.map((macro, index) => [macro.id, { macro, index }]));
+    const takenIds = new Set(nextMacros.map((macro) => macro.id));
+    let imported = 0;
+    let reused = 0;
+    let copied = 0;
+
+    for (const macro of selected) {
+      const existing = existingById.get(macro.id);
+      if (!existing) {
+        nextMacros.push(macro);
+        takenIds.add(macro.id);
+        imported += 1;
+        continue;
+      }
+      if (existing.macro.code === macro.code && existing.macro.language === macro.language) {
+        reused += 1;
+        continue;
+      }
+      if (parsedOptions.conflictMode === "keep-existing" || parsedOptions.conflictMode === "add") {
+        reused += 1;
+        continue;
+      }
+      if (parsedOptions.conflictMode === "replace") {
+        nextMacros[existing.index] = macro;
+        imported += 1;
+        continue;
+      }
+      const nextId = makeUniqueId(macro.id, takenIds, "macro");
+      nextMacros.push({ ...macro, id: nextId, name: `${macro.name} (copy)` });
+      takenIds.add(nextId);
+      copied += 1;
+      addIssue(warnings, "MACRO_IMPORTED_AS_COPY", `Macro '${macro.id}' already exists with different code; imported as '${nextId}'.`);
+    }
+
+    const nextProject = await this.projectService.saveProject({ ...project, macros: nextMacros });
+    return { ok: true, imported: { macros: imported + copied }, reused: { macros: reused }, copied: { macros: copied }, warnings, project: nextProject };
+  }
+
+  public async importAssetsFromProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveAssetsImportOptions): Promise<ProjectArchivePartialImportResult> {
+    const parsedOptions = projectArchiveAssetsImportOptionsSchema.parse(options ?? {});
+    const inspected = await this.inspectProjectArchive(uploadedFile.content, true, {
+      requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
+    });
+    if (!inspected.valid || !inspected.parsed || inspected.parsed.kind !== "project") {
+      throw new Error(inspected.errors[0]?.message ?? "Project archive is invalid");
+    }
+
     const project = this.projectService.getProject();
     const projectDir = path.dirname(this.projectService.getProjectFile());
     const warnings: ProjectArchiveIssue[] = [...inspected.warnings];
+    const nextAssets = [...(project.assets ?? [])];
+    const existingAssetsById = new Map(nextAssets.map((asset) => [asset.id, asset]));
+    const takenAssetIds = new Set(nextAssets.map((asset) => asset.id));
+    let imported = 0;
+    let reused = 0;
+    let copied = 0;
+
+    for (const sourceAsset of (inspected.parsed.project.assets ?? []).filter((asset) => parsedOptions.assetIds.includes(asset.id))) {
+      const normalized = normalizeArchivePath(sourceAsset.storagePath);
+      if (!normalized.ok) {
+        addIssue(warnings, "SKIPPED_ASSET", normalized.reason, sourceAsset.storagePath);
+        continue;
+      }
+      const fileBytes = inspected.parsed.files.get(normalized.value);
+      if (!fileBytes) {
+        continue;
+      }
+      const existing = existingAssetsById.get(sourceAsset.id);
+      let targetAsset = withProjectAssetPreview(sourceAsset);
+      if (existing) {
+        const existingPath = normalizeArchivePath(existing.storagePath);
+        const existingBytes = existingPath.ok ? await readFile(path.join(projectDir, ...existingPath.value.split("/"))).catch(() => undefined) : undefined;
+        if (existingBytes && sha256(existingBytes) === sha256(fileBytes)) {
+          reused += 1;
+          continue;
+        }
+        const nextId = makeUniqueId(sourceAsset.id, takenAssetIds, "asset");
+        targetAsset = {
+          ...targetAsset,
+          id: nextId,
+          name: `${targetAsset.name} (copy)`,
+          fileName: `${nextId}${path.posix.extname(sourceAsset.fileName || sourceAsset.storagePath)}`,
+          storagePath: `assets/${nextId}${path.posix.extname(sourceAsset.fileName || sourceAsset.storagePath)}`,
+        };
+        copied += 1;
+      }
+      takenAssetIds.add(targetAsset.id);
+      nextAssets.push(withProjectAssetPreview(targetAsset));
+      await this.writeArchiveFile(projectDir, targetAsset.storagePath, fileBytes);
+      imported += 1;
+    }
+
+    const nextProject = await this.projectService.saveProject({ ...project, assets: nextAssets });
+    return { ok: true, imported: { assets: imported }, reused: { assets: reused }, copied: { assets: copied }, warnings, project: nextProject };
+  }
+
+  private async importScreenData(
+    parsed: ParsedZip,
+    data: ScreenArchiveData,
+    parsedOptions: ScreenArchiveImportOptions,
+    initialWarnings: ProjectArchiveIssue[],
+  ): Promise<ScreenArchiveImportResult> {
+    const project = this.projectService.getProject();
+    const projectDir = path.dirname(this.projectService.getProjectFile());
+    const warnings: ProjectArchiveIssue[] = [...initialWarnings];
     const assetIdMap = new Map<string, string>();
     const libraryIdMap = new Map<string, string>();
     const macroIdMap = new Map<string, string>();
@@ -900,13 +1149,13 @@ export class ProjectArchiveService {
     const existingAssetsById = new Map(nextAssets.map((asset) => [asset.id, asset]));
     const takenAssetIds = new Set(nextAssets.map((asset) => asset.id));
 
-    for (const sourceAsset of inspected.parsed.data.assets) {
+    for (const sourceAsset of data.assets) {
       const normalized = normalizeArchivePath(sourceAsset.storagePath);
       if (!normalized.ok) {
         addIssue(warnings, "SKIPPED_ASSET", normalized.reason, sourceAsset.storagePath);
         continue;
       }
-      const fileBytes = inspected.parsed.files.get(normalized.value);
+      const fileBytes = parsed.files.get(normalized.value);
       if (!fileBytes) {
         continue;
       }
@@ -938,7 +1187,7 @@ export class ProjectArchiveService {
 
     const nextTags = [...project.tags];
     const existingTagNames = new Set(nextTags.map((tag) => tag.name));
-    for (const tag of inspected.parsed.data.tags) {
+    for (const tag of data.tags) {
       if (existingTagNames.has(tag.name)) {
         skippedTags += 1;
         continue;
@@ -953,9 +1202,9 @@ export class ProjectArchiveService {
     const takenLibraryIds = new Set(existingLibraries.map((library) => library.id));
     const nextProjectLibraryRefs = [...(project.libraries ?? [])];
 
-    for (const sourceLibrary of inspected.parsed.data.libraries) {
+    for (const sourceLibrary of data.libraries) {
       const prefix = `libraries/${sourceLibrary.id}/`;
-      const sourceHash = sha256(canonicalLibraryPayload(sourceLibrary, inspected.parsed.files, prefix));
+      const sourceHash = sha256(canonicalLibraryPayload(sourceLibrary, parsed.files, prefix));
       const existing = existingLibrariesById.get(sourceLibrary.id);
       let targetId = sourceLibrary.id;
       if (existing) {
@@ -973,7 +1222,7 @@ export class ProjectArchiveService {
       takenLibraryIds.add(targetId);
       libraryIdMap.set(sourceLibrary.id, targetId);
       const library = normalizeImportedLibrary(sourceLibrary, targetId);
-      await this.restoreLibrary(inspected.parsed, sourceLibrary.id, library);
+      await this.restoreLibrary(parsed, sourceLibrary.id, library);
       if (!nextProjectLibraryRefs.some((ref) => ref.libraryId === targetId)) {
         nextProjectLibraryRefs.push({
           libraryId: targetId,
@@ -988,12 +1237,12 @@ export class ProjectArchiveService {
       }
     }
 
-    const macroMerge = this.mergeMacros(project.macros ?? [], inspected.parsed.data.macros, warnings);
+    const macroMerge = this.mergeMacros(project.macros ?? [], data.macros, warnings);
     for (const [sourceId, targetId] of macroMerge.idMap) {
       macroIdMap.set(sourceId, targetId);
     }
 
-    let importedScreen = replaceIdsInUnknown(inspected.parsed.data.screen, { assetIds: assetIdMap, libraryIds: libraryIdMap, macroIds: macroIdMap }) as HmiScreen;
+    let importedScreen = replaceIdsInUnknown(data.screen, { assetIds: assetIdMap, libraryIds: libraryIdMap, macroIds: macroIdMap }) as HmiScreen;
     let nextScreens = [...project.screens];
     if (parsedOptions.mode === "replace") {
       const targetId = parsedOptions.replaceScreenId ?? importedScreen.id;
@@ -1021,7 +1270,7 @@ export class ProjectArchiveService {
       tags: nextTags,
       libraries: nextProjectLibraryRefs,
       macros: macroMerge.macros,
-      events: this.mergeEvents(project.events ?? [], inspected.parsed.data.events ?? [], warnings),
+      events: this.mergeEvents(project.events ?? [], data.events ?? [], warnings),
       screens: nextScreens,
       startScreenId: project.startScreenId ?? nextScreens[0]?.id,
     });
@@ -1040,6 +1289,183 @@ export class ProjectArchiveService {
       warnings,
       project: nextProject,
     };
+  }
+
+  private buildProjectInspection(
+    inspection: ProjectArchiveValidationResult & { parsed?: AnyParsedArchive },
+    parsed: ParsedProjectArchive,
+  ): ProjectArchiveInspectionResult {
+    const project = parsed.project;
+    const current = this.projectService.getProject();
+    const existingScreenIds = new Set(current.screens.map((screen) => screen.id));
+    const existingAssetIds = new Set((current.assets ?? []).map((asset) => asset.id));
+    const existingMacroIds = new Set((current.macros ?? []).map((macro) => macro.id));
+    const existingTagNames = new Set(current.tags.map((tag) => tag.name));
+    const existingLibraryIds = new Set((current.libraries ?? []).map((library) => library.libraryId));
+    const libraries = this.readProjectArchiveLibraries(parsed);
+    return {
+      ...this.stripParsed(inspection),
+      archiveType: "project",
+      screens: project.screens.map((screen) => ({ id: screen.id, name: screen.name, kind: screen.kind, count: screen.objects.length })),
+      libraries: libraries.map((library) => ({ id: library.id, name: library.name, count: library.elements.length })),
+      macros: (project.macros ?? []).map((macro) => ({ id: macro.id, name: macro.name, kind: macro.language })),
+      assets: (project.assets ?? []).map((asset) => {
+        const normalized = normalizeArchivePath(asset.storagePath);
+        const bytes = normalized.ok ? parsed.files.get(normalized.value) : undefined;
+        return { id: asset.id, name: asset.name, checksum: bytes ? sha256(bytes) : undefined, kind: asset.mimeType };
+      }),
+      tags: project.tags.map((tag) => ({ id: tag.name, name: tag.name, kind: tag.dataType })),
+      events: (project.events ?? []).map((event) => ({ id: event.id, name: event.message ?? event.id, kind: event.conditionMode })),
+      dependencies: {
+        assets: (project.assets ?? []).length,
+        libraries: libraries.length,
+        macros: (project.macros ?? []).length,
+        tags: project.tags.length,
+        events: (project.events ?? []).length,
+      },
+      conflicts: {
+        screens: project.screens.map((screen) => ({
+          id: screen.id,
+          name: screen.name,
+          status: existingScreenIds.has(screen.id) ? "import-as-copy" : "new",
+          message: existingScreenIds.has(screen.id)
+            ? "A screen with this id exists. Import as new will create a copy; replace will overwrite the selected current screen."
+            : "New screen.",
+        })),
+        assets: (project.assets ?? []).map((asset) => ({
+          id: asset.id,
+          name: asset.name,
+          status: existingAssetIds.has(asset.id) ? "copy-different-checksum" : "new",
+          message: existingAssetIds.has(asset.id)
+            ? "An asset with this id exists. If content differs it will be imported as a copy and references will be rewritten."
+            : "New asset.",
+        })),
+        libraries: libraries.map((library) => ({
+          id: library.id,
+          name: library.name,
+          status: existingLibraryIds.has(library.id) ? "copy-different-checksum" : "new",
+          message: existingLibraryIds.has(library.id)
+            ? "A library with this id exists. Same content is reused; different content is imported as a copy unless replace is selected."
+            : "New library.",
+        })),
+        macros: (project.macros ?? []).map((macro) => ({
+          id: macro.id,
+          name: macro.name,
+          status: existingMacroIds.has(macro.id) ? "import-as-copy" : "new",
+          message: existingMacroIds.has(macro.id)
+            ? "A macro with this id exists. Choose keep existing, replace, or import as copy before import."
+            : "New macro.",
+        })),
+        tags: project.tags.map((tag) => ({
+          id: tag.name,
+          name: tag.name,
+          status: existingTagNames.has(tag.name) ? "keep-existing" : "new",
+          message: existingTagNames.has(tag.name)
+            ? "A tag with this name exists. Existing tag is kept by default."
+            : "New tag.",
+        })),
+      },
+    };
+  }
+
+  private buildScreenInspection(
+    inspection: ScreenArchiveValidationResult & { parsed?: AnyParsedArchive },
+    parsed: ParsedScreenArchive,
+  ): ProjectArchiveInspectionResult {
+    const data = parsed.data;
+    const conflicts = inspection.conflicts;
+    return {
+      ...this.stripParsed(inspection),
+      archiveType: "screen",
+      screens: [{ id: data.screen.id, name: data.screen.name, kind: data.screen.kind, count: data.screen.objects.length }],
+      libraries: data.libraries.map((library) => ({ id: library.id, name: library.name, count: library.elements.length })),
+      macros: data.macros.map((macro) => ({ id: macro.id, name: macro.name, kind: macro.language })),
+      assets: data.assets.map((asset) => {
+        const normalized = normalizeArchivePath(asset.storagePath);
+        const bytes = normalized.ok ? parsed.files.get(normalized.value) : undefined;
+        return { id: asset.id, name: asset.name, checksum: bytes ? sha256(bytes) : undefined, kind: asset.mimeType };
+      }),
+      tags: data.tags.map((tag) => ({ id: tag.name, name: tag.name, kind: tag.dataType })),
+      events: (data.events ?? []).map((event) => ({ id: event.id, name: event.message ?? event.id, kind: event.conditionMode })),
+      dependencies: {
+        assets: data.assets.length,
+        libraries: data.libraries.length,
+        macros: data.macros.length,
+        tags: data.tags.length,
+        events: data.events?.length ?? 0,
+      },
+      conflicts: {
+        screens: [{
+          id: data.screen.id,
+          name: data.screen.name,
+          status: conflicts?.screenIdConflict ? "import-as-copy" : "new",
+          message: conflicts?.screenIdConflict ? "A screen with this id exists. Add as new will create a copy; replace overwrites selected current screen." : "New screen.",
+        }],
+        assets: data.assets.map((asset) => ({
+          id: asset.id,
+          name: asset.name,
+          status: conflicts?.assetConflicts.includes(asset.id) ? "copy-different-checksum" : "new",
+          message: conflicts?.assetConflicts.includes(asset.id)
+            ? "An asset with this id exists. Same checksum is reused; different checksum is imported as a copy and references are rewritten."
+            : "New asset.",
+        })),
+        libraries: data.libraries.map((library) => ({
+          id: library.id,
+          name: library.name,
+          status: conflicts?.libraryConflicts.includes(library.id) ? "copy-different-checksum" : "new",
+          message: conflicts?.libraryConflicts.includes(library.id)
+            ? "A library with this id exists. Same checksum is reused; different checksum is imported as a copy and references are rewritten."
+            : "New library.",
+        })),
+        macros: data.macros.map((macro) => ({
+          id: macro.id,
+          name: macro.name,
+          status: "import-as-copy",
+          message: "On conflict, different macro code is imported as a copy and references are rewritten.",
+        })),
+        tags: data.tags.map((tag) => ({
+          id: tag.name,
+          name: tag.name,
+          status: conflicts?.tagConflicts.includes(tag.name) ? "keep-existing" : "new",
+          message: conflicts?.tagConflicts.includes(tag.name) ? "Existing tag is kept by default." : "New tag.",
+        })),
+      },
+    };
+  }
+
+  private readProjectArchiveLibraries(parsed: ParsedProjectArchive): ElementLibrary[] {
+    const libraries: ElementLibrary[] = [];
+    const ids = new Set((parsed.project.libraries ?? []).filter((ref) => ref.enabled !== false).map((ref) => ref.libraryId));
+    for (const libraryId of ids) {
+      const bytes = parsed.files.get(`libraries/${libraryId}/library.json`);
+      if (!bytes) {
+        continue;
+      }
+      try {
+        libraries.push(JSON.parse(bytes.toString("utf8")) as ElementLibrary);
+      } catch {
+        // Validation already reports invalid library JSON; inspection can skip the broken item.
+      }
+    }
+    return libraries;
+  }
+
+  private ensureProjectLibraryRef(projectRefs: NonNullable<ScadaProject["libraries"]>, libraryId: string, library: ElementLibrary): void {
+    const existing = projectRefs.find((ref) => ref.libraryId === libraryId);
+    if (existing) {
+      existing.enabled = true;
+      existing.name = library.name;
+      existing.version = library.version;
+      existing.path = path.dirname(this.libraryService.libraryFilePath(libraryId));
+      return;
+    }
+    projectRefs.push({
+      libraryId,
+      name: library.name,
+      version: library.version,
+      path: path.dirname(this.libraryService.libraryFilePath(libraryId)),
+      enabled: true,
+    });
   }
 
   private async inspectProjectArchive(content: Buffer, withParsed?: false, options?: ProjectArchiveValidationOptions): Promise<ProjectArchiveValidationResult>;

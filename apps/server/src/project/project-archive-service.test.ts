@@ -323,6 +323,40 @@ describe("ProjectArchiveService", () => {
     expect(bytes.toString()).toBe("source-image");
   });
 
+  it("inspects a full project archive and lists resources", async () => {
+    const sourceProject = makeProject("Inspectable Project", "main", "asset1");
+    sourceProject.macros = [makeMacro("macro1", "writeTag('Tank.Level', 42)")];
+    const harness = await makeHarness(sourceProject);
+    const exported = await harness.service.exportProjectArchive();
+
+    const result = await harness.service.inspectUploadedArchive(upload(exported.buffer));
+
+    expect(result.valid).toBe(true);
+    expect(result.archiveType).toBe("project");
+    expect(result.screens.map((screen) => screen.id)).toEqual(["main"]);
+    expect(result.assets.map((asset) => asset.id)).toEqual(["asset1"]);
+    expect(result.macros.map((macro) => macro.id)).toEqual(["macro1"]);
+  });
+
+  it("imports one screen from a full project archive", async () => {
+    const sourceProject = makeProject("Source Project", "main", "asset1");
+    sourceProject.screens.push(makeScreen("details", "asset1"));
+    const source = await makeHarness(sourceProject, Buffer.from("source-image"));
+    const target = await makeHarness(makeProject("Target Project", "target", "asset2"), Buffer.from("target-image"));
+    const exported = await source.service.exportProjectArchive();
+
+    const result = await target.service.importScreenFromProjectArchive(upload(exported.buffer), {
+      screenIds: ["details"],
+      mode: "add",
+      dependencyMode: "minimal",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.importedScreenName).toBe("details");
+    expect(result.project.screens.some((screen) => screen.id === "details")).toBe(true);
+    expect(result.project.screens.some((screen) => screen.id === "main")).toBe(false);
+  });
+
   it("imports a conflicting library as a copy and rewrites screen references", async () => {
     const sourceProject = makeProject("Source Project", "main", "asset1");
     sourceProject.libraries = [{ libraryId: "lib1", name: "lib1", version: "1.0.0", enabled: true }];

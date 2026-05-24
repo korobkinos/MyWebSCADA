@@ -23,8 +23,14 @@ import type {
   OperatorActionHistoryPage,
   OperatorActionHistoryQuery,
   PasswordPolicy,
+  ProjectArchiveAssetsImportOptions,
   ProjectArchiveImportOptions,
   ProjectArchiveImportResult,
+  ProjectArchiveInspectionResult,
+  ProjectArchiveLibraryImportOptions,
+  ProjectArchiveMacroImportOptions,
+  ProjectArchivePartialImportResult,
+  ProjectArchiveScreenImportOptions,
   ProjectArchiveValidationResult,
   RuntimeState,
   ScadaProject,
@@ -627,11 +633,55 @@ export const api = {
       body: form,
     });
   },
+  inspectArchive: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ ok: boolean } & ProjectArchiveInspectionResult>("/api/project/archive/inspect", {
+      method: "POST",
+      body: form,
+    });
+  },
   importProjectArchive: (file: File, options?: ProjectArchiveImportOptions) => {
     const form = new FormData();
     form.append("file", file);
     form.append("options", JSON.stringify(options ?? { mode: "replace-current" }));
     return request<ProjectArchiveImportResult>("/api/project/archive/import", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importScreenFromProjectArchive: (file: File, options: ProjectArchiveScreenImportOptions) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("options", JSON.stringify(options));
+    return request<ScreenArchiveImportResult>("/api/project/archive/import-screen-from-project", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importLibraryFromProjectArchive: (file: File, options: ProjectArchiveLibraryImportOptions) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("options", JSON.stringify(options));
+    return request<ProjectArchivePartialImportResult>("/api/project/archive/import-library-from-project", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importMacroFromProjectArchive: (file: File, options: ProjectArchiveMacroImportOptions) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("options", JSON.stringify(options));
+    return request<ProjectArchivePartialImportResult>("/api/project/archive/import-macro-from-project", {
+      method: "POST",
+      body: form,
+    });
+  },
+  importAssetsFromProjectArchive: (file: File, options: ProjectArchiveAssetsImportOptions) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("options", JSON.stringify(options));
+    return request<ProjectArchivePartialImportResult>("/api/project/archive/import-assets-from-project", {
       method: "POST",
       body: form,
     });
