@@ -15,6 +15,7 @@ import { EventSoundService } from "./events/event-sound-service.js";
 import { EventEngine } from "./events/event-engine.js";
 import { LibraryService } from "./libraries/library-service.js";
 import { ProjectArchiveService } from "./project/project-archive-service.js";
+import { ProjectCleanupService } from "./project/project-cleanup-service.js";
 import { ProjectService } from "./project/project-service.js";
 import { CommandService } from "./runtime/command-service.js";
 import { buildInternalAndLwTagDefinitions, InternalVariableService } from "./runtime/internal-variable-service.js";
@@ -60,6 +61,7 @@ async function bootstrap(): Promise<void> {
   const eventSoundService = new EventSoundService(projectService, eventSoundsDir);
   const libraryService = new LibraryService(librariesRoot, projectService);
   const projectArchiveService = new ProjectArchiveService(projectService, libraryService, eventSoundService);
+  const projectCleanupService = new ProjectCleanupService(projectService, libraryService, projectArchiveService);
   const tagStore = new TagStore();
   const driverManager = new DriverManager();
   const internalVariableService = new InternalVariableService(tagStore);
@@ -132,6 +134,7 @@ async function bootstrap(): Promise<void> {
     eventSoundService,
     libraryService,
     projectArchiveService,
+    projectCleanupService,
     tagStore,
     driverManager,
     runtimeService,

@@ -2,6 +2,10 @@ import { useMemo, useRef, useState } from "react";
 import type {
   ArchiveConflictPreviewItem,
   ArchiveInspectionItem,
+  ProjectCleanupAnalyzeResponse,
+  ProjectCleanupApplyResponse,
+  ProjectCleanupCandidate,
+  ProjectCleanupCategory,
   ProjectArchiveInspectionResult,
   ProjectArchiveValidationResult,
   ScadaProject,
@@ -25,13 +29,14 @@ import {
   type WorkbenchTableColumn,
 } from "../components/workbench";
 import { api } from "../services/api";
+import { showProjectCleanupHint } from "../services/cleanup-hint";
 import { useScadaStore } from "../store/scada-store";
 
 type ArchiveFileSlot = "project" | "screenZip" | "libraryZip";
-type ProjectManagerTab = "project" | "screens" | "libraries" | "macros" | "assets" | "backups";
+type ProjectManagerTab = "project" | "screens" | "libraries" | "macros" | "assets" | "maintenance";
 type ScreensWorkflow = "export" | "import-screen-zip" | "copy-from-project" | "manage";
 type ResourceWorkflow = "import-project" | "manage";
-type BackupsWorkflow = "backups" | "reset";
+type MaintenanceWorkflow = "backups" | "cleanup" | "reset";
 type MacroConflictMode = "keep-existing" | "replace" | "copy";
 type LibraryConflictMode = "keep-existing" | "replace" | "copy";
 type SourceProjectArchiveStatus = "idle" | "selected" | "inspecting" | "valid" | "invalid" | "error";
@@ -173,6 +178,26 @@ function formatArchiveType(result: ProjectArchiveInspectionResult | null): strin
     return "Screen ZIP";
   }
   return result.summary?.format ?? "-";
+}
+
+function formatCleanupCandidateName(candidate: ProjectCleanupCandidate): string {
+  return candidate.name ?? candidate.path ?? candidate.id;
+}
+
+function cleanupCategoryLabel(category: ProjectCleanupCategory): string {
+  switch (category) {
+    case "assets": return "Assets";
+    case "libraries": return "Libraries";
+    case "macros": return "Macros";
+    case "variables": return "Variables";
+    case "lw": return "LW";
+    case "tags": return "Tags";
+    case "events": return "Events";
+    case "event-sounds": return "Event Sounds";
+    case "files": return "Files";
+    case "drivers": return "Drivers";
+    default: return category;
+  }
 }
 
 function ProjectSummaryTable({ project }: { project: ScadaProject }) {
@@ -551,7 +576,7 @@ export function ProjectManagerPage() {
   const [librariesWorkflow, setLibrariesWorkflow] = useState<ResourceWorkflow>("import-project");
   const [macrosWorkflow, setMacrosWorkflow] = useState<ResourceWorkflow>("import-project");
   const [assetsWorkflow, setAssetsWorkflow] = useState<ResourceWorkflow>("import-project");
-  const [backupsWorkflow, setBackupsWorkflow] = useState<BackupsWorkflow>("backups");
+  const [maintenanceWorkflow, setMaintenanceWorkflow] = useState<MaintenanceWorkflow>("backups");
   const [files, setFiles] = useState<Record<ArchiveFileSlot, File | null>>({
     project: null,
     screenZip: null,
@@ -582,6 +607,10 @@ export function ProjectManagerPage() {
   const [screenImportResult, setScreenImportResult] = useState<ScreenArchiveImportResult | null>(null);
   const [resetConfirm, setResetConfirm] = useState("");
   const [lastBackupPath, setLastBackupPath] = useState<string | null>(null);
+  const [cleanupCategories, setCleanupCategories] = useState<ProjectCleanupCategory[]>(["assets", "libraries", "macros", "variables", "lw", "tags", "events", "event-sounds", "files", "drivers"]);
+  const [cleanupAnalysis, setCleanupAnalysis] = useState<ProjectCleanupAnalyzeResponse | null>(null);
+  const [cleanupSelectedIds, setCleanupSelectedIds] = useState<string[]>([]);
+  const [cleanupApplyResult, setCleanupApplyResult] = useState<ProjectCleanupApplyResponse | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -772,6 +801,7 @@ export function ProjectManagerPage() {
     setSelectedScreenId(fallback.id);
     await saveProject();
     void message.success("Screen deleted");
+    showProjectCleanupHint("Screen was deleted");
   };
 
   const deleteScreen = (): void => {
@@ -809,6 +839,7 @@ export function ProjectManagerPage() {
       setSelectedScreenId(imported.screenId);
       await Promise.all([loadTags(), loadAssets(), loadLibraries(), loadMacros()]);
       void message.success(`Screen imported: ${imported.importedScreenName}`);
+      showProjectCleanupHint("Screen was imported");
     } finally {
       setBusy(false);
     }
@@ -867,6 +898,7 @@ export function ProjectManagerPage() {
       setSelectedScreenId(imported.screenId);
       setScreenImportResult(imported);
       void message.success(`Imported screen: ${imported.importedScreenName} (${imported.screenId})`);
+      showProjectCleanupHint("Screen was imported from project ZIP");
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setSourceProjectArchiveError(text);
@@ -911,6 +943,7 @@ export function ProjectManagerPage() {
       const imported = await api.importLibrary(file, { replace: libraryConflictMode === "replace", importAsCopy: libraryConflictMode === "copy" });
       await loadLibraries();
       void message.success(`Library imported: ${imported.library.name}`);
+      showProjectCleanupHint("Library was imported");
     } finally {
       setBusy(false);
     }
@@ -944,6 +977,7 @@ export function ProjectManagerPage() {
       updateProjectJson(imported.project);
       await loadLibraries();
       void message.success("Libraries imported from project ZIP");
+      showProjectCleanupHint("Libraries were imported from project ZIP");
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setSourceProjectArchiveError(text);
@@ -988,6 +1022,7 @@ export function ProjectManagerPage() {
     await api.deleteLibrary(selectedLibraryId, { force: true });
     await loadLibraries();
     void message.success("Library deleted");
+    showProjectCleanupHint("Library was deleted");
   };
 
   const deleteLibrary = (): void => {
@@ -1028,6 +1063,7 @@ export function ProjectManagerPage() {
       updateProjectJson(imported.project);
       await loadMacros();
       void message.success("Macros imported from project ZIP");
+      showProjectCleanupHint("Macros were imported from project ZIP");
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setSourceProjectArchiveError(text);
@@ -1073,6 +1109,7 @@ export function ProjectManagerPage() {
     await saveProject();
     await loadMacros();
     void message.success("Macro deleted");
+    showProjectCleanupHint("Macro was deleted");
   };
 
   const deleteMacro = (): void => {
@@ -1103,6 +1140,7 @@ export function ProjectManagerPage() {
       updateProjectJson(imported.project);
       await loadAssets();
       void message.success("Assets imported from project ZIP");
+      showProjectCleanupHint("Assets were imported from project ZIP");
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       setSourceProjectArchiveError(text);
@@ -1120,6 +1158,7 @@ export function ProjectManagerPage() {
     }
     await loadAssets();
     void message.success("Unused assets deleted");
+    showProjectCleanupHint("Assets were deleted");
   };
 
   const deleteUnusedAssets = (): void => {
@@ -1136,6 +1175,59 @@ export function ProjectManagerPage() {
       confirmVariant: "danger",
       onConfirm: executeDeleteUnusedAssets,
     });
+  };
+
+  const analyzeCleanup = async (): Promise<void> => {
+    setBusy(true);
+    setCleanupApplyResult(null);
+    try {
+      const analyzed = await api.analyzeProjectCleanup({ requestedCategories: cleanupCategories });
+      setCleanupAnalysis(analyzed);
+      setCleanupSelectedIds(analyzed.candidates.filter((candidate) => candidate.selectedByDefault).map((candidate) => candidate.id));
+      void message.success("Cleanup analysis completed");
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : "Failed to analyze cleanup");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectSafeCleanupCandidates = (): void => {
+    if (!cleanupAnalysis) {
+      return;
+    }
+    setCleanupSelectedIds(cleanupAnalysis.candidates.filter((candidate) => candidate.scope === "safe").map((candidate) => candidate.id));
+  };
+
+  const applyCleanup = async (): Promise<void> => {
+    if (!cleanupAnalysis) {
+      void message.warning("Run Analyze Project first");
+      return;
+    }
+    setBusy(true);
+    try {
+      const applied = await api.applyProjectCleanup({
+        analysisToken: cleanupAnalysis.analysisToken,
+        analysisFingerprint: cleanupAnalysis.analysisFingerprint,
+        selectedCandidateIds: cleanupSelectedIds,
+        options: {
+          createBackup: true,
+          rewriteDuplicateReferences: true,
+          deleteOrphanFiles: true,
+          deleteUnusedReviewItems: false,
+        },
+      });
+      setCleanupApplyResult(applied);
+      if (applied.backupPath) {
+        setLastBackupPath(applied.backupPath);
+      }
+      await reloadAfterImport();
+      void message.success("Cleanup applied");
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : "Failed to apply cleanup");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const executeResetProject = async (): Promise<void> => {
@@ -1232,8 +1324,9 @@ export function ProjectManagerPage() {
     { id: "import-project", label: "Import Assets from Project ZIP" },
     { id: "manage", label: "Manage Current Assets" },
   ];
-  const backupsWorkflowOptions: Array<WorkflowOption<BackupsWorkflow>> = [
+  const maintenanceWorkflowOptions: Array<WorkflowOption<MaintenanceWorkflow>> = [
     { id: "backups", label: "Backups" },
+    { id: "cleanup", label: "Cleanup" },
     { id: "reset", label: "Reset Project" },
   ];
   const tabs: WorkbenchTabItem[] = [
@@ -1242,7 +1335,7 @@ export function ProjectManagerPage() {
     { id: "libraries", title: "Libraries", active: activeTab === "libraries", onClick: () => setActiveTab("libraries") },
     { id: "macros", title: "Macros", active: activeTab === "macros", onClick: () => setActiveTab("macros") },
     { id: "assets", title: "Assets / Images", active: activeTab === "assets", onClick: () => setActiveTab("assets") },
-    { id: "backups", title: "Backups / Reset", active: activeTab === "backups", onClick: () => setActiveTab("backups") },
+    { id: "maintenance", title: "Maintenance", active: activeTab === "maintenance", onClick: () => setActiveTab("maintenance") },
   ];
   const sourceProjectArchiveReady = Boolean(
     sourceProjectArchiveFile &&
@@ -1640,11 +1733,11 @@ export function ProjectManagerPage() {
           </div>
         ) : null}
 
-        {activeTab === "backups" ? (
+        {activeTab === "maintenance" ? (
           <div className="project-manager-tab-panel">
-            <WorkflowSelector options={backupsWorkflowOptions} active={backupsWorkflow} onChange={setBackupsWorkflow} />
+            <WorkflowSelector options={maintenanceWorkflowOptions} active={maintenanceWorkflow} onChange={setMaintenanceWorkflow} />
 
-            {backupsWorkflow === "backups" ? (
+            {maintenanceWorkflow === "backups" ? (
               <WorkbenchSection title="Backups Created by Project Import">
                 <div className="project-manager-workflow">
                 <WorkbenchStatusBlock
@@ -1660,7 +1753,99 @@ export function ProjectManagerPage() {
             </WorkbenchSection>
             ) : null}
 
-            {backupsWorkflow === "reset" ? (
+            {maintenanceWorkflow === "cleanup" ? (
+              <WorkbenchSection title="Project Cleanup">
+                <div className="project-manager-workflow">
+                  <div className="project-manager-inline-controls">
+                    {(["assets", "libraries", "macros", "variables", "lw", "tags", "events", "event-sounds", "files", "drivers"] as ProjectCleanupCategory[]).map((category) => (
+                      <label key={category} className="screen-editor-item-meta">
+                        <input
+                          type="checkbox"
+                          checked={cleanupCategories.includes(category)}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              setCleanupCategories((prev) => (prev.includes(category) ? prev : [...prev, category]));
+                              return;
+                            }
+                            setCleanupCategories((prev) => prev.filter((item) => item !== category));
+                          }}
+                        /> {cleanupCategoryLabel(category)}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="project-manager-actions">
+                    <WorkbenchButton variant="primary" disabled={busy || cleanupCategories.length === 0} onClick={() => void analyzeCleanup()}>Analyze Project</WorkbenchButton>
+                    <WorkbenchButton disabled={!cleanupAnalysis || busy} onClick={selectSafeCleanupCandidates}>Select safe candidates</WorkbenchButton>
+                    <WorkbenchButton
+                      variant="danger"
+                      disabled={!cleanupAnalysis || cleanupSelectedIds.length === 0 || busy}
+                      onClick={() => {
+                        requestConfirm({
+                          title: "Apply Cleanup",
+                          message: "Apply selected cleanup candidates? A backup ZIP is created first before changes are written.",
+                          confirmLabel: "Apply Cleanup",
+                          confirmVariant: "danger",
+                          onConfirm: applyCleanup,
+                        });
+                      }}
+                    >
+                      Apply Cleanup
+                    </WorkbenchButton>
+                  </div>
+
+                  {cleanupAnalysis ? (
+                    <WorkbenchStatusBlock
+                      variant="info"
+                      title="Cleanup Analysis"
+                      description={`Safe: ${cleanupAnalysis.summary.safeCandidates} | Review: ${cleanupAnalysis.summary.reviewCandidates} | Protected: ${cleanupAnalysis.summary.protectedCandidates}`}
+                    >
+                      <WorkbenchTable
+                        rows={cleanupAnalysis.candidates}
+                        getRowId={(candidate) => candidate.id}
+                        emptyText="No cleanup candidates"
+                        columnStorageKey="projectManager.table.cleanupCandidates"
+                        columns={[
+                          {
+                            id: "selected",
+                            title: "SEL",
+                            width: 70,
+                            minWidth: 60,
+                            render: (candidate) => (
+                              <input
+                                type="checkbox"
+                                checked={cleanupSelectedIds.includes(candidate.id)}
+                                onChange={() => setCleanupSelectedIds((prev) => toggleId(prev, candidate.id))}
+                              />
+                            ),
+                          },
+                          { id: "type", title: "TYPE", width: 170, minWidth: 120, render: (candidate) => candidate.type },
+                          { id: "scope", title: "SCOPE", width: 100, minWidth: 80, render: (candidate) => candidate.scope },
+                          { id: "name", title: "NAME / PATH", width: 280, minWidth: 170, render: (candidate) => formatCleanupCandidateName(candidate) },
+                          { id: "action", title: "ACTION", width: 160, minWidth: 120, render: (candidate) => candidate.plannedAction },
+                          { id: "refs", title: "REFS", width: 80, minWidth: 60, render: (candidate) => candidate.referencesCount },
+                          { id: "reason", title: "REASON", width: 300, minWidth: 160, render: (candidate) => candidate.reason },
+                        ]}
+                      />
+                    </WorkbenchStatusBlock>
+                  ) : (
+                    <InlineHint>Run Analyze Project to build cleanup candidates with safe/review/protected classification.</InlineHint>
+                  )}
+
+                  {cleanupApplyResult ? (
+                    <WorkbenchStatusBlock
+                      variant="success"
+                      title="Cleanup Result"
+                      description={`Deleted assets: ${cleanupApplyResult.deletedAssets.length}, libraries: ${cleanupApplyResult.deletedLibraries.length}, macros: ${cleanupApplyResult.deletedMacros.length}, files: ${cleanupApplyResult.deletedFiles.length}`}
+                    >
+                      <div className="screen-editor-item-meta">Rewritten references: {cleanupApplyResult.rewrittenReferences}</div>
+                      {cleanupApplyResult.backupPath ? <div className="screen-editor-item-meta">Backup: {cleanupApplyResult.backupPath}</div> : null}
+                    </WorkbenchStatusBlock>
+                  ) : null}
+                </div>
+              </WorkbenchSection>
+            ) : null}
+
+            {maintenanceWorkflow === "reset" ? (
               <WorkbenchDangerZone>
                 <div className="project-manager-workflow">
                 <div className="project-manager-danger-text">

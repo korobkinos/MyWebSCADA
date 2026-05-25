@@ -14,6 +14,7 @@ import type {
   ScadaProject,
 } from "@web-scada/shared";
 import { api } from "../../../services/api";
+import { showProjectCleanupHint } from "../../../services/cleanup-hint";
 import { WorkbenchButton, WorkbenchIconButton, WorkbenchSection, WorkbenchTabs, type WorkbenchTabItem } from "../../../components/workbench";
 import {
   createObjectIoAction,
@@ -1927,6 +1928,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       setValidation(null);
       setImportFile(null);
       await refresh();
+      showProjectCleanupHint("Library was imported");
     } catch {
       // no-op
     }
@@ -1953,6 +1955,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
       await api.deleteLibrary(selectedLibrary.id, force ? { force: true } : undefined);
       setDeleteLibraryDialog({ open: false, canForce: false, message: "" });
       await refresh();
+      showProjectCleanupHint("Library was deleted");
     } catch (error) {
       const text = error instanceof Error ? error.message : "Failed to delete library";
       setDeleteLibraryDialog({
@@ -4171,6 +4174,5 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     </div>
   );
 }
-
 
 

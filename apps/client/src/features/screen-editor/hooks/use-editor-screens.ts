@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { HmiObject, HmiScreen, ScadaProject, ScreenKind } from "@web-scada/shared";
 import { message } from "antd";
 import { useScadaStore } from "../../../store/scada-store";
+import { showProjectCleanupHint } from "../../../services/cleanup-hint";
 
 type UseEditorScreensParams = {
   project: ScadaProject | null;
@@ -117,6 +118,7 @@ export function useEditorScreens({
     }
     setPendingDeleteScreenId(null);
     void message.success("Screen deleted");
+    showProjectCleanupHint("Screen was deleted");
   }, [currentScreenId, pendingDeleteScreenId, setCurrentScreen, updateProjectJson]);
 
   const setStartScreen = useCallback(

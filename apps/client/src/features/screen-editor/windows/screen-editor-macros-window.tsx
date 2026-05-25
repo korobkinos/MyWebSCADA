@@ -21,6 +21,7 @@ import { WorkbenchButton, WorkbenchResizeHandle } from "../../../components/work
 import { WorkbenchWindow } from "../../../components/workbench/windows/workbench-window";
 import { MacroCodeEditor, type MacroCodeEditorHandle, buildApiSnippet } from "../../../hmi/editor/macro-code-editor";
 import { macroApiDocumentation, macroExamples, macroTemplates } from "../../../hmi/editor/macro-api-doc";
+import { showProjectCleanupHint } from "../../../services/cleanup-hint";
 import { useScadaStore } from "../../../store/scada-store";
 
 type MacroWithExtras = MacroDefinition & {
@@ -1108,6 +1109,7 @@ export function ScreenEditorMacrosWindow() {
     setRunError(null);
     appendConsole("warn", `Macro deleted: ${deleted.name} (${deleted.id})`);
     void message.success("Macro deleted");
+    showProjectCleanupHint("Macro was deleted");
   }, [appendConsole, macroSource, project, selectedMacroId, updateProjectJson]);
 
   const onDeleteMacro = useCallback(() => {

@@ -32,6 +32,10 @@ import type {
   ProjectArchivePartialImportResult,
   ProjectArchiveScreenImportOptions,
   ProjectArchiveValidationResult,
+  ProjectCleanupAnalyzeRequest,
+  ProjectCleanupAnalyzeResponse,
+  ProjectCleanupApplyRequest,
+  ProjectCleanupApplyResponse,
   RuntimeState,
   ScadaProject,
   ScreenArchiveExportOptions,
@@ -686,6 +690,16 @@ export const api = {
       body: form,
     });
   },
+  analyzeProjectCleanup: (payload?: Partial<ProjectCleanupAnalyzeRequest>) =>
+    request<ProjectCleanupAnalyzeResponse>("/api/project/cleanup/analyze", {
+      method: "POST",
+      body: JSON.stringify(payload ?? {}),
+    }),
+  applyProjectCleanup: (payload: ProjectCleanupApplyRequest) =>
+    request<ProjectCleanupApplyResponse>("/api/project/cleanup/apply", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   exportScreenArchive: async (screenId: string, options?: ScreenArchiveExportOptions) => {
     const token = getEngineerToken();
     const query = options?.dependencyMode ? `?${new URLSearchParams({ dependencyMode: options.dependencyMode }).toString()}` : "";

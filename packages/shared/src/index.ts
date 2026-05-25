@@ -19,3 +19,4 @@ export * from "./event-types";
 export * from "./event-sound-defaults";
 export * from "./operator-action-types";
 export * from "./archive-types";
+export * from "./project-cleanup-types";

@@ -25,6 +25,8 @@ import {
   type OperatorActionTargetType,
   type OpcUaDriverConfig,
   type PasswordPolicy,
+  type ProjectCleanupAnalyzeRequest,
+  type ProjectCleanupApplyRequest,
   type ScadaProject,
   type UpdateUserRequest,
   getUserRoleLevel,
@@ -32,6 +34,8 @@ import {
   libraryElementSchema,
   normalizePasswordPolicy,
   projectArchiveImportOptionsSchema,
+  projectCleanupAnalyzeRequestSchema,
+  projectCleanupApplyRequestSchema,
   projectArchiveAssetsImportOptionsSchema,
   projectArchiveLibraryImportOptionsSchema,
   projectArchiveMacroImportOptionsSchema,
@@ -56,6 +60,7 @@ import {
 } from "../drivers/opcua-inspector.js";
 import { LibraryService } from "../libraries/library-service.js";
 import { ProjectArchiveService } from "../project/project-archive-service.js";
+import { ProjectCleanupService } from "../project/project-cleanup-service.js";
 import { ProjectService } from "../project/project-service.js";
 import { CommandService } from "../runtime/command-service.js";
 import { buildInternalAndLwTagDefinitions, InternalVariableService } from "../runtime/internal-variable-service.js";
@@ -70,6 +75,7 @@ type ApiDeps = {
   eventSoundService: EventSoundService;
   libraryService: LibraryService;
   projectArchiveService: ProjectArchiveService;
+  projectCleanupService: ProjectCleanupService;
   tagStore: TagStore;
   driverManager: DriverManager;
   runtimeService: RuntimeService;
@@ -1634,6 +1640,39 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(400).send({ error: "Bad Request", message });
+    }
+  });
+
+  app.post("/api/project/cleanup/analyze", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    try {
+      const payload = projectCleanupAnalyzeRequestSchema.parse(request.body ?? {});
+      const result = await deps.projectCleanupService.analyzeProjectCleanup(deps.projectService.getProject(), payload);
+      return reply.send(result);
+    } catch (error) {
+      return sendBadRequest(reply, "Invalid cleanup analyze payload", error);
+    }
+  });
+
+  app.post("/api/project/cleanup/apply", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "editor.write");
+    if (!auth) {
+      return;
+    }
+    try {
+      const payload = projectCleanupApplyRequestSchema.parse(request.body ?? {});
+      const result = await deps.projectCleanupService.applyProjectCleanup(payload);
+      await persistProjectUpdate(deps, deps.projectService.getProject());
+      return reply.send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("stale") || message.toLowerCase().includes("token")) {
+        return reply.code(409).send({ error: "Conflict", message });
+      }
+      return sendBadRequest(reply, "Failed to apply cleanup", error);
     }
   });
 

@@ -3113,7 +3113,7 @@ export class ProjectArchiveService {
     await writeFile(target, buffer);
   }
 
-  private async createProjectBackup(): Promise<string> {
+  public async createProjectBackup(): Promise<string> {
     const backupDir = path.join(path.dirname(this.projectService.getProjectFile()), "backups");
     await mkdir(backupDir, { recursive: true });
     const exported = await this.exportProjectArchive();
