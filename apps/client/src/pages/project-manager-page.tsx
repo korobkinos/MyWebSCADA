@@ -715,18 +715,23 @@ export function ProjectManagerPage() {
   const executeImportScreensFromProject = async (mode: ScreenArchiveImportOptions["mode"]): Promise<void> => {
     const file = files.screenProject;
     const result = inspections.screenProject;
-    if (!file || !result?.valid || result.archiveType !== "project" || archiveScreenIds.length === 0) {
-      void message.warning("Validate a Project ZIP and select screens first");
+    const selectedArchiveScreenId = archiveScreenIds[0];
+    if (!file || !result?.valid || result.archiveType !== "project" || !selectedArchiveScreenId) {
+      void message.warning("Validate a Project ZIP and select one archive screen first");
       return;
     }
-    if (mode === "replace" && (!currentScreen || archiveScreenIds.length !== 1)) {
+    if (archiveScreenIds.length !== 1) {
+      void message.warning("Select exactly one archive screen");
+      return;
+    }
+    if (mode === "replace" && !currentScreen) {
       void message.warning("Select one archive screen and one current screen to replace");
       return;
     }
     setBusy(true);
     try {
       const imported = await api.importScreenFromProjectArchive(file, {
-        screenIds: archiveScreenIds,
+        screenIds: [selectedArchiveScreenId],
         mode,
         replaceScreenId: mode === "replace" ? currentScreen?.id : undefined,
         dependencyMode,
@@ -742,11 +747,15 @@ export function ProjectManagerPage() {
   };
 
   const importScreensFromProject = (mode: ScreenArchiveImportOptions["mode"]): void => {
+    if (archiveScreenIds.length !== 1) {
+      void message.warning("Select exactly one archive screen");
+      return;
+    }
     if (mode !== "replace") {
       void executeImportScreensFromProject(mode);
       return;
     }
-    if (!currentScreen || archiveScreenIds.length !== 1) {
+    if (!currentScreen) {
       void message.warning("Select one archive screen and one current screen to replace");
       return;
     }
