@@ -40,9 +40,6 @@ export class ProjectService {
 }
 
 function withEventSoundDefaults(project: ScadaProject): ScadaProject {
-  if (Array.isArray(project.eventSounds) && project.eventSounds.length > 0) {
-    return project;
-  }
   return {
     ...project,
     eventSounds: ensureDefaultEventSounds(project.eventSounds),

@@ -184,7 +184,7 @@ export function ProjectPage() {
                 <Button type="primary" onClick={applyGeneralSettings}>
                   Apply Settings
                 </Button>
-                <Button onClick={() => void saveProject()}>Save to Server</Button>
+                <Button onClick={() => void saveProject({ notify: true })}>Save to Server</Button>
               </Space>
             </Space>
           ),
@@ -201,7 +201,7 @@ export function ProjectPage() {
             <Space direction="vertical" style={{ width: "100%" }}>
               <Space>
                 <Button onClick={applyJson}>Apply JSON</Button>
-                <Button type="primary" onClick={() => void saveProject()}>
+                <Button type="primary" onClick={() => void saveProject({ notify: true })}>
                   Save to Server
                 </Button>
               </Space>

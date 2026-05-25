@@ -383,7 +383,7 @@ export function TagsPage() {
           }}
         />
       </label>
-      <Button onClick={() => void saveProject()}>Save Project</Button>
+      <Button onClick={() => void saveProject({ notify: true })}>Save Project</Button>
 
       <Input placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
       <Select

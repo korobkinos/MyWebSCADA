@@ -2574,7 +2574,7 @@ export function ScreenEditorTagsWindow() {
         >
           Delete OPC UA Tags (Driver)
         </WorkbenchButton>
-        <WorkbenchButton onClick={() => void saveProject()}>
+        <WorkbenchButton onClick={() => void saveProject({ notify: true })}>
           Save Project
         </WorkbenchButton>
         <WorkbenchButton onClick={resetWidths}>

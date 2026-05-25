@@ -1184,7 +1184,7 @@ export function ScreenEditorMacrosWindow() {
           onClick={() => (consoleCollapsed ? showConsolePanel() : hideConsolePanel())}
         />
         <WorkbenchButton icon={<ReloadOutlined />} title="Refresh macros" onClick={() => void refreshMacros()} />
-        <WorkbenchButton icon={<SaveOutlined />} title="Save Project" onClick={() => void saveProject()} />
+        <WorkbenchButton icon={<SaveOutlined />} title="Save Project" onClick={() => void saveProject({ notify: true })} />
         <WorkbenchButton icon={<QuestionCircleOutlined />} title="Macro help" onClick={openHelpWindow} />
       </div>
 

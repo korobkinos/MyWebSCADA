@@ -754,7 +754,7 @@ export function DriversPage() {
       </Space>
       <Space>
         <Button onClick={() => void loadDrivers()}>Refresh Status</Button>
-        <Button onClick={() => void saveProject()}>Save Project</Button>
+        <Button onClick={() => void saveProject({ notify: true })}>Save Project</Button>
         <Button danger loading={clearingOpcUaTags} onClick={() => void clearAllOpcUaTags()}>
           Clear OPC UA Tags
         </Button>

@@ -6,7 +6,7 @@ import {
   SoundOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import { ColorPicker } from "antd";
+import { ColorPicker, message } from "antd";
 import {
   useCallback,
   useEffect,
@@ -891,7 +891,7 @@ type EventSoundWarning = {
 
 const SUPPORTED_SOUND_FILE_EXTENSIONS = new Set(["mp3", "wav", "ogg"]);
 const DEFAULT_SOUND_PLACEHOLDER_MESSAGE =
-  "Default sound file is not bundled yet. Upload a custom sound or add bundled default audio files.";
+  "Built-in SCADA sounds are ready. You can also upload custom sounds.";
 const SOUND_FILE_NOT_AVAILABLE_MESSAGE =
   "Sound file is not available. Upload a custom sound or configure a valid sound file.";
 
@@ -904,7 +904,7 @@ function hasPlayableSoundFile(sound: EventSound): boolean {
 function getSoundStatusLabel(sound: EventSound): string {
   if (!hasPlayableSoundFile(sound)) {
     if (isDefaultEventSoundId(sound.id)) {
-      return "Placeholder / No file bundled";
+      return "Bundled file missing";
     }
     return "Missing file";
   }
@@ -1535,7 +1535,7 @@ export function EventsPage() {
         isDefaultEventSoundId(selectedSound.id) &&
         !hasPlayableSoundFile(selectedSound)
       ) {
-        setStatusText("Default placeholder sound has no audio file yet");
+        setStatusText("Default bundled sound file is missing");
         return;
       }
       const result = await eventSoundPlayer.playSound(selectedSoundId, sounds);
@@ -2543,6 +2543,7 @@ export function EventsPage() {
     );
     setDraftErrors(errors);
     if (Object.keys(errors).length > 0) {
+      void message.error("Save failed: check highlighted fields");
       return;
     }
 
@@ -2562,6 +2563,7 @@ export function EventsPage() {
         ? " Source/security tag is missing, event was disabled."
         : "";
       setStatusText(`Updated event ${nextEvent.id}.${autoDisabledText}`);
+      void message.success("Saved");
     } else {
       const nextEvents = [...events, nextEvent];
       const reconciled = reconcileEventsWithProjectTags(nextEvents, project);
@@ -2570,6 +2572,7 @@ export function EventsPage() {
         ? " Source/security tag is missing, event was disabled."
         : "";
       setStatusText(`Added event ${nextEvent.id}.${autoDisabledText}`);
+      void message.success("Saved");
     }
 
     setEditorMode("view");
@@ -3283,8 +3286,8 @@ export function EventsPage() {
           ) : null}
           <label className="workbench-field">
             <span className="screen-editor-tag-editor__hint">
-              Default sounds are placeholders until real audio files are
-              provided.
+              Built-in SCADA sounds are available immediately. You can switch to
+              Sound Library for upload and testing.
             </span>
           </label>
         </>
@@ -3426,7 +3429,7 @@ export function EventsPage() {
         <WorkbenchButton onClick={exportCsv} disabled={events.length === 0}>
           Export CSV
         </WorkbenchButton>
-        <WorkbenchButton onClick={() => void saveProject()}>
+        <WorkbenchButton onClick={() => void saveProject({ notify: true })}>
           Save Project
         </WorkbenchButton>
         <WorkbenchButton onClick={resetWidths}>Reset Widths</WorkbenchButton>
@@ -4132,8 +4135,7 @@ export function EventsPage() {
                 sound.kind === "custom" && !isDefaultEventSoundId(sound.id);
               const status = getSoundStatusLabel(sound);
               const isWarningStatus =
-                status === "Placeholder / No file bundled" ||
-                status === "Missing file";
+                status === "Bundled file missing" || status === "Missing file";
               return (
                 <div key={sound.id} className="event-sound-library-table__row">
                   <span title={sound.name}>{sound.name}</span>

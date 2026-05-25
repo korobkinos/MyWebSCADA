@@ -30,7 +30,7 @@ export function MacrosPage() {
   return (
     <div style={{ width: "100%", height: "100%", minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 12, overflow: "hidden" }}>
       <Space style={{ flex: "0 0 auto" }}>
-        <Button type="primary" onClick={() => void saveProject()}>Save Project</Button>
+        <Button type="primary" onClick={() => void saveProject({ notify: true })}>Save Project</Button>
       </Space>
       <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
         <MacroWorkbench

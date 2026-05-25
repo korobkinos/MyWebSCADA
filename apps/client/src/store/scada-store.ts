@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { message } from "antd";
 import type {
   Asset,
   AppPermission,
@@ -43,7 +44,7 @@ type ScadaState = {
   authUser: AppUser | null;
   authResolved: boolean;
   loadProject: () => Promise<void>;
-  saveProject: () => Promise<void>;
+  saveProject: (options?: { notify?: boolean }) => Promise<void>;
   loadTags: () => Promise<void>;
   loadDrivers: () => Promise<void>;
   loadMacros: () => Promise<void>;
@@ -267,13 +268,25 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     });
   },
 
-  async saveProject() {
+  async saveProject(options) {
     const project = get().project;
     if (!project) {
       return;
     }
-    const saved = await api.saveProject(project);
-    set({ project: saved });
+    const shouldNotify = options?.notify === true;
+    try {
+      const saved = await api.saveProject(project);
+      set({ project: saved });
+      if (shouldNotify) {
+        void message.success("Saved");
+      }
+    } catch (error) {
+      if (shouldNotify) {
+        const details = error instanceof Error ? error.message.trim() : "";
+        void message.error(details ? `Save failed: ${details}` : "Save failed");
+      }
+      throw error;
+    }
   },
 
   async loadTags() {
