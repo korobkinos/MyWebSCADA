@@ -4,6 +4,7 @@ import path from "node:path";
 import AdmZip from "adm-zip";
 import type {
   ArchiveFileKind,
+  ArchiveConflictPreviewItem,
   ArchiveManifestFile,
   Asset,
   ElementLibrary,
@@ -107,6 +108,49 @@ type StagedProjectImport = {
   libraryIds: string[];
 };
 
+type ResolvedAssets = {
+  nextAssets: Asset[];
+  assetIdMap: Map<string, string>;
+  importedAssets: number;
+  reusedAssets: number;
+  copiedAssets: number;
+};
+
+type ResolvedLibraries = {
+  libraryIdMap: Map<string, string>;
+  nextProjectLibraryRefs: NonNullable<ScadaProject["libraries"]>;
+  importedLibraries: number;
+  reusedLibraries: number;
+  copiedLibraries: number;
+};
+
+type ResolvedMacros = {
+  macros: MacroDefinition[];
+  idMap: Map<string, string>;
+  importedMacros: number;
+  reusedMacros: number;
+  copiedMacros: number;
+};
+
+type ResolvedTags = {
+  tags: TagDefinition[];
+  importedTags: number;
+  skippedTags: number;
+};
+
+type ResolvedVariables = {
+  variables: InternalVariableDefinition[];
+  idMap: Map<string, string>;
+  importedVariables: number;
+  reusedVariables: number;
+};
+
+type ResolvedLwStore = {
+  lwStore?: LwStoreConfig;
+  importedLw: number;
+  reusedLw: number;
+};
+
 const PROJECT_FORMAT = "mywebscada-project";
 const SCREEN_FORMAT = "mywebscada-screen";
 const FORMAT_VERSION = 1;
@@ -202,6 +246,41 @@ function makeUniqueId(sourceId: string, taken: Set<string>, fallback: string): s
     }
   }
   return `${base}-${randomUUID().slice(0, 8)}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function normalizedFileName(input: string | undefined): string {
+  return (input ?? "").replace(/\\/g, "/").split("/").filter(Boolean).at(-1)?.trim().toLowerCase() ?? "";
+}
+
+function assetExtension(asset: Asset): string {
+  return path.posix.extname(asset.fileName || asset.storagePath) || `.${asset.type || "asset"}`;
+}
+
+function macroContentKey(macro: MacroDefinition): string {
+  return sha256(Buffer.from(stableJson({ language: macro.language, code: macro.code }), "utf8"));
+}
+
+function normalizedVariableDefinition(variable: InternalVariableDefinition): unknown {
+  const { id: _id, currentValue: _currentValue, createdAt: _createdAt, updatedAt: _updatedAt, ...definition } = variable;
+  return definition;
+}
+
+function normalizedTagDefinition(tag: TagDefinition): unknown {
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...definition } = tag;
+  return definition;
 }
 
 function withProjectAssetPreview(asset: Asset): Asset {
@@ -735,7 +814,7 @@ function collectReferencedLwStore(project: ScadaProject, refs: ScreenDependencyR
   return Object.keys(selected).length > 0 ? { mode: project.lwStore?.mode, values: selected } : undefined;
 }
 
-function replaceIdsInUnknown(value: unknown, maps: { assetIds: Map<string, string>; libraryIds: Map<string, string>; macroIds?: Map<string, string> }): unknown {
+function replaceIdsInUnknown(value: unknown, maps: { assetIds: Map<string, string>; libraryIds: Map<string, string>; macroIds?: Map<string, string>; variableIds?: Map<string, string> }): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => replaceIdsInUnknown(item, maps));
   }
@@ -758,6 +837,10 @@ function replaceIdsInUnknown(value: unknown, maps: { assetIds: Map<string, strin
         next[key] = maps.macroIds.get(child);
         continue;
       }
+      if ((lower === "variableid" || lower.endsWith("variableid")) && maps.variableIds?.has(child)) {
+        next[key] = maps.variableIds.get(child);
+        continue;
+      }
     }
     next[key] = replaceIdsInUnknown(child, maps);
   }
@@ -765,10 +848,23 @@ function replaceIdsInUnknown(value: unknown, maps: { assetIds: Map<string, strin
 }
 
 function canonicalLibraryPayload(library: ElementLibrary, files: Map<string, Buffer>, prefix: string): Buffer {
-  const chunks: Uint8Array[] = [Buffer.from(JSON.stringify(library, null, 2), "utf8")];
+  const canonicalLibrary = {
+    ...library,
+    id: "__library__",
+    assets: library.assets.map((asset) => ({
+      ...asset,
+      previewUrl: "",
+    })),
+    elements: library.elements.map((element) => ({
+      ...element,
+      libraryId: element.libraryId ? "__library__" : element.libraryId,
+    })),
+    macros: library.macros ?? [],
+  };
+  const chunks: Uint8Array[] = [Buffer.from(stableJson(canonicalLibrary), "utf8")];
   const paths = [...files.keys()].filter((item) => item.startsWith(prefix) && item !== `${prefix}library.json`).sort();
   for (const item of paths) {
-    chunks.push(Buffer.from(`\n${item}\n`, "utf8"));
+    chunks.push(Buffer.from(`\n${item.slice(prefix.length)}\n`, "utf8"));
     chunks.push(files.get(item)!);
   }
   return Buffer.concat(chunks);
@@ -1389,30 +1485,53 @@ export class ProjectArchiveService {
     return { ok: true, imported: { assets: imported }, reused: { assets: reused }, copied: { assets: copied }, warnings, project: nextProject };
   }
 
-  private async importScreenData(
+  private async resolveImportedAssets(
     parsed: ParsedZip,
-    data: ScreenArchiveData,
-    parsedOptions: ScreenArchiveImportOptions,
-    initialWarnings: ProjectArchiveIssue[],
-  ): Promise<ScreenArchiveImportResult> {
-    const project = this.projectService.getProject();
-    const projectDir = path.dirname(this.projectService.getProjectFile());
-    const warnings: ProjectArchiveIssue[] = [...initialWarnings];
+    sourceAssets: Asset[],
+    project: ScadaProject,
+    projectDir: string,
+    warnings: ProjectArchiveIssue[],
+  ): Promise<ResolvedAssets> {
+    const nextAssets = [...(project.assets ?? [])];
     const assetIdMap = new Map<string, string>();
-    const libraryIdMap = new Map<string, string>();
-    const macroIdMap = new Map<string, string>();
+    const existingById = new Map(nextAssets.map((asset) => [asset.id, asset]));
+    const takenAssetIds = new Set(nextAssets.map((asset) => asset.id));
+    const bySha = new Map<string, Asset[]>();
+    const byFileNameAndSha = new Map<string, Asset[]>();
+    const byNameAndSha = new Map<string, Asset[]>();
+    let importedAssets = 0;
     let reusedAssets = 0;
     let copiedAssets = 0;
-    let importedTags = 0;
-    let skippedTags = 0;
-    let reusedLibraries = 0;
-    let copiedLibraries = 0;
 
-    const nextAssets = [...(project.assets ?? [])];
-    const existingAssetsById = new Map(nextAssets.map((asset) => [asset.id, asset]));
-    const takenAssetIds = new Set(nextAssets.map((asset) => asset.id));
+    const indexAsset = (asset: Asset, checksum: string): void => {
+      const append = (index: Map<string, Asset[]>, key: string): void => {
+        const items = index.get(key);
+        if (items) {
+          items.push(asset);
+        } else {
+          index.set(key, [asset]);
+        }
+      };
+      append(bySha, checksum);
+      const fileName = normalizedFileName(asset.fileName || asset.storagePath);
+      if (fileName) {
+        append(byFileNameAndSha, `${fileName}:${checksum}`);
+      }
+      const name = asset.name.trim().toLowerCase();
+      if (name) {
+        append(byNameAndSha, `${name}:${checksum}`);
+      }
+    };
 
-    for (const sourceAsset of data.assets) {
+    for (const asset of nextAssets) {
+      const normalized = normalizeArchivePath(asset.storagePath);
+      const bytes = normalized.ok ? await readFile(path.join(projectDir, ...normalized.value.split("/"))).catch(() => undefined) : undefined;
+      if (bytes) {
+        indexAsset(asset, sha256(bytes));
+      }
+    }
+
+    for (const sourceAsset of sourceAssets) {
       const normalized = normalizeArchivePath(sourceAsset.storagePath);
       if (!normalized.ok) {
         addIssue(warnings, "SKIPPED_ASSET", normalized.reason, sourceAsset.storagePath);
@@ -1422,93 +1541,282 @@ export class ProjectArchiveService {
       if (!fileBytes) {
         continue;
       }
-      const existing = existingAssetsById.get(sourceAsset.id);
-      let targetAsset = withProjectAssetPreview(sourceAsset);
-      if (existing) {
-        const existingPath = normalizeArchivePath(existing.storagePath);
-        const existingBytes = existingPath.ok ? await readFile(path.join(projectDir, ...existingPath.value.split("/"))).catch(() => undefined) : undefined;
-        if (existingBytes && sha256(existingBytes) === sha256(fileBytes)) {
-          assetIdMap.set(sourceAsset.id, existing.id);
-          reusedAssets += 1;
-          continue;
-        }
-        const nextId = makeUniqueId(sourceAsset.id, takenAssetIds, "asset");
-        targetAsset = {
-          ...targetAsset,
-          id: nextId,
-          name: `${targetAsset.name} (copy)`,
-          fileName: `${nextId}${path.posix.extname(sourceAsset.fileName || sourceAsset.storagePath)}`,
-          storagePath: `assets/${nextId}${path.posix.extname(sourceAsset.fileName || sourceAsset.storagePath)}`,
-        };
+      const sourceSha = sha256(fileBytes);
+      const sameId = existingById.get(sourceAsset.id);
+      if (sameId && bySha.get(sourceSha)?.some((asset) => asset.id === sameId.id)) {
+        assetIdMap.set(sourceAsset.id, sameId.id);
+        reusedAssets += 1;
+        continue;
+      }
+
+      const sameChecksum = bySha.get(sourceSha)?.[0];
+      if (sameChecksum) {
+        assetIdMap.set(sourceAsset.id, sameChecksum.id);
+        reusedAssets += 1;
+        continue;
+      }
+
+      const sameFileName = byFileNameAndSha.get(`${normalizedFileName(sourceAsset.fileName || sourceAsset.storagePath)}:${sourceSha}`)?.[0];
+      if (sameFileName) {
+        assetIdMap.set(sourceAsset.id, sameFileName.id);
+        reusedAssets += 1;
+        continue;
+      }
+
+      const sameName = byNameAndSha.get(`${sourceAsset.name.trim().toLowerCase()}:${sourceSha}`)?.[0];
+      if (sameName) {
+        assetIdMap.set(sourceAsset.id, sameName.id);
+        reusedAssets += 1;
+        continue;
+      }
+
+      const hasIdConflict = existingById.has(sourceAsset.id);
+      const targetId = hasIdConflict ? makeUniqueId(sourceAsset.id, takenAssetIds, "asset") : sourceAsset.id;
+      const targetAsset = withProjectAssetPreview({
+        ...sourceAsset,
+        id: targetId,
+        name: hasIdConflict ? `${sourceAsset.name} (copy)` : sourceAsset.name,
+        fileName: hasIdConflict ? `${targetId}${assetExtension(sourceAsset)}` : sourceAsset.fileName,
+        storagePath: hasIdConflict ? `assets/${targetId}${assetExtension(sourceAsset)}` : sourceAsset.storagePath,
+      });
+      if (hasIdConflict) {
+        copiedAssets += 1;
+        addIssue(warnings, "ASSET_IMPORTED_AS_COPY", `Asset '${sourceAsset.id}' already exists with different content; imported as '${targetId}'.`);
       }
       takenAssetIds.add(targetAsset.id);
+      existingById.set(targetAsset.id, targetAsset);
       assetIdMap.set(sourceAsset.id, targetAsset.id);
-      nextAssets.push(withProjectAssetPreview(targetAsset));
+      nextAssets.push(targetAsset);
+      indexAsset(targetAsset, sourceSha);
       await this.writeArchiveFile(projectDir, targetAsset.storagePath, fileBytes);
-      copiedAssets += 1;
+      importedAssets += 1;
     }
 
-    const nextTags = [...project.tags];
-    const existingTagNames = new Set(nextTags.map((tag) => tag.name));
-    for (const tag of data.tags) {
-      if (existingTagNames.has(tag.name)) {
+    return { nextAssets, assetIdMap, importedAssets, reusedAssets, copiedAssets };
+  }
+
+  private isGeneratedTagResolved(project: ScadaProject, tagName: string): boolean {
+    if (project.tags.some((tag) => tag.name === tagName)) {
+      return false;
+    }
+    return completeGeneratedSimulationTags(project, new Set([tagName])).some((tag) => tag.name === tagName);
+  }
+
+  private resolveImportedTags(project: ScadaProject, incoming: TagDefinition[], warnings: ProjectArchiveIssue[]): ResolvedTags {
+    const tags = [...project.tags];
+    const existingByName = new Map(tags.map((tag) => [tag.name, tag]));
+    let importedTags = 0;
+    let skippedTags = 0;
+
+    for (const tag of incoming) {
+      const existing = existingByName.get(tag.name);
+      if (existing) {
+        skippedTags += 1;
+        if (stableJson(normalizedTagDefinition(existing)) !== stableJson(normalizedTagDefinition(tag))) {
+          addIssue(warnings, "TAG_CONFLICT_KEEP_EXISTING", `Tag '${tag.name}' already exists with different definition; kept existing definition.`);
+        }
+        continue;
+      }
+      if (this.isGeneratedTagResolved(project, tag.name)) {
         skippedTags += 1;
         continue;
       }
-      nextTags.push(tag);
-      existingTagNames.add(tag.name);
+      tags.push(tag);
+      existingByName.set(tag.name, tag);
       importedTags += 1;
     }
 
-    const variableMerge = this.mergeVariables(project.variables ?? [], data.variables ?? [], warnings);
-    const mergedLwStore = this.mergeLwStore(project.lwStore, data.lwStore, warnings);
+    return { tags, importedTags, skippedTags };
+  }
 
+  private resolveImportedVariables(
+    existing: InternalVariableDefinition[],
+    incoming: InternalVariableDefinition[],
+    warnings: ProjectArchiveIssue[],
+  ): ResolvedVariables {
+    const variables = [...existing];
+    const byName = new Map(variables.map((variable) => [variable.name, variable]));
+    const byId = new Map(variables.filter((variable) => variable.id).map((variable) => [variable.id!, variable]));
+    const idMap = new Map<string, string>();
+    let importedVariables = 0;
+    let reusedVariables = 0;
+
+    for (const variable of incoming) {
+      const existingVariable = (variable.id ? byId.get(variable.id) : undefined) ?? byName.get(variable.name);
+      if (existingVariable) {
+        reusedVariables += 1;
+        if (variable.id && existingVariable.id) {
+          idMap.set(variable.id, existingVariable.id);
+        }
+        if (stableJson(normalizedVariableDefinition(existingVariable)) !== stableJson(normalizedVariableDefinition(variable))) {
+          addIssue(warnings, "VARIABLE_CONFLICT_KEEP_EXISTING", `Internal variable '${variable.name}' already exists with different definition; kept existing definition.`);
+        }
+        continue;
+      }
+      variables.push(variable);
+      byName.set(variable.name, variable);
+      if (variable.id) {
+        byId.set(variable.id, variable);
+        idMap.set(variable.id, variable.id);
+      }
+      importedVariables += 1;
+    }
+
+    return { variables, idMap, importedVariables, reusedVariables };
+  }
+
+  private resolveImportedLwStore(existing: LwStoreConfig | undefined, incoming: LwStoreConfig | undefined, warnings: ProjectArchiveIssue[]): ResolvedLwStore {
+    if (!incoming) {
+      return { lwStore: existing, importedLw: 0, reusedLw: 0 };
+    }
+    const lwStore: LwStoreConfig = {
+      mode: existing?.mode ?? incoming.mode,
+      values: { ...(existing?.values ?? {}) },
+    };
+    let importedLw = 0;
+    let reusedLw = 0;
+    for (const [address, value] of Object.entries(incoming.values ?? {})) {
+      const numericAddress = Number(address);
+      if (!Number.isFinite(numericAddress)) {
+        continue;
+      }
+      const current = lwStore.values?.[numericAddress];
+      if (current === undefined) {
+        lwStore.values![numericAddress] = value;
+        importedLw += 1;
+      } else {
+        reusedLw += 1;
+        if (current !== value) {
+          addIssue(warnings, "LW_STORE_CONFLICT_KEEP_EXISTING", `LW address ${numericAddress} already exists with different value; kept existing value.`);
+        }
+      }
+    }
+    return { lwStore, importedLw, reusedLw };
+  }
+
+  private async resolveImportedLibraries(parsed: ParsedZip, sourceLibraries: ElementLibrary[], project: ScadaProject, warnings: ProjectArchiveIssue[]): Promise<ResolvedLibraries> {
     const existingLibraries = await this.libraryService.listLibraries();
-    const existingLibrariesById = new Map(existingLibraries.map((library) => [library.id, library]));
+    const byId = new Map(existingLibraries.map((library) => [library.id, library]));
+    const byHash = new Map<string, ElementLibrary>();
     const takenLibraryIds = new Set(existingLibraries.map((library) => library.id));
-    const nextProjectLibraryRefs = [...(project.libraries ?? [])];
+    const libraryIdMap = new Map<string, string>();
+    const nextProjectLibraryRefs = this.normalizeProjectLibraryRefs(project.libraries ?? []);
+    let importedLibraries = 0;
+    let reusedLibraries = 0;
+    let copiedLibraries = 0;
 
-    for (const sourceLibrary of data.libraries) {
-      const prefix = `libraries/${sourceLibrary.id}/`;
-      const sourceHash = sha256(canonicalLibraryPayload(sourceLibrary, parsed.files, prefix));
-      const existing = existingLibrariesById.get(sourceLibrary.id);
-      let targetId = sourceLibrary.id;
-      if (existing) {
-        const localFiles = await this.readLocalLibraryFiles(existing.id);
-        const existingHash = sha256(canonicalLibraryPayload(existing, localFiles, ""));
-        if (existingHash === sourceHash) {
-          libraryIdMap.set(sourceLibrary.id, existing.id);
+    for (const library of existingLibraries) {
+      const localFiles = await this.readLocalLibraryFiles(library.id);
+      byHash.set(sha256(canonicalLibraryPayload(library, localFiles, "")), library);
+    }
+
+    for (const sourceLibrary of sourceLibraries) {
+      const sourceHash = sha256(canonicalLibraryPayload(sourceLibrary, parsed.files, `libraries/${sourceLibrary.id}/`));
+      const sameId = byId.get(sourceLibrary.id);
+      if (sameId) {
+        const sameIdFiles = await this.readLocalLibraryFiles(sameId.id);
+        const sameIdHash = sha256(canonicalLibraryPayload(sameId, sameIdFiles, ""));
+        if (sameIdHash === sourceHash) {
+          libraryIdMap.set(sourceLibrary.id, sameId.id);
+          this.ensureProjectLibraryRef(nextProjectLibraryRefs, sameId.id, sameId);
           reusedLibraries += 1;
           continue;
         }
-        targetId = makeUniqueId(sourceLibrary.id, takenLibraryIds, "library");
+      }
+
+      const sameHash = byHash.get(sourceHash);
+      if (sameHash) {
+        libraryIdMap.set(sourceLibrary.id, sameHash.id);
+        this.ensureProjectLibraryRef(nextProjectLibraryRefs, sameHash.id, sameHash);
+        reusedLibraries += 1;
+        continue;
+      }
+
+      const hasIdConflict = Boolean(sameId);
+      const targetId = hasIdConflict ? makeUniqueId(sourceLibrary.id, takenLibraryIds, "library") : sourceLibrary.id;
+      const library = normalizeImportedLibrary(sourceLibrary, targetId);
+      await this.restoreLibrary(parsed, sourceLibrary.id, library);
+      takenLibraryIds.add(targetId);
+      byId.set(targetId, library);
+      byHash.set(sourceHash, library);
+      libraryIdMap.set(sourceLibrary.id, targetId);
+      this.ensureProjectLibraryRef(nextProjectLibraryRefs, targetId, library);
+      importedLibraries += 1;
+      if (hasIdConflict) {
         copiedLibraries += 1;
         addIssue(warnings, "LIBRARY_IMPORTED_AS_COPY", `Library '${sourceLibrary.id}' already exists with different content; imported as '${targetId}'.`);
       }
-      takenLibraryIds.add(targetId);
-      libraryIdMap.set(sourceLibrary.id, targetId);
-      const library = normalizeImportedLibrary(sourceLibrary, targetId);
-      await this.restoreLibrary(parsed, sourceLibrary.id, library);
-      if (!nextProjectLibraryRefs.some((ref) => ref.libraryId === targetId)) {
-        nextProjectLibraryRefs.push({
-          libraryId: targetId,
-          name: library.name,
-          version: library.version,
-          path: path.dirname(this.libraryService.libraryFilePath(targetId)),
-          enabled: true,
-        });
+    }
+
+    return { libraryIdMap, nextProjectLibraryRefs, importedLibraries, reusedLibraries, copiedLibraries };
+  }
+
+  private resolveImportedMacros(existing: MacroDefinition[], incoming: MacroDefinition[], warnings: ProjectArchiveIssue[]): ResolvedMacros {
+    const macros = [...existing];
+    const byId = new Map(macros.map((macro) => [macro.id, macro]));
+    const byContent = new Map(macros.map((macro) => [macroContentKey(macro), macro]));
+    const takenIds = new Set(macros.map((macro) => macro.id));
+    const idMap = new Map<string, string>();
+    let importedMacros = 0;
+    let reusedMacros = 0;
+    let copiedMacros = 0;
+
+    for (const macro of incoming) {
+      const contentKey = macroContentKey(macro);
+      const sameId = byId.get(macro.id);
+      if (sameId && macroContentKey(sameId) === contentKey) {
+        idMap.set(macro.id, sameId.id);
+        reusedMacros += 1;
+        continue;
       }
-      if (!existing) {
-        copiedLibraries += 1;
+
+      const sameContent = byContent.get(contentKey);
+      if (sameContent) {
+        idMap.set(macro.id, sameContent.id);
+        reusedMacros += 1;
+        continue;
+      }
+
+      const hasIdConflict = Boolean(sameId);
+      const targetId = hasIdConflict ? makeUniqueId(macro.id, takenIds, "macro") : macro.id;
+      const targetMacro = hasIdConflict ? { ...macro, id: targetId, name: `${macro.name} (copy)` } : macro;
+      macros.push(targetMacro);
+      takenIds.add(targetId);
+      byId.set(targetId, targetMacro);
+      byContent.set(contentKey, targetMacro);
+      idMap.set(macro.id, targetId);
+      importedMacros += 1;
+      if (hasIdConflict) {
+        copiedMacros += 1;
+        addIssue(warnings, "MACRO_IMPORTED_AS_COPY", `Macro '${macro.id}' already exists with different code; imported as '${targetId}'.`);
       }
     }
 
-    const macroMerge = this.mergeMacros(project.macros ?? [], data.macros, warnings);
-    for (const [sourceId, targetId] of macroMerge.idMap) {
-      macroIdMap.set(sourceId, targetId);
-    }
+    return { macros, idMap, importedMacros, reusedMacros, copiedMacros };
+  }
 
-    let importedScreen = replaceIdsInUnknown(data.screen, { assetIds: assetIdMap, libraryIds: libraryIdMap, macroIds: macroIdMap }) as HmiScreen;
+  private async importScreenData(
+    parsed: ParsedZip,
+    data: ScreenArchiveData,
+    parsedOptions: ScreenArchiveImportOptions,
+    initialWarnings: ProjectArchiveIssue[],
+  ): Promise<ScreenArchiveImportResult> {
+    const project = this.projectService.getProject();
+    const projectDir = path.dirname(this.projectService.getProjectFile());
+    const warnings: ProjectArchiveIssue[] = [...initialWarnings];
+    const assetResolution = await this.resolveImportedAssets(parsed, data.assets, project, projectDir, warnings);
+    const tagResolution = this.resolveImportedTags(project, data.tags, warnings);
+    const variableResolution = this.resolveImportedVariables(project.variables ?? [], data.variables ?? [], warnings);
+    const lwResolution = this.resolveImportedLwStore(project.lwStore, data.lwStore, warnings);
+    const libraryResolution = await this.resolveImportedLibraries(parsed, data.libraries, project, warnings);
+    const macroResolution = this.resolveImportedMacros(project.macros ?? [], data.macros, warnings);
+
+    let importedScreen = replaceIdsInUnknown(data.screen, {
+      assetIds: assetResolution.assetIdMap,
+      libraryIds: libraryResolution.libraryIdMap,
+      macroIds: macroResolution.idMap,
+      variableIds: variableResolution.idMap,
+    }) as HmiScreen;
     let nextScreens = [...project.screens];
     if (parsedOptions.mode === "replace") {
       const targetId = parsedOptions.replaceScreenId ?? importedScreen.id;
@@ -1532,12 +1840,12 @@ export class ProjectArchiveService {
 
     const nextProject = await this.projectService.saveProject({
       ...project,
-      assets: nextAssets,
-      tags: nextTags,
-      variables: variableMerge,
-      lwStore: mergedLwStore,
-      libraries: nextProjectLibraryRefs,
-      macros: macroMerge.macros,
+      assets: assetResolution.nextAssets,
+      tags: tagResolution.tags,
+      variables: variableResolution.variables,
+      lwStore: lwResolution.lwStore,
+      libraries: libraryResolution.nextProjectLibraryRefs,
+      macros: macroResolution.macros,
       events: this.mergeEvents(project.events ?? [], data.events ?? [], warnings),
       screens: nextScreens,
       startScreenId: project.startScreenId ?? nextScreens[0]?.id,
@@ -1548,29 +1856,38 @@ export class ProjectArchiveService {
       mode: parsedOptions.mode,
       screenId: importedScreen.id,
       importedScreenName: importedScreen.name,
-      reusedAssets,
-      copiedAssets,
-      importedTags,
-      skippedTags,
-      reusedLibraries,
-      copiedLibraries,
+      importedAssets: assetResolution.importedAssets,
+      reusedAssets: assetResolution.reusedAssets,
+      copiedAssets: assetResolution.copiedAssets,
+      importedTags: tagResolution.importedTags,
+      skippedTags: tagResolution.skippedTags,
+      importedVariables: variableResolution.importedVariables,
+      reusedVariables: variableResolution.reusedVariables,
+      importedLw: lwResolution.importedLw,
+      reusedLw: lwResolution.reusedLw,
+      importedMacros: macroResolution.importedMacros,
+      reusedMacros: macroResolution.reusedMacros,
+      copiedMacros: macroResolution.copiedMacros,
+      importedLibraries: libraryResolution.importedLibraries,
+      reusedLibraries: libraryResolution.reusedLibraries,
+      copiedLibraries: libraryResolution.copiedLibraries,
       warnings,
       project: nextProject,
     };
   }
 
-  private buildProjectInspection(
+  private async buildProjectInspection(
     inspection: ProjectArchiveValidationResult & { parsed?: AnyParsedArchive },
     parsed: ParsedProjectArchive,
-  ): ProjectArchiveInspectionResult {
+  ): Promise<ProjectArchiveInspectionResult> {
     const project = parsed.project;
     const current = this.projectService.getProject();
     const existingScreenIds = new Set(current.screens.map((screen) => screen.id));
-    const existingAssetIds = new Set((current.assets ?? []).map((asset) => asset.id));
     const existingMacroIds = new Set((current.macros ?? []).map((macro) => macro.id));
     const existingTagNames = new Set(current.tags.map((tag) => tag.name));
-    const existingLibraryIds = new Set((current.libraries ?? []).map((library) => library.libraryId));
     const libraries = this.readProjectArchiveLibraries(parsed);
+    const assetConflicts = await this.buildAssetConflictPreviewItems(project.assets ?? [], parsed.files);
+    const libraryConflicts = await this.buildLibraryConflictPreviewItems(libraries, parsed.files);
     return {
       ...this.stripParsed(inspection),
       archiveType: "project",
@@ -1600,22 +1917,8 @@ export class ProjectArchiveService {
             ? "A screen with this id exists. Import as new will create a copy; replace will overwrite the selected current screen."
             : "New screen.",
         })),
-        assets: (project.assets ?? []).map((asset) => ({
-          id: asset.id,
-          name: asset.name,
-          status: existingAssetIds.has(asset.id) ? "copy-different-checksum" : "new",
-          message: existingAssetIds.has(asset.id)
-            ? "An asset with this id exists. If content differs it will be imported as a copy and references will be rewritten."
-            : "New asset.",
-        })),
-        libraries: libraries.map((library) => ({
-          id: library.id,
-          name: library.name,
-          status: existingLibraryIds.has(library.id) ? "copy-different-checksum" : "new",
-          message: existingLibraryIds.has(library.id)
-            ? "A library with this id exists. Same content is reused; different content is imported as a copy unless replace is selected."
-            : "New library.",
-        })),
+        assets: assetConflicts,
+        libraries: libraryConflicts,
         macros: (project.macros ?? []).map((macro) => ({
           id: macro.id,
           name: macro.name,
@@ -1636,12 +1939,14 @@ export class ProjectArchiveService {
     };
   }
 
-  private buildScreenInspection(
+  private async buildScreenInspection(
     inspection: ScreenArchiveValidationResult & { parsed?: AnyParsedArchive },
     parsed: ParsedScreenArchive,
-  ): ProjectArchiveInspectionResult {
+  ): Promise<ProjectArchiveInspectionResult> {
     const data = parsed.data;
     const conflicts = inspection.conflicts;
+    const assetConflicts = await this.buildAssetConflictPreviewItems(data.assets, parsed.files);
+    const libraryConflicts = await this.buildLibraryConflictPreviewItems(data.libraries, parsed.files);
     return {
       ...this.stripParsed(inspection),
       archiveType: "screen",
@@ -1669,22 +1974,8 @@ export class ProjectArchiveService {
           status: conflicts?.screenIdConflict ? "import-as-copy" : "new",
           message: conflicts?.screenIdConflict ? "A screen with this id exists. Add as new will create a copy; replace overwrites selected current screen." : "New screen.",
         }],
-        assets: data.assets.map((asset) => ({
-          id: asset.id,
-          name: asset.name,
-          status: conflicts?.assetConflicts.includes(asset.id) ? "copy-different-checksum" : "new",
-          message: conflicts?.assetConflicts.includes(asset.id)
-            ? "An asset with this id exists. Same checksum is reused; different checksum is imported as a copy and references are rewritten."
-            : "New asset.",
-        })),
-        libraries: data.libraries.map((library) => ({
-          id: library.id,
-          name: library.name,
-          status: conflicts?.libraryConflicts.includes(library.id) ? "copy-different-checksum" : "new",
-          message: conflicts?.libraryConflicts.includes(library.id)
-            ? "A library with this id exists. Same checksum is reused; different checksum is imported as a copy and references are rewritten."
-            : "New library.",
-        })),
+        assets: assetConflicts,
+        libraries: libraryConflicts,
         macros: data.macros.map((macro) => ({
           id: macro.id,
           name: macro.name,
@@ -1733,6 +2024,92 @@ export class ProjectArchiveService {
       version: library.version,
       path: path.dirname(this.libraryService.libraryFilePath(libraryId)),
       enabled: true,
+    });
+  }
+
+  private normalizeProjectLibraryRefs(refs: NonNullable<ScadaProject["libraries"]>): NonNullable<ScadaProject["libraries"]> {
+    const out: NonNullable<ScadaProject["libraries"]> = [];
+    const seen = new Set<string>();
+    for (const ref of refs) {
+      if (seen.has(ref.libraryId)) {
+        continue;
+      }
+      seen.add(ref.libraryId);
+      out.push({ ...ref });
+    }
+    return out;
+  }
+
+  private async buildAssetConflictPreviewItems(sourceAssets: Asset[], files: Map<string, Buffer>): Promise<ArchiveConflictPreviewItem[]> {
+    const project = this.projectService.getProject();
+    const projectDir = path.dirname(this.projectService.getProjectFile());
+    const existingById = new Map((project.assets ?? []).map((asset) => [asset.id, asset]));
+    const existingBySha = new Set<string>();
+    const existingIdSha = new Map<string, string>();
+
+    for (const asset of project.assets ?? []) {
+      const normalized = normalizeArchivePath(asset.storagePath);
+      const bytes = normalized.ok ? await readFile(path.join(projectDir, ...normalized.value.split("/"))).catch(() => undefined) : undefined;
+      if (!bytes) {
+        continue;
+      }
+      const checksum = sha256(bytes);
+      existingBySha.add(checksum);
+      existingIdSha.set(asset.id, checksum);
+    }
+
+    return sourceAssets.map((asset) => {
+      const normalized = normalizeArchivePath(asset.storagePath);
+      const bytes = normalized.ok ? files.get(normalized.value) : undefined;
+      const checksum = bytes ? sha256(bytes) : undefined;
+      if (checksum && existingIdSha.get(asset.id) === checksum) {
+        return { id: asset.id, name: asset.name, status: "reuse-same-checksum", message: "Will reuse existing asset with the same id and checksum." };
+      }
+      if (checksum && existingBySha.has(checksum)) {
+        return { id: asset.id, name: asset.name, status: "reuse-same-checksum", message: "Will reuse existing asset with the same checksum." };
+      }
+      if (existingById.has(asset.id)) {
+        return {
+          id: asset.id,
+          name: asset.name,
+          status: "copy-different-checksum",
+          message: "Will import as copy because an asset with this id exists with different content.",
+        };
+      }
+      return { id: asset.id, name: asset.name, status: "new", message: "New asset." };
+    });
+  }
+
+  private async buildLibraryConflictPreviewItems(sourceLibraries: ElementLibrary[], files: Map<string, Buffer>): Promise<ArchiveConflictPreviewItem[]> {
+    const existingLibraries = await this.libraryService.listLibraries();
+    const existingById = new Map(existingLibraries.map((library) => [library.id, library]));
+    const existingByHash = new Set<string>();
+    const existingIdHash = new Map<string, string>();
+
+    for (const library of existingLibraries) {
+      const localFiles = await this.readLocalLibraryFiles(library.id);
+      const checksum = sha256(canonicalLibraryPayload(library, localFiles, ""));
+      existingByHash.add(checksum);
+      existingIdHash.set(library.id, checksum);
+    }
+
+    return sourceLibraries.map((library) => {
+      const checksum = sha256(canonicalLibraryPayload(library, files, `libraries/${library.id}/`));
+      if (existingIdHash.get(library.id) === checksum) {
+        return { id: library.id, name: library.name, status: "reuse-same-checksum", message: "Will reuse existing library with the same id and canonical hash." };
+      }
+      if (existingByHash.has(checksum)) {
+        return { id: library.id, name: library.name, status: "reuse-same-checksum", message: "Will reuse existing library with the same canonical hash." };
+      }
+      if (existingById.has(library.id)) {
+        return {
+          id: library.id,
+          name: library.name,
+          status: "copy-different-checksum",
+          message: "Will import as copy because a library with this id exists with different content.",
+        };
+      }
+      return { id: library.id, name: library.name, status: "new", message: "New library." };
     });
   }
 
@@ -2679,77 +3056,6 @@ export class ProjectArchiveService {
     const backupPath = path.join(backupDir, `${new Date().toISOString().replace(/[:.]/g, "-")}-${exported.fileName}`);
     await writeFile(backupPath, exported.buffer);
     return backupPath;
-  }
-
-  private mergeMacros(existing: MacroDefinition[], incoming: MacroDefinition[], warnings: ProjectArchiveIssue[]): { macros: MacroDefinition[]; idMap: Map<string, string> } {
-    const next = [...existing];
-    const existingById = new Map(next.map((macro) => [macro.id, macro]));
-    const existingIds = new Set(next.map((macro) => macro.id));
-    const idMap = new Map<string, string>();
-    for (const macro of incoming) {
-      const existingMacro = existingById.get(macro.id);
-      if (existingMacro) {
-        if (existingMacro.code === macro.code && existingMacro.language === macro.language) {
-          idMap.set(macro.id, existingMacro.id);
-          continue;
-        }
-        const nextId = makeUniqueId(macro.id, existingIds, "macro");
-        next.push({ ...macro, id: nextId, name: `${macro.name} (copy)` });
-        existingIds.add(nextId);
-        idMap.set(macro.id, nextId);
-        addIssue(warnings, "MACRO_IMPORTED_AS_COPY", `Macro '${macro.id}' already exists with different code; imported as '${nextId}'.`);
-        continue;
-      }
-      next.push(macro);
-      existingIds.add(macro.id);
-      existingById.set(macro.id, macro);
-      idMap.set(macro.id, macro.id);
-    }
-    return { macros: next, idMap };
-  }
-
-  private mergeVariables(
-    existing: InternalVariableDefinition[],
-    incoming: InternalVariableDefinition[],
-    warnings: ProjectArchiveIssue[],
-  ): InternalVariableDefinition[] {
-    const next = [...existing];
-    const existingByName = new Map(next.map((variable) => [variable.name, variable]));
-    for (const variable of incoming) {
-      const existingVariable = existingByName.get(variable.name);
-      if (!existingVariable) {
-        next.push(variable);
-        existingByName.set(variable.name, variable);
-        continue;
-      }
-      if (JSON.stringify(existingVariable) !== JSON.stringify(variable)) {
-        addIssue(warnings, "VARIABLE_CONFLICT_KEEP_EXISTING", `Internal variable '${variable.name}' already exists with different definition; kept existing definition.`);
-      }
-    }
-    return next;
-  }
-
-  private mergeLwStore(existing: LwStoreConfig | undefined, incoming: LwStoreConfig | undefined, warnings: ProjectArchiveIssue[]): LwStoreConfig | undefined {
-    if (!incoming) {
-      return existing;
-    }
-    const next: LwStoreConfig = {
-      mode: existing?.mode ?? incoming.mode,
-      values: { ...(existing?.values ?? {}) },
-    };
-    for (const [address, value] of Object.entries(incoming.values ?? {})) {
-      const numericAddress = Number(address);
-      if (!Number.isFinite(numericAddress)) {
-        continue;
-      }
-      const current = next.values?.[numericAddress];
-      if (current === undefined) {
-        next.values![numericAddress] = value;
-      } else if (current !== value) {
-        addIssue(warnings, "LW_STORE_CONFLICT_KEEP_EXISTING", `LW address ${numericAddress} already exists with different value; kept existing value.`);
-      }
-    }
-    return next;
   }
 
   private mergeEvents(existing: EventDefinition[], incoming: EventDefinition[], warnings: ProjectArchiveIssue[]): EventDefinition[] {

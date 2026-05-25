@@ -388,6 +388,22 @@ describe("ProjectArchiveService", () => {
     expect(bytes.toString()).toBe("source-image");
   });
 
+  it("reuses a previously copied screen asset by checksum on repeated import", async () => {
+    const source = await makeHarness(makeProject("Source Project", "main", "asset1"), Buffer.from("source-image"));
+    const target = await makeHarness(makeProject("Target Project", "main", "asset1"), Buffer.from("different-image"));
+    const exportedScreen = await source.service.exportScreenArchive("main");
+
+    const first = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+    const firstAssetCount = target.projectService.getProject().assets?.length ?? 0;
+    const second = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+
+    expect(first.copiedAssets).toBe(1);
+    expect(second.reusedAssets).toBe(1);
+    expect(second.copiedAssets).toBe(0);
+    expect(target.projectService.getProject().assets).toHaveLength(firstAssetCount);
+    expect(target.projectService.getProject().screens).toHaveLength(3);
+  });
+
   it("inspects a full project archive and lists resources", async () => {
     const sourceProject = makeProject("Inspectable Project", "main", "asset1");
     sourceProject.macros = [makeMacro("macro1", "writeTag('Tank.Level', 42)")];
@@ -454,6 +470,43 @@ describe("ProjectArchiveService", () => {
     expect(result.project.libraries?.some((ref) => ref.libraryId === importedObject.libraryId)).toBe(true);
   });
 
+  it("reuses a previously copied screen library by canonical hash on repeated import", async () => {
+    const sourceProject = makeProject("Source Project", "main", "asset1");
+    sourceProject.libraries = [{ libraryId: "lib1", name: "lib1", version: "1.0.0", enabled: true }];
+    sourceProject.screens[0]!.objects = [{
+      id: "lib-object",
+      type: "libraryElementInstance",
+      name: "Library Object",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      libraryId: "lib1",
+      elementId: "element1",
+    }];
+    const targetProject = makeProject("Target Project", "main", "asset1");
+    targetProject.libraries = [{ libraryId: "lib1", name: "lib1", version: "2.0.0", enabled: true }];
+    const source = await makeHarness(sourceProject);
+    const target = await makeHarness(targetProject);
+    await writeLibrary(source.root, makeLibrary("lib1", "lib-asset", "element1"), Buffer.from("source-library-asset"));
+    await writeLibrary(target.root, { ...makeLibrary("lib1", "lib-asset", "element1"), version: "2.0.0", name: "different" }, Buffer.from("target-library-asset"));
+    const exportedScreen = await source.service.exportScreenArchive("main", { dependencyMode: "minimal" });
+
+    const first = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+    const firstLibraryRefs = target.projectService.getProject().libraries?.length ?? 0;
+    const second = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+    const firstScreen = first.project.screens.find((screen) => screen.id === first.screenId)!;
+    const secondScreen = second.project.screens.find((screen) => screen.id === second.screenId)!;
+    const firstObject = firstScreen.objects[0] as Extract<HmiScreen["objects"][number], { type: "libraryElementInstance" }>;
+    const secondObject = secondScreen.objects[0] as Extract<HmiScreen["objects"][number], { type: "libraryElementInstance" }>;
+
+    expect(first.copiedLibraries).toBe(1);
+    expect(second.reusedLibraries).toBe(1);
+    expect(second.copiedLibraries).toBe(0);
+    expect(second.project.libraries).toHaveLength(firstLibraryRefs);
+    expect(secondObject.libraryId).toBe(firstObject.libraryId);
+  });
+
   it("imports conflicting macros as copies and rewrites screen macro references", async () => {
     const sourceProject = makeProject("Source Project", "main", "asset1");
     sourceProject.macros = [makeMacro("macro1", "writeTag('Tank.Level', 42)")];
@@ -484,6 +537,35 @@ describe("ProjectArchiveService", () => {
     }
     expect(result.project.macros ?? []).toHaveLength(2);
     expect(result.warnings.some((issue) => issue.code === "MACRO_IMPORTED_AS_COPY")).toBe(true);
+  });
+
+  it("reuses a previously copied screen macro by code hash on repeated import", async () => {
+    const sourceProject = makeProject("Source Project", "main", "asset1");
+    sourceProject.macros = [makeMacro("macro1", "writeTag('Tank.Level', 42)")];
+    sourceProject.screens[0]!.objects = [{
+      id: "button1",
+      type: "button",
+      name: "Button 1",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+      textStyle: { fontFamily: "Arial", fontSize: 14, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      action: { type: "runMacro", macroId: "macro1" },
+    }];
+    const targetProject = makeProject("Target Project", "main", "asset1");
+    targetProject.macros = [makeMacro("macro1", "writeTag('Tank.Level', 1)")];
+    const source = await makeHarness(sourceProject);
+    const target = await makeHarness(targetProject);
+    const exportedScreen = await source.service.exportScreenArchive("main", { dependencyMode: "minimal" });
+
+    const first = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+    const second = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+
+    expect(first.copiedMacros).toBe(1);
+    expect(second.reusedMacros).toBe(1);
+    expect(second.copiedMacros).toBe(0);
+    expect(second.project.macros ?? []).toHaveLength(2);
   });
 
   it("reports full-project missing asset and library references as warnings", async () => {
@@ -594,6 +676,179 @@ describe("ProjectArchiveService", () => {
 
     expect(data.variables).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Counter" }), expect.objectContaining({ name: "Mapped" })]));
     expect(data.lwStore?.values).toEqual({ 10: 123 });
+  });
+
+  it("does not duplicate existing project tags on repeated screen import", async () => {
+    const sourceProject = makeProject("Source Tags");
+    sourceProject.screens[0]!.objects = [{
+      id: "tag-text",
+      type: "state-indicator",
+      name: "Tag State",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 40,
+      tag: "Tank.Level",
+      trueText: "High",
+      falseText: "Low",
+      trueColor: "#0f0",
+      falseColor: "#333",
+      badColor: "#f00",
+      textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+    }];
+    const source = await makeHarness(sourceProject);
+    const target = await makeHarness(makeProject("Target Tags"));
+    const exportedScreen = await source.service.exportScreenArchive("main", { dependencyMode: "minimal" });
+
+    const first = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+    const second = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+
+    expect(first.skippedTags).toBe(1);
+    expect(second.skippedTags).toBe(1);
+    expect(second.project.tags.filter((tag) => tag.name === "Tank.Level")).toHaveLength(1);
+  });
+
+  it("resolves generated simulation tags from driver config without importing duplicate project tags", async () => {
+    const sourceProject = makeProject("Source Simulation Tags");
+    sourceProject.drivers = [{ id: "sim_1", type: "simulated", enabled: true }];
+    sourceProject.tags = [{
+      name: "AI_SIM_001",
+      sourceType: "simulated",
+      driverId: "sim_1",
+      dataType: "REAL",
+      simulation: { enabled: true, profile: "ramp" },
+    }];
+    sourceProject.screens[0]!.objects = [{
+      id: "trend1",
+      type: "trendChart",
+      name: "Trend",
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 240,
+      selectedTags: [{ tag: "AI_SIM_004", color: "#fff" }],
+    }];
+    const targetProject = makeProject("Target Simulation Tags");
+    targetProject.drivers = [{ id: "sim_1", type: "simulated", enabled: true }];
+    targetProject.tags = [{
+      name: "AI_SIM_001",
+      sourceType: "simulated",
+      driverId: "sim_1",
+      dataType: "REAL",
+      simulation: { enabled: true, profile: "ramp" },
+    }];
+    const source = await makeHarness(sourceProject);
+    const target = await makeHarness(targetProject);
+    const exportedScreen = await source.service.exportScreenArchive("main", { dependencyMode: "minimal" });
+
+    await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+    const second = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+
+    expect(second.project.tags.filter((tag) => tag.name === "AI_SIM_004")).toHaveLength(0);
+    expect(second.project.tags.filter((tag) => tag.name === "AI_SIM_001")).toHaveLength(1);
+  });
+
+  it("reuses internal variables and LW values on repeated screen import", async () => {
+    const sourceProject = makeProject("Source Variables");
+    sourceProject.variables = [
+      { id: "var-counter", name: "Counter", dataType: "DINT", initialValue: 1, writable: true },
+      { id: "var-mapped", name: "Mapped", dataType: "INT", initialValue: 2, lwAddress: 10, writable: true },
+    ];
+    sourceProject.lwStore = { mode: "persistent", values: { 10: 123 } };
+    sourceProject.screens[0]!.objects = [
+      {
+        id: "select-internal",
+        type: "valueSelect",
+        name: "Internal Select",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        options: [{ label: "One", value: 1 }],
+        target: { type: "internal", name: "Counter" },
+        valueType: "number",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+      {
+        id: "select-lw",
+        type: "valueSelect",
+        name: "LW Select",
+        x: 0,
+        y: 50,
+        width: 100,
+        height: 40,
+        options: [{ label: "One", value: 1 }],
+        target: { type: "lw", address: 10 },
+        valueType: "number",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+    ];
+    const targetProject = makeProject("Target Variables");
+    targetProject.variables = [
+      { id: "var-counter", name: "Counter", dataType: "DINT", initialValue: 1, writable: true },
+      { id: "var-mapped", name: "Mapped", dataType: "INT", initialValue: 2, lwAddress: 10, writable: true },
+    ];
+    targetProject.lwStore = { mode: "persistent", values: { 10: 123 } };
+    const source = await makeHarness(sourceProject);
+    const target = await makeHarness(targetProject);
+    const exportedScreen = await source.service.exportScreenArchive("main", { dependencyMode: "minimal" });
+
+    const first = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+    const second = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+
+    expect(first.reusedVariables).toBe(2);
+    expect(second.reusedVariables).toBe(2);
+    expect(second.reusedLw).toBe(1);
+    expect(second.project.variables?.filter((variable) => variable.name === "Counter")).toHaveLength(1);
+    expect(second.project.variables?.filter((variable) => variable.name === "Mapped")).toHaveLength(1);
+    expect(second.project.lwStore?.values).toEqual({ 10: 123 });
+  });
+
+  it("warns and keeps existing internal variable and LW definitions on conflict", async () => {
+    const sourceProject = makeProject("Source Variable Conflicts");
+    sourceProject.variables = [{ name: "Counter", dataType: "DINT", initialValue: 99, writable: true }];
+    sourceProject.lwStore = { mode: "persistent", values: { 10: 999 } };
+    sourceProject.screens[0]!.objects = [
+      {
+        id: "select-internal",
+        type: "valueSelect",
+        name: "Internal Select",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        options: [{ label: "One", value: 1 }],
+        target: { type: "internal", name: "Counter" },
+        valueType: "number",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+      {
+        id: "select-lw",
+        type: "valueSelect",
+        name: "LW Select",
+        x: 0,
+        y: 50,
+        width: 100,
+        height: 40,
+        options: [{ label: "One", value: 1 }],
+        target: { type: "lw", address: 10 },
+        valueType: "number",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+    ];
+    const targetProject = makeProject("Target Variable Conflicts");
+    targetProject.variables = [{ name: "Counter", dataType: "DINT", initialValue: 1, writable: true }];
+    targetProject.lwStore = { mode: "persistent", values: { 10: 123 } };
+    const source = await makeHarness(sourceProject);
+    const target = await makeHarness(targetProject);
+    const exportedScreen = await source.service.exportScreenArchive("main", { dependencyMode: "minimal" });
+
+    const result = await target.service.importScreenArchive(upload(exportedScreen.buffer), { mode: "add" });
+
+    expect(result.project.variables?.find((variable) => variable.name === "Counter")?.initialValue).toBe(1);
+    expect(result.project.lwStore?.values?.[10]).toBe(123);
+    expect(result.warnings.some((issue) => issue.code === "VARIABLE_CONFLICT_KEEP_EXISTING")).toBe(true);
+    expect(result.warnings.some((issue) => issue.code === "LW_STORE_CONFLICT_KEEP_EXISTING")).toBe(true);
   });
 
   it("does not treat relative/local state strings as project references", async () => {
