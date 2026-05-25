@@ -1,5 +1,6 @@
 import type {
   DriverConfig,
+  EventDefinition,
   EventArchiveCleanupMode,
   EventArchiveSettings,
   EventHistoryPage,
@@ -316,6 +317,10 @@ export class ArchiveService {
 
   public async syncMetadata(tags: TagDefinition[], drivers: DriverConfig[]): Promise<void> {
     await this.repository.syncMetadata(tags, drivers);
+  }
+
+  public async syncOnlineEventDefinitionSnapshots(definitions: EventDefinition[]): Promise<EventOccurrence[]> {
+    return this.repository.syncOnlineEventDefinitionSnapshots(definitions);
   }
 
   public async querySamples(tagName: string, from: Date, to: Date, limit: number): Promise<ArchiveSampleRow[]> {

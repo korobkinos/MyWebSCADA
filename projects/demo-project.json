@@ -9398,7 +9398,7 @@
       "id": "event_isv4q2",
       "enabled": true,
       "categoryName": "Default",
-      "message": "Произошла какая-то залупа",
+      "message": "Аварийный верхний порог параметра",
       "priority": 2,
       "sourceTagName": "Counter2",
       "conditionMode": "word",
@@ -9410,15 +9410,16 @@
       "soundId": "cd29db2b-ee70-4346-8f36-9c7a3066d34e",
       "backgroundBlinkEnabled": true,
       "backgroundBlinkDurationMs": 1600,
+      "backgroundBlinkOpacity": 0.45,
       "securityEnabled": false,
       "createdAt": "2026-05-23T17:56:47.530Z",
-      "updatedAt": "2026-05-23T23:10:03.344Z"
+      "updatedAt": "2026-05-25T05:24:10.119Z"
     },
     {
       "id": "event_ygsij1",
       "enabled": true,
       "categoryName": "Default",
-      "message": "Это просто какой-то пиздец",
+      "message": "Аварийный нижний порог параметра",
       "priority": 3,
       "sourceTagName": "Counter2",
       "conditionMode": "word",
@@ -9430,9 +9431,10 @@
       "soundId": "c090ff56-2df0-4023-8388-4076d0be55f1",
       "backgroundBlinkEnabled": true,
       "backgroundBlinkDurationMs": 1600,
+      "backgroundBlinkOpacity": 0.45,
       "securityEnabled": false,
       "createdAt": "2026-05-23T22:11:01.677Z",
-      "updatedAt": "2026-05-23T23:10:20.007Z"
+      "updatedAt": "2026-05-25T05:24:28.759Z"
     }
   ],
   "eventSounds": [

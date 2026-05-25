@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { EventOccurrence, RuntimeAction, ScadaProject, TagDefinition } from "@web-scada/shared";
+import type { EventDefinition, EventOccurrence, RuntimeAction, ScadaProject, TagDefinition } from "@web-scada/shared";
 import { TagStore } from "../tags/tag-store.js";
 import { EventEngine } from "./event-engine.js";
 
@@ -28,6 +28,42 @@ class InMemoryArchiveService {
 
   public async listActiveEvents(): Promise<EventOccurrence[]> {
     return this.hydratedActive.slice();
+  }
+
+  public getOccurrence(id: string): EventOccurrence | undefined {
+    return this.occurrences.get(id);
+  }
+
+  public async syncOnlineEventDefinitionSnapshots(definitions: EventDefinition[]): Promise<EventOccurrence[]> {
+    const updated: EventOccurrence[] = [];
+    const byId = new Map(definitions.map((definition) => [definition.id, definition]));
+    this.hydratedActive = this.hydratedActive.map((item) => {
+      const definition = byId.get(item.eventDefinitionId);
+      if (!definition || item.acknowledgedAt) {
+        return item;
+      }
+      const next: EventOccurrence = {
+        ...item,
+        sourceTagNameSnapshot: definition.sourceTagName?.trim() || null,
+        categoryIdSnapshot: definition.categoryId ?? null,
+        categoryNameSnapshot: definition.categoryName ?? null,
+        prioritySnapshot: typeof definition.priority === "number" ? definition.priority : null,
+        messageTextSnapshot: definition.message ?? null,
+      };
+      if (
+        item.sourceTagNameSnapshot === next.sourceTagNameSnapshot
+        && item.categoryIdSnapshot === next.categoryIdSnapshot
+        && item.categoryNameSnapshot === next.categoryNameSnapshot
+        && item.prioritySnapshot === next.prioritySnapshot
+        && item.messageTextSnapshot === next.messageTextSnapshot
+      ) {
+        return item;
+      }
+      this.occurrences.set(next.id, next);
+      updated.push(next);
+      return next;
+    });
+    return updated;
   }
 
   public async createEventOccurrence(input: {
@@ -232,6 +268,54 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1200): Promise<void
 }
 
 describe("event engine actions", () => {
+  it("refreshes online event snapshots when the project definition changes", async () => {
+    const tagStore = createTagStore();
+    const archiveService = new InMemoryArchiveService();
+    archiveService.setHydratedActive([
+      {
+        id: "occ_active",
+        eventDefinitionId: "event_1",
+        occurredAt: new Date().toISOString(),
+        state: "active",
+        sourceTagNameSnapshot: "Tag1",
+        categoryNameSnapshot: "Default",
+        prioritySnapshot: 1,
+        messageTextSnapshot: "Old message",
+      },
+    ]);
+
+    const wsGateway = new RecordingWebSocketGateway();
+    const engine = new EventEngine(
+      tagStore,
+      archiveService as unknown as any,
+      wsGateway as unknown as any,
+      undefined,
+      { evaluationIntervalMs: 250 },
+    );
+
+    await engine.configureProject(
+      createProject({
+        categoryName: "Alarms",
+        priority: 3,
+        message: "Updated message",
+      }),
+      { broadcastSnapshotUpdates: true },
+    );
+
+    expect(archiveService.getOccurrence("occ_active")?.categoryNameSnapshot).toBe("Alarms");
+    expect(archiveService.getOccurrence("occ_active")?.prioritySnapshot).toBe(3);
+    expect(archiveService.getOccurrence("occ_active")?.messageTextSnapshot).toBe("Updated message");
+    expect(wsGateway.broadcasts).toEqual([
+      expect.objectContaining({
+        kind: "active",
+        occurrence: expect.objectContaining({
+          id: "occ_active",
+          messageTextSnapshot: "Updated message",
+        }),
+      }),
+    ]);
+  });
+
   it("executes onActive actions only once per active transition and emits client actions", async () => {
     const tagStore = createTagStore();
     const archiveService = new InMemoryArchiveService();

@@ -1,6 +1,7 @@
 import pg, { type Pool as PgPool, type PoolClient } from "pg";
 import type {
   DriverConfig,
+  EventDefinition,
   EventArchiveCleanupMode,
   EventArchiveSettings,
   EventHistoryPage,
@@ -448,6 +449,101 @@ export class ArchiveRepository {
 
       await client.query("COMMIT");
       await this.loadInsertCaches();
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async syncOnlineEventDefinitionSnapshots(definitions: EventDefinition[]): Promise<EventOccurrence[]> {
+    const updated: EventOccurrence[] = [];
+    if (definitions.length === 0) {
+      return updated;
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const definition of definitions) {
+        const id = definition.id?.trim();
+        if (!id) {
+          continue;
+        }
+
+        const sourceTagName = definition.sourceTagName?.trim() || null;
+        const categoryId = definition.categoryId ?? null;
+        const categoryName = definition.categoryName ?? null;
+        const priority = typeof definition.priority === "number" ? definition.priority : null;
+        const message = definition.message ?? null;
+
+        const result = await client.query<{
+          id: number;
+          event_definition_id: string;
+          occurred_at: Date;
+          cleared_at: Date | null;
+          acknowledged_at: Date | null;
+          acknowledged_by: string | null;
+          state: string;
+          source_tag_name_snapshot: string | null;
+          category_id_snapshot: string | null;
+          category_name_snapshot: string | null;
+          priority_snapshot: number | null;
+          message_text_snapshot: string | null;
+          value_at_trigger: string | null;
+          value_at_clear: string | null;
+          quality: string | null;
+          runtime_source: string | null;
+          service_data: Record<string, unknown> | null;
+          created_at: Date;
+          updated_at: Date;
+        }>(
+          `
+          UPDATE event_occurrences
+          SET
+              source_tag_name_snapshot = $2,
+              category_id_snapshot = $3,
+              category_name_snapshot = $4,
+              priority_snapshot = $5,
+              message_text_snapshot = $6,
+              updated_at = now()
+          WHERE event_definition_id = $1
+            AND acknowledged_at IS NULL
+            AND (
+                source_tag_name_snapshot IS DISTINCT FROM $2
+                OR category_id_snapshot IS DISTINCT FROM $3
+                OR category_name_snapshot IS DISTINCT FROM $4
+                OR priority_snapshot IS DISTINCT FROM $5
+                OR message_text_snapshot IS DISTINCT FROM $6
+            )
+          RETURNING
+              id,
+              event_definition_id,
+              occurred_at,
+              cleared_at,
+              acknowledged_at,
+              acknowledged_by,
+              state,
+              source_tag_name_snapshot,
+              category_id_snapshot,
+              category_name_snapshot,
+              priority_snapshot,
+              message_text_snapshot,
+              value_at_trigger,
+              value_at_clear,
+              quality,
+              runtime_source,
+              service_data,
+              created_at,
+              updated_at
+          `,
+          [id, sourceTagName, categoryId, categoryName, priority, message],
+        );
+        updated.push(...result.rows.map((row) => this.mapEventOccurrenceRow(row)));
+      }
+      await client.query("COMMIT");
+      return updated;
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;

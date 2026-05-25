@@ -1244,7 +1244,7 @@ async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): P
   deps.macroService.configure(saved);
   await deps.archiveService?.syncMetadata([...(saved.tags ?? []), ...variableDefinitions], saved.drivers);
   deps.archiveService?.setOperatorActionArchiveSettings(resolveOperatorActionArchiveSettings(saved));
-  await deps.eventEngine?.configureProject(saved);
+  await deps.eventEngine?.configureProject(saved, { broadcastSnapshotUpdates: true });
 
   if (deps.runtimeService.getState().running) {
     await deps.eventEngine?.stop();

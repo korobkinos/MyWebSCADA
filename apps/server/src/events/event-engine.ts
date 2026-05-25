@@ -23,6 +23,10 @@ type EventEngineOptions = {
   isRuntimeRunning?: () => boolean;
 };
 
+type ConfigureProjectOptions = {
+  broadcastSnapshotUpdates?: boolean;
+};
+
 type AcknowledgeEventsResult = {
   acknowledged: EventOccurrence[];
   alreadyAcknowledgedIds: string[];
@@ -103,9 +107,20 @@ export class EventEngine {
     this.logger.info("[EventEngine] stopped");
   }
 
-  public async configureProject(project: ScadaProject): Promise<void> {
+  public async configureProject(project: ScadaProject, options?: ConfigureProjectOptions): Promise<void> {
     this.archiveEnabled = await this.resolveArchiveEnabled(project);
     this.rebuildDefinitions(project);
+    if (this.archiveService?.isEnabled()) {
+      const updatedOccurrences = await this.archiveService.syncOnlineEventDefinitionSnapshots(project.events ?? []);
+      if (options?.broadcastSnapshotUpdates === true) {
+        for (const occurrence of updatedOccurrences) {
+          this.websocketGateway.broadcastEventUpdate(
+            occurrence.state === "active" ? "active" : "cleared",
+            occurrence,
+          );
+        }
+      }
+    }
     this.reconcileStateForCurrentDefinitions(Date.now());
     await this.hydrateActiveStatesFromArchive();
   }
