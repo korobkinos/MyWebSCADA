@@ -1126,6 +1126,7 @@ export class ArchiveRepository {
 
   public async configureCompressionPolicy(): Promise<void> {
     try {
+      // Шаг 1: создаём hypertable и сбрасываем PK (в транзакции)
       await this.pool.query(
         `
         DO $$
@@ -1133,6 +1134,22 @@ export class ArchiveRepository {
             after_days INTEGER;
         BEGIN
             IF to_regproc('add_compression_policy') IS NOT NULL THEN
+                -- Превращаем таблицу в TimescaleDB hypertable, если ещё не
+                PERFORM create_hypertable('archive_samples', 'time',
+                    chunk_time_interval => INTERVAL '1 day',
+                    if_not_exists => TRUE,
+                    migrate_data => TRUE
+                );
+
+                -- Сбрасываем PRIMARY KEY, если есть (hypertable его не поддерживает)
+                IF EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conrelid = 'archive_samples'::regclass
+                    AND contype = 'p'
+                ) THEN
+                    ALTER TABLE archive_samples DROP CONSTRAINT archive_samples_pkey;
+                END IF;
+
                 SELECT MIN(COALESCE(o.compression_after_days, p.compression_after_days))
                 INTO after_days
                 FROM tags t
@@ -1151,6 +1168,12 @@ export class ArchiveRepository {
             END IF;
         END $$;
         `,
+      );
+
+      // Шаг 2: UNIQUE INDEX CONCURRENTLY — вне транзакции
+      await this.pool.query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_archive_samples_unique
+         ON archive_samples (tag_id, time)`,
       );
     } catch (error) {
       this.logger.warn(`TimescaleDB compression policy was not applied: ${this.errorText(error)}`);
