@@ -1281,7 +1281,12 @@ export class ProjectArchiveService {
   }
 
   public async importScreenFromProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveScreenImportOptions): Promise<ScreenArchiveImportResult> {
-    const parsedOptions = projectArchiveScreenImportOptionsSchema.parse(options ?? {});
+    const parsed = projectArchiveScreenImportOptionsSchema.safeParse(options ?? {});
+    if (!parsed.success) {
+      const hasScreenIdIssue = parsed.error.issues.some((issue) => issue.path[0] === "screenIds");
+      throw new Error(hasScreenIdIssue ? "Select a source screen to import" : "Invalid screen import options");
+    }
+    const parsedOptions = parsed.data;
     const inspected = await this.inspectProjectArchive(uploadedFile.content, true, {
       requireSignature: parsedOptions.requireSignature ?? Boolean(archiveSecret()),
     });
@@ -1298,6 +1303,25 @@ export class ProjectArchiveService {
     }
 
     let lastResult: ScreenArchiveImportResult | undefined;
+    const importedScreens: Array<{ id: string; name: string }> = [];
+    const totals = {
+      importedAssets: 0,
+      reusedAssets: 0,
+      copiedAssets: 0,
+      importedTags: 0,
+      skippedTags: 0,
+      importedVariables: 0,
+      reusedVariables: 0,
+      importedLw: 0,
+      reusedLw: 0,
+      importedMacros: 0,
+      reusedMacros: 0,
+      copiedMacros: 0,
+      importedLibraries: 0,
+      reusedLibraries: 0,
+      copiedLibraries: 0,
+    };
+    const warnings: ProjectArchiveIssue[] = [];
     for (const screen of selectedScreens) {
       const dependencies = this.collectScreenArchiveDependencies(inspected.parsed.project, screen, parsedOptions.dependencyMode ?? "safe");
       const librarySet = new Set(dependencies.libraries);
@@ -1316,11 +1340,33 @@ export class ProjectArchiveService {
         replaceScreenId: parsedOptions.replaceScreenId,
         requireSignature: parsedOptions.requireSignature,
       }, [...inspected.warnings, ...dependencies.warnings]);
+      importedScreens.push({ id: lastResult.screenId, name: lastResult.importedScreenName });
+      totals.importedAssets += lastResult.importedAssets;
+      totals.reusedAssets += lastResult.reusedAssets;
+      totals.copiedAssets += lastResult.copiedAssets;
+      totals.importedTags += lastResult.importedTags;
+      totals.skippedTags += lastResult.skippedTags;
+      totals.importedVariables += lastResult.importedVariables;
+      totals.reusedVariables += lastResult.reusedVariables;
+      totals.importedLw += lastResult.importedLw;
+      totals.reusedLw += lastResult.reusedLw;
+      totals.importedMacros += lastResult.importedMacros;
+      totals.reusedMacros += lastResult.reusedMacros;
+      totals.copiedMacros += lastResult.copiedMacros;
+      totals.importedLibraries += lastResult.importedLibraries;
+      totals.reusedLibraries += lastResult.reusedLibraries;
+      totals.copiedLibraries += lastResult.copiedLibraries;
+      warnings.push(...lastResult.warnings);
     }
-    if (!lastResult) {
+    if (!lastResult || importedScreens.length === 0) {
       throw new Error("No screens were imported");
     }
-    return lastResult;
+    return {
+      ...lastResult,
+      ...totals,
+      importedScreens,
+      warnings,
+    };
   }
 
   public async importLibraryFromProjectArchive(uploadedFile: UploadInput, options?: ProjectArchiveLibraryImportOptions): Promise<ProjectArchivePartialImportResult> {
@@ -1856,6 +1902,7 @@ export class ProjectArchiveService {
       mode: parsedOptions.mode,
       screenId: importedScreen.id,
       importedScreenName: importedScreen.name,
+      importedScreens: [{ id: importedScreen.id, name: importedScreen.name }],
       importedAssets: assetResolution.importedAssets,
       reusedAssets: assetResolution.reusedAssets,
       copiedAssets: assetResolution.copiedAssets,

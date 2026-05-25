@@ -3,8 +3,10 @@ import type {
   ArchiveConflictPreviewItem,
   ArchiveInspectionItem,
   ProjectArchiveInspectionResult,
+  ProjectArchiveValidationResult,
   ScadaProject,
   ScreenArchiveDependencyMode,
+  ScreenArchiveImportResult,
   ScreenArchiveImportOptions,
 } from "@web-scada/shared";
 import { message } from "antd";
@@ -25,13 +27,14 @@ import {
 import { api } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 
-type ArchiveFileSlot = "project" | "screenZip" | "screenProject" | "libraryZip" | "libraryProject" | "macroProject" | "assetsProject";
+type ArchiveFileSlot = "project" | "screenZip" | "libraryZip";
 type ProjectManagerTab = "project" | "screens" | "libraries" | "macros" | "assets" | "backups";
 type ScreensWorkflow = "export" | "import-screen-zip" | "copy-from-project" | "manage";
 type ResourceWorkflow = "import-project" | "manage";
 type BackupsWorkflow = "backups" | "reset";
 type MacroConflictMode = "keep-existing" | "replace" | "copy";
 type LibraryConflictMode = "keep-existing" | "replace" | "copy";
+type SourceProjectArchiveStatus = "idle" | "selected" | "inspecting" | "valid" | "invalid" | "error";
 
 type ConfirmState = {
   title: string;
@@ -372,6 +375,62 @@ function ArchiveStatusPanel({
   );
 }
 
+function SourceArchiveCompactSummary({
+  file,
+  result,
+}: {
+  file: File;
+  result: ProjectArchiveInspectionResult;
+}) {
+  const summary = result.summary;
+  const checksums = checksumLabel(result);
+  const signature = signatureLabel(result);
+  const items: ValidationSummaryItem[] = [
+    { label: "Project name", value: summary?.name ?? "-" },
+    { label: "Archive type", value: formatArchiveType(result) },
+    { label: "Screens", value: summary?.screens ?? result.screens.length },
+    { label: "Libraries", value: summary?.libraries ?? result.libraries.length },
+    { label: "Macros", value: summary?.macros ?? result.macros.length },
+    { label: "Assets", value: summary?.assets ?? result.assets.length },
+    { label: "Tags", value: summary?.tags ?? result.tags.length },
+    {
+      label: "Signature",
+      value: signature,
+      tone: signature === "verified" || signature === "not required" ? "success" : signature === "failed" ? "error" : "warning",
+    },
+    { label: "Checksums", value: checksums, tone: checksums === "verified" ? "success" : "error" },
+  ];
+
+  return (
+    <div className={[
+      "project-manager-source-summary",
+      result.valid ? "project-manager-source-summary--valid" : "project-manager-source-summary--invalid",
+    ].join(" ")}>
+      <div className="project-manager-source-summary__title">
+        {validationTitle(result)}
+        {result.warnings.length > 0 ? ` (${result.warnings.length} warnings)` : ""}
+      </div>
+      <div className="project-manager-source-summary__file" title={file.name}>{file.name}</div>
+      <div className="project-manager-source-summary__grid">
+        {items.map((item) => (
+          <div key={item.label} className="project-manager-source-summary__item">
+            <span className="project-manager-source-summary__label">{item.label}</span>
+            <span
+              className={[
+                "project-manager-source-summary__value",
+                item.tone ? `project-manager-validation-summary__value--${item.tone}` : "",
+              ].filter(Boolean).join(" ")}
+              title={String(item.value)}
+            >
+              {item.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ResourceTable({
   items,
   selectedIds,
@@ -425,6 +484,46 @@ function ConflictPreview({ items }: { items: ArchiveConflictPreviewItem[] }) {
   );
 }
 
+function ScreenImportResultPanel({ result }: { result: ScreenArchiveImportResult }) {
+  const importedScreen = result.importedScreens[0] ?? { id: result.screenId, name: result.importedScreenName };
+
+  return (
+    <WorkbenchStatusBlock
+      variant="success"
+      title={`Imported screen: ${importedScreen.name} (${importedScreen.id})`}
+      rows={[
+        { label: "Imported assets", value: result.importedAssets },
+        { label: "Reused assets", value: result.reusedAssets },
+        { label: "Copied assets", value: result.copiedAssets },
+        { label: "Imported libraries", value: result.importedLibraries },
+        { label: "Reused libraries", value: result.reusedLibraries },
+        { label: "Copied libraries", value: result.copiedLibraries },
+        { label: "Imported macros", value: result.importedMacros },
+        { label: "Reused macros", value: result.reusedMacros },
+        { label: "Copied macros", value: result.copiedMacros },
+        { label: "Imported tags", value: result.importedTags },
+        { label: "Reused tags", value: result.skippedTags },
+        { label: "Imported variables", value: result.importedVariables },
+        { label: "Reused variables", value: result.reusedVariables },
+        { label: "Imported LW entries", value: result.importedLw },
+        { label: "Reused LW entries", value: result.reusedLw },
+        { label: "Warnings", value: result.warnings.length },
+      ]}
+    >
+      {result.warnings.length > 0 ? (
+        <div className="project-manager-issues project-manager-issues--warning">
+          <div className="project-manager-issues__title">Warnings</div>
+          {result.warnings.map((issue) => (
+            <div key={`${issue.code}-${issue.path ?? issue.message}`} className="project-manager-issues__line">
+              {issue.message}{issue.path ? ` (${issue.path})` : ""}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </WorkbenchStatusBlock>
+  );
+}
+
 export function ProjectManagerPage() {
   const project = useScadaStore((s) => s.project);
   const currentScreenId = useScadaStore((s) => s.currentScreenId);
@@ -444,12 +543,9 @@ export function ProjectManagerPage() {
   const fileRefs = {
     project: useRef<HTMLInputElement | null>(null),
     screenZip: useRef<HTMLInputElement | null>(null),
-    screenProject: useRef<HTMLInputElement | null>(null),
     libraryZip: useRef<HTMLInputElement | null>(null),
-    libraryProject: useRef<HTMLInputElement | null>(null),
-    macroProject: useRef<HTMLInputElement | null>(null),
-    assetsProject: useRef<HTMLInputElement | null>(null),
   };
+  const sourceProjectArchiveInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<ProjectManagerTab>("project");
   const [screensWorkflow, setScreensWorkflow] = useState<ScreensWorkflow>("export");
   const [librariesWorkflow, setLibrariesWorkflow] = useState<ResourceWorkflow>("import-project");
@@ -459,21 +555,18 @@ export function ProjectManagerPage() {
   const [files, setFiles] = useState<Record<ArchiveFileSlot, File | null>>({
     project: null,
     screenZip: null,
-    screenProject: null,
     libraryZip: null,
-    libraryProject: null,
-    macroProject: null,
-    assetsProject: null,
   });
   const [inspections, setInspections] = useState<Record<ArchiveFileSlot, ProjectArchiveInspectionResult | null>>({
     project: null,
     screenZip: null,
-    screenProject: null,
     libraryZip: null,
-    libraryProject: null,
-    macroProject: null,
-    assetsProject: null,
   });
+  const [sourceProjectArchiveFile, setSourceProjectArchiveFileState] = useState<File | null>(null);
+  const [sourceProjectArchiveInspection, setSourceProjectArchiveInspection] = useState<ProjectArchiveInspectionResult | null>(null);
+  const [sourceProjectArchiveValidationResult, setSourceProjectArchiveValidationResult] = useState<ProjectArchiveValidationResult | null>(null);
+  const [sourceProjectArchiveStatus, setSourceProjectArchiveStatus] = useState<SourceProjectArchiveStatus>("idle");
+  const [sourceProjectArchiveError, setSourceProjectArchiveError] = useState<string | null>(null);
   const [selectedScreenId, setSelectedScreenId] = useState<string | undefined>(currentScreenId ?? project?.screens[0]?.id);
   const [screenMode, setScreenMode] = useState<ScreenArchiveImportOptions["mode"]>("add");
   const [dependencyMode, setDependencyMode] = useState<ScreenArchiveDependencyMode>("safe");
@@ -486,6 +579,7 @@ export function ProjectManagerPage() {
   const [macroConflictMode, setMacroConflictMode] = useState<MacroConflictMode>("copy");
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [archiveAssetIds, setArchiveAssetIds] = useState<string[]>([]);
+  const [screenImportResult, setScreenImportResult] = useState<ScreenArchiveImportResult | null>(null);
   const [resetConfirm, setResetConfirm] = useState("");
   const [lastBackupPath, setLastBackupPath] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
@@ -521,17 +615,25 @@ export function ProjectManagerPage() {
   const setArchiveFile = (slot: ArchiveFileSlot, file: File | null): void => {
     setFiles((prev) => ({ ...prev, [slot]: file }));
     setInspections((prev) => ({ ...prev, [slot]: null }));
-    if (slot === "screenProject") {
-      setArchiveScreenIds([]);
-    }
-    if (slot === "libraryProject") {
-      setArchiveLibraryIds([]);
-    }
-    if (slot === "macroProject") {
-      setArchiveMacroIds([]);
-    }
-    if (slot === "assetsProject") {
-      setArchiveAssetIds([]);
+  };
+
+  const setSourceProjectArchiveFile = (file: File | null): void => {
+    setSourceProjectArchiveFileState(file);
+    setSourceProjectArchiveInspection(null);
+    setSourceProjectArchiveValidationResult(null);
+    setSourceProjectArchiveStatus(file ? "selected" : "idle");
+    setSourceProjectArchiveError(null);
+    setArchiveScreenIds([]);
+    setArchiveLibraryIds([]);
+    setArchiveMacroIds([]);
+    setArchiveAssetIds([]);
+    setScreenImportResult(null);
+  };
+
+  const clearSourceProjectArchive = (): void => {
+    setSourceProjectArchiveFile(null);
+    if (sourceProjectArchiveInputRef.current) {
+      sourceProjectArchiveInputRef.current.value = "";
     }
   };
 
@@ -550,19 +652,37 @@ export function ProjectManagerPage() {
     try {
       const result = await api.inspectArchive(file);
       setInspections((prev) => ({ ...prev, [slot]: result }));
-      if (slot === "screenProject") {
-        setArchiveScreenIds(result.screens.slice(0, 1).map((item) => item.id));
-      }
-      if (slot === "libraryProject") {
-        setArchiveLibraryIds(result.libraries.slice(0, 1).map((item) => item.id));
-      }
-      if (slot === "macroProject") {
-        setArchiveMacroIds(result.macros.slice(0, 1).map((item) => item.id));
-      }
-      if (slot === "assetsProject") {
-        setArchiveAssetIds(result.assets.slice(0, 1).map((item) => item.id));
-      }
       return result;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const inspectSourceProjectArchive = async (): Promise<ProjectArchiveInspectionResult | null> => {
+    if (!sourceProjectArchiveFile) {
+      void message.warning("Choose a ZIP archive first");
+      return null;
+    }
+    setBusy(true);
+    setSourceProjectArchiveStatus("inspecting");
+    setSourceProjectArchiveError(null);
+    setScreenImportResult(null);
+    try {
+      const result = await api.inspectArchive(sourceProjectArchiveFile);
+      setSourceProjectArchiveInspection(result);
+      setSourceProjectArchiveValidationResult(result);
+      setSourceProjectArchiveStatus(result.valid && result.archiveType === "project" ? "valid" : "invalid");
+      setArchiveScreenIds(result.archiveType === "project" ? result.screens.slice(0, 1).map((item) => item.id) : []);
+      setArchiveLibraryIds(result.archiveType === "project" ? result.libraries.slice(0, 1).map((item) => item.id) : []);
+      setArchiveMacroIds(result.archiveType === "project" ? result.macros.slice(0, 1).map((item) => item.id) : []);
+      setArchiveAssetIds(result.archiveType === "project" ? result.assets.slice(0, 1).map((item) => item.id) : []);
+      return result;
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      setSourceProjectArchiveError(text);
+      setSourceProjectArchiveStatus("error");
+      void message.error(text);
+      return null;
     } finally {
       setBusy(false);
     }
@@ -713,8 +833,8 @@ export function ProjectManagerPage() {
   };
 
   const executeImportScreensFromProject = async (mode: ScreenArchiveImportOptions["mode"]): Promise<void> => {
-    const file = files.screenProject;
-    const result = inspections.screenProject;
+    const file = sourceProjectArchiveFile;
+    const result = sourceProjectArchiveInspection;
     const selectedArchiveScreenId = archiveScreenIds[0];
     if (!file || !result?.valid || result.archiveType !== "project" || !selectedArchiveScreenId) {
       void message.warning("Validate a Project ZIP and select one archive screen first");
@@ -729,6 +849,8 @@ export function ProjectManagerPage() {
       return;
     }
     setBusy(true);
+    setSourceProjectArchiveError(null);
+    setScreenImportResult(null);
     try {
       const imported = await api.importScreenFromProjectArchive(file, {
         screenIds: [selectedArchiveScreenId],
@@ -736,11 +858,19 @@ export function ProjectManagerPage() {
         replaceScreenId: mode === "replace" ? currentScreen?.id : undefined,
         dependencyMode,
       });
+      if (imported.importedScreens.length === 0) {
+        throw new Error("No screen was imported. Check selected source screen.");
+      }
       updateProjectJson(imported.project);
+      await reloadAfterImport();
       setCurrentScreen(imported.screenId);
       setSelectedScreenId(imported.screenId);
-      await Promise.all([loadTags(), loadAssets(), loadLibraries(), loadMacros()]);
-      void message.success("Screens imported from project ZIP");
+      setScreenImportResult(imported);
+      void message.success(`Imported screen: ${imported.importedScreenName} (${imported.screenId})`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      setSourceProjectArchiveError(text);
+      void message.error(text);
     } finally {
       setBusy(false);
     }
@@ -759,7 +889,7 @@ export function ProjectManagerPage() {
       void message.warning("Select one archive screen and one current screen to replace");
       return;
     }
-    const archiveScreen = inspections.screenProject?.screens.find((item) => item.id === archiveScreenIds[0]);
+    const archiveScreen = sourceProjectArchiveInspection?.screens.find((item) => item.id === archiveScreenIds[0]);
     requestConfirm({
       title: "Replace Selected Screen",
       message: `Replace "${currentScreen.name}" with "${archiveScreen?.name ?? archiveScreenIds[0]}" from the selected Project ZIP. Existing screen content will be replaced.`,
@@ -801,18 +931,23 @@ export function ProjectManagerPage() {
   };
 
   const executeImportLibrariesFromProject = async (): Promise<void> => {
-    const file = files.libraryProject;
-    const result = inspections.libraryProject;
+    const file = sourceProjectArchiveFile;
+    const result = sourceProjectArchiveInspection;
     if (!file || !result?.valid || result.archiveType !== "project" || archiveLibraryIds.length === 0) {
       void message.warning("Validate a Project ZIP and select libraries first");
       return;
     }
     setBusy(true);
+    setSourceProjectArchiveError(null);
     try {
       const imported = await api.importLibraryFromProjectArchive(file, { libraryIds: archiveLibraryIds, conflictMode: libraryConflictMode });
       updateProjectJson(imported.project);
       await loadLibraries();
       void message.success("Libraries imported from project ZIP");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      setSourceProjectArchiveError(text);
+      void message.error(text);
     } finally {
       setBusy(false);
     }
@@ -880,18 +1015,23 @@ export function ProjectManagerPage() {
   };
 
   const executeImportMacrosFromProject = async (): Promise<void> => {
-    const file = files.macroProject;
-    const result = inspections.macroProject;
+    const file = sourceProjectArchiveFile;
+    const result = sourceProjectArchiveInspection;
     if (!file || !result?.valid || result.archiveType !== "project" || archiveMacroIds.length === 0) {
       void message.warning("Validate a Project ZIP and select macros first");
       return;
     }
     setBusy(true);
+    setSourceProjectArchiveError(null);
     try {
       const imported = await api.importMacroFromProjectArchive(file, { macroIds: archiveMacroIds, conflictMode: macroConflictMode });
       updateProjectJson(imported.project);
       await loadMacros();
       void message.success("Macros imported from project ZIP");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      setSourceProjectArchiveError(text);
+      void message.error(text);
     } finally {
       setBusy(false);
     }
@@ -950,18 +1090,23 @@ export function ProjectManagerPage() {
   };
 
   const importAssetsFromProject = async (): Promise<void> => {
-    const file = files.assetsProject;
-    const result = inspections.assetsProject;
+    const file = sourceProjectArchiveFile;
+    const result = sourceProjectArchiveInspection;
     if (!file || !result?.valid || result.archiveType !== "project" || archiveAssetIds.length === 0) {
       void message.warning("Validate a Project ZIP and select assets first");
       return;
     }
     setBusy(true);
+    setSourceProjectArchiveError(null);
     try {
       const imported = await api.importAssetsFromProjectArchive(file, { assetIds: archiveAssetIds });
       updateProjectJson(imported.project);
       await loadAssets();
       void message.success("Assets imported from project ZIP");
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      setSourceProjectArchiveError(text);
+      void message.error(text);
     } finally {
       setBusy(false);
     }
@@ -1028,6 +1173,15 @@ export function ProjectManagerPage() {
       onChange={(event) => setArchiveFile(slot, event.target.files?.[0] ?? null)}
     />
   );
+  const sourceProjectArchiveInput = (
+    <input
+      ref={sourceProjectArchiveInputRef}
+      type="file"
+      accept=".zip,application/zip"
+      hidden
+      onChange={(event) => setSourceProjectArchiveFile(event.target.files?.[0] ?? null)}
+    />
+  );
 
   const screenColumns: WorkbenchTableColumn<ScadaProject["screens"][number]>[] = [
     { id: "name", title: "NAME", width: 220, minWidth: 140, render: (screen) => screen.name },
@@ -1090,6 +1244,12 @@ export function ProjectManagerPage() {
     { id: "assets", title: "Assets / Images", active: activeTab === "assets", onClick: () => setActiveTab("assets") },
     { id: "backups", title: "Backups / Reset", active: activeTab === "backups", onClick: () => setActiveTab("backups") },
   ];
+  const sourceProjectArchiveReady = Boolean(
+    sourceProjectArchiveFile &&
+    sourceProjectArchiveValidationResult?.valid &&
+    sourceProjectArchiveInspection?.valid &&
+    sourceProjectArchiveInspection.archiveType === "project",
+  );
 
   return (
     <div className="screen-editor-window-content project-manager-window">
@@ -1100,6 +1260,38 @@ export function ProjectManagerPage() {
       </div>
 
       <WorkbenchTabs items={tabs} className="project-manager-window__tabs" />
+
+      <div className="project-manager-source-archive">
+        <WorkbenchSection title="Source Project Archive">
+          <div className="project-manager-workflow">
+            <WorkbenchFilePickerRow
+              label="Selected source project archive:"
+              file={sourceProjectArchiveFile}
+              chooseLabel="Choose Project ZIP"
+              validateLabel="Validate / Inspect Archive"
+              onChoose={() => sourceProjectArchiveInputRef.current?.click()}
+              onValidate={() => void inspectSourceProjectArchive()}
+              validateDisabled={!sourceProjectArchiveFile}
+              busy={busy}
+            />
+            {sourceProjectArchiveInput}
+            <div className="project-manager-actions">
+              <WorkbenchButton disabled={!sourceProjectArchiveFile || busy} onClick={clearSourceProjectArchive}>Clear Archive</WorkbenchButton>
+            </div>
+            {sourceProjectArchiveFile && sourceProjectArchiveInspection ? (
+              <SourceArchiveCompactSummary file={sourceProjectArchiveFile} result={sourceProjectArchiveInspection} />
+            ) : sourceProjectArchiveFile ? (
+              <InlineHint>{`Selected source project archive: ${sourceProjectArchiveFile.name}. Validate this ZIP before source import actions become available.`}</InlineHint>
+            ) : (
+              <InlineHint>Choose and validate a Source Project Archive to copy screens, libraries, macros, or assets.</InlineHint>
+            )}
+            {sourceProjectArchiveStatus === "inspecting" ? <InlineHint>Inspecting source project archive...</InlineHint> : null}
+            {sourceProjectArchiveError ? (
+              <WorkbenchStatusBlock variant="error" title="Source archive error" description={sourceProjectArchiveError} />
+            ) : null}
+          </div>
+        </WorkbenchSection>
+      </div>
 
       <div className="project-manager-window__body">
         {activeTab === "project" ? (
@@ -1219,21 +1411,12 @@ export function ProjectManagerPage() {
             {screensWorkflow === "copy-from-project" ? (
               <WorkbenchSection title="Copy Screen from Project ZIP">
                 <div className="project-manager-workflow">
-                  <WorkbenchFilePickerRow
-                    label="Source project archive:"
-                    file={files.screenProject}
-                    chooseLabel="Choose Project ZIP"
-                    validateLabel="Validate Archive"
-                    onChoose={() => fileRefs.screenProject.current?.click()}
-                    onValidate={() => void inspectFile("screenProject")}
-                    validateDisabled={!files.screenProject}
-                    busy={busy}
-                  />
-                  {fileInput("screenProject")}
-                  {inspections.screenProject ? <ArchiveStatusPanel label="Source project archive:" file={files.screenProject} result={inspections.screenProject} /> : null}
-                  {inspections.screenProject?.valid ? (
+                  {!sourceProjectArchiveReady ? (
+                    <InlineHint>Choose and validate a Source Project Archive to copy screens, libraries, macros, or assets.</InlineHint>
+                  ) : null}
+                  {sourceProjectArchiveReady ? (
                     <WorkbenchTable
-                      rows={inspections.screenProject.screens}
+                      rows={sourceProjectArchiveInspection?.screens ?? []}
                       getRowId={(item) => item.id}
                       emptyText="No screens in archive"
                       columnStorageKey="projectManager.table.archiveScreens"
@@ -1266,11 +1449,12 @@ export function ProjectManagerPage() {
                       options={screenOptions}
                     />
                   ) : null}
-                  <ConflictPreview items={inspections.screenProject?.conflicts?.screens.filter((item) => archiveScreenIds.includes(item.id)) ?? []} />
+                  <ConflictPreview items={sourceProjectArchiveInspection?.conflicts?.screens.filter((item) => archiveScreenIds.includes(item.id)) ?? []} />
+                  {screenImportResult ? <ScreenImportResultPanel result={screenImportResult} /> : null}
                   <div className="project-manager-actions project-manager-actions--end">
                     <WorkbenchButton
                       variant={screenMode === "replace" ? "danger" : "primary"}
-                      disabled={!inspections.screenProject?.valid || archiveScreenIds.length !== 1 || (screenMode === "replace" && !currentScreen) || busy}
+                      disabled={!sourceProjectArchiveReady || archiveScreenIds.length !== 1 || (screenMode === "replace" && !currentScreen) || busy}
                       onClick={() => importScreensFromProject(screenMode)}
                     >
                       Import Selected Screen
@@ -1323,24 +1507,15 @@ export function ProjectManagerPage() {
                     { value: "copy", label: "Import as copy" },
                   ]}
                 />
-                <WorkbenchFilePickerRow
-                  label="Source project archive:"
-                  file={files.libraryProject}
-                  chooseLabel="Choose Project ZIP"
-                  validateLabel="Validate Archive"
-                  onChoose={() => fileRefs.libraryProject.current?.click()}
-                  onValidate={() => void inspectFile("libraryProject")}
-                  validateDisabled={!files.libraryProject}
-                  busy={busy}
-                />
-                {fileInput("libraryProject")}
-                {inspections.libraryProject ? <ArchiveStatusPanel label="Source project archive:" file={files.libraryProject} result={inspections.libraryProject} /> : null}
-                {inspections.libraryProject?.valid ? (
-                  <ResourceTable items={inspections.libraryProject.libraries} selectedIds={archiveLibraryIds} onSelectedIdsChange={setArchiveLibraryIds} emptyText="No libraries in archive" columnStorageKey="projectManager.table.archiveLibraries" />
+                {!sourceProjectArchiveReady ? (
+                  <InlineHint>Choose and validate a Source Project Archive to copy screens, libraries, macros, or assets.</InlineHint>
                 ) : null}
-                <ConflictPreview items={inspections.libraryProject?.conflicts?.libraries.filter((item) => archiveLibraryIds.includes(item.id)) ?? []} />
+                {sourceProjectArchiveReady ? (
+                  <ResourceTable items={sourceProjectArchiveInspection?.libraries ?? []} selectedIds={archiveLibraryIds} onSelectedIdsChange={setArchiveLibraryIds} emptyText="No libraries in archive" columnStorageKey="projectManager.table.archiveLibraries" />
+                ) : null}
+                <ConflictPreview items={sourceProjectArchiveInspection?.conflicts?.libraries.filter((item) => archiveLibraryIds.includes(item.id)) ?? []} />
                 <div className="project-manager-actions project-manager-actions--end">
-                  <WorkbenchButton disabled={!inspections.libraryProject?.valid || archiveLibraryIds.length === 0 || busy} onClick={importLibrariesFromProject}>Import selected libraries</WorkbenchButton>
+                  <WorkbenchButton disabled={!sourceProjectArchiveReady || archiveLibraryIds.length === 0 || busy} onClick={importLibrariesFromProject}>Import selected libraries</WorkbenchButton>
                 </div>
               </div>
             </WorkbenchSection>
@@ -1385,24 +1560,15 @@ export function ProjectManagerPage() {
                     { value: "copy", label: "Import as copy" },
                   ]}
                 />
-                <WorkbenchFilePickerRow
-                  label="Source project archive:"
-                  file={files.macroProject}
-                  chooseLabel="Choose Project ZIP"
-                  validateLabel="Validate Archive"
-                  onChoose={() => fileRefs.macroProject.current?.click()}
-                  onValidate={() => void inspectFile("macroProject")}
-                  validateDisabled={!files.macroProject}
-                  busy={busy}
-                />
-                {fileInput("macroProject")}
-                {inspections.macroProject ? <ArchiveStatusPanel label="Source project archive:" file={files.macroProject} result={inspections.macroProject} /> : null}
-                {inspections.macroProject?.valid ? (
-                  <ResourceTable items={inspections.macroProject.macros} selectedIds={archiveMacroIds} onSelectedIdsChange={setArchiveMacroIds} emptyText="No macros in archive" columnStorageKey="projectManager.table.archiveMacros" />
+                {!sourceProjectArchiveReady ? (
+                  <InlineHint>Choose and validate a Source Project Archive to copy screens, libraries, macros, or assets.</InlineHint>
                 ) : null}
-                <ConflictPreview items={inspections.macroProject?.conflicts?.macros.filter((item) => archiveMacroIds.includes(item.id)) ?? []} />
+                {sourceProjectArchiveReady ? (
+                  <ResourceTable items={sourceProjectArchiveInspection?.macros ?? []} selectedIds={archiveMacroIds} onSelectedIdsChange={setArchiveMacroIds} emptyText="No macros in archive" columnStorageKey="projectManager.table.archiveMacros" />
+                ) : null}
+                <ConflictPreview items={sourceProjectArchiveInspection?.conflicts?.macros.filter((item) => archiveMacroIds.includes(item.id)) ?? []} />
                 <div className="project-manager-actions project-manager-actions--end">
-                  <WorkbenchButton disabled={!inspections.macroProject?.valid || archiveMacroIds.length === 0 || busy} onClick={importMacrosFromProject}>Import selected macros</WorkbenchButton>
+                  <WorkbenchButton disabled={!sourceProjectArchiveReady || archiveMacroIds.length === 0 || busy} onClick={importMacrosFromProject}>Import selected macros</WorkbenchButton>
                 </div>
               </div>
             </WorkbenchSection>
@@ -1438,24 +1604,15 @@ export function ProjectManagerPage() {
             {assetsWorkflow === "import-project" ? (
               <WorkbenchSection title="Import Assets from Project ZIP">
                 <div className="project-manager-workflow">
-                <WorkbenchFilePickerRow
-                  label="Source project archive:"
-                  file={files.assetsProject}
-                  chooseLabel="Choose Project ZIP"
-                  validateLabel="Validate Archive"
-                  onChoose={() => fileRefs.assetsProject.current?.click()}
-                  onValidate={() => void inspectFile("assetsProject")}
-                  validateDisabled={!files.assetsProject}
-                  busy={busy}
-                />
-                {fileInput("assetsProject")}
-                {inspections.assetsProject ? <ArchiveStatusPanel label="Source project archive:" file={files.assetsProject} result={inspections.assetsProject} /> : null}
-                {inspections.assetsProject?.valid ? (
-                  <ResourceTable items={inspections.assetsProject.assets} selectedIds={archiveAssetIds} onSelectedIdsChange={setArchiveAssetIds} emptyText="No assets in archive" columnStorageKey="projectManager.table.archiveAssets" />
+                {!sourceProjectArchiveReady ? (
+                  <InlineHint>Choose and validate a Source Project Archive to copy screens, libraries, macros, or assets.</InlineHint>
                 ) : null}
-                <ConflictPreview items={inspections.assetsProject?.conflicts?.assets.filter((item) => archiveAssetIds.includes(item.id)) ?? []} />
+                {sourceProjectArchiveReady ? (
+                  <ResourceTable items={sourceProjectArchiveInspection?.assets ?? []} selectedIds={archiveAssetIds} onSelectedIdsChange={setArchiveAssetIds} emptyText="No assets in archive" columnStorageKey="projectManager.table.archiveAssets" />
+                ) : null}
+                <ConflictPreview items={sourceProjectArchiveInspection?.conflicts?.assets.filter((item) => archiveAssetIds.includes(item.id)) ?? []} />
                 <div className="project-manager-actions project-manager-actions--end">
-                  <WorkbenchButton disabled={!inspections.assetsProject?.valid || archiveAssetIds.length === 0 || busy} onClick={() => void importAssetsFromProject()}>Import selected assets</WorkbenchButton>
+                  <WorkbenchButton disabled={!sourceProjectArchiveReady || archiveAssetIds.length === 0 || busy} onClick={() => void importAssetsFromProject()}>Import selected assets</WorkbenchButton>
                 </div>
               </div>
             </WorkbenchSection>

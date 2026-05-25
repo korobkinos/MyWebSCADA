@@ -182,6 +182,7 @@ export type ScreenArchiveImportResult = {
   mode: ScreenArchiveImportMode;
   screenId: string;
   importedScreenName: string;
+  importedScreens: Array<{ id: string; name: string }>;
   importedAssets: number;
   reusedAssets: number;
   copiedAssets: number;

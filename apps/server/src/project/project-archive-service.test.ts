@@ -433,9 +433,86 @@ describe("ProjectArchiveService", () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(result.screenId).toBe("details");
     expect(result.importedScreenName).toBe("details");
+    expect(result.importedScreens).toEqual([{ id: "details", name: "details" }]);
+    expect(result.project.screens).toHaveLength(2);
     expect(result.project.screens.some((screen) => screen.id === "details")).toBe(true);
     expect(result.project.screens.some((screen) => screen.id === "main")).toBe(false);
+  });
+
+  it("repeatedly imports a screen from a full project archive without duplicating dependencies", async () => {
+    const sourceProject = makeProject("Source Project", "main", "asset1");
+    sourceProject.variables = [
+      { id: "var-counter", name: "Counter", dataType: "DINT", initialValue: 1, writable: true },
+      { id: "var-mapped", name: "Mapped", dataType: "INT", initialValue: 2, lwAddress: 10, writable: true },
+    ];
+    sourceProject.lwStore = { mode: "persistent", values: { 10: 123 } };
+    sourceProject.macros = [{ ...makeMacro("macro1", "writeTag('Tank.Level', 42)"), triggers: [{ type: "onScreenOpen", screenKey: "main" }] }];
+    sourceProject.screens[0]!.objects.push(
+      {
+        id: "select-internal",
+        type: "valueSelect",
+        name: "Internal Select",
+        x: 0,
+        y: 100,
+        width: 100,
+        height: 40,
+        options: [{ label: "One", value: 1 }],
+        target: { type: "internal", name: "Counter" },
+        valueType: "number",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+      {
+        id: "select-lw",
+        type: "valueSelect",
+        name: "LW Select",
+        x: 0,
+        y: 150,
+        width: 100,
+        height: 40,
+        options: [{ label: "One", value: 1 }],
+        target: { type: "lw", address: 10 },
+        valueType: "number",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+    );
+    const source = await makeHarness(sourceProject, Buffer.from("source-image"));
+    const target = await makeHarness(makeProject("Target Project", "main", "asset1"), Buffer.from("source-image"));
+    const exported = await source.service.exportProjectArchive();
+
+    const first = await target.service.importScreenFromProjectArchive(upload(exported.buffer), {
+      screenIds: ["main"],
+      mode: "add",
+      dependencyMode: "minimal",
+    });
+    const second = await target.service.importScreenFromProjectArchive(upload(exported.buffer), {
+      screenIds: ["main"],
+      mode: "add",
+      dependencyMode: "minimal",
+    });
+
+    expect(first.importedScreens).toHaveLength(1);
+    expect(second.importedScreens).toHaveLength(1);
+    expect(second.project.screens).toHaveLength(3);
+    expect(second.project.assets?.filter((asset) => asset.id === "asset1")).toHaveLength(1);
+    expect(second.project.tags.filter((tag) => tag.name === "Tank.Level")).toHaveLength(1);
+    expect(second.project.macros?.filter((macro) => macro.id === "macro1")).toHaveLength(1);
+    expect(second.project.variables?.filter((variable) => variable.name === "Counter")).toHaveLength(1);
+    expect(second.project.variables?.filter((variable) => variable.name === "Mapped")).toHaveLength(1);
+    expect(second.project.lwStore?.values).toEqual({ 10: 123 });
+  });
+
+  it("returns a clear error when no source screen id is selected for project archive import", async () => {
+    const source = await makeHarness(makeProject("Source Project", "main", "asset1"));
+    const target = await makeHarness(makeProject("Target Project", "target", "asset2"));
+    const exported = await source.service.exportProjectArchive();
+
+    await expect(target.service.importScreenFromProjectArchive(upload(exported.buffer), {
+      screenIds: [],
+      mode: "add",
+      dependencyMode: "minimal",
+    })).rejects.toThrow("Select a source screen to import");
   });
 
   it("imports a conflicting library as a copy and rewrites screen references", async () => {
