@@ -50,6 +50,10 @@ type ProjectRefs = {
   dynamicWarnings: string[];
 };
 
+type CollectObjectRefsOptions = {
+  includeAssetRefs?: boolean;
+};
+
 type RewriteResult = {
   value: unknown;
   replacements: number;
@@ -313,7 +317,8 @@ function collectObjectAssetRefs(object: HmiObject, refs: ProjectRefs): void {
   }
 }
 
-function collectKnownObjectRefs(object: HmiObject, refs: ProjectRefs): void {
+function collectKnownObjectRefs(object: HmiObject, refs: ProjectRefs, options?: CollectObjectRefsOptions): void {
+  const includeAssetRefs = options?.includeAssetRefs !== false;
   collectBindingsRefs(object.bindings, refs);
   if (typeof object.visibleTag === "string" && isStaticRef(object.visibleTag)) {
     refs.tagNames.add(object.visibleTag);
@@ -338,7 +343,7 @@ function collectKnownObjectRefs(object: HmiObject, refs: ProjectRefs): void {
   switch (object.type) {
     case "group":
       for (const child of object.objects) {
-        collectKnownObjectRefs(child, refs);
+        collectKnownObjectRefs(child, refs, options);
       }
       break;
     case "libraryElementInstance":
@@ -391,10 +396,47 @@ function collectKnownObjectRefs(object: HmiObject, refs: ProjectRefs): void {
       break;
   }
 
-  collectObjectAssetRefs(object, refs);
+  if (includeAssetRefs) {
+    collectObjectAssetRefs(object, refs);
+  }
 }
 
-function collectProjectRefs(project: ScadaProject): ProjectRefs {
+function collectLibraryElementRefs(library: ElementLibrary, refs: ProjectRefs): void {
+  for (const element of library.elements ?? []) {
+    for (const object of element.objects ?? []) {
+      // Library element assets are library-local, not project assets.
+      collectKnownObjectRefs(object, refs, { includeAssetRefs: false });
+    }
+    for (const stateRule of element.stateRules ?? []) {
+      if (stateRule.source.type === "tag" && isStaticRef(stateRule.source.value)) {
+        refs.tagNames.add(stateRule.source.value);
+      }
+      if (stateRule.source.type === "expression") {
+        collectExpressionTagRefs(stateRule.source.value, refs);
+      }
+      for (const stateCase of stateRule.cases ?? []) {
+        for (const action of stateCase.actions ?? []) {
+          if (action.type === "setProperty" && typeof action.value === "string" && action.property.toLowerCase().includes("tag") && isStaticRef(action.value)) {
+            refs.tagNames.add(action.value);
+          }
+        }
+      }
+    }
+  }
+  for (const macro of library.macros ?? []) {
+    collectMacroRefsFromCode(macro.code, refs);
+    for (const trigger of macro.triggers ?? []) {
+      if (trigger.type === "onTagChange" && isStaticRef(trigger.tag)) {
+        refs.tagNames.add(trigger.tag);
+      }
+      if (trigger.type === "onCondition") {
+        collectExpressionTagRefs(trigger.condition, refs);
+      }
+    }
+  }
+}
+
+function collectProjectRefs(project: ScadaProject, libraries?: ElementLibrary[]): ProjectRefs {
   const refs = makeRefs();
   for (const screen of project.screens) {
     for (const object of screen.objects) {
@@ -463,7 +505,35 @@ function collectProjectRefs(project: ScadaProject): ProjectRefs {
     }
   }
 
+  const librariesToScan = (libraries ?? []).filter((library) => refs.libraryIds.has(library.id));
+  for (const library of librariesToScan) {
+    collectLibraryElementRefs(library, refs);
+  }
+
   return refs;
+}
+
+function countIdKeyReferencesInUnknown(value: unknown, idKey: "assetid" | "libraryid" | "macroid", targetId: string): number {
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => sum + countIdKeyReferencesInUnknown(item, idKey, targetId), 0);
+  }
+  if (!value || typeof value !== "object") {
+    return 0;
+  }
+  let count = 0;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof child === "string") {
+      const lower = key.toLowerCase();
+      const matchesKey = idKey === "libraryid"
+        ? lower === "libraryid"
+        : lower === idKey || lower.endsWith(idKey);
+      if (matchesKey && child === targetId) {
+        count += 1;
+      }
+    }
+    count += countIdKeyReferencesInUnknown(child, idKey, targetId);
+  }
+  return count;
 }
 
 function countAssetReferencesInObject(object: HmiObject, assetId: string): number {
@@ -659,7 +729,7 @@ function isAllowedOrphanExtension(fileName: string): boolean {
 
 function isOrphanFileExcluded(fileName: string): boolean {
   const normalized = fileName.toLowerCase();
-  return normalized.includes("backup") || normalized.includes("temp") || normalized.includes("import");
+  return normalized.includes("backup") || normalized.includes("temp") || normalized.includes("import") || normalized.includes("staging");
 }
 
 function sortByStableId(a: { id: string; createdAt?: string }, b: { id: string; createdAt?: string }): number {
@@ -739,7 +809,9 @@ export class ProjectCleanupService {
     const request = projectCleanupAnalyzeRequestSchema.parse(rawRequest ?? {});
     const project = projectInput ?? this.projectService.getProject();
     const requestedCategories = request.requestedCategories ?? DEFAULT_CLEANUP_CATEGORIES;
-    const references = collectProjectRefs(project);
+    const libraries = await this.libraryService.listLibraries();
+    const references = collectProjectRefs(project, libraries);
+    const hasDynamicSafetyRisk = references.dynamicWarnings.length > 0;
     const projectDir = path.dirname(this.projectService.getProjectFile());
     const assetsDir = path.join(projectDir, "assets");
     const nowMs = Date.now();
@@ -747,14 +819,32 @@ export class ProjectCleanupService {
     const candidates: ProjectCleanupCandidate[] = [];
 
     const addCandidate = (candidate: ProjectCleanupCandidate): void => {
+      const next = { ...candidate };
+      if (hasDynamicSafetyRisk) {
+        if (next.type === "duplicate-library") {
+          next.scope = "protected";
+          next.selectedByDefault = false;
+          next.plannedAction = "skip-protected";
+          next.warnings = [...next.warnings, "Dynamic references detected; duplicate library cleanup is protected."];
+        } else if ((next.type === "duplicate-asset" || next.type === "duplicate-macro") && next.referencesCount > 0) {
+          next.scope = "protected";
+          next.selectedByDefault = false;
+          next.plannedAction = "skip-protected";
+          next.warnings = [...next.warnings, "Dynamic references detected; cleanup is protected."];
+        } else if (next.type === "unused-project-asset-record") {
+          next.scope = "protected";
+          next.selectedByDefault = false;
+          next.plannedAction = "skip-protected";
+          next.warnings = [...next.warnings, "Dynamic references detected; cleanup is protected."];
+        }
+      }
       if (!requestedCategories.includes(categoryForCandidate(candidate.type))) {
         return;
       }
-      candidates.push(candidate);
+      candidates.push(next);
     };
 
     const assets = project.assets ?? [];
-    const assetById = new Map(assets.map((asset) => [asset.id, asset]));
 
     for (const asset of assets) {
       const referencesCount = countAssetReferences(project, asset.id);
@@ -800,18 +890,23 @@ export class ProjectCleanupService {
       const canonical = sorted[0]!;
       for (const duplicate of sorted.slice(1)) {
         const referencesCount = countAssetReferences(project, duplicate.id);
+        const rewriteCount = countIdKeyReferencesInUnknown(project, "assetid", duplicate.id);
+        const rewriteSafe = rewriteCount >= referencesCount;
         addCandidate({
           id: `duplicate-asset:${duplicate.id}`,
           type: "duplicate-asset",
-          scope: "safe",
+          scope: rewriteSafe ? "safe" : "review",
           name: duplicate.name,
           path: duplicate.storagePath,
           reason: `Asset duplicates content of '${canonical.id}'.`,
           severity: referencesCount > 0 ? "medium" : "low",
-          selectedByDefault: true,
+          selectedByDefault: rewriteSafe,
           referencesCount,
-          plannedAction: "rewrite-then-delete",
-          warnings: referencesCount > 0 ? ["References will be rewritten before deletion."] : [],
+          plannedAction: rewriteSafe ? "rewrite-then-delete" : "review-only",
+          warnings: [
+            ...(referencesCount > 0 ? ["References will be rewritten before deletion."] : []),
+            ...(rewriteSafe ? [] : ["Rewrite plan is not fully proven safe for all references."]),
+          ],
           duplicateGroupId: `asset-sha:${hash}`,
           canonicalId: canonical.id,
           rewriteTargetId: canonical.id,
@@ -827,13 +922,10 @@ export class ProjectCleanupService {
     });
     orphanCandidates.forEach((candidate) => addCandidate(candidate));
 
-    const libraries = await this.libraryService.listLibraries();
     const libraryHashToList = new Map<string, ElementLibrary[]>();
-    const libraryHashById = new Map<string, string>();
     for (const library of libraries) {
       const files = await readLibraryLocalFiles(this.libraryService, library.id).catch(() => new Map<string, Buffer>());
       const hash = sha256(canonicalLibraryPayload(library, files));
-      libraryHashById.set(library.id, hash);
       const list = libraryHashToList.get(hash) ?? [];
       list.push(library);
       libraryHashToList.set(hash, list);
@@ -847,17 +939,22 @@ export class ProjectCleanupService {
       const canonical = sorted[0]!;
       for (const duplicate of sorted.slice(1)) {
         const referencesCount = countLibraryReferences(project, duplicate.id);
+        const rewriteCount = countIdKeyReferencesInUnknown(project, "libraryid", duplicate.id);
+        const rewriteSafe = rewriteCount >= referencesCount;
         addCandidate({
           id: `duplicate-library:${duplicate.id}`,
           type: "duplicate-library",
-          scope: "safe",
+          scope: rewriteSafe ? "safe" : "review",
           name: duplicate.name,
           reason: `Library duplicates content of '${canonical.id}'.`,
           severity: referencesCount > 0 ? "medium" : "low",
-          selectedByDefault: true,
+          selectedByDefault: rewriteSafe,
           referencesCount,
-          plannedAction: "rewrite-then-delete",
-          warnings: referencesCount > 0 ? ["References will be rewritten before deletion."] : [],
+          plannedAction: rewriteSafe ? "rewrite-then-delete" : "review-only",
+          warnings: [
+            ...(referencesCount > 0 ? ["References will be rewritten before deletion."] : []),
+            ...(rewriteSafe ? [] : ["Library references cannot be fully proven rewrite-safe."]),
+          ],
           duplicateGroupId: `library-sha:${hash}`,
           canonicalId: canonical.id,
           rewriteTargetId: canonical.id,
@@ -900,17 +997,22 @@ export class ProjectCleanupService {
       const canonical = sorted[0]!;
       for (const duplicate of sorted.slice(1)) {
         const referencesCount = countMacroReferences(project, duplicate.id);
+        const rewriteCount = countIdKeyReferencesInUnknown(project, "macroid", duplicate.id);
+        const rewriteSafe = rewriteCount >= referencesCount;
         addCandidate({
           id: `duplicate-macro:${duplicate.id}`,
           type: "duplicate-macro",
-          scope: "safe",
+          scope: rewriteSafe ? "safe" : "review",
           name: duplicate.name,
           reason: `Macro duplicates code of '${canonical.id}'.`,
           severity: referencesCount > 0 ? "medium" : "low",
-          selectedByDefault: true,
+          selectedByDefault: rewriteSafe,
           referencesCount,
-          plannedAction: "rewrite-then-delete",
-          warnings: referencesCount > 0 ? ["Explicit macroId references will be rewritten before deletion."] : [],
+          plannedAction: rewriteSafe ? "rewrite-then-delete" : "review-only",
+          warnings: [
+            ...(referencesCount > 0 ? ["Explicit macroId references will be rewritten before deletion."] : []),
+            ...(rewriteSafe ? [] : ["Macro rewrite plan is not fully proven safe."]),
+          ],
           duplicateGroupId: `macro-sha:${hash}`,
           canonicalId: canonical.id,
           rewriteTargetId: canonical.id,
@@ -1383,40 +1485,49 @@ export class ProjectCleanupService {
         .filter((item): item is string => typeof item === "string"),
     );
 
-    const entries = await readdir(input.assetsDir, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (!entry.isFile()) {
-        continue;
+    const scan = async (absoluteDir: string, relativeDir: string): Promise<void> => {
+      const entries = await readdir(absoluteDir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        const entryRelative = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+        const entryAbsolute = path.join(absoluteDir, entry.name);
+        if (entry.isDirectory()) {
+          await scan(entryAbsolute, entryRelative);
+          continue;
+        }
+        if (!entry.isFile()) {
+          continue;
+        }
+        if (!isAllowedOrphanExtension(entry.name) || isOrphanFileExcluded(entryRelative)) {
+          continue;
+        }
+        const relative = normalizeArchiveRelativePath(path.posix.join("assets", entryRelative));
+        if (!relative || knownFiles.has(relative)) {
+          continue;
+        }
+        const info = await stat(entryAbsolute).catch(() => undefined);
+        if (!info) {
+          continue;
+        }
+        const ageMs = Math.max(0, input.nowMs - info.mtimeMs);
+        if (ageMs < input.ageThresholdMs) {
+          continue;
+        }
+        candidates.push({
+          id: `orphan-file:${relative}`,
+          type: "orphan-physical-file",
+          scope: "safe",
+          path: relative,
+          reason: "Physical file is not referenced by any project asset record.",
+          severity: "low",
+          selectedByDefault: true,
+          referencesCount: 0,
+          plannedAction: "delete-file",
+          warnings: [],
+        });
       }
-      if (!isAllowedOrphanExtension(entry.name) || isOrphanFileExcluded(entry.name)) {
-        continue;
-      }
-      const relative = normalizeArchiveRelativePath(path.posix.join("assets", entry.name));
-      if (!relative || knownFiles.has(relative)) {
-        continue;
-      }
-      const absolute = path.join(input.assetsDir, entry.name);
-      const info = await stat(absolute).catch(() => undefined);
-      if (!info) {
-        continue;
-      }
-      const ageMs = Math.max(0, input.nowMs - info.mtimeMs);
-      if (ageMs < input.ageThresholdMs) {
-        continue;
-      }
-      candidates.push({
-        id: `orphan-file:${relative}`,
-        type: "orphan-physical-file",
-        scope: "safe",
-        path: relative,
-        reason: "Physical file is not referenced by any project asset record.",
-        severity: "low",
-        selectedByDefault: true,
-        referencesCount: 0,
-        plannedAction: "delete-file",
-        warnings: [],
-      });
-    }
+    };
+
+    await scan(input.assetsDir, "");
 
     return candidates;
   }

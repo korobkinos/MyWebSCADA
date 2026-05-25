@@ -113,6 +113,114 @@ async function makeHarness(project: ScadaProject): Promise<{
   return { root, projectService, archiveService, cleanupService, libraryService };
 }
 
+function upload(buffer: Buffer) {
+  return {
+    fileName: "archive.zip",
+    mimeType: "application/zip",
+    size: buffer.byteLength,
+    content: buffer,
+  };
+}
+
+function collectObjectRefs(objects: ScadaProject["screens"][number]["objects"]): {
+  assetIds: Set<string>;
+  libraryIds: Set<string>;
+  macroIds: Set<string>;
+} {
+  const refs = {
+    assetIds: new Set<string>(),
+    libraryIds: new Set<string>(),
+    macroIds: new Set<string>(),
+  };
+  const scan = (items: ScadaProject["screens"][number]["objects"]): void => {
+    for (const object of items) {
+      if (object.type === "image") {
+        if (object.assetId) {
+          refs.assetIds.add(object.assetId);
+        }
+        for (const state of object.stateImages ?? []) {
+          if (state.assetId) {
+            refs.assetIds.add(state.assetId);
+          }
+        }
+      }
+      if (object.type === "stateImage") {
+        if (object.defaultAssetId) {
+          refs.assetIds.add(object.defaultAssetId);
+        }
+        if (object.badQualityAssetId) {
+          refs.assetIds.add(object.badQualityAssetId);
+        }
+        for (const state of object.states) {
+          if (state.assetId) {
+            refs.assetIds.add(state.assetId);
+          }
+        }
+      }
+      if (object.type === "numeric-image-indicator") {
+        if (object.defaultAssetId) {
+          refs.assetIds.add(object.defaultAssetId);
+        }
+        if (object.badQualityAssetId) {
+          refs.assetIds.add(object.badQualityAssetId);
+        }
+        for (const state of object.states) {
+          if (state.assetId) {
+            refs.assetIds.add(state.assetId);
+          }
+        }
+      }
+      if (object.type === "button") {
+        if (object.backgroundAssetId) {
+          refs.assetIds.add(object.backgroundAssetId);
+        }
+        if (object.pressedBackgroundAssetId) {
+          refs.assetIds.add(object.pressedBackgroundAssetId);
+        }
+        if (object.disabledBackgroundAssetId) {
+          refs.assetIds.add(object.disabledBackgroundAssetId);
+        }
+      }
+      if (object.type === "libraryElementInstance") {
+        refs.libraryIds.add(object.libraryId);
+      }
+      if (object.onPressMacroId) {
+        refs.macroIds.add(object.onPressMacroId);
+      }
+      if (object.onReleaseMacroId) {
+        refs.macroIds.add(object.onReleaseMacroId);
+      }
+      if ("action" in object && object.action?.type === "runMacro") {
+        refs.macroIds.add(object.action.macroId);
+      }
+      if (object.type === "group") {
+        scan(object.objects);
+      }
+    }
+  };
+  scan(objects);
+  return refs;
+}
+
+function expectNoDanglingProjectRefs(project: ScadaProject): void {
+  const assetIds = new Set((project.assets ?? []).map((asset) => asset.id));
+  const libraryIds = new Set((project.libraries ?? []).map((library) => library.libraryId));
+  const macroIds = new Set((project.macros ?? []).map((macro) => macro.id));
+
+  for (const screen of project.screens) {
+    const refs = collectObjectRefs(screen.objects);
+    for (const assetId of refs.assetIds) {
+      expect(assetIds.has(assetId), `Missing asset reference '${assetId}' on screen '${screen.id}'`).toBe(true);
+    }
+    for (const libraryId of refs.libraryIds) {
+      expect(libraryIds.has(libraryId), `Missing library reference '${libraryId}' on screen '${screen.id}'`).toBe(true);
+    }
+    for (const macroId of refs.macroIds) {
+      expect(macroIds.has(macroId), `Missing macro reference '${macroId}' on screen '${screen.id}'`).toBe(true);
+    }
+  }
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -482,6 +590,121 @@ describe("ProjectCleanupService", () => {
         deleteUnusedReviewItems: false,
       },
     })).rejects.toThrow(/stale/i);
+  });
+
+  it("manual flow: import screen, delete screen, apply safe cleanup, keep valid references", async () => {
+    const sourceProject = makeProject("Source");
+    sourceProject.assets = [makeAsset("source_asset")];
+    sourceProject.macros = [{ id: "source_macro", name: "Source Macro", language: "javascript-lite", code: "return true;", enabled: true }];
+    sourceProject.libraries = [{ libraryId: "lib_source", name: "lib_source", enabled: true, version: "1.0.0" }];
+    sourceProject.screens = [
+      {
+        id: "main",
+        name: "Main",
+        kind: "screen",
+        width: 800,
+        height: 600,
+        objects: [],
+      },
+      {
+        id: "screen_import",
+        name: "Imported",
+        kind: "screen",
+        width: 800,
+        height: 600,
+        objects: [
+          {
+            id: "img1",
+            type: "image",
+            x: 10,
+            y: 10,
+            width: 120,
+            height: 90,
+            assetId: "source_asset",
+            fit: "contain",
+          },
+          {
+            id: "btn1",
+            type: "button",
+            x: 20,
+            y: 120,
+            width: 120,
+            height: 30,
+            text: "Run",
+            textStyle: {
+              fontFamily: "Arial",
+              fontSize: 12,
+              color: "#fff",
+              horizontalAlign: "center",
+              verticalAlign: "middle",
+            },
+            action: {
+              type: "runMacro",
+              macroId: "source_macro",
+            },
+          },
+          {
+            id: "lib1",
+            type: "libraryElementInstance",
+            x: 30,
+            y: 170,
+            width: 120,
+            height: 80,
+            libraryId: "lib_source",
+            elementId: "el1",
+            bindingAssignments: {},
+          },
+        ],
+      },
+    ];
+
+    const source = await makeHarness(sourceProject);
+    await writeLibrary(source.root, makeLibrary("lib_source"));
+    const exported = await source.archiveService.exportProjectArchive();
+
+    const targetProject = makeProject("Target");
+    targetProject.screens = [{
+      id: "target_main",
+      name: "Target Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      objects: [],
+    }];
+    targetProject.startScreenId = "target_main";
+    const target = await makeHarness(targetProject);
+
+    const imported = await target.archiveService.importScreenFromProjectArchive(upload(exported.buffer), {
+      screenIds: ["screen_import"],
+      mode: "add",
+      dependencyMode: "safe",
+    });
+    expect(imported.importedScreens.some((screen) => screen.id === "screen_import")).toBe(true);
+
+    const current = target.projectService.getProject();
+    await target.projectService.saveProject({
+      ...current,
+      screens: current.screens.filter((screen) => screen.id !== "screen_import"),
+      startScreenId: current.startScreenId === "screen_import" ? current.screens[0]?.id : current.startScreenId,
+    });
+
+    const analysis = await target.cleanupService.analyzeProjectCleanup(undefined, { orphanFileMinAgeMs: 0 });
+    const selectedSafe = analysis.candidates.filter((candidate) => candidate.selectedByDefault).map((candidate) => candidate.id);
+
+    await target.cleanupService.applyProjectCleanup({
+      analysisToken: analysis.analysisToken,
+      analysisFingerprint: analysis.analysisFingerprint,
+      selectedCandidateIds: selectedSafe,
+      options: {
+        createBackup: false,
+        rewriteDuplicateReferences: true,
+        deleteOrphanFiles: true,
+        deleteUnusedReviewItems: false,
+      },
+    });
+
+    const saved = await target.projectService.loadProject();
+    expectNoDanglingProjectRefs(saved);
   });
 
   it("removes selected orphan file on apply", async () => {
