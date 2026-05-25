@@ -22,6 +22,7 @@ import type {
   OperatorActionContext,
   OperatorActionHistoryPage,
   OperatorActionHistoryQuery,
+  ArchiveRuntimeSettings as SharedArchiveRuntimeSettings,
   PasswordPolicy,
   ProjectArchiveAssetsImportOptions,
   ProjectArchiveImportOptions,
@@ -198,6 +199,9 @@ export type ArchiveTagOverride = {
 export type ArchiveTagConfig = {
   tagId: number;
   tagName: string;
+  isDeleted: boolean;
+  deletedAt: string | null;
+  lastSeenAt: string | null;
   sourceType?: string;
   driverType?: string;
   policyId: number | null;
@@ -210,16 +214,6 @@ export type ArchiveTagConfig = {
   aggregateEnabled: boolean | null;
   compressionAfterDays: number | null;
   override: ArchiveTagOverride | null;
-};
-
-export type ArchiveRuntimeSettings = {
-  autoCleanupEnabled: boolean;
-  maxDbSizeMb: number | null;
-  deleteBatchSize: number;
-  maintenanceIntervalMs: number;
-  maxMaintenanceTickMs: number;
-  maxDeleteTransactionMs: number;
-  updatedAt: string;
 };
 
 export type ArchivePurgePreview = {
@@ -237,6 +231,17 @@ export type ArchivePurgeResult = {
   clearedSamples: number;
   clearedTotalSizeMb: number;
   tables: string[];
+};
+
+export type ArchiveRuntimeSettings = SharedArchiveRuntimeSettings;
+
+export type DeletedTagsArchivePurgeResult = {
+  scope: "deleted_tags_archive_data";
+  mode: "selected" | "all";
+  selectedDeletedTagIds: number[];
+  deletedSamples: number;
+  deletedTagsCount: number;
+  batches: number;
 };
 
 export type EventArchiveStatus = {
@@ -820,6 +825,11 @@ export const api = {
     }),
   previewArchivePurge: () => request<ArchivePurgePreview>("/api/archive/purge/preview", { method: "POST" }),
   runArchivePurge: () => request<ArchivePurgeResult>("/api/archive/purge/run", { method: "POST" }),
+  purgeDeletedArchiveTags: (payload: { mode: "selected"; selectedTagIds: number[]; batchSize?: number } | { mode: "all"; batchSize?: number }) =>
+    request<DeletedTagsArchivePurgeResult>("/api/archive/tags/purge-deleted", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   getActiveEvents: (query?: Pick<EventHistoryQuery, "limit"> & { includeClearedUnacknowledged?: boolean }) =>
     request<EventOccurrence[]>(
       `/api/events/active${toQueryString({

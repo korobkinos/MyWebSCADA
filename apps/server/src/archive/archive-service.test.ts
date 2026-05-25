@@ -8,6 +8,7 @@ import {
 
 const baseRuntimeSettings = {
   autoCleanupEnabled: true,
+  archiveNewTagsByDefault: false,
   maxDbSizeMb: 5120,
   deleteBatchSize: 500,
   maintenanceIntervalMs: 3000,

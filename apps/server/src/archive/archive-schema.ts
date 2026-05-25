@@ -75,9 +75,24 @@ CREATE TABLE IF NOT EXISTS tags (
     unit_id BIGINT REFERENCES units(id),
     driver_id BIGINT REFERENCES drivers(id),
     archive_policy_id BIGINT REFERENCES archive_policies(id),
+    is_deleted BOOLEAN NOT NULL DEFAULT false,
+    deleted_at TIMESTAMPTZ,
+    last_seen_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE tags
+ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE tags
+ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE tags
+ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_tags_is_deleted
+ON tags (is_deleted);
 
 CREATE TABLE IF NOT EXISTS tag_groups (
     id BIGSERIAL PRIMARY KEY,
@@ -324,6 +339,7 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO archive_runtime_settings (
     id,
     auto_cleanup_enabled,
+    archive_new_tags_by_default,
     max_db_size_mb,
     max_data_age_months,
     delete_batch_size,
@@ -331,7 +347,7 @@ INSERT INTO archive_runtime_settings (
     max_maintenance_tick_ms,
     max_delete_transaction_ms
 )
-VALUES (1, true, 5120, NULL, 500, 3000, 200, 150)
+VALUES (1, true, false, 5120, NULL, 500, 3000, 200, 150)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO event_archive_settings (

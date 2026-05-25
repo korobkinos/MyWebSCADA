@@ -1,5 +1,6 @@
 import pg, { type Pool as PgPool, type PoolClient } from "pg";
 import type {
+  ArchiveRuntimeSettings as SharedArchiveRuntimeSettings,
   DriverConfig,
   EventDefinition,
   EventArchiveCleanupMode,
@@ -110,6 +111,9 @@ export type ArchiveTagOverrideInput = {
 export type ArchiveTagConfigRow = {
   tagId: number;
   tagName: string;
+  isDeleted: boolean;
+  deletedAt: string | null;
+  lastSeenAt: string | null;
   sourceType?: string;
   driverType?: string;
   policyId: number | null;
@@ -138,15 +142,7 @@ export type ArchiveStorageStatsRow = {
   archiveSamplesTotalSizeMb: number | null;
 };
 
-export type ArchiveRuntimeSettingsRow = {
-  autoCleanupEnabled: boolean;
-  maxDbSizeMb: number | null;
-  deleteBatchSize: number;
-  maintenanceIntervalMs: number;
-  maxMaintenanceTickMs: number;
-  maxDeleteTransactionMs: number;
-  updatedAt: string;
-};
+export type ArchiveRuntimeSettingsRow = SharedArchiveRuntimeSettings;
 
 export type ArchivePruneBatchResultRow = {
   deletedRecords: number;
@@ -258,6 +254,15 @@ export type ArchivePurgeResultRow = {
   clearedSamples: number;
   clearedTotalSizeMb: number;
   tables: string[];
+};
+
+export type DeletedTagsPurgeResultRow = {
+  scope: "deleted_tags_archive_data";
+  mode: "selected" | "all";
+  selectedDeletedTagIds: number[];
+  deletedSamples: number;
+  deletedTagsCount: number;
+  batches: number;
 };
 
 export type TrendAggregationMode = "auto" | "raw" | "minmax" | "avg" | "lttb";
@@ -402,7 +407,17 @@ export class ArchiveRepository {
     try {
       await client.query("BEGIN");
       const refs = await this.syncReferences(client, tags, drivers);
-      const defaultPolicyId = refs.policies.get("Default archive") ?? null;
+      const settingsResult = await client.query<{ archive_new_tags_by_default: boolean }>(
+        `
+        SELECT archive_new_tags_by_default
+        FROM archive_runtime_settings
+        WHERE id = 1
+        `,
+      );
+      const archiveNewTagsByDefault = settingsResult.rows[0]?.archive_new_tags_by_default === true;
+      const defaultPolicyId = archiveNewTagsByDefault
+        ? (refs.policies.get("Default archive") ?? null)
+        : null;
 
       for (const driver of drivers) {
         await client.query(
@@ -436,9 +451,12 @@ export class ArchiveRepository {
               unit_id,
               driver_id,
               archive_policy_id,
+              is_deleted,
+              deleted_at,
+              last_seen_at,
               updated_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+          VALUES ($1, $2, $3, $4, $5, $6, $7, false, NULL, now(), now())
           ON CONFLICT (name) DO UPDATE
           SET description = EXCLUDED.description,
               data_type_id = EXCLUDED.data_type_id,
@@ -446,6 +464,9 @@ export class ArchiveRepository {
               unit_id = EXCLUDED.unit_id,
               driver_id = EXCLUDED.driver_id,
               archive_policy_id = COALESCE(tags.archive_policy_id, EXCLUDED.archive_policy_id),
+              is_deleted = false,
+              deleted_at = NULL,
+              last_seen_at = now(),
               updated_at = now()
           `,
           [tag.name, tag.description ?? null, dataTypeId, sourceTypeId, unitId, driverId, defaultPolicyId],
@@ -453,6 +474,28 @@ export class ArchiveRepository {
       }
 
       const names = tags.map((tag) => tag.name);
+      if (names.length > 0) {
+        await client.query(
+          `
+          UPDATE tags
+          SET is_deleted = true,
+              deleted_at = COALESCE(deleted_at, now()),
+              updated_at = now()
+          WHERE NOT (name = ANY($1::text[]))
+          `,
+          [names],
+        );
+      } else {
+        await client.query(
+          `
+          UPDATE tags
+          SET is_deleted = true,
+              deleted_at = COALESCE(deleted_at, now()),
+              updated_at = now()
+          `,
+        );
+      }
+
       if (names.length > 0) {
         await client.query("DELETE FROM tag_group_members WHERE tag_id IN (SELECT id FROM tags WHERE name = ANY($1))", [names]);
       }
@@ -717,6 +760,7 @@ export class ArchiveRepository {
         LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
         LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
         WHERE COALESCE(o.enabled, p.enabled, false) = true
+          AND t.is_deleted = false
         `,
       );
       const range = result.rows[0];
@@ -951,6 +995,9 @@ export class ArchiveRepository {
     const result = await this.pool.query<{
       tag_id: number;
       tag_name: string;
+      is_deleted: boolean;
+      deleted_at: Date | null;
+      last_seen_at: Date | null;
       source_type_code: string | null;
       driver_type: string | null;
       policy_id: number | null;
@@ -975,6 +1022,9 @@ export class ArchiveRepository {
       SELECT
           t.id AS tag_id,
           t.name AS tag_name,
+          t.is_deleted AS is_deleted,
+          t.deleted_at AS deleted_at,
+          t.last_seen_at AS last_seen_at,
           st.code AS source_type_code,
           d.type AS driver_type,
           p.id AS policy_id,
@@ -1006,6 +1056,9 @@ export class ArchiveRepository {
     return result.rows.map((row) => ({
       tagId: row.tag_id,
       tagName: row.tag_name,
+      isDeleted: row.is_deleted === true,
+      deletedAt: row.deleted_at ? row.deleted_at.toISOString() : null,
+      lastSeenAt: row.last_seen_at ? row.last_seen_at.toISOString() : null,
       sourceType: row.source_type_code ?? undefined,
       driverType: row.driver_type ?? undefined,
       policyId: row.policy_id,
@@ -1335,6 +1388,7 @@ export class ArchiveRepository {
   public async getRuntimeSettings(): Promise<ArchiveRuntimeSettingsRow> {
     const result = await this.pool.query<{
       auto_cleanup_enabled: boolean;
+      archive_new_tags_by_default: boolean;
       max_db_size_mb: number | null;
       delete_batch_size: number | null;
       maintenance_interval_ms: number | null;
@@ -1345,6 +1399,7 @@ export class ArchiveRepository {
       `
       SELECT
           auto_cleanup_enabled,
+          archive_new_tags_by_default,
           max_db_size_mb,
           delete_batch_size,
           maintenance_interval_ms,
@@ -1359,6 +1414,7 @@ export class ArchiveRepository {
     if (!row) {
       return {
         autoCleanupEnabled: true,
+        archiveNewTagsByDefault: false,
         maxDbSizeMb: 5120,
         deleteBatchSize: this.defaultDeleteBatchSize,
         maintenanceIntervalMs: this.defaultMaintenanceIntervalMs,
@@ -1369,6 +1425,7 @@ export class ArchiveRepository {
     }
     return {
       autoCleanupEnabled: row.auto_cleanup_enabled,
+      archiveNewTagsByDefault: row.archive_new_tags_by_default === true,
       maxDbSizeMb: row.max_db_size_mb,
       deleteBatchSize: this.normalizeBoundedInteger(
         row.delete_batch_size,
@@ -1408,6 +1465,7 @@ export class ArchiveRepository {
 
   public async updateRuntimeSettings(settings: {
     autoCleanupEnabled: boolean;
+    archiveNewTagsByDefault: boolean;
     maxDbSizeMb: number | null;
     deleteBatchSize: number;
     maintenanceIntervalMs: number;
@@ -1444,6 +1502,7 @@ export class ArchiveRepository {
 
     const result = await this.pool.query<{
       auto_cleanup_enabled: boolean;
+      archive_new_tags_by_default: boolean;
       max_db_size_mb: number | null;
       delete_batch_size: number | null;
       maintenance_interval_ms: number | null;
@@ -1455,6 +1514,7 @@ export class ArchiveRepository {
       INSERT INTO archive_runtime_settings (
           id,
           auto_cleanup_enabled,
+          archive_new_tags_by_default,
           max_db_size_mb,
           max_data_age_months,
           delete_batch_size,
@@ -1463,9 +1523,10 @@ export class ArchiveRepository {
           max_delete_transaction_ms,
           updated_at
       )
-      VALUES (1, $1, $2, NULL, $3, $4, $5, $6, now())
+      VALUES (1, $1, $2, $3, NULL, $4, $5, $6, $7, now())
       ON CONFLICT (id) DO UPDATE
       SET auto_cleanup_enabled = EXCLUDED.auto_cleanup_enabled,
+          archive_new_tags_by_default = EXCLUDED.archive_new_tags_by_default,
           max_db_size_mb = EXCLUDED.max_db_size_mb,
           max_data_age_months = NULL,
           delete_batch_size = EXCLUDED.delete_batch_size,
@@ -1475,6 +1536,7 @@ export class ArchiveRepository {
           updated_at = now()
       RETURNING
           auto_cleanup_enabled,
+          archive_new_tags_by_default,
           max_db_size_mb,
           delete_batch_size,
           maintenance_interval_ms,
@@ -1484,6 +1546,7 @@ export class ArchiveRepository {
       `,
       [
         settings.autoCleanupEnabled,
+        settings.archiveNewTagsByDefault,
         settings.maxDbSizeMb,
         boundedDeleteBatchSize,
         boundedMaintenanceIntervalMs,
@@ -1497,6 +1560,7 @@ export class ArchiveRepository {
     }
     return {
       autoCleanupEnabled: row.auto_cleanup_enabled,
+      archiveNewTagsByDefault: row.archive_new_tags_by_default === true,
       maxDbSizeMb: row.max_db_size_mb,
       deleteBatchSize: this.normalizeBoundedInteger(
         row.delete_batch_size,
@@ -1584,6 +1648,92 @@ export class ArchiveRepository {
       clearedSamples: preview.samplesCount,
       clearedTotalSizeMb: preview.totalSizeMb,
       tables: preview.tables,
+    };
+  }
+
+  public async purgeDeletedTagsArchiveData(options: {
+    mode: "selected" | "all";
+    selectedTagIds?: number[];
+    batchSize?: number;
+  }): Promise<DeletedTagsPurgeResultRow> {
+    const selectedIds = Array.isArray(options.selectedTagIds)
+      ? options.selectedTagIds.filter((id) => Number.isFinite(id) && id > 0).map((id) => Math.round(id))
+      : [];
+    const targetResult = options.mode === "selected"
+      ? await this.pool.query<{ id: number }>(
+        `
+        SELECT id
+        FROM tags
+        WHERE is_deleted = true
+          AND id = ANY($1::bigint[])
+        ORDER BY id ASC
+        `,
+        [selectedIds],
+      )
+      : await this.pool.query<{ id: number }>(
+        `
+        SELECT id
+        FROM tags
+        WHERE is_deleted = true
+        ORDER BY id ASC
+        `,
+      );
+    const targetTagIds = targetResult.rows.map((row) => row.id);
+    if (targetTagIds.length === 0) {
+      return {
+        scope: "deleted_tags_archive_data",
+        mode: options.mode,
+        selectedDeletedTagIds: [],
+        deletedSamples: 0,
+        deletedTagsCount: 0,
+        batches: 0,
+      };
+    }
+
+    const safeBatchSize = this.normalizePositiveInteger(options.batchSize, this.defaultDeleteBatchSize);
+    const batchesLimit = 100_000;
+    let deletedSamples = 0;
+    let batches = 0;
+
+    while (batches < batchesLimit) {
+      batches += 1;
+      const batchResult = await this.pool.query<{ deleted_rows: string | number }>(
+        `
+        WITH target AS (
+          SELECT s.ctid
+          FROM archive_samples s
+          WHERE s.tag_id = ANY($1::bigint[])
+          LIMIT $2
+        ),
+        deleted AS (
+          DELETE FROM archive_samples s
+          USING target
+          WHERE s.ctid = target.ctid
+          RETURNING 1
+        )
+        SELECT COUNT(*)::bigint AS deleted_rows
+        FROM deleted
+        `,
+        [targetTagIds, safeBatchSize],
+      );
+      const raw = batchResult.rows[0]?.deleted_rows ?? 0;
+      const deleted = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
+      const normalizedDeleted = Number.isFinite(deleted) ? Math.max(0, Math.round(deleted)) : 0;
+      deletedSamples += normalizedDeleted;
+      if (normalizedDeleted < safeBatchSize) {
+        break;
+      }
+    }
+
+    await this.pool.query("DELETE FROM archive_aggregates_1m WHERE tag_id = ANY($1::bigint[])", [targetTagIds]);
+
+    return {
+      scope: "deleted_tags_archive_data",
+      mode: options.mode,
+      selectedDeletedTagIds: targetTagIds,
+      deletedSamples,
+      deletedTagsCount: targetTagIds.length,
+      batches,
     };
   }
 
@@ -3290,6 +3440,7 @@ export class ArchiveRepository {
           LIMIT 1
       ) grp ON true
       WHERE COALESCE(o.enabled, p.enabled, false) = true
+        AND t.is_deleted = false
         AND ($1::bool = false OR t.name = ANY($2::text[]))
       ORDER BY t.name ASC
       `,
@@ -3866,6 +4017,7 @@ export class ArchiveRepository {
         FROM tags t
         LEFT JOIN archive_policies p ON p.id = t.archive_policy_id
         LEFT JOIN tag_archive_overrides o ON o.tag_id = t.id
+        WHERE t.is_deleted = false
         `,
       ),
     ]);

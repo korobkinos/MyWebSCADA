@@ -18,7 +18,7 @@ import type { EventArchiveSettings, OperatorActionArchiveSettings } from "@web-s
 import { buildTrendMaintenanceHints, defaultArchiveSectionOpenState } from "./archive-maintenance-details";
 
 type PolicyFormState = ArchivePolicyPayload;
-type ArchiveColumnId = "select" | "name" | "policy" | "mode" | "period" | "retention" | "override";
+type ArchiveColumnId = "select" | "name" | "state" | "policy" | "mode" | "period" | "retention" | "lastSeen" | "deletedAt" | "override";
 type ArchiveColumnConfig = {
   id: ArchiveColumnId;
   title: string;
@@ -51,10 +51,13 @@ const defaultPolicy: PolicyFormState = {
 const ARCHIVE_COLUMNS: ArchiveColumnConfig[] = [
   { id: "select", title: "", defaultWidth: 42, minWidth: 42 },
   { id: "name", title: "NAME", defaultWidth: 300, minWidth: 160 },
+  { id: "state", title: "STATE", defaultWidth: 120, minWidth: 100 },
   { id: "policy", title: "POLICY", defaultWidth: 220, minWidth: 130 },
   { id: "mode", title: "MODE", defaultWidth: 170, minWidth: 120 },
   { id: "period", title: "PERIOD", defaultWidth: 120, minWidth: 90 },
   { id: "retention", title: "RETENTION", defaultWidth: 120, minWidth: 90 },
+  { id: "lastSeen", title: "LAST SEEN", defaultWidth: 170, minWidth: 130 },
+  { id: "deletedAt", title: "DELETED AT", defaultWidth: 170, minWidth: 130 },
   { id: "override", title: "OVERRIDE", defaultWidth: 90, minWidth: 70 },
 ];
 
@@ -67,10 +70,13 @@ function createDefaultArchiveColumnVisibility(): ArchiveColumnVisibility {
     {
       select: true,
       name: true,
+      state: true,
       policy: true,
       mode: true,
       period: true,
       retention: true,
+      lastSeen: true,
+      deletedAt: true,
       override: true,
     },
   );
@@ -82,10 +88,13 @@ function createDefaultArchiveColumnWidths(): Record<ArchiveColumnId, number> {
     {
       select: 0,
       name: 0,
+      state: 0,
       policy: 0,
       mode: 0,
       period: 0,
       retention: 0,
+      lastSeen: 0,
+      deletedAt: 0,
       override: 0,
     },
   );
@@ -240,6 +249,7 @@ type ArchiveConfirmState = {
 
 type ArchiveSettingsDraft = {
   autoCleanupEnabled: boolean;
+  archiveNewTagsByDefault: boolean;
   maxDbSizeMb: number | null;
   deleteBatchSize: number;
   maintenanceIntervalMs: number;
@@ -269,7 +279,7 @@ type ArchiveConsoleEntry = {
 
 type ArchiveMaintenancePresetId = "safe" | "balanced" | "fast" | "emergency";
 
-const ARCHIVE_MAINTENANCE_PRESETS: Record<ArchiveMaintenancePresetId, Omit<ArchiveSettingsDraft, "autoCleanupEnabled" | "maxDbSizeMb">> = {
+const ARCHIVE_MAINTENANCE_PRESETS: Record<ArchiveMaintenancePresetId, Omit<ArchiveSettingsDraft, "autoCleanupEnabled" | "archiveNewTagsByDefault" | "maxDbSizeMb">> = {
   safe: {
     deleteBatchSize: 10_000,
     maintenanceIntervalMs: 3000,
@@ -349,6 +359,10 @@ function formatDateTime(value: string | null | undefined): string {
     return "-";
   }
   return date.toLocaleString("ru-RU", { hour12: false });
+}
+
+function formatTagLifecycleState(isDeleted: boolean): string {
+  return isDeleted ? "Deleted / Orphan" : "Active";
 }
 
 function formatCleanupSpeed(perSecond: number | null | undefined, perMinute: number | null | undefined): string {
@@ -431,6 +445,7 @@ export function ArchivePage() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<ArchiveSettingsDraft>({
     autoCleanupEnabled: true,
+    archiveNewTagsByDefault: false,
     maxDbSizeMb: 5120,
     deleteBatchSize: ARCHIVE_MAINTENANCE_PRESETS.safe.deleteBatchSize,
     maintenanceIntervalMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
@@ -447,6 +462,7 @@ export function ArchivePage() {
   const [search, setSearch] = useState("");
   const [policyFilter, setPolicyFilter] = useState<number | "all">("all");
   const [driverFilter, setDriverFilter] = useState<"all" | "opcua" | "simulated">("all");
+  const [tagStateFilter, setTagStateFilter] = useState<"active" | "deleted" | "all">("active");
   const [bulkPolicyId, setBulkPolicyId] = useState("0");
   const [policyManageId, setPolicyManageId] = useState("0");
   const [columnsPanelOpen, setColumnsPanelOpen] = useState(false);
@@ -547,6 +563,7 @@ export function ArchivePage() {
       setOperatorArchiveStatus(nextOperatorArchiveStatus);
       setSettingsDraft({
         autoCleanupEnabled: nextSettings.autoCleanupEnabled,
+        archiveNewTagsByDefault: nextSettings.archiveNewTagsByDefault,
         maxDbSizeMb: nextSettings.maxDbSizeMb,
         deleteBatchSize: nextSettings.deleteBatchSize,
         maintenanceIntervalMs: nextSettings.maintenanceIntervalMs,
@@ -837,6 +854,12 @@ export function ArchivePage() {
       if (normalizedSearch && !tagConfig.tagName.toLowerCase().includes(normalizedSearch)) {
         return false;
       }
+      if (tagStateFilter === "active" && tagConfig.isDeleted) {
+        return false;
+      }
+      if (tagStateFilter === "deleted" && !tagConfig.isDeleted) {
+        return false;
+      }
       if (policyFilter !== "all" && (tagConfig.policyId ?? 0) !== policyFilter) {
         return false;
       }
@@ -852,7 +875,7 @@ export function ArchivePage() {
       }
       return true;
     });
-  }, [driverFilter, normalizedSearch, policyFilter, tagConfigs]);
+  }, [driverFilter, normalizedSearch, policyFilter, tagConfigs, tagStateFilter]);
 
   useEffect(() => {
     if (filteredTags.length === 0) {
@@ -1041,6 +1064,61 @@ export function ArchivePage() {
     });
   };
 
+  const purgeDeletedSelectedTags = (): void => {
+    if (archiveDisabled) {
+      return;
+    }
+    const deletedTargets = selectedTags.filter((tag) => tag.isDeleted);
+    if (deletedTargets.length === 0) {
+      void message.warning("No deleted tags selected");
+      return;
+    }
+    setConfirmState({
+      title: "Purge Selected Deleted Tags",
+      submitLabel: "Purge Data",
+      submitVariant: "danger",
+      message:
+        `Delete historical archive data for ${deletedTargets.length} deleted tags?\n`
+        + "This action is irreversible and can permanently remove historical samples.",
+      onConfirm: async () => {
+        const result = await api.purgeDeletedArchiveTags({
+          mode: "selected",
+          selectedTagIds: deletedTargets.map((tag) => tag.tagId),
+        });
+        void message.success(
+          `Purged ${result.deletedSamples.toLocaleString("ru-RU")} samples for ${result.deletedTagsCount} deleted tags`,
+        );
+        await load();
+      },
+    });
+  };
+
+  const purgeAllDeletedTags = (): void => {
+    if (archiveDisabled) {
+      return;
+    }
+    const deletedCount = tagConfigs.reduce((count, tag) => (tag.isDeleted ? count + 1 : count), 0);
+    if (deletedCount === 0) {
+      void message.warning("No deleted tags found");
+      return;
+    }
+    setConfirmState({
+      title: "Purge All Deleted Tags",
+      submitLabel: "Purge Data",
+      submitVariant: "danger",
+      message:
+        `Delete historical archive data for all ${deletedCount} deleted tags?\n`
+        + "This action is irreversible and can permanently remove historical samples.",
+      onConfirm: async () => {
+        const result = await api.purgeDeletedArchiveTags({ mode: "all" });
+        void message.success(
+          `Purged ${result.deletedSamples.toLocaleString("ru-RU")} samples for ${result.deletedTagsCount} deleted tags`,
+        );
+        await load();
+      },
+    });
+  };
+
   const runConfirmAction = async (): Promise<void> => {
     if (!confirmState || confirmBusy) {
       return;
@@ -1142,6 +1220,7 @@ export function ArchivePage() {
   const openSettings = (): void => {
     const source = runtimeSettings ?? {
       autoCleanupEnabled: true,
+      archiveNewTagsByDefault: false,
       maxDbSizeMb: 5120,
       deleteBatchSize: ARCHIVE_MAINTENANCE_PRESETS.safe.deleteBatchSize,
       maintenanceIntervalMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
@@ -1150,6 +1229,7 @@ export function ArchivePage() {
     };
     setSettingsDraft({
       autoCleanupEnabled: source.autoCleanupEnabled,
+      archiveNewTagsByDefault: source.archiveNewTagsByDefault,
       maxDbSizeMb: source.maxDbSizeMb,
       deleteBatchSize: source.deleteBatchSize,
       maintenanceIntervalMs: source.maintenanceIntervalMs,
@@ -1191,6 +1271,7 @@ export function ArchivePage() {
       const maxMaintenanceTickMs = Math.max(maxMaintenanceTickMsRaw, maxDeleteTransactionMs);
       const payload: ArchiveSettingsDraft = {
         autoCleanupEnabled: settingsDraft.autoCleanupEnabled,
+        archiveNewTagsByDefault: settingsDraft.archiveNewTagsByDefault,
         maxDbSizeMb: settingsDraft.maxDbSizeMb && settingsDraft.maxDbSizeMb > 0 ? Math.round(settingsDraft.maxDbSizeMb) : null,
         deleteBatchSize,
         maintenanceIntervalMs,
@@ -1275,6 +1356,7 @@ export function ArchivePage() {
       setRuntimeSettings(saved);
       setSettingsDraft({
         autoCleanupEnabled: saved.autoCleanupEnabled,
+        archiveNewTagsByDefault: saved.archiveNewTagsByDefault,
         maxDbSizeMb: saved.maxDbSizeMb,
         deleteBatchSize: saved.deleteBatchSize,
         maintenanceIntervalMs: saved.maintenanceIntervalMs,
@@ -1530,14 +1612,27 @@ export function ArchivePage() {
             </option>
           ))}
         </select>
+        <select
+          className="workbench-select screen-editor-tags-window__toolbar-select"
+          value={tagStateFilter}
+          onChange={(event) => {
+            setTagStateFilter(event.target.value as "active" | "deleted" | "all");
+            setPage(1);
+          }}
+        >
+          <option value="active">Active tags</option>
+          <option value="deleted">Deleted tags</option>
+          <option value="all">All tags</option>
+        </select>
         <WorkbenchButton
           onClick={() => {
             setSearch("");
             setPolicyFilter("all");
             setDriverFilter("all");
+            setTagStateFilter("active");
             setPage(1);
           }}
-          disabled={search === "" && policyFilter === "all" && driverFilter === "all"}
+          disabled={search === "" && policyFilter === "all" && driverFilter === "all" && tagStateFilter === "active"}
         >
           Clear
         </WorkbenchButton>
@@ -1563,6 +1658,12 @@ export function ArchivePage() {
         </WorkbenchButton>
         <WorkbenchButton variant="danger" disabled={archiveDisabled || selectedTags.length === 0} onClick={() => void clearOverridesForTags(selectedTags, "selected")}>
           Clear Overrides In Selected
+        </WorkbenchButton>
+        <WorkbenchButton variant="danger" disabled={archiveDisabled || selectedTags.every((tag) => !tag.isDeleted)} onClick={purgeDeletedSelectedTags}>
+          Purge Selected Deleted Tags
+        </WorkbenchButton>
+        <WorkbenchButton variant="danger" disabled={archiveDisabled || tagConfigs.every((tag) => !tag.isDeleted)} onClick={purgeAllDeletedTags}>
+          Purge All Deleted Tags
         </WorkbenchButton>
         <div className="screen-editor-tags-window__toolbar-meta">
           Found: {searchMatchedTags.length} | Selected in filtered: {selectedInFilteredCount}
@@ -1627,16 +1728,23 @@ export function ArchivePage() {
               const rowCells: Record<ArchiveColumnId, string> = {
                 select: selectedTagNames.has(row.tagName) ? "selected" : "",
                 name: row.tagName,
+                state: formatTagLifecycleState(row.isDeleted),
                 policy: row.policyName ?? "No policy",
                 mode: row.mode ?? "-",
                 period: row.periodMs === null ? "-" : `${row.periodMs} ms`,
                 retention: row.retentionDays === null ? "-" : `${row.retentionDays} d`,
+                lastSeen: formatDateTime(row.lastSeenAt),
+                deletedAt: formatDateTime(row.deletedAt),
                 override: row.override ? "Yes" : "No",
               };
               return (
                 <div
                   key={row.tagName}
-                  className={["screen-editor-tags-row", selected ? "screen-editor-tags-row--selected" : ""].filter(Boolean).join(" ")}
+                  className={[
+                    "screen-editor-tags-row",
+                    row.isDeleted ? "screen-editor-tags-row--deleted" : "",
+                    selected ? "screen-editor-tags-row--selected" : "",
+                  ].filter(Boolean).join(" ")}
                   style={{ gridTemplateColumns: archiveGridTemplateColumns }}
                   onClick={() => setSelectedTagName(row.tagName)}
                 >
@@ -1682,6 +1790,9 @@ export function ArchivePage() {
             {selectedTag ? (
               <>
                 <div className="screen-editor-tag-editor__kv"><span>Name</span><strong>{selectedTag.tagName}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>State</span><strong>{formatTagLifecycleState(selectedTag.isDeleted)}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>Last seen</span><strong>{formatDateTime(selectedTag.lastSeenAt)}</strong></div>
+                <div className="screen-editor-tag-editor__kv"><span>Deleted at</span><strong>{formatDateTime(selectedTag.deletedAt)}</strong></div>
                 <div className="screen-editor-tag-editor__kv"><span>Policy</span><strong>{selectedTag.policyName ?? "No policy"}</strong></div>
                 <div className="screen-editor-tag-editor__kv"><span>Mode</span><strong>{selectedTag.mode ?? "-"}</strong></div>
                 <div className="screen-editor-tag-editor__kv"><span>Period</span><strong>{selectedTag.periodMs === null ? "-" : `${selectedTag.periodMs} ms`}</strong></div>
@@ -1815,6 +1926,21 @@ export function ArchivePage() {
               />
               <span>Automatically apply overflow protection on maintenance cycle</span>
             </label>
+          </label>
+
+          <label className="workbench-field">
+            <span className="workbench-field__label">Archive New Tags By Default</span>
+            <label className="screen-editor-tags-checkbox-field">
+              <input
+                type="checkbox"
+                checked={settingsDraft.archiveNewTagsByDefault}
+                onChange={(event) => setSettingsDraft((prev) => ({ ...prev, archiveNewTagsByDefault: event.target.checked }))}
+              />
+              <span>Archive new tags by default</span>
+            </label>
+            <span className="screen-editor-tag-editor__hint screen-editor-tag-editor__hint--warning">
+              If enabled, every newly imported or created tag will be assigned the default archive policy. This can rapidly increase database size.
+            </span>
           </label>
 
           <label className="workbench-field">

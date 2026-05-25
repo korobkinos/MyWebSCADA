@@ -218,6 +218,7 @@ const archiveTagOverrideSchema = z.object({
 });
 const archiveRuntimeSettingsSchema = z.object({
   autoCleanupEnabled: z.boolean(),
+  archiveNewTagsByDefault: z.boolean().optional(),
   maxDbSizeMb: z.number().int().positive().max(1024 * 1024).nullable(),
   deleteBatchSize: z.number().int().min(10).max(100_000).optional(),
   maintenanceIntervalMs: z.number().int().min(250).max(60_000).optional(),
@@ -236,6 +237,17 @@ const archiveRuntimeSettingsSchema = z.object({
     });
   }
 });
+const archiveDeletedTagsPurgeSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("selected"),
+    selectedTagIds: z.array(z.number().int().positive()).min(1),
+    batchSize: z.number().int().min(10).max(100_000).optional(),
+  }),
+  z.object({
+    mode: z.literal("all"),
+    batchSize: z.number().int().min(10).max(100_000).optional(),
+  }),
+]);
 const eventHistoryQuerySchema = z.object({
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
@@ -2265,6 +2277,18 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.code(503).send({ message: "Archive database is not configured" });
     }
     return reply.send(await deps.archiveService.clearArchiveData());
+  });
+
+  app.post("/api/archive/tags/purge-deleted", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    if (!deps.archiveService?.isEnabled()) {
+      return reply.code(503).send({ message: "Archive database is not configured" });
+    }
+    const payload = archiveDeletedTagsPurgeSchema.parse(request.body ?? {});
+    return reply.send(await deps.archiveService.purgeDeletedTagsArchiveData(payload));
   });
 
   app.get("/api/archive/tags/:name/samples", async (request, reply) => {

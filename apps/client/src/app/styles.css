@@ -4923,6 +4923,11 @@ body {
   color: #ffffff;
 }
 
+.screen-editor-tags-row--deleted:not(.screen-editor-tags-row--selected) {
+  background: #2a2628;
+  color: #c1b4b6;
+}
+
 .screen-editor-tags-row--header {
   position: sticky;
   top: 0;

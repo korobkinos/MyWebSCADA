@@ -27,6 +27,7 @@ import {
   type OperatorActionArchiveStatusRow,
   type ArchivePurgePreviewRow,
   type ArchivePurgeResultRow,
+  type DeletedTagsPurgeResultRow,
   type ArchiveLogger,
   type ArchivePolicyInput,
   type ArchivePolicyRow,
@@ -624,6 +625,7 @@ export class ArchiveService {
 
   public async updateRuntimeSettings(settings: {
     autoCleanupEnabled: boolean;
+    archiveNewTagsByDefault?: boolean | null;
     maxDbSizeMb: number | null;
     deleteBatchSize?: number | null;
     maintenanceIntervalMs?: number | null;
@@ -660,6 +662,7 @@ export class ArchiveService {
     const merged: ArchiveRuntimeSettingsRow = {
       ...previous,
       autoCleanupEnabled: settings.autoCleanupEnabled,
+      archiveNewTagsByDefault: settings.archiveNewTagsByDefault ?? previous.archiveNewTagsByDefault,
       maxDbSizeMb: settings.maxDbSizeMb,
       deleteBatchSize: boundedDeleteBatchSize,
       maintenanceIntervalMs: boundedMaintenanceIntervalMs,
@@ -668,6 +671,7 @@ export class ArchiveService {
     };
     const saved = await this.repository.updateRuntimeSettings({
       autoCleanupEnabled: merged.autoCleanupEnabled,
+      archiveNewTagsByDefault: merged.archiveNewTagsByDefault,
       maxDbSizeMb: merged.maxDbSizeMb,
       deleteBatchSize: merged.deleteBatchSize,
       maintenanceIntervalMs: merged.maintenanceIntervalMs,
@@ -689,6 +693,14 @@ export class ArchiveService {
 
   public async clearArchiveData(): Promise<ArchivePurgeResultRow> {
     return this.repository.clearArchiveData();
+  }
+
+  public async purgeDeletedTagsArchiveData(options: {
+    mode: "selected" | "all";
+    selectedTagIds?: number[];
+    batchSize?: number;
+  }): Promise<DeletedTagsPurgeResultRow> {
+    return this.repository.purgeDeletedTagsArchiveData(options);
   }
 
   public async listActiveEvents(limit?: number): Promise<EventOccurrence[]> {
