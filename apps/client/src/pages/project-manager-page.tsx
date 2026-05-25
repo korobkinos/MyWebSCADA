@@ -19,7 +19,6 @@ import {
   WorkbenchStatusBlock,
   WorkbenchTable,
   WorkbenchTabs,
-  type WorkbenchStatusRow,
   type WorkbenchTabItem,
   type WorkbenchTableColumn,
 } from "../components/workbench";
@@ -45,6 +44,19 @@ type ConfirmState = {
 type DetailRow = {
   label: string;
   value: string | number;
+};
+
+type ValidationSummaryTone = "success" | "error" | "warning" | "neutral";
+
+type ValidationSummaryItem = {
+  label: string;
+  value: string | number;
+  tone?: ValidationSummaryTone;
+};
+
+type ValidationSummaryGroup = {
+  title: string;
+  items: ValidationSummaryItem[];
 };
 
 type WorkflowOption<T extends string> = {
@@ -144,10 +156,6 @@ function toggleId(ids: string[], id: string): string[] {
   return ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id];
 }
 
-function compactRows(rows: Array<WorkbenchStatusRow | false | null | undefined>): WorkbenchStatusRow[] {
-  return rows.filter((row): row is WorkbenchStatusRow => Boolean(row));
-}
-
 function formatArchiveType(result: ProjectArchiveInspectionResult | null): string {
   if (!result) {
     return "-";
@@ -205,6 +213,37 @@ function InlineHint({ children }: { children: string }) {
   return <div className="project-manager-inline-hint">{children}</div>;
 }
 
+function ArchiveValidationSummary({ groups }: { groups: ValidationSummaryGroup[] }) {
+  return (
+    <div className="project-manager-validation-summary" aria-label="Archive validation summary">
+      {groups.map((group) => (
+        <div key={group.title} className="project-manager-validation-summary__group">
+          <div className="project-manager-validation-summary__group-title">{group.title}</div>
+          <div className="project-manager-validation-summary__items">
+            {group.items.map((item) => {
+              const value = String(item.value);
+              return (
+                <div key={`${group.title}-${item.label}`} className="project-manager-validation-summary__item">
+                  <div className="project-manager-validation-summary__label">{item.label}</div>
+                  <div
+                    className={[
+                      "project-manager-validation-summary__value",
+                      item.tone ? `project-manager-validation-summary__value--${item.tone}` : "",
+                    ].filter(Boolean).join(" ")}
+                    title={value}
+                  >
+                    {value}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WorkflowSelector<T extends string>({
   options,
   active,
@@ -251,26 +290,57 @@ function ArchiveStatusPanel({
   }
 
   const summary = result.summary;
-  const rows = compactRows([
-    { label: "Archive type", value: formatArchiveType(result) },
-    { label: "Project / screen name", value: summary?.name ?? "-" },
-    { label: "Screens count", value: summary?.screens ?? result.screens.length },
-    { label: "Libraries count", value: summary?.libraries ?? result.libraries.length },
-    { label: "Macros count", value: summary?.macros ?? result.macros.length },
-    { label: "Assets count", value: summary?.assets ?? result.assets.length },
-    { label: "Tags count", value: summary?.tags ?? result.tags.length },
-    { label: "Checksums", value: `Checksums: ${checksumLabel(result)}` },
-    { label: "Signature", value: `Signature: ${signatureLabel(result)}` },
-    result.dependencies ? { label: "Dependencies", value: `Assets ${result.dependencies.assets}, libraries ${result.dependencies.libraries}, macros ${result.dependencies.macros}, tags ${result.dependencies.tags}, events ${result.dependencies.events}` } : null,
-  ]);
+  const checksums = checksumLabel(result);
+  const signature = signatureLabel(result);
+  const summaryGroups: ValidationSummaryGroup[] = [
+    {
+      title: "Archive",
+      items: [
+        { label: "Status", value: result.valid ? "Valid" : "Invalid", tone: result.valid ? "success" : "error" },
+        { label: "Type", value: formatArchiveType(result) },
+        { label: "Name", value: summary?.name ?? "-" },
+        { label: "File", value: file.name },
+      ],
+    },
+    {
+      title: "Contents",
+      items: [
+        { label: "Screens", value: summary?.screens ?? result.screens.length },
+        { label: "Tags", value: summary?.tags ?? result.tags.length },
+        { label: "Assets", value: summary?.assets ?? result.assets.length },
+        { label: "Libraries", value: summary?.libraries ?? result.libraries.length },
+        { label: "Macros", value: summary?.macros ?? result.macros.length },
+        { label: "Events", value: summary?.events ?? result.events.length },
+      ],
+    },
+    {
+      title: "Integrity",
+      items: [
+        { label: "Checksums", value: checksums, tone: checksums === "verified" ? "success" : "error" },
+        {
+          label: "Signature",
+          value: signature,
+          tone: signature === "verified" || signature === "not required" ? "success" : signature === "failed" ? "error" : "warning",
+        },
+        ...(result.dependencies
+          ? [
+              {
+                label: "Dependencies",
+                value: `Assets ${result.dependencies.assets}, libraries ${result.dependencies.libraries}, macros ${result.dependencies.macros}, tags ${result.dependencies.tags}, events ${result.dependencies.events}`,
+              },
+            ]
+          : []),
+      ],
+    },
+  ];
 
   return (
     <WorkbenchStatusBlock
       variant={result.valid ? "success" : "error"}
       title={validationTitle(result)}
-      description={`${label} ${file.name}`}
-      rows={rows}
+      description={label}
     >
+      <ArchiveValidationSummary groups={summaryGroups} />
       {result.warnings.length > 0 ? (
         <div className="project-manager-issues project-manager-issues--warning">
           <div className="project-manager-issues__title">Warnings</div>
