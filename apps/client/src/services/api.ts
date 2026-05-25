@@ -151,6 +151,16 @@ export type ArchiveStatus = {
   archiveSamplesTotalSizeMb?: number | null;
   hypertableChunksCount?: number | null;
   compressedChunksCount?: number | null;
+  aggressivenessMode?: "configured" | "fast_boost" | "emergency_boost";
+  effectiveDeleteBatchSize?: number;
+  effectiveMaintenanceIntervalMs?: number;
+  effectiveMaxMaintenanceTickMs?: number;
+  effectiveMaxDeleteTransactionMs?: number;
+  deletedRecordsPerSecond?: number;
+  deletedRecordsPerMinute?: number;
+  estimatedRemainingRecords?: number | null;
+  estimatedRemainingMb?: number | null;
+  cleanupProgressPercent?: number | null;
   recordsDeletedInLastBatch?: number;
   totalRecordsDeletedThisRun?: number;
   lastBatchDurationMs?: number;
@@ -232,6 +242,7 @@ export type ArchivePurgeResult = {
 export type EventArchiveStatus = {
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
   statusDetail?: string;
+  aggressivenessMode?: "configured" | "fast_boost" | "emergency_boost";
   dbSizeMb: number;
   maxDatabaseSizeMb?: number | null;
   startThresholdMb?: number | null;
@@ -240,6 +251,15 @@ export type EventArchiveStatus = {
   recordsDeletedInLastBatch?: number;
   totalRecordsDeletedThisRun?: number;
   lastBatchDurationMs?: number;
+  deletedRecordsPerSecond?: number;
+  deletedRecordsPerMinute?: number;
+  estimatedRemainingRecords?: number | null;
+  estimatedRemainingMb?: number | null;
+  cleanupProgressPercent?: number | null;
+  effectiveDeleteBatchSize?: number;
+  effectiveMaintenanceIntervalMs?: number;
+  effectiveMaxMaintenanceTickMs?: number;
+  effectiveMaxDeleteTransactionMs?: number;
   nextRunAt?: string | null;
   pauseReason?: string;
   oldestRecordAt: string | null;
@@ -256,6 +276,7 @@ export type EventArchiveCleanupResult = {
 export type OperatorActionArchiveStatus = {
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
   statusDetail?: string;
+  aggressivenessMode?: "configured" | "fast_boost" | "emergency_boost";
   dbSizeMb: number;
   maxDatabaseSizeMb?: number | null;
   startThresholdMb?: number | null;
@@ -264,6 +285,15 @@ export type OperatorActionArchiveStatus = {
   recordsDeletedInLastBatch?: number;
   totalRecordsDeletedThisRun?: number;
   lastBatchDurationMs?: number;
+  deletedRecordsPerSecond?: number;
+  deletedRecordsPerMinute?: number;
+  estimatedRemainingRecords?: number | null;
+  estimatedRemainingMb?: number | null;
+  cleanupProgressPercent?: number | null;
+  effectiveDeleteBatchSize?: number;
+  effectiveMaintenanceIntervalMs?: number;
+  effectiveMaxMaintenanceTickMs?: number;
+  effectiveMaxDeleteTransactionMs?: number;
   nextRunAt?: string | null;
   pauseReason?: string;
   oldestRecordAt: string | null;

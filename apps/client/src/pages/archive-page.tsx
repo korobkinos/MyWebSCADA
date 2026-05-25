@@ -15,7 +15,7 @@ import {
   type OperatorActionArchiveStatus,
 } from "../services/api";
 import type { EventArchiveSettings, OperatorActionArchiveSettings } from "@web-scada/shared";
-import { buildTrendMaintenanceHints } from "./archive-maintenance-details";
+import { buildTrendMaintenanceHints, defaultArchiveSectionOpenState } from "./archive-maintenance-details";
 
 type PolicyFormState = ArchivePolicyPayload;
 type ArchiveColumnId = "select" | "name" | "policy" | "mode" | "period" | "retention" | "override";
@@ -267,37 +267,43 @@ type ArchiveConsoleEntry = {
   text: string;
 };
 
-type ArchiveMaintenancePresetId = "safe" | "balanced" | "fast";
+type ArchiveMaintenancePresetId = "safe" | "balanced" | "fast" | "emergency";
 
 const ARCHIVE_MAINTENANCE_PRESETS: Record<ArchiveMaintenancePresetId, Omit<ArchiveSettingsDraft, "autoCleanupEnabled" | "maxDbSizeMb">> = {
   safe: {
-    deleteBatchSize: 500,
+    deleteBatchSize: 10_000,
     maintenanceIntervalMs: 3000,
-    maxMaintenanceTickMs: 200,
-    maxDeleteTransactionMs: 150,
+    maxMaintenanceTickMs: 500,
+    maxDeleteTransactionMs: 300,
   },
   balanced: {
-    deleteBatchSize: 1000,
-    maintenanceIntervalMs: 2000,
-    maxMaintenanceTickMs: 300,
-    maxDeleteTransactionMs: 150,
+    deleteBatchSize: 20_000,
+    maintenanceIntervalMs: 1500,
+    maxMaintenanceTickMs: 1500,
+    maxDeleteTransactionMs: 800,
   },
   fast: {
-    deleteBatchSize: 2500,
-    maintenanceIntervalMs: 1000,
-    maxMaintenanceTickMs: 800,
-    maxDeleteTransactionMs: 300,
+    deleteBatchSize: 50_000,
+    maintenanceIntervalMs: 750,
+    maxMaintenanceTickMs: 3000,
+    maxDeleteTransactionMs: 1500,
+  },
+  emergency: {
+    deleteBatchSize: 100_000,
+    maintenanceIntervalMs: 250,
+    maxMaintenanceTickMs: 5000,
+    maxDeleteTransactionMs: 3000,
   },
 };
 
 const MIN_DELETE_BATCH_SIZE = 10;
-const MAX_DELETE_BATCH_SIZE = 10_000;
-const MIN_MAINTENANCE_INTERVAL_MS = 500;
+const MAX_DELETE_BATCH_SIZE = 100_000;
+const MIN_MAINTENANCE_INTERVAL_MS = 250;
 const MAX_MAINTENANCE_INTERVAL_MS = 60_000;
 const MIN_MAX_MAINTENANCE_TICK_MS = 50;
-const MAX_MAX_MAINTENANCE_TICK_MS = 2_000;
+const MAX_MAX_MAINTENANCE_TICK_MS = 10_000;
 const MIN_MAX_DELETE_TRANSACTION_MS = 50;
-const MAX_MAX_DELETE_TRANSACTION_MS = 1_000;
+const MAX_MAX_DELETE_TRANSACTION_MS = 5_000;
 
 const DEFAULT_DETAILS_WIDTH = 420;
 const MIN_DETAILS_WIDTH = 300;
@@ -343,6 +349,15 @@ function formatDateTime(value: string | null | undefined): string {
     return "-";
   }
   return date.toLocaleString("ru-RU", { hour12: false });
+}
+
+function formatCleanupSpeed(perSecond: number | null | undefined, perMinute: number | null | undefined): string {
+  const perSec = typeof perSecond === "number" && Number.isFinite(perSecond) ? Math.max(0, perSecond) : 0;
+  const perMin = typeof perMinute === "number" && Number.isFinite(perMinute) ? Math.max(0, perMinute) : perSec * 60;
+  if (perSec <= 0 && perMin <= 0) {
+    return "-";
+  }
+  return `${perSec.toFixed(1)}/s (${Math.round(perMin).toLocaleString("ru-RU")}/min)`;
 }
 
 function formatConsoleTimestamp(): string {
@@ -423,6 +438,7 @@ export function ArchivePage() {
     maxDeleteTransactionMs: ARCHIVE_MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
   });
   const [settingsBusy, setSettingsBusy] = useState(false);
+  const [sectionState, setSectionState] = useState(defaultArchiveSectionOpenState);
   const [confirmState, setConfirmState] = useState<ArchiveConfirmState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [policyForm] = Form.useForm<PolicyFormState>();
@@ -1313,23 +1329,11 @@ export function ArchivePage() {
     const trendDetails = [
       `Trend DB: ${formatDbSizeMb(status.dbSizeMb)} MB`,
       `Limit: ${formatDbSizeMb(status.maxDbSizeMb)} MB`,
-      `Start: ${formatDbSizeMb(status.startThresholdMb)} MB`,
-      `Stop: ${formatDbSizeMb(status.stopThresholdMb)} MB`,
       `Records: ${formatRecordsCount(status.recordsTotal ?? status.recordsCount)}`,
-      `Estimated records: ${formatRecordsCount(status.estimatedSamplesCount)}`,
-      `Actual records: ${formatRecordsCount(status.actualSamplesCount)}`,
-      `archive_samples relation: ${formatDbSizeMb(status.archiveSamplesRelationSizeMb)} MB`,
-      `archive_samples total: ${formatDbSizeMb(status.archiveSamplesTotalSizeMb)} MB`,
-      `Hypertable chunks: ${formatRecordsCount(status.hypertableChunksCount)}`,
-      `Compressed chunks: ${formatRecordsCount(status.compressedChunksCount)}`,
       `Deleted(batch): ${formatRecordsCount(status.recordsDeletedInLastBatch)}`,
       `Deleted(run): ${formatRecordsCount(status.totalRecordsDeletedThisRun)}`,
-      `Retention deleted: ${formatRecordsCount(status.lastRetentionDeleted)}`,
-      `Size deleted: ${formatRecordsCount(status.lastSizeDeleted)}`,
+      `Cleanup speed: ${formatCleanupSpeed(status.deletedRecordsPerSecond, status.deletedRecordsPerMinute)}`,
       `Last batch: ${typeof status.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(status.lastBatchDurationMs))} ms` : "-"}`,
-      `Oldest sample: ${formatDateTime(status.oldestSampleTime)}`,
-      `Newest sample: ${formatDateTime(status.newestSampleTime)}`,
-      `Last delete attempt: ${formatDateTime(status.lastDeleteAttemptAt)}`,
       `Next run: ${formatDateTime(status.nextRunAt)}`,
       status.statusDetail ? `Detail: ${status.statusDetail}` : null,
       status.lastPruneReason ? `Reason: ${status.lastPruneReason}` : null,
@@ -1343,6 +1347,7 @@ export function ArchivePage() {
         `Records: ${formatRecordsCount(eventArchiveStatus.recordsCount)}`,
         `Deleted(batch): ${formatRecordsCount(eventArchiveStatus.recordsDeletedInLastBatch)}`,
         `Deleted(run): ${formatRecordsCount(eventArchiveStatus.totalRecordsDeletedThisRun)}`,
+        `Speed: ${formatCleanupSpeed(eventArchiveStatus.deletedRecordsPerSecond, eventArchiveStatus.deletedRecordsPerMinute)}`,
         eventArchiveStatus.statusDetail ? `Detail: ${eventArchiveStatus.statusDetail}` : null,
         eventArchiveStatus.pauseReason ? `Pause: ${eventArchiveStatus.pauseReason}` : null,
       ].filter(Boolean).join(" | ")
@@ -1354,6 +1359,7 @@ export function ArchivePage() {
         `Records: ${formatRecordsCount(operatorArchiveStatus.recordsCount)}`,
         `Deleted(batch): ${formatRecordsCount(operatorArchiveStatus.recordsDeletedInLastBatch)}`,
         `Deleted(run): ${formatRecordsCount(operatorArchiveStatus.totalRecordsDeletedThisRun)}`,
+        `Speed: ${formatCleanupSpeed(operatorArchiveStatus.deletedRecordsPerSecond, operatorArchiveStatus.deletedRecordsPerMinute)}`,
         operatorArchiveStatus.statusDetail ? `Detail: ${operatorArchiveStatus.statusDetail}` : null,
         operatorArchiveStatus.pauseReason ? `Pause: ${operatorArchiveStatus.pauseReason}` : null,
       ].filter(Boolean).join(" | ")
@@ -1406,6 +1412,11 @@ export function ArchivePage() {
     status.lastPruneReason,
     status.lastRetentionDeleted,
     status.lastSizeDeleted,
+    status.deletedRecordsPerSecond,
+    status.deletedRecordsPerMinute,
+    status.estimatedRemainingMb,
+    status.estimatedRemainingRecords,
+    status.cleanupProgressPercent,
     status.maxDbSizeMb,
     status.maintenanceRunning,
     status.nextRunAt,
@@ -1426,6 +1437,8 @@ export function ArchivePage() {
     eventArchiveStatus?.pauseReason,
     eventArchiveStatus?.recordsCount,
     eventArchiveStatus?.recordsDeletedInLastBatch,
+    eventArchiveStatus?.deletedRecordsPerSecond,
+    eventArchiveStatus?.deletedRecordsPerMinute,
     eventArchiveStatus?.status,
     eventArchiveStatus?.statusDetail,
     eventArchiveStatus?.totalRecordsDeletedThisRun,
@@ -1433,6 +1446,8 @@ export function ArchivePage() {
     operatorArchiveStatus?.pauseReason,
     operatorArchiveStatus?.recordsCount,
     operatorArchiveStatus?.recordsDeletedInLastBatch,
+    operatorArchiveStatus?.deletedRecordsPerSecond,
+    operatorArchiveStatus?.deletedRecordsPerMinute,
     operatorArchiveStatus?.status,
     operatorArchiveStatus?.statusDetail,
     operatorArchiveStatus?.totalRecordsDeletedThisRun,
@@ -1836,6 +1851,12 @@ export function ArchivePage() {
               >
                 Fast
               </WorkbenchButton>
+              <WorkbenchButton
+                onClick={() => setSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.emergency }))}
+                disabled={settingsBusy}
+              >
+                Emergency
+              </WorkbenchButton>
             </div>
             <span className="screen-editor-tag-editor__hint">
               Safe is recommended for live runtime workloads.
@@ -1898,37 +1919,70 @@ export function ArchivePage() {
             </span>
           </label>
 
-          <div className="screen-editor-tag-editor">
-            <div className="screen-editor-tag-editor__title">Maintenance Status</div>
+          <details
+            className="screen-editor-tag-editor"
+            open={sectionState.trend}
+            onToggle={(event) => {
+              const open = (event.currentTarget as HTMLDetailsElement | null)?.open ?? false;
+              setSectionState((prev) => ({ ...prev, trend: open }));
+            }}
+          >
+            <summary className="screen-editor-tag-editor__title">Trend Archive</summary>
             <div className="screen-editor-tag-editor__kv"><span>Status</span><strong>{status.status ?? (status.maintenanceRunning ? "pruning" : "scheduled")}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Maintenance detail</span><strong>{status.statusDetail ?? "-"}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>DB Size</span><strong>{formatDbSizeMb(status.dbSizeMb)} MB</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Max DB</span><strong>{formatDbSizeMb(status.maxDbSizeMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(status.startThresholdMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(status.stopThresholdMb)} MB</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(status.recordsTotal ?? status.recordsCount)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Estimated records</span><strong>{formatRecordsCount(status.estimatedSamplesCount)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Actual records</span><strong>{formatRecordsCount(status.actualSamplesCount)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>`archive_samples` relation</span><strong>{formatDbSizeMb(status.archiveSamplesRelationSizeMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>`archive_samples` total</span><strong>{formatDbSizeMb(status.archiveSamplesTotalSizeMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Hypertable chunks</span><strong>{formatRecordsCount(status.hypertableChunksCount)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Compressed chunks</span><strong>{formatRecordsCount(status.compressedChunksCount)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Deleted last batch</span><strong>{formatRecordsCount(status.recordsDeletedInLastBatch)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(status.totalRecordsDeletedThisRun)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Cleanup speed</span><strong>{formatCleanupSpeed(status.deletedRecordsPerSecond, status.deletedRecordsPerMinute)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof status.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(status.lastBatchDurationMs))} ms` : "-"}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Retention deleted</span><strong>{formatRecordsCount(status.lastRetentionDeleted)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Size deleted</span><strong>{formatRecordsCount(status.lastSizeDeleted)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Oldest sample</span><strong>{formatDateTime(status.oldestSampleTime)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Newest sample</span><strong>{formatDateTime(status.newestSampleTime)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Last delete attempt</span><strong>{formatDateTime(status.lastDeleteAttemptAt)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(status.nextRunAt)}</strong></div>
             {buildTrendMaintenanceHints(status).map((hint) => (
               <div key={hint} className="screen-editor-tag-editor__hint">{hint}</div>
             ))}
             {status.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {status.pauseReason}</div> : null}
-          </div>
 
-          <div className="screen-editor-tag-editor">
-            <div className="screen-editor-tag-editor__title">Event Archive Maintenance</div>
+            <details
+              open={sectionState.trendAdvancedDiagnostics}
+              onToggle={(event) => {
+                const open = (event.currentTarget as HTMLDetailsElement | null)?.open ?? false;
+                setSectionState((prev) => ({ ...prev, trendAdvancedDiagnostics: open }));
+              }}
+            >
+              <summary className="screen-editor-tag-editor__hint">Advanced diagnostics</summary>
+              <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(status.startThresholdMb)} MB</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(status.stopThresholdMb)} MB</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Estimated records</span><strong>{formatRecordsCount(status.estimatedSamplesCount)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Actual records</span><strong>{formatRecordsCount(status.actualSamplesCount)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>`archive_samples` relation</span><strong>{formatDbSizeMb(status.archiveSamplesRelationSizeMb)} MB</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>`archive_samples` total</span><strong>{formatDbSizeMb(status.archiveSamplesTotalSizeMb)} MB</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Hypertable chunks</span><strong>{formatRecordsCount(status.hypertableChunksCount)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Compressed chunks</span><strong>{formatRecordsCount(status.compressedChunksCount)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Oldest sample</span><strong>{formatDateTime(status.oldestSampleTime)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Newest sample</span><strong>{formatDateTime(status.newestSampleTime)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Last delete attempt</span><strong>{formatDateTime(status.lastDeleteAttemptAt)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Retention deleted</span><strong>{formatRecordsCount(status.lastRetentionDeleted)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Size deleted</span><strong>{formatRecordsCount(status.lastSizeDeleted)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Estimated remaining</span><strong>{formatDbSizeMb(status.estimatedRemainingMb)} MB / {formatRecordsCount(status.estimatedRemainingRecords)} rec</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Cleanup progress</span><strong>{typeof status.cleanupProgressPercent === "number" ? `${status.cleanupProgressPercent.toFixed(1)}%` : "-"}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Aggressiveness</span><strong>{status.aggressivenessMode ?? "-"}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective batch</span><strong>{formatRecordsCount(status.effectiveDeleteBatchSize)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective interval</span><strong>{formatRecordsCount(status.effectiveMaintenanceIntervalMs)} ms</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective tick</span><strong>{formatRecordsCount(status.effectiveMaxMaintenanceTickMs)} ms</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective tx timeout</span><strong>{formatRecordsCount(status.effectiveMaxDeleteTransactionMs)} ms</strong></div>
+            </details>
+          </details>
+
+          <details
+            className="screen-editor-tag-editor"
+            open={sectionState.event}
+            onToggle={(event) => {
+              const open = (event.currentTarget as HTMLDetailsElement | null)?.open ?? false;
+              setSectionState((prev) => ({ ...prev, event: open }));
+            }}
+          >
+            <summary className="screen-editor-tag-editor__title">Event Archive</summary>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
               <WorkbenchButton onClick={() => setEventSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.safe }))} disabled={settingsBusy}>
                 Safe
@@ -1938,6 +1992,9 @@ export function ArchivePage() {
               </WorkbenchButton>
               <WorkbenchButton onClick={() => setEventSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.fast }))} disabled={settingsBusy}>
                 Fast
+              </WorkbenchButton>
+              <WorkbenchButton onClick={() => setEventSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.emergency }))} disabled={settingsBusy}>
+                Emergency
               </WorkbenchButton>
             </div>
             <label className="workbench-field">
@@ -1957,24 +2014,48 @@ export function ArchivePage() {
               <InputNumber min={MIN_MAX_DELETE_TRANSACTION_MS} max={MAX_MAX_DELETE_TRANSACTION_MS} value={eventSettingsDraft.maxDeleteTransactionMs} onChange={(value) => setEventSettingsDraft((prev) => ({ ...prev, maxDeleteTransactionMs: Number(value ?? prev.maxDeleteTransactionMs) }))} style={{ width: 220 }} />
             </label>
             <div className="screen-editor-tag-editor__kv"><span>Status</span><strong>{eventArchiveStatus?.status ?? "-"}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Maintenance detail</span><strong>{eventArchiveStatus?.statusDetail ?? "-"}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>DB Size</span><strong>{formatDbSizeMb(eventArchiveStatus?.dbSizeMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(eventArchiveStatus?.recordsCount)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Oldest</span><strong>{formatDateTime(eventArchiveStatus?.oldestRecordAt)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Newest</span><strong>{formatDateTime(eventArchiveStatus?.newestRecordAt)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Max DB</span><strong>{formatDbSizeMb(eventArchiveStatus?.maxDatabaseSizeMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(eventArchiveStatus?.startThresholdMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(eventArchiveStatus?.stopThresholdMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(eventArchiveStatus?.recordsCount)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Deleted last batch</span><strong>{formatRecordsCount(eventArchiveStatus?.recordsDeletedInLastBatch)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(eventArchiveStatus?.totalRecordsDeletedThisRun)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Cleanup speed</span><strong>{formatCleanupSpeed(eventArchiveStatus?.deletedRecordsPerSecond, eventArchiveStatus?.deletedRecordsPerMinute)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof eventArchiveStatus?.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(eventArchiveStatus.lastBatchDurationMs))} ms` : "-"}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(eventArchiveStatus?.nextRunAt)}</strong></div>
-            {eventArchiveStatus?.statusDetail ? <div className="screen-editor-tag-editor__hint">Maintenance detail: {eventArchiveStatus.statusDetail}</div> : null}
             {eventArchiveStatus?.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {eventArchiveStatus.pauseReason}</div> : null}
             <div className="screen-editor-tag-editor__hint">Manual optimize runs safe ANALYZE only (no VACUUM FULL in runtime maintenance).</div>
-          </div>
+            <details
+              open={sectionState.eventAdvancedDiagnostics}
+              onToggle={(event) => {
+                const open = (event.currentTarget as HTMLDetailsElement | null)?.open ?? false;
+                setSectionState((prev) => ({ ...prev, eventAdvancedDiagnostics: open }));
+              }}
+            >
+              <summary className="screen-editor-tag-editor__hint">Advanced diagnostics</summary>
+              <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(eventArchiveStatus?.startThresholdMb)} MB</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(eventArchiveStatus?.stopThresholdMb)} MB</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Oldest</span><strong>{formatDateTime(eventArchiveStatus?.oldestRecordAt)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Newest</span><strong>{formatDateTime(eventArchiveStatus?.newestRecordAt)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Estimated remaining</span><strong>{formatDbSizeMb(eventArchiveStatus?.estimatedRemainingMb)} MB / {formatRecordsCount(eventArchiveStatus?.estimatedRemainingRecords)} rec</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Cleanup progress</span><strong>{typeof eventArchiveStatus?.cleanupProgressPercent === "number" ? `${eventArchiveStatus.cleanupProgressPercent.toFixed(1)}%` : "-"}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Aggressiveness</span><strong>{eventArchiveStatus?.aggressivenessMode ?? "-"}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective batch</span><strong>{formatRecordsCount(eventArchiveStatus?.effectiveDeleteBatchSize)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective interval</span><strong>{formatRecordsCount(eventArchiveStatus?.effectiveMaintenanceIntervalMs)} ms</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective tick</span><strong>{formatRecordsCount(eventArchiveStatus?.effectiveMaxMaintenanceTickMs)} ms</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective tx timeout</span><strong>{formatRecordsCount(eventArchiveStatus?.effectiveMaxDeleteTransactionMs)} ms</strong></div>
+            </details>
+          </details>
 
-          <div className="screen-editor-tag-editor">
-            <div className="screen-editor-tag-editor__title">Operator Action Archive Maintenance</div>
+          <details
+            className="screen-editor-tag-editor"
+            open={sectionState.operator}
+            onToggle={(event) => {
+              const open = (event.currentTarget as HTMLDetailsElement | null)?.open ?? false;
+              setSectionState((prev) => ({ ...prev, operator: open }));
+            }}
+          >
+            <summary className="screen-editor-tag-editor__title">Operator Action Archive</summary>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
               <WorkbenchButton onClick={() => setOperatorSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.safe }))} disabled={settingsBusy}>
                 Safe
@@ -1984,6 +2065,9 @@ export function ArchivePage() {
               </WorkbenchButton>
               <WorkbenchButton onClick={() => setOperatorSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.fast }))} disabled={settingsBusy}>
                 Fast
+              </WorkbenchButton>
+              <WorkbenchButton onClick={() => setOperatorSettingsDraft((prev) => ({ ...prev, ...ARCHIVE_MAINTENANCE_PRESETS.emergency }))} disabled={settingsBusy}>
+                Emergency
               </WorkbenchButton>
             </div>
             <label className="workbench-field">
@@ -2003,20 +2087,37 @@ export function ArchivePage() {
               <InputNumber min={MIN_MAX_DELETE_TRANSACTION_MS} max={MAX_MAX_DELETE_TRANSACTION_MS} value={operatorSettingsDraft.maxDeleteTransactionMs} onChange={(value) => setOperatorSettingsDraft((prev) => ({ ...prev, maxDeleteTransactionMs: Number(value ?? prev.maxDeleteTransactionMs) }))} style={{ width: 220 }} />
             </label>
             <div className="screen-editor-tag-editor__kv"><span>Status</span><strong>{operatorArchiveStatus?.status ?? "-"}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Maintenance detail</span><strong>{operatorArchiveStatus?.statusDetail ?? "-"}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>DB Size</span><strong>{formatDbSizeMb(operatorArchiveStatus?.dbSizeMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(operatorArchiveStatus?.recordsCount)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Oldest</span><strong>{formatDateTime(operatorArchiveStatus?.oldestRecordAt)}</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Newest</span><strong>{formatDateTime(operatorArchiveStatus?.newestRecordAt)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Max DB</span><strong>{formatDbSizeMb(operatorArchiveStatus?.maxDatabaseSizeMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(operatorArchiveStatus?.startThresholdMb)} MB</strong></div>
-            <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(operatorArchiveStatus?.stopThresholdMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(operatorArchiveStatus?.recordsCount)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Deleted last batch</span><strong>{formatRecordsCount(operatorArchiveStatus?.recordsDeletedInLastBatch)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(operatorArchiveStatus?.totalRecordsDeletedThisRun)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Cleanup speed</span><strong>{formatCleanupSpeed(operatorArchiveStatus?.deletedRecordsPerSecond, operatorArchiveStatus?.deletedRecordsPerMinute)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof operatorArchiveStatus?.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(operatorArchiveStatus.lastBatchDurationMs))} ms` : "-"}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(operatorArchiveStatus?.nextRunAt)}</strong></div>
-            {operatorArchiveStatus?.statusDetail ? <div className="screen-editor-tag-editor__hint">Maintenance detail: {operatorArchiveStatus.statusDetail}</div> : null}
             {operatorArchiveStatus?.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {operatorArchiveStatus.pauseReason}</div> : null}
-          </div>
+            <details
+              open={sectionState.operatorAdvancedDiagnostics}
+              onToggle={(event) => {
+                const open = (event.currentTarget as HTMLDetailsElement | null)?.open ?? false;
+                setSectionState((prev) => ({ ...prev, operatorAdvancedDiagnostics: open }));
+              }}
+            >
+              <summary className="screen-editor-tag-editor__hint">Advanced diagnostics</summary>
+              <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(operatorArchiveStatus?.startThresholdMb)} MB</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(operatorArchiveStatus?.stopThresholdMb)} MB</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Oldest</span><strong>{formatDateTime(operatorArchiveStatus?.oldestRecordAt)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Newest</span><strong>{formatDateTime(operatorArchiveStatus?.newestRecordAt)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Estimated remaining</span><strong>{formatDbSizeMb(operatorArchiveStatus?.estimatedRemainingMb)} MB / {formatRecordsCount(operatorArchiveStatus?.estimatedRemainingRecords)} rec</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Cleanup progress</span><strong>{typeof operatorArchiveStatus?.cleanupProgressPercent === "number" ? `${operatorArchiveStatus.cleanupProgressPercent.toFixed(1)}%` : "-"}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Aggressiveness</span><strong>{operatorArchiveStatus?.aggressivenessMode ?? "-"}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective batch</span><strong>{formatRecordsCount(operatorArchiveStatus?.effectiveDeleteBatchSize)}</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective interval</span><strong>{formatRecordsCount(operatorArchiveStatus?.effectiveMaintenanceIntervalMs)} ms</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective tick</span><strong>{formatRecordsCount(operatorArchiveStatus?.effectiveMaxMaintenanceTickMs)} ms</strong></div>
+              <div className="screen-editor-tag-editor__kv"><span>Effective tx timeout</span><strong>{formatRecordsCount(operatorArchiveStatus?.effectiveMaxDeleteTransactionMs)} ms</strong></div>
+            </details>
+          </details>
 
           <div className="archive-workbench-settings__danger-zone">
             <div className="screen-editor-tag-editor__title">Danger Zone</div>

@@ -29,7 +29,10 @@ class FakePool {
         this.calls.push(sql);
         if (sql.includes("DELETE FROM archive_samples")) {
           this.transactionCalls += 1;
-          return { rowCount: this.transactionCalls === 1 ? 100_000 : 0, rows: [] };
+          return {
+            rowCount: 1,
+            rows: [{ deleted_records: this.transactionCalls === 1 ? "100000" : "0" }],
+          };
         }
         return { rows: [] };
       },
@@ -121,7 +124,7 @@ class ZeroDeleteDiagnosticsPool {
           };
         }
         if (sql.includes("DELETE FROM archive_samples")) {
-          return { rowCount: 0, rows: [] };
+          return { rowCount: 1, rows: [{ deleted_records: "0" }] };
         }
         return { rows: [] };
       },

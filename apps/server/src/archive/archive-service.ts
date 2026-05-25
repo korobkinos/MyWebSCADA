@@ -82,6 +82,7 @@ type NormalizedMessageArchiveSettings = {
 type MessageArchiveMaintenanceStateSnapshot = {
   status: ArchiveMaintenanceState;
   statusDetail: string | null;
+  aggressivenessMode: "configured" | "fast_boost" | "emergency_boost";
   pruningActive: boolean;
   pauseReason: string | null;
   errorMessage: string | null;
@@ -96,6 +97,15 @@ type MessageArchiveMaintenanceStateSnapshot = {
   recordsDeletedInLastBatch: number;
   totalRecordsDeletedThisRun: number;
   lastBatchDurationMs: number;
+  deletedRecordsPerSecond: number;
+  deletedRecordsPerMinute: number;
+  estimatedRemainingRecords: number | null;
+  estimatedRemainingMb: number | null;
+  cleanupProgressPercent: number | null;
+  effectiveDeleteBatchSize: number;
+  effectiveMaintenanceIntervalMs: number;
+  effectiveMaxMaintenanceTickMs: number;
+  effectiveMaxDeleteTransactionMs: number;
   lastRunAt: number | null;
 };
 
@@ -104,13 +114,47 @@ const DEFAULT_DELETE_BATCH_SIZE = 500;
 const DEFAULT_MAX_MAINTENANCE_TICK_MS = 200;
 const DEFAULT_MAX_DELETE_TRANSACTION_MS = 150;
 const MIN_DELETE_BATCH_SIZE = 10;
-const MAX_DELETE_BATCH_SIZE = 10_000;
-const MIN_MAINTENANCE_INTERVAL_MS = 500;
+const MAX_DELETE_BATCH_SIZE = 100_000;
+const MIN_MAINTENANCE_INTERVAL_MS = 250;
 const MAX_MAINTENANCE_INTERVAL_MS = 60_000;
 const MIN_MAX_MAINTENANCE_TICK_MS = 50;
-const MAX_MAX_MAINTENANCE_TICK_MS = 2_000;
+const MAX_MAX_MAINTENANCE_TICK_MS = 10_000;
 const MIN_MAX_DELETE_TRANSACTION_MS = 50;
-const MAX_MAX_DELETE_TRANSACTION_MS = 1_000;
+const MAX_MAX_DELETE_TRANSACTION_MS = 5_000;
+
+type MaintenancePreset = {
+  deleteBatchSize: number;
+  maintenanceIntervalMs: number;
+  maxMaintenanceTickMs: number;
+  maxDeleteTransactionMs: number;
+};
+
+const MAINTENANCE_PRESETS: Record<"safe" | "balanced" | "fast" | "emergency", MaintenancePreset> = {
+  safe: {
+    deleteBatchSize: 10_000,
+    maintenanceIntervalMs: 3_000,
+    maxMaintenanceTickMs: 500,
+    maxDeleteTransactionMs: 300,
+  },
+  balanced: {
+    deleteBatchSize: 20_000,
+    maintenanceIntervalMs: 1_500,
+    maxMaintenanceTickMs: 1_500,
+    maxDeleteTransactionMs: 800,
+  },
+  fast: {
+    deleteBatchSize: 50_000,
+    maintenanceIntervalMs: 750,
+    maxMaintenanceTickMs: 3_000,
+    maxDeleteTransactionMs: 1_500,
+  },
+  emergency: {
+    deleteBatchSize: 100_000,
+    maintenanceIntervalMs: 250,
+    maxMaintenanceTickMs: 5_000,
+    maxDeleteTransactionMs: 3_000,
+  },
+};
 
 export function resolveArchiveMaintenanceThresholds(maxDbSizeMb: number | null | undefined): ArchiveMaintenanceThresholds {
   const max = typeof maxDbSizeMb === "number" && Number.isFinite(maxDbSizeMb) && maxDbSizeMb > 0
@@ -186,6 +230,16 @@ export class ArchiveService {
   private maintenanceMaxDbSizeMb: number | null = null;
   private maintenanceStartThresholdMb: number | null = null;
   private maintenanceStopThresholdMb: number | null = null;
+  private maintenanceAggressivenessMode: "configured" | "fast_boost" | "emergency_boost" = "configured";
+  private maintenanceEffectiveDeleteBatchSize = MAINTENANCE_PRESETS.safe.deleteBatchSize;
+  private maintenanceEffectiveMaintenanceIntervalMs = MAINTENANCE_PRESETS.safe.maintenanceIntervalMs;
+  private maintenanceEffectiveMaxMaintenanceTickMs = MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs;
+  private maintenanceEffectiveMaxDeleteTransactionMs = MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs;
+  private maintenanceDeletedRecordsPerSecond = 0;
+  private maintenanceDeletedRecordsPerMinute = 0;
+  private maintenanceEstimatedRemainingRecords: number | null = null;
+  private maintenanceEstimatedRemainingMb: number | null = null;
+  private maintenanceCleanupProgressPercent: number | null = null;
   private recordsDeletedInLastBatch = 0;
   private totalRecordsDeletedThisRun = 0;
   private lastBatchDurationMs = 0;
@@ -206,6 +260,7 @@ export class ArchiveService {
   private readonly eventArchiveMaintenance: MessageArchiveMaintenanceStateSnapshot = {
     status: "scheduled",
     statusDetail: null,
+    aggressivenessMode: "configured",
     pruningActive: false,
     pauseReason: null,
     errorMessage: null,
@@ -220,11 +275,21 @@ export class ArchiveService {
     recordsDeletedInLastBatch: 0,
     totalRecordsDeletedThisRun: 0,
     lastBatchDurationMs: 0,
+    deletedRecordsPerSecond: 0,
+    deletedRecordsPerMinute: 0,
+    estimatedRemainingRecords: null,
+    estimatedRemainingMb: null,
+    cleanupProgressPercent: null,
+    effectiveDeleteBatchSize: MAINTENANCE_PRESETS.safe.deleteBatchSize,
+    effectiveMaintenanceIntervalMs: MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+    effectiveMaxMaintenanceTickMs: MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+    effectiveMaxDeleteTransactionMs: MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
     lastRunAt: null,
   };
   private readonly operatorArchiveMaintenance: MessageArchiveMaintenanceStateSnapshot = {
     status: "scheduled",
     statusDetail: null,
+    aggressivenessMode: "configured",
     pruningActive: false,
     pauseReason: null,
     errorMessage: null,
@@ -239,6 +304,15 @@ export class ArchiveService {
     recordsDeletedInLastBatch: 0,
     totalRecordsDeletedThisRun: 0,
     lastBatchDurationMs: 0,
+    deletedRecordsPerSecond: 0,
+    deletedRecordsPerMinute: 0,
+    estimatedRemainingRecords: null,
+    estimatedRemainingMb: null,
+    cleanupProgressPercent: null,
+    effectiveDeleteBatchSize: MAINTENANCE_PRESETS.safe.deleteBatchSize,
+    effectiveMaintenanceIntervalMs: MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+    effectiveMaxMaintenanceTickMs: MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+    effectiveMaxDeleteTransactionMs: MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
     lastRunAt: null,
   };
 
@@ -420,6 +494,16 @@ export class ArchiveService {
     archiveSamplesTotalSizeMb?: number | null;
     hypertableChunksCount?: number | null;
     compressedChunksCount?: number | null;
+    aggressivenessMode?: "configured" | "fast_boost" | "emergency_boost";
+    effectiveDeleteBatchSize?: number;
+    effectiveMaintenanceIntervalMs?: number;
+    effectiveMaxMaintenanceTickMs?: number;
+    effectiveMaxDeleteTransactionMs?: number;
+    deletedRecordsPerSecond?: number;
+    deletedRecordsPerMinute?: number;
+    estimatedRemainingRecords?: number | null;
+    estimatedRemainingMb?: number | null;
+    cleanupProgressPercent?: number | null;
     recordsDeletedInLastBatch: number;
     totalRecordsDeletedThisRun: number;
     lastBatchDurationMs: number;
@@ -453,6 +537,16 @@ export class ArchiveService {
         archiveSamplesTotalSizeMb: null,
         hypertableChunksCount: null,
         compressedChunksCount: null,
+        aggressivenessMode: "configured",
+        effectiveDeleteBatchSize: MAINTENANCE_PRESETS.safe.deleteBatchSize,
+        effectiveMaintenanceIntervalMs: MAINTENANCE_PRESETS.safe.maintenanceIntervalMs,
+        effectiveMaxMaintenanceTickMs: MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs,
+        effectiveMaxDeleteTransactionMs: MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs,
+        deletedRecordsPerSecond: 0,
+        deletedRecordsPerMinute: 0,
+        estimatedRemainingRecords: null,
+        estimatedRemainingMb: null,
+        cleanupProgressPercent: null,
         recordsDeletedInLastBatch: 0,
         totalRecordsDeletedThisRun: 0,
         lastBatchDurationMs: 0,
@@ -502,6 +596,16 @@ export class ArchiveService {
       archiveSamplesTotalSizeMb: this.maintenanceArchiveSamplesTotalSizeMb,
       hypertableChunksCount: this.maintenanceHypertableChunksCount,
       compressedChunksCount: this.maintenanceCompressedChunksCount,
+      aggressivenessMode: this.maintenanceAggressivenessMode,
+      effectiveDeleteBatchSize: this.maintenanceEffectiveDeleteBatchSize,
+      effectiveMaintenanceIntervalMs: this.maintenanceEffectiveMaintenanceIntervalMs,
+      effectiveMaxMaintenanceTickMs: this.maintenanceEffectiveMaxMaintenanceTickMs,
+      effectiveMaxDeleteTransactionMs: this.maintenanceEffectiveMaxDeleteTransactionMs,
+      deletedRecordsPerSecond: this.maintenanceDeletedRecordsPerSecond,
+      deletedRecordsPerMinute: this.maintenanceDeletedRecordsPerMinute,
+      estimatedRemainingRecords: this.maintenanceEstimatedRemainingRecords,
+      estimatedRemainingMb: this.maintenanceEstimatedRemainingMb,
+      cleanupProgressPercent: this.maintenanceCleanupProgressPercent,
       recordsDeletedInLastBatch: this.recordsDeletedInLastBatch,
       totalRecordsDeletedThisRun: this.totalRecordsDeletedThisRun,
       lastBatchDurationMs: this.lastBatchDurationMs,
@@ -660,12 +764,22 @@ export class ArchiveService {
       ...status,
       status: state.status,
       statusDetail: state.statusDetail ?? undefined,
+      aggressivenessMode: state.aggressivenessMode,
       maxDatabaseSizeMb: state.maxDatabaseSizeMb,
       startThresholdMb: state.startThresholdMb,
       stopThresholdMb: state.stopThresholdMb,
       recordsDeletedInLastBatch: state.recordsDeletedInLastBatch,
       totalRecordsDeletedThisRun: state.totalRecordsDeletedThisRun,
       lastBatchDurationMs: state.lastBatchDurationMs,
+      deletedRecordsPerSecond: state.deletedRecordsPerSecond,
+      deletedRecordsPerMinute: state.deletedRecordsPerMinute,
+      estimatedRemainingRecords: state.estimatedRemainingRecords,
+      estimatedRemainingMb: state.estimatedRemainingMb,
+      cleanupProgressPercent: state.cleanupProgressPercent,
+      effectiveDeleteBatchSize: state.effectiveDeleteBatchSize,
+      effectiveMaintenanceIntervalMs: state.effectiveMaintenanceIntervalMs,
+      effectiveMaxMaintenanceTickMs: state.effectiveMaxMaintenanceTickMs,
+      effectiveMaxDeleteTransactionMs: state.effectiveMaxDeleteTransactionMs,
       nextRunAt: state.nextRunAt ? new Date(state.nextRunAt).toISOString() : null,
       pauseReason: state.pauseReason ?? undefined,
       oldestRecordAt: state.oldestRecordAt ?? status.oldestRecordAt,
@@ -764,12 +878,22 @@ export class ArchiveService {
       ...status,
       status: state.status,
       statusDetail: state.statusDetail ?? undefined,
+      aggressivenessMode: state.aggressivenessMode,
       maxDatabaseSizeMb: state.maxDatabaseSizeMb,
       startThresholdMb: state.startThresholdMb,
       stopThresholdMb: state.stopThresholdMb,
       recordsDeletedInLastBatch: state.recordsDeletedInLastBatch,
       totalRecordsDeletedThisRun: state.totalRecordsDeletedThisRun,
       lastBatchDurationMs: state.lastBatchDurationMs,
+      deletedRecordsPerSecond: state.deletedRecordsPerSecond,
+      deletedRecordsPerMinute: state.deletedRecordsPerMinute,
+      estimatedRemainingRecords: state.estimatedRemainingRecords,
+      estimatedRemainingMb: state.estimatedRemainingMb,
+      cleanupProgressPercent: state.cleanupProgressPercent,
+      effectiveDeleteBatchSize: state.effectiveDeleteBatchSize,
+      effectiveMaintenanceIntervalMs: state.effectiveMaintenanceIntervalMs,
+      effectiveMaxMaintenanceTickMs: state.effectiveMaxMaintenanceTickMs,
+      effectiveMaxDeleteTransactionMs: state.effectiveMaxDeleteTransactionMs,
       nextRunAt: state.nextRunAt ? new Date(state.nextRunAt).toISOString() : null,
       pauseReason: state.pauseReason ?? undefined,
       oldestRecordAt: state.oldestRecordAt ?? status.oldestRecordAt,
@@ -826,6 +950,16 @@ export class ArchiveService {
     this.maintenanceArchiveSamplesTotalSizeMb = null;
     this.maintenanceHypertableChunksCount = null;
     this.maintenanceCompressedChunksCount = null;
+    this.maintenanceAggressivenessMode = "configured";
+    this.maintenanceEffectiveDeleteBatchSize = MAINTENANCE_PRESETS.safe.deleteBatchSize;
+    this.maintenanceEffectiveMaintenanceIntervalMs = MAINTENANCE_PRESETS.safe.maintenanceIntervalMs;
+    this.maintenanceEffectiveMaxMaintenanceTickMs = MAINTENANCE_PRESETS.safe.maxMaintenanceTickMs;
+    this.maintenanceEffectiveMaxDeleteTransactionMs = MAINTENANCE_PRESETS.safe.maxDeleteTransactionMs;
+    this.maintenanceDeletedRecordsPerSecond = 0;
+    this.maintenanceDeletedRecordsPerMinute = 0;
+    this.maintenanceEstimatedRemainingRecords = null;
+    this.maintenanceEstimatedRemainingMb = null;
+    this.maintenanceCleanupProgressPercent = null;
     this.eventArchiveMaintenance.status = "idle";
     this.eventArchiveMaintenance.statusDetail = null;
     this.eventArchiveMaintenance.nextRunAt = null;
@@ -982,6 +1116,27 @@ export class ArchiveService {
     this.maintenanceMaxDbSizeMb = normalizedSettings.maxDbSizeMb;
     this.maintenanceStartThresholdMb = thresholds.startThresholdMb;
     this.maintenanceStopThresholdMb = thresholds.stopThresholdMb;
+    const effectiveSettings = this.resolveEffectiveMaintenanceSettings(
+      normalizedSettings,
+      stats.dbSizeMb,
+      normalizedSettings.maxDbSizeMb,
+    );
+    this.maintenanceAggressivenessMode = effectiveSettings.mode;
+    this.maintenanceEffectiveDeleteBatchSize = effectiveSettings.deleteBatchSize;
+    this.maintenanceEffectiveMaintenanceIntervalMs = effectiveSettings.maintenanceIntervalMs;
+    this.maintenanceEffectiveMaxMaintenanceTickMs = effectiveSettings.maxMaintenanceTickMs;
+    this.maintenanceEffectiveMaxDeleteTransactionMs = effectiveSettings.maxDeleteTransactionMs;
+    this.maintenanceEstimatedRemainingMb = this.computeEstimatedRemainingMb(stats.dbSizeMb, thresholds.stopThresholdMb);
+    this.maintenanceEstimatedRemainingRecords = this.computeEstimatedRemainingRecords(
+      this.maintenanceActualSamplesCount ?? this.maintenanceRecordsTotal,
+      stats.dbSizeMb,
+      thresholds.stopThresholdMb,
+    );
+    this.maintenanceCleanupProgressPercent = this.computeCleanupProgressPercent(
+      stats.dbSizeMb,
+      thresholds.startThresholdMb,
+      thresholds.stopThresholdMb,
+    );
 
     if (!normalizedSettings.autoCleanupEnabled || (normalizedSettings.maxDbSizeMb ?? 0) <= 0) {
       this.pruningActive = false;
@@ -999,6 +1154,8 @@ export class ArchiveService {
       this.maintenanceArchiveSamplesTotalSizeMb = stats.archiveSamplesTotalSizeMb;
       this.maintenanceHypertableChunksCount = stats.hypertableChunksCount;
       this.maintenanceCompressedChunksCount = stats.compressedChunksCount;
+      this.maintenanceDeletedRecordsPerSecond = 0;
+      this.maintenanceDeletedRecordsPerMinute = 0;
       this.maintenanceState = "idle";
       await this.runMessageArchiveMaintenanceTick("event");
       await this.runMessageArchiveMaintenanceTick("operator");
@@ -1030,13 +1187,15 @@ export class ArchiveService {
       this.maintenanceArchiveSamplesTotalSizeMb = stats.archiveSamplesTotalSizeMb;
       this.maintenanceHypertableChunksCount = stats.hypertableChunksCount;
       this.maintenanceCompressedChunksCount = stats.compressedChunksCount;
+      this.maintenanceDeletedRecordsPerSecond = 0;
+      this.maintenanceDeletedRecordsPerMinute = 0;
       this.maintenanceState = "scheduled";
       await this.runMessageArchiveMaintenanceTick("event");
       await this.runMessageArchiveMaintenanceTick("operator");
       return 0;
     }
 
-    const deadline = Date.now() + normalizedSettings.maxMaintenanceTickMs;
+    const deadline = Date.now() + effectiveSettings.maxMaintenanceTickMs;
     let totalDeletedInTick = 0;
     let currentDbSizeMb = stats.dbSizeMb;
 
@@ -1048,19 +1207,21 @@ export class ArchiveService {
         break;
       }
 
-      const loadGuard = this.loadGuard(normalizedSettings);
+      const loadGuard = this.loadGuard({ deleteBatchSize: effectiveSettings.deleteBatchSize });
       if (loadGuard.paused) {
         this.maintenancePauseReason = loadGuard.reason ?? "runtime_load_high";
         this.maintenanceStatusDetail = "waiting_due_to_load_guard";
         this.maintenanceLastPruneReason = this.maintenancePauseReason;
         this.maintenanceLastPruneError = null;
         this.maintenanceState = "paused";
+        this.maintenanceDeletedRecordsPerSecond = 0;
+        this.maintenanceDeletedRecordsPerMinute = 0;
         this.logTrendPruningTick({
           dbSizeMb: currentDbSizeMb,
           startThresholdMb: startThreshold,
           stopThresholdMb: stopThreshold,
-          deleteBatchSize: normalizedSettings.deleteBatchSize,
-          maxDeleteTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+          deleteBatchSize: effectiveSettings.deleteBatchSize,
+          maxDeleteTransactionMs: effectiveSettings.maxDeleteTransactionMs,
           retentionDeleted: 0,
           sizeDeleted: 0,
           lastBatchDurationMs: this.lastBatchDurationMs,
@@ -1082,7 +1243,7 @@ export class ArchiveService {
       try {
         this.maintenanceLastDeleteAttemptAt = Date.now();
         const retentionStart = Date.now();
-        deletedByRetention = await this.repository.applyRetentionBatch(normalizedSettings.deleteBatchSize);
+        deletedByRetention = await this.repository.applyRetentionBatch(effectiveSettings.deleteBatchSize);
         if (deletedByRetention > 0) {
           deletedInBatch = deletedByRetention;
           batchDurationMs = Math.max(0, Date.now() - retentionStart);
@@ -1091,8 +1252,8 @@ export class ArchiveService {
         } else {
           this.maintenanceStatusDetail = "no_expired_records";
           const sizeDeleteResult = await this.repository.deleteOldestSamplesBatch({
-            limit: normalizedSettings.deleteBatchSize,
-            maxTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+            limit: effectiveSettings.deleteBatchSize,
+            maxTransactionMs: effectiveSettings.maxDeleteTransactionMs,
           });
           deletedBySize = sizeDeleteResult.deletedRecords;
           deletedInBatch = sizeDeleteResult.deletedRecords;
@@ -1114,6 +1275,8 @@ export class ArchiveService {
           if (sizeDeleteResult.errorMessage) {
             this.recordsDeletedInLastBatch = 0;
             this.lastBatchDurationMs = batchDurationMs;
+            this.maintenanceDeletedRecordsPerSecond = 0;
+            this.maintenanceDeletedRecordsPerMinute = 0;
             this.maintenanceLastRetentionDeleted = deletedByRetention;
             this.maintenanceLastSizeDeleted = deletedBySize;
             this.maintenanceLastPruneError = sizeDeleteResult.errorMessage;
@@ -1124,7 +1287,7 @@ export class ArchiveService {
               ? "delete_timed_out"
               : "delete_failed";
             this.maintenanceLastPruneReason = this.maintenanceStatusDetail === "delete_timed_out"
-              ? `size pruning timed out after ${normalizedSettings.maxDeleteTransactionMs} ms`
+              ? `size pruning timed out after ${effectiveSettings.maxDeleteTransactionMs} ms`
               : `size pruning delete failed (code=${sizeDeleteResult.errorCode ?? "unknown"})`;
             this.pruningActive = false;
             this.maintenanceState = this.maintenanceStatusDetail === "delete_timed_out" ? "paused" : "error";
@@ -1132,8 +1295,8 @@ export class ArchiveService {
               dbSizeMb: currentDbSizeMb,
               startThresholdMb: startThreshold,
               stopThresholdMb: stopThreshold,
-              deleteBatchSize: normalizedSettings.deleteBatchSize,
-              maxDeleteTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+              deleteBatchSize: effectiveSettings.deleteBatchSize,
+              maxDeleteTransactionMs: effectiveSettings.maxDeleteTransactionMs,
               retentionDeleted: deletedByRetention,
               sizeDeleted: deletedBySize,
               lastBatchDurationMs: this.lastBatchDurationMs,
@@ -1171,12 +1334,14 @@ export class ArchiveService {
       } catch (error) {
         this.recordsDeletedInLastBatch = 0;
         this.lastBatchDurationMs = 0;
+        this.maintenanceDeletedRecordsPerSecond = 0;
+        this.maintenanceDeletedRecordsPerMinute = 0;
         this.maintenanceLastRetentionDeleted = deletedByRetention;
         this.maintenanceLastSizeDeleted = deletedBySize;
         this.maintenanceLastPruneError = this.errorText(error);
         this.maintenanceStatusDetail = this.isStatementTimeoutError(error) ? "delete_timed_out" : "delete_failed";
         this.maintenanceLastPruneReason = this.maintenanceStatusDetail === "delete_timed_out"
-          ? `size pruning timed out after ${normalizedSettings.maxDeleteTransactionMs} ms`
+          ? `size pruning timed out after ${effectiveSettings.maxDeleteTransactionMs} ms`
           : "size pruning delete failed";
         this.pruningActive = false;
         this.maintenanceState = this.maintenanceStatusDetail === "delete_timed_out" ? "paused" : "error";
@@ -1184,33 +1349,38 @@ export class ArchiveService {
           dbSizeMb: currentDbSizeMb,
           startThresholdMb: startThreshold,
           stopThresholdMb: stopThreshold,
-          deleteBatchSize: normalizedSettings.deleteBatchSize,
-          maxDeleteTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+          deleteBatchSize: effectiveSettings.deleteBatchSize,
+          maxDeleteTransactionMs: effectiveSettings.maxDeleteTransactionMs,
           retentionDeleted: deletedByRetention,
           sizeDeleted: deletedBySize,
           lastBatchDurationMs: this.lastBatchDurationMs,
           statusDetail: this.maintenanceStatusDetail,
         });
         if (this.maintenanceStatusDetail === "delete_failed") {
-          this.logger.error(`Trend archive size pruning failed: error=${this.maintenanceLastPruneError} dbSizeMb=${currentDbSizeMb.toFixed(2)} batch=${normalizedSettings.deleteBatchSize} timeoutMs=${normalizedSettings.maxDeleteTransactionMs}`);
+          this.logger.error(`Trend archive size pruning failed: error=${this.maintenanceLastPruneError} dbSizeMb=${currentDbSizeMb.toFixed(2)} batch=${effectiveSettings.deleteBatchSize} timeoutMs=${effectiveSettings.maxDeleteTransactionMs}`);
         } else {
-          this.logger.warn(`Trend archive size pruning timed out: error=${this.maintenanceLastPruneError} dbSizeMb=${currentDbSizeMb.toFixed(2)} batch=${normalizedSettings.deleteBatchSize} timeoutMs=${normalizedSettings.maxDeleteTransactionMs}`);
+          this.logger.warn(`Trend archive size pruning timed out: error=${this.maintenanceLastPruneError} dbSizeMb=${currentDbSizeMb.toFixed(2)} batch=${effectiveSettings.deleteBatchSize} timeoutMs=${effectiveSettings.maxDeleteTransactionMs}`);
         }
         break;
       }
 
       this.recordsDeletedInLastBatch = deletedInBatch;
       this.lastBatchDurationMs = batchDurationMs;
+      this.maintenanceDeletedRecordsPerSecond = this.computeDeletedRecordsPerSecond(deletedInBatch, batchDurationMs);
+      this.maintenanceDeletedRecordsPerMinute = this.maintenanceDeletedRecordsPerSecond * 60;
       this.maintenanceLastRetentionDeleted = deletedByRetention;
       this.maintenanceLastSizeDeleted = deletedBySize;
       totalDeletedInTick += deletedInBatch;
       this.totalRecordsDeletedThisRun += deletedInBatch;
 
-      const refreshedStats = await this.repository.getStorageStats({ includeActualCount: true });
+      const previousDbSizeMb = currentDbSizeMb;
+      const refreshedStats = await this.repository.getStorageStats({ includeActualCount: false });
       this.maintenanceDbSizeMb = refreshedStats.dbSizeMb;
       this.maintenanceRecordsTotal = refreshedStats.recordsCount;
       this.maintenanceEstimatedSamplesCount = refreshedStats.estimatedSamplesCount;
-      this.maintenanceActualSamplesCount = refreshedStats.actualSamplesCount;
+      if (refreshedStats.actualSamplesCount !== null) {
+        this.maintenanceActualSamplesCount = refreshedStats.actualSamplesCount;
+      }
       this.maintenanceOldestSampleTime = refreshedStats.oldestSampleTime;
       this.maintenanceNewestSampleTime = refreshedStats.newestSampleTime;
       this.maintenanceArchiveSamplesRelationSizeMb = refreshedStats.archiveSamplesRelationSizeMb;
@@ -1218,13 +1388,27 @@ export class ArchiveService {
       this.maintenanceHypertableChunksCount = refreshedStats.hypertableChunksCount;
       this.maintenanceCompressedChunksCount = refreshedStats.compressedChunksCount;
       currentDbSizeMb = refreshedStats.dbSizeMb;
+      this.maintenanceEstimatedRemainingMb = this.computeEstimatedRemainingMb(currentDbSizeMb, stopThreshold);
+      this.maintenanceEstimatedRemainingRecords = this.computeEstimatedRemainingRecords(
+        this.maintenanceActualSamplesCount ?? this.maintenanceRecordsTotal,
+        currentDbSizeMb,
+        stopThreshold,
+      );
+      this.maintenanceCleanupProgressPercent = this.computeCleanupProgressPercent(
+        currentDbSizeMb,
+        startThreshold,
+        stopThreshold,
+      );
+      if (deletedBySize > 0 && currentDbSizeMb >= previousDbSizeMb - 0.25) {
+        this.maintenanceLastPruneReason = "rows deleted; physical size may lag until PostgreSQL reuses or compacts free pages";
+      }
 
       this.logTrendPruningTick({
         dbSizeMb: currentDbSizeMb,
         startThresholdMb: startThreshold,
         stopThresholdMb: stopThreshold,
-        deleteBatchSize: normalizedSettings.deleteBatchSize,
-        maxDeleteTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+        deleteBatchSize: effectiveSettings.deleteBatchSize,
+        maxDeleteTransactionMs: effectiveSettings.maxDeleteTransactionMs,
         retentionDeleted: deletedByRetention,
         sizeDeleted: deletedBySize,
         lastBatchDurationMs: batchDurationMs,
@@ -1243,6 +1427,8 @@ export class ArchiveService {
         if (!this.maintenanceStatusDetail) {
           this.maintenanceStatusDetail = "no_deletable_records";
         }
+        this.maintenanceDeletedRecordsPerSecond = 0;
+        this.maintenanceDeletedRecordsPerMinute = 0;
         this.maintenanceLastPruneReason = this.maintenanceLastPruneReason ?? "size above threshold but DELETE returned 0";
         break;
       }
@@ -1252,7 +1438,7 @@ export class ArchiveService {
         break;
       }
 
-      await this.sleep(this.pauseBetweenBatchesMs(normalizedSettings.maintenanceIntervalMs));
+      await this.sleep(this.pauseBetweenBatchesMs(effectiveSettings.maintenanceIntervalMs));
     }
 
     if (this.pruningActive && this.maintenanceState === "pruning") {
@@ -1330,11 +1516,6 @@ export class ArchiveService {
     const settings = kind === "event"
       ? this.normalizeMessageArchiveSettings(await this.repository.getEventArchiveSettings())
       : this.normalizeMessageArchiveSettings(this.operatorActionArchiveSettings);
-    const now = Date.now();
-    if (state.lastRunAt !== null && (now - state.lastRunAt) < settings.maintenanceIntervalMs) {
-      state.nextRunAt = state.lastRunAt + settings.maintenanceIntervalMs;
-      return 0;
-    }
     const status = kind === "event"
       ? await this.repository.getEventArchiveStatus()
       : await this.repository.getOperatorActionArchiveStatus(this.operatorActionArchiveSettings);
@@ -1344,17 +1525,28 @@ export class ArchiveService {
     state.oldestRecordAt = status.oldestRecordAt;
     state.newestRecordAt = status.newestRecordAt;
     state.maxDatabaseSizeMb = settings.maxDatabaseSizeMb;
-    state.lastRunAt = now;
-    state.nextRunAt = state.lastRunAt + settings.maintenanceIntervalMs;
+    const now = Date.now();
 
     if (!settings.enabled || settings.maxDatabaseSizeMb <= 0) {
+      state.lastRunAt = now;
+      state.nextRunAt = state.lastRunAt + settings.maintenanceIntervalMs;
       state.pruningActive = false;
       state.status = "idle";
       state.statusDetail = null;
+      state.aggressivenessMode = "configured";
       state.pauseReason = null;
       state.recordsDeletedInLastBatch = 0;
       state.totalRecordsDeletedThisRun = 0;
       state.lastBatchDurationMs = 0;
+      state.deletedRecordsPerSecond = 0;
+      state.deletedRecordsPerMinute = 0;
+      state.estimatedRemainingRecords = null;
+      state.estimatedRemainingMb = null;
+      state.cleanupProgressPercent = null;
+      state.effectiveDeleteBatchSize = settings.deleteBatchSize;
+      state.effectiveMaintenanceIntervalMs = settings.maintenanceIntervalMs;
+      state.effectiveMaxMaintenanceTickMs = settings.maxMaintenanceTickMs;
+      state.effectiveMaxDeleteTransactionMs = settings.maxDeleteTransactionMs;
       state.startThresholdMb = null;
       state.stopThresholdMb = null;
       return 0;
@@ -1363,6 +1555,33 @@ export class ArchiveService {
     const thresholds = resolveArchiveMaintenanceThresholds(settings.maxDatabaseSizeMb);
     state.startThresholdMb = thresholds.startThresholdMb;
     state.stopThresholdMb = thresholds.stopThresholdMb;
+    const effectiveSettings = this.resolveEffectiveMaintenanceSettings(
+      settings,
+      status.dbSizeMb,
+      settings.maxDatabaseSizeMb,
+    );
+    state.aggressivenessMode = effectiveSettings.mode;
+    state.effectiveDeleteBatchSize = effectiveSettings.deleteBatchSize;
+    state.effectiveMaintenanceIntervalMs = effectiveSettings.maintenanceIntervalMs;
+    state.effectiveMaxMaintenanceTickMs = effectiveSettings.maxMaintenanceTickMs;
+    state.effectiveMaxDeleteTransactionMs = effectiveSettings.maxDeleteTransactionMs;
+    state.estimatedRemainingMb = this.computeEstimatedRemainingMb(status.dbSizeMb, state.stopThresholdMb);
+    state.estimatedRemainingRecords = this.computeEstimatedRemainingRecords(
+      status.recordsCount,
+      status.dbSizeMb,
+      state.stopThresholdMb,
+    );
+    state.cleanupProgressPercent = this.computeCleanupProgressPercent(
+      status.dbSizeMb,
+      state.startThresholdMb,
+      state.stopThresholdMb,
+    );
+    if (state.lastRunAt !== null && (now - state.lastRunAt) < effectiveSettings.maintenanceIntervalMs) {
+      state.nextRunAt = state.lastRunAt + effectiveSettings.maintenanceIntervalMs;
+      return 0;
+    }
+    state.lastRunAt = now;
+    state.nextRunAt = state.lastRunAt + effectiveSettings.maintenanceIntervalMs;
 
     const ageEnabled = settings.cleanupMode === "byAge" || settings.cleanupMode === "byAgeAndSize";
     const sizeEnabled = settings.cleanupMode === "bySize" || settings.cleanupMode === "byAgeAndSize";
@@ -1384,16 +1603,20 @@ export class ArchiveService {
       state.pauseReason = null;
       state.recordsDeletedInLastBatch = 0;
       state.lastBatchDurationMs = 0;
+      state.deletedRecordsPerSecond = 0;
+      state.deletedRecordsPerMinute = 0;
       return 0;
     }
 
-    const loadGuard = this.loadGuard({ deleteBatchSize: settings.deleteBatchSize });
+    const loadGuard = this.loadGuard({ deleteBatchSize: effectiveSettings.deleteBatchSize });
     if (loadGuard.paused) {
       state.status = "paused";
       state.statusDetail = null;
       state.pauseReason = loadGuard.reason ?? "runtime_load_high";
       state.recordsDeletedInLastBatch = 0;
       state.lastBatchDurationMs = 0;
+      state.deletedRecordsPerSecond = 0;
+      state.deletedRecordsPerMinute = 0;
       return 0;
     }
 
@@ -1401,7 +1624,7 @@ export class ArchiveService {
     state.statusDetail = null;
     state.pauseReason = null;
 
-    const deadline = Date.now() + settings.maxMaintenanceTickMs;
+    const deadline = Date.now() + effectiveSettings.maxMaintenanceTickMs;
     let deletedTotal = 0;
     while (Date.now() < deadline) {
       let batchResult: { deletedRecords: number; durationMs: number } = { deletedRecords: 0, durationMs: 0 };
@@ -1411,13 +1634,13 @@ export class ArchiveService {
         const byAge = kind === "event"
           ? await this.repository.deleteEventOccurrencesByRetentionBatch({
             retentionDays: settings.retentionDays,
-            limit: settings.deleteBatchSize,
-            maxTransactionMs: settings.maxDeleteTransactionMs,
+            limit: effectiveSettings.deleteBatchSize,
+            maxTransactionMs: effectiveSettings.maxDeleteTransactionMs,
           })
           : await this.repository.deleteOperatorActionsByRetentionBatch({
             retentionDays: settings.retentionDays,
-            limit: settings.deleteBatchSize,
-            maxTransactionMs: settings.maxDeleteTransactionMs,
+            limit: effectiveSettings.deleteBatchSize,
+            maxTransactionMs: effectiveSettings.maxDeleteTransactionMs,
           });
         if (byAge.deletedRecords > 0) {
           batchResult = byAge;
@@ -1428,12 +1651,12 @@ export class ArchiveService {
       if (workReason === null && sizeEnabled && state.pruningActive) {
         const bySize = kind === "event"
           ? await this.repository.deleteOldestEventOccurrencesBatch({
-            limit: settings.deleteBatchSize,
-            maxTransactionMs: settings.maxDeleteTransactionMs,
+            limit: effectiveSettings.deleteBatchSize,
+            maxTransactionMs: effectiveSettings.maxDeleteTransactionMs,
           })
           : await this.repository.deleteOldestOperatorActionsBatch({
-            limit: settings.deleteBatchSize,
-            maxTransactionMs: settings.maxDeleteTransactionMs,
+            limit: effectiveSettings.deleteBatchSize,
+            maxTransactionMs: effectiveSettings.maxDeleteTransactionMs,
           });
         batchResult = bySize;
         if (bySize.deletedRecords > 0) {
@@ -1443,6 +1666,8 @@ export class ArchiveService {
 
       state.recordsDeletedInLastBatch = batchResult.deletedRecords;
       state.lastBatchDurationMs = batchResult.durationMs;
+      state.deletedRecordsPerSecond = this.computeDeletedRecordsPerSecond(batchResult.deletedRecords, batchResult.durationMs);
+      state.deletedRecordsPerMinute = state.deletedRecordsPerSecond * 60;
       state.totalRecordsDeletedThisRun += batchResult.deletedRecords;
       deletedTotal += batchResult.deletedRecords;
       state.statusDetail = workReason;
@@ -1454,6 +1679,17 @@ export class ArchiveService {
       state.recordsCount = refreshedStatus.recordsCount;
       state.oldestRecordAt = refreshedStatus.oldestRecordAt;
       state.newestRecordAt = refreshedStatus.newestRecordAt;
+      state.estimatedRemainingMb = this.computeEstimatedRemainingMb(refreshedStatus.dbSizeMb, state.stopThresholdMb);
+      state.estimatedRemainingRecords = this.computeEstimatedRemainingRecords(
+        refreshedStatus.recordsCount,
+        refreshedStatus.dbSizeMb,
+        state.stopThresholdMb,
+      );
+      state.cleanupProgressPercent = this.computeCleanupProgressPercent(
+        refreshedStatus.dbSizeMb,
+        state.startThresholdMb,
+        state.stopThresholdMb,
+      );
 
       if (sizeEnabled) {
         if (!state.pruningActive && state.startThresholdMb !== null && refreshedStatus.dbSizeMb > state.startThresholdMb) {
@@ -1468,13 +1704,15 @@ export class ArchiveService {
         state.status = "scheduled";
         state.statusDetail = null;
         state.pauseReason = null;
+        state.deletedRecordsPerSecond = 0;
+        state.deletedRecordsPerMinute = 0;
         break;
       }
       if (Date.now() >= deadline) {
         state.status = "cooling_down";
         break;
       }
-      await this.sleep(this.pauseBetweenBatchesMs(settings.maintenanceIntervalMs));
+      await this.sleep(this.pauseBetweenBatchesMs(effectiveSettings.maintenanceIntervalMs));
     }
 
     if (state.pruningActive && state.status === "pruning") {
@@ -1485,6 +1723,137 @@ export class ArchiveService {
       state.pauseReason = null;
     }
     return deletedTotal;
+  }
+
+  private resolveEffectiveMaintenanceSettings(
+    settings: {
+      deleteBatchSize: number;
+      maintenanceIntervalMs: number;
+      maxMaintenanceTickMs: number;
+      maxDeleteTransactionMs: number;
+    },
+    dbSizeMb: number,
+    maxDbSizeMb: number | null | undefined,
+  ): MaintenancePreset & { mode: "configured" | "fast_boost" | "emergency_boost" } {
+    const maxDb = typeof maxDbSizeMb === "number" && Number.isFinite(maxDbSizeMb) ? maxDbSizeMb : 0;
+    let mode: "configured" | "fast_boost" | "emergency_boost" = "configured";
+    let base: MaintenancePreset = {
+      deleteBatchSize: settings.deleteBatchSize,
+      maintenanceIntervalMs: settings.maintenanceIntervalMs,
+      maxMaintenanceTickMs: settings.maxMaintenanceTickMs,
+      maxDeleteTransactionMs: settings.maxDeleteTransactionMs,
+    };
+
+    if (maxDb > 0 && dbSizeMb > maxDb * 1.5) {
+      mode = "emergency_boost";
+      base = MAINTENANCE_PRESETS.emergency;
+    } else if (maxDb > 0 && dbSizeMb > maxDb * 1.25) {
+      mode = "fast_boost";
+      base = MAINTENANCE_PRESETS.fast;
+    }
+
+    const deleteBatchSize = this.normalizeBoundedInteger(
+      base.deleteBatchSize,
+      settings.deleteBatchSize,
+      MIN_DELETE_BATCH_SIZE,
+      MAX_DELETE_BATCH_SIZE,
+    );
+    const maintenanceIntervalMs = this.normalizeBoundedInteger(
+      base.maintenanceIntervalMs,
+      settings.maintenanceIntervalMs,
+      MIN_MAINTENANCE_INTERVAL_MS,
+      MAX_MAINTENANCE_INTERVAL_MS,
+    );
+    const maxDeleteTransactionMs = this.normalizeBoundedInteger(
+      base.maxDeleteTransactionMs,
+      settings.maxDeleteTransactionMs,
+      MIN_MAX_DELETE_TRANSACTION_MS,
+      MAX_MAX_DELETE_TRANSACTION_MS,
+    );
+    const maxMaintenanceTickMs = Math.max(
+      this.normalizeBoundedInteger(
+        base.maxMaintenanceTickMs,
+        settings.maxMaintenanceTickMs,
+        MIN_MAX_MAINTENANCE_TICK_MS,
+        MAX_MAX_MAINTENANCE_TICK_MS,
+      ),
+      maxDeleteTransactionMs,
+    );
+    return {
+      mode,
+      deleteBatchSize,
+      maintenanceIntervalMs,
+      maxMaintenanceTickMs,
+      maxDeleteTransactionMs,
+    };
+  }
+
+  private computeDeletedRecordsPerSecond(deletedRecords: number, durationMs: number): number {
+    const deleted = Number.isFinite(deletedRecords) ? Math.max(0, deletedRecords) : 0;
+    const duration = Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0;
+    if (deleted <= 0 || duration <= 0) {
+      return 0;
+    }
+    return deleted / (duration / 1000);
+  }
+
+  private computeEstimatedRemainingMb(dbSizeMb: number | null | undefined, stopThresholdMb: number | null | undefined): number | null {
+    if (typeof dbSizeMb !== "number" || !Number.isFinite(dbSizeMb)) {
+      return null;
+    }
+    if (typeof stopThresholdMb !== "number" || !Number.isFinite(stopThresholdMb)) {
+      return null;
+    }
+    return Math.max(0, dbSizeMb - stopThresholdMb);
+  }
+
+  private computeEstimatedRemainingRecords(
+    recordsCount: number | null | undefined,
+    dbSizeMb: number | null | undefined,
+    stopThresholdMb: number | null | undefined,
+  ): number | null {
+    if (typeof recordsCount !== "number" || !Number.isFinite(recordsCount) || recordsCount <= 0) {
+      return null;
+    }
+    if (typeof dbSizeMb !== "number" || !Number.isFinite(dbSizeMb) || dbSizeMb <= 0) {
+      return null;
+    }
+    if (typeof stopThresholdMb !== "number" || !Number.isFinite(stopThresholdMb)) {
+      return null;
+    }
+    if (dbSizeMb <= stopThresholdMb) {
+      return 0;
+    }
+    const estimated = recordsCount * ((dbSizeMb - stopThresholdMb) / dbSizeMb);
+    return Number.isFinite(estimated) ? Math.max(0, Math.round(estimated)) : null;
+  }
+
+  private computeCleanupProgressPercent(
+    dbSizeMb: number | null | undefined,
+    startThresholdMb: number | null | undefined,
+    stopThresholdMb: number | null | undefined,
+  ): number | null {
+    if (typeof dbSizeMb !== "number" || !Number.isFinite(dbSizeMb)) {
+      return null;
+    }
+    if (typeof startThresholdMb !== "number" || !Number.isFinite(startThresholdMb)) {
+      return null;
+    }
+    if (typeof stopThresholdMb !== "number" || !Number.isFinite(stopThresholdMb)) {
+      return null;
+    }
+    if (startThresholdMb <= stopThresholdMb) {
+      return dbSizeMb <= stopThresholdMb ? 100 : 0;
+    }
+    if (dbSizeMb >= startThresholdMb) {
+      return 0;
+    }
+    if (dbSizeMb <= stopThresholdMb) {
+      return 100;
+    }
+    const span = startThresholdMb - stopThresholdMb;
+    const progress = ((startThresholdMb - dbSizeMb) / span) * 100;
+    return Math.max(0, Math.min(100, progress));
   }
 
   private scheduleNextMaintenance(delayMs: number, state: ArchiveMaintenanceState): void {
@@ -1528,7 +1897,32 @@ export class ArchiveService {
         MIN_MAINTENANCE_INTERVAL_MS,
         MAX_MAINTENANCE_INTERVAL_MS,
       );
-      return Math.max(200, Math.min(trendInterval, eventInterval, operatorInterval));
+      const effectiveTrendInterval = this.normalizeBoundedInteger(
+        this.maintenanceEffectiveMaintenanceIntervalMs,
+        trendInterval,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      );
+      const effectiveEventInterval = this.normalizeBoundedInteger(
+        this.eventArchiveMaintenance.effectiveMaintenanceIntervalMs,
+        eventInterval,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      );
+      const effectiveOperatorInterval = this.normalizeBoundedInteger(
+        this.operatorArchiveMaintenance.effectiveMaintenanceIntervalMs,
+        operatorInterval,
+        MIN_MAINTENANCE_INTERVAL_MS,
+        MAX_MAINTENANCE_INTERVAL_MS,
+      );
+      return Math.max(250, Math.min(
+        trendInterval,
+        eventInterval,
+        operatorInterval,
+        effectiveTrendInterval,
+        effectiveEventInterval,
+        effectiveOperatorInterval,
+      ));
     } catch {
       return this.defaultMaintenanceIntervalMs;
     }

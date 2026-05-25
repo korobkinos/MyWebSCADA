@@ -150,7 +150,7 @@ describe("ArchiveService soft maintenance behavior", () => {
       getStorageStats: async () => {
         trendStatsCall += 1;
         if (trendStatsCall === 1) {
-          return { dbSizeMb: 1300, recordsCount: 5000 };
+          return { dbSizeMb: 1200, recordsCount: 5000 };
         }
         return { dbSizeMb: 900, recordsCount: 4500 };
       },
@@ -328,7 +328,7 @@ describe("ArchiveService soft maintenance behavior", () => {
       getStorageStats: async () => {
         trendStatsCall += 1;
         if (trendStatsCall === 1) {
-          return { dbSizeMb: 1300, recordsCount: 5000 };
+          return { dbSizeMb: 1150, recordsCount: 5000 };
         }
         return { dbSizeMb: 900, recordsCount: 4500 };
       },
@@ -340,6 +340,221 @@ describe("ArchiveService soft maintenance behavior", () => {
 
     await service.runMaintenance();
     expect(deleteOptions[0]?.maxTransactionMs).toBe(150);
+  });
+
+  it("uses emergency effective settings when trend db is above 1.5x max limit", async () => {
+    const deleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    let trendStatsCall = 0;
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({
+        ...baseRuntimeSettings,
+        maxDbSizeMb: 1000,
+        deleteBatchSize: 12000,
+        maintenanceIntervalMs: 3000,
+        maxMaintenanceTickMs: 500,
+        maxDeleteTransactionMs: 300,
+      }),
+      getStorageStats: async () => {
+        trendStatsCall += 1;
+        if (trendStatsCall === 1) {
+          return { dbSizeMb: 1700, recordsCount: 5000 };
+        }
+        return { dbSizeMb: 900, recordsCount: 4500 };
+      },
+      deleteOldestSamplesBatch: async (options: { limit: number; maxTransactionMs: number }) => {
+        deleteOptions.push(options);
+        return { deletedRecords: 1000, durationMs: 20 };
+      },
+    });
+
+    await service.runMaintenance();
+    const status = await service.getStatus();
+
+    expect(deleteOptions[0]).toEqual({ limit: 100_000, maxTransactionMs: 3000 });
+    expect(status.aggressivenessMode).toBe("emergency_boost");
+    expect(status.effectiveDeleteBatchSize).toBe(100_000);
+  });
+
+  it("uses fast effective settings when trend db is above 1.25x max limit", async () => {
+    const deleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    let trendStatsCall = 0;
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 1000 }),
+      getStorageStats: async () => {
+        trendStatsCall += 1;
+        if (trendStatsCall === 1) {
+          return { dbSizeMb: 1300, recordsCount: 5000 };
+        }
+        return { dbSizeMb: 900, recordsCount: 4500 };
+      },
+      deleteOldestSamplesBatch: async (options: { limit: number; maxTransactionMs: number }) => {
+        deleteOptions.push(options);
+        return { deletedRecords: 1000, durationMs: 20 };
+      },
+    });
+
+    await service.runMaintenance();
+    const status = await service.getStatus();
+
+    expect(deleteOptions[0]).toEqual({ limit: 50_000, maxTransactionMs: 1500 });
+    expect(status.aggressivenessMode).toBe("fast_boost");
+    expect(status.effectiveDeleteBatchSize).toBe(50_000);
+  });
+
+  it("uses configured settings when trend db is between start threshold and 1.25x limit", async () => {
+    const deleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    let trendStatsCall = 0;
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({
+        ...baseRuntimeSettings,
+        maxDbSizeMb: 1000,
+        deleteBatchSize: 12345,
+        maintenanceIntervalMs: 2100,
+        maxMaintenanceTickMs: 900,
+        maxDeleteTransactionMs: 700,
+      }),
+      getStorageStats: async () => {
+        trendStatsCall += 1;
+        if (trendStatsCall === 1) {
+          return { dbSizeMb: 1150, recordsCount: 5000 };
+        }
+        return { dbSizeMb: 900, recordsCount: 4500 };
+      },
+      deleteOldestSamplesBatch: async (options: { limit: number; maxTransactionMs: number }) => {
+        deleteOptions.push(options);
+        return { deletedRecords: 1000, durationMs: 20 };
+      },
+    });
+
+    await service.runMaintenance();
+    const status = await service.getStatus();
+
+    expect(deleteOptions[0]).toEqual({ limit: 12345, maxTransactionMs: 700 });
+    expect(status.aggressivenessMode).toBe("configured");
+    expect(status.effectiveDeleteBatchSize).toBe(12345);
+  });
+
+  it("still respects load guard when emergency boost would otherwise apply", async () => {
+    const deleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 1000 }),
+      getStorageStats: async () => ({ dbSizeMb: 1700, recordsCount: 5000 }),
+      getActiveTrendQueries: () => 2,
+      deleteOldestSamplesBatch: async (options: { limit: number; maxTransactionMs: number }) => {
+        deleteOptions.push(options);
+        return { deletedRecords: 1000, durationMs: 20 };
+      },
+    });
+
+    await service.runMaintenance();
+    const status = await service.getStatus();
+
+    expect(status.status).toBe("paused");
+    expect(status.statusDetail).toBe("waiting_due_to_load_guard");
+    expect(status.aggressivenessMode).toBe("emergency_boost");
+    expect(deleteOptions).toEqual([]);
+  });
+
+  it("applies emergency effective settings to event and operator archives when db is above 1.5x limit", async () => {
+    const eventDeleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    const operatorDeleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 2000 }),
+      getStorageStats: async () => ({ dbSizeMb: 1000, recordsCount: 5000 }),
+      getEventArchiveSettings: async () => ({
+        ...baseEventSettings,
+        cleanupMode: "byAge",
+        maxDatabaseSizeMb: 1000,
+      }),
+      getEventArchiveStatus: async () => ({
+        dbSizeMb: 1700,
+        recordsCount: 5000,
+        oldestRecordAt: "2025-01-01T00:00:00.000Z",
+        newestRecordAt: "2026-01-01T00:00:00.000Z",
+        settings: { ...baseEventSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000 },
+      }),
+      deleteEventOccurrencesByRetentionBatch: async (options: { limit: number; maxTransactionMs: number }) => {
+        eventDeleteOptions.push({ limit: options.limit, maxTransactionMs: options.maxTransactionMs });
+        return { deletedRecords: 0, durationMs: 1 };
+      },
+      getOperatorActionArchiveStatus: async () => ({
+        dbSizeMb: 1700,
+        recordsCount: 5000,
+        oldestRecordAt: "2025-01-01T00:00:00.000Z",
+        newestRecordAt: "2026-01-01T00:00:00.000Z",
+        settings: { ...baseOperatorSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000 },
+      }),
+      deleteOperatorActionsByRetentionBatch: async (options: { limit: number; maxTransactionMs: number }) => {
+        operatorDeleteOptions.push({ limit: options.limit, maxTransactionMs: options.maxTransactionMs });
+        return { deletedRecords: 0, durationMs: 1 };
+      },
+    });
+    service.setOperatorActionArchiveSettings({
+      ...baseOperatorSettings,
+      enabled: true,
+      cleanupMode: "byAge",
+      maxDatabaseSizeMb: 1000,
+    });
+
+    await service.runMaintenance();
+    const eventStatus = await service.getEventArchiveStatus();
+    const operatorStatus = await service.getOperatorActionArchiveStatus();
+
+    expect(eventDeleteOptions[0]).toEqual({ limit: 100_000, maxTransactionMs: 3000 });
+    expect(operatorDeleteOptions[0]).toEqual({ limit: 100_000, maxTransactionMs: 3000 });
+    expect(eventStatus.aggressivenessMode).toBe("emergency_boost");
+    expect(operatorStatus.aggressivenessMode).toBe("emergency_boost");
+  });
+
+  it("applies fast effective settings to event and operator archives when db is above 1.25x limit", async () => {
+    const eventDeleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    const operatorDeleteOptions: Array<{ limit: number; maxTransactionMs: number }> = [];
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 2000 }),
+      getStorageStats: async () => ({ dbSizeMb: 1000, recordsCount: 5000 }),
+      getEventArchiveSettings: async () => ({
+        ...baseEventSettings,
+        cleanupMode: "byAge",
+        maxDatabaseSizeMb: 1000,
+      }),
+      getEventArchiveStatus: async () => ({
+        dbSizeMb: 1300,
+        recordsCount: 5000,
+        oldestRecordAt: "2025-01-01T00:00:00.000Z",
+        newestRecordAt: "2026-01-01T00:00:00.000Z",
+        settings: { ...baseEventSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000 },
+      }),
+      deleteEventOccurrencesByRetentionBatch: async (options: { limit: number; maxTransactionMs: number }) => {
+        eventDeleteOptions.push({ limit: options.limit, maxTransactionMs: options.maxTransactionMs });
+        return { deletedRecords: 0, durationMs: 1 };
+      },
+      getOperatorActionArchiveStatus: async () => ({
+        dbSizeMb: 1300,
+        recordsCount: 5000,
+        oldestRecordAt: "2025-01-01T00:00:00.000Z",
+        newestRecordAt: "2026-01-01T00:00:00.000Z",
+        settings: { ...baseOperatorSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000 },
+      }),
+      deleteOperatorActionsByRetentionBatch: async (options: { limit: number; maxTransactionMs: number }) => {
+        operatorDeleteOptions.push({ limit: options.limit, maxTransactionMs: options.maxTransactionMs });
+        return { deletedRecords: 0, durationMs: 1 };
+      },
+    });
+    service.setOperatorActionArchiveSettings({
+      ...baseOperatorSettings,
+      enabled: true,
+      cleanupMode: "byAge",
+      maxDatabaseSizeMb: 1000,
+    });
+
+    await service.runMaintenance();
+    const eventStatus = await service.getEventArchiveStatus();
+    const operatorStatus = await service.getOperatorActionArchiveStatus();
+
+    expect(eventDeleteOptions[0]).toEqual({ limit: 50_000, maxTransactionMs: 1500 });
+    expect(operatorDeleteOptions[0]).toEqual({ limit: 50_000, maxTransactionMs: 1500 });
+    expect(eventStatus.aggressivenessMode).toBe("fast_boost");
+    expect(operatorStatus.aggressivenessMode).toBe("fast_boost");
   });
 
   it("event byAge deletes expired rows even below start threshold", async () => {
@@ -499,6 +714,36 @@ describe("ArchiveService soft maintenance behavior", () => {
     expect(ageCalls).toBe(0);
     expect(eventStatus.status).toBe("paused");
     expect(eventStatus.pauseReason).toContain("event_queries_active");
+  });
+
+  it("event emergency boost still respects load guard", async () => {
+    let ageCalls = 0;
+    const service = createServiceWithRepository({
+      getEventArchiveSettings: async () => ({
+        ...baseEventSettings,
+        cleanupMode: "byAge",
+        maxDatabaseSizeMb: 1000,
+      }),
+      getEventArchiveStatus: async () => ({
+        dbSizeMb: 1700,
+        recordsCount: 5000,
+        oldestRecordAt: "2025-01-01T00:00:00.000Z",
+        newestRecordAt: "2026-01-01T00:00:00.000Z",
+        settings: { ...baseEventSettings, cleanupMode: "byAge", maxDatabaseSizeMb: 1000 },
+      }),
+      getActiveEventQueries: () => 2,
+      deleteEventOccurrencesByRetentionBatch: async () => {
+        ageCalls += 1;
+        return { deletedRecords: 10, durationMs: 2 };
+      },
+    });
+
+    await service.runMaintenance();
+    const eventStatus = await service.getEventArchiveStatus();
+    expect(ageCalls).toBe(0);
+    expect(eventStatus.status).toBe("paused");
+    expect(eventStatus.pauseReason).toContain("event_queries_active");
+    expect(eventStatus.aggressivenessMode).toBe("emergency_boost");
   });
 
   it("operator byAge deletes expired rows even below start threshold", async () => {

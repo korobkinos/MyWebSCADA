@@ -219,10 +219,10 @@ const archiveTagOverrideSchema = z.object({
 const archiveRuntimeSettingsSchema = z.object({
   autoCleanupEnabled: z.boolean(),
   maxDbSizeMb: z.number().int().positive().max(1024 * 1024).nullable(),
-  deleteBatchSize: z.number().int().min(10).max(10_000).optional(),
-  maintenanceIntervalMs: z.number().int().min(500).max(60_000).optional(),
-  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).optional(),
-  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).optional(),
+  deleteBatchSize: z.number().int().min(10).max(100_000).optional(),
+  maintenanceIntervalMs: z.number().int().min(250).max(60_000).optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(10_000).optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(5_000).optional(),
 }).superRefine((value, ctx) => {
   if (
     typeof value.maxMaintenanceTickMs === "number"
@@ -261,10 +261,10 @@ const eventArchiveSettingsSchema = z.object({
   cleanupMode: eventArchiveCleanupModeSchema,
   cleanupIntervalMinutes: z.number().int().positive(),
   optimizeAfterCleanup: z.boolean(),
-  deleteBatchSize: z.number().int().min(10).max(10_000).optional(),
-  maintenanceIntervalMs: z.number().int().min(500).max(60_000).optional(),
-  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).optional(),
-  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).optional(),
+  deleteBatchSize: z.number().int().min(10).max(100_000).optional(),
+  maintenanceIntervalMs: z.number().int().min(250).max(60_000).optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(10_000).optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(5_000).optional(),
   updatedAt: z.string().optional(),
 }).superRefine((value, ctx) => {
   if (
@@ -333,10 +333,10 @@ const operatorActionArchiveCleanupSchema = z.object({
   maxDatabaseSizeMb: z.number().int().positive().optional(),
   cleanupMode: eventArchiveCleanupModeSchema.optional(),
   optimizeAfterCleanup: z.boolean().optional(),
-  deleteBatchSize: z.number().int().min(10).max(10_000).optional(),
-  maintenanceIntervalMs: z.number().int().min(500).max(60_000).optional(),
-  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).optional(),
-  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).optional(),
+  deleteBatchSize: z.number().int().min(10).max(100_000).optional(),
+  maintenanceIntervalMs: z.number().int().min(250).max(60_000).optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(10_000).optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(5_000).optional(),
 }).superRefine((value, ctx) => {
   if (
     typeof value.maxMaintenanceTickMs === "number"
@@ -357,10 +357,10 @@ const operatorActionArchiveSettingsSchema = z.object({
   cleanupMode: eventArchiveCleanupModeSchema,
   cleanupIntervalMinutes: z.number().int().positive(),
   optimizeAfterCleanup: z.boolean(),
-  deleteBatchSize: z.number().int().min(10).max(10_000).optional(),
-  maintenanceIntervalMs: z.number().int().min(500).max(60_000).optional(),
-  maxMaintenanceTickMs: z.number().int().min(50).max(2_000).optional(),
-  maxDeleteTransactionMs: z.number().int().min(50).max(1_000).optional(),
+  deleteBatchSize: z.number().int().min(10).max(100_000).optional(),
+  maintenanceIntervalMs: z.number().int().min(250).max(60_000).optional(),
+  maxMaintenanceTickMs: z.number().int().min(50).max(10_000).optional(),
+  maxDeleteTransactionMs: z.number().int().min(50).max(5_000).optional(),
   updatedAt: z.string().optional(),
 }).superRefine((value, ctx) => {
   if (
@@ -969,7 +969,7 @@ function toOperatorActionHistoryQuery(query: z.infer<typeof operatorActionHistor
 
 function resolveOperatorActionArchiveSettings(project: ScadaProject): OperatorActionArchiveSettings {
   const archiveSettings = project.operatorActionSettings?.archiveSettings;
-  const maxDeleteTransactionMs = Math.min(1000, Math.max(50, Math.round(archiveSettings?.maxDeleteTransactionMs ?? 150)));
+  const maxDeleteTransactionMs = Math.min(5000, Math.max(50, Math.round(archiveSettings?.maxDeleteTransactionMs ?? 150)));
   return {
     enabled: archiveSettings?.enabled ?? true,
     retentionDays: archiveSettings?.retentionDays ?? 90,
@@ -977,10 +977,10 @@ function resolveOperatorActionArchiveSettings(project: ScadaProject): OperatorAc
     cleanupMode: archiveSettings?.cleanupMode ?? "byAgeAndSize",
     cleanupIntervalMinutes: archiveSettings?.cleanupIntervalMinutes ?? 60,
     optimizeAfterCleanup: archiveSettings?.optimizeAfterCleanup ?? false,
-    deleteBatchSize: Math.min(10_000, Math.max(10, Math.round(archiveSettings?.deleteBatchSize ?? 500))),
-    maintenanceIntervalMs: Math.min(60_000, Math.max(500, Math.round(archiveSettings?.maintenanceIntervalMs ?? 3000))),
+    deleteBatchSize: Math.min(100_000, Math.max(10, Math.round(archiveSettings?.deleteBatchSize ?? 500))),
+    maintenanceIntervalMs: Math.min(60_000, Math.max(250, Math.round(archiveSettings?.maintenanceIntervalMs ?? 3000))),
     maxMaintenanceTickMs: Math.max(
-      Math.min(2_000, Math.max(50, Math.round(archiveSettings?.maxMaintenanceTickMs ?? 200))),
+      Math.min(10_000, Math.max(50, Math.round(archiveSettings?.maxMaintenanceTickMs ?? 200))),
       maxDeleteTransactionMs,
     ),
     maxDeleteTransactionMs,

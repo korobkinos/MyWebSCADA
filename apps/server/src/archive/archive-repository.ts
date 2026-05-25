@@ -31,13 +31,13 @@ const DEFAULT_MAINTENANCE_INTERVAL_MS = 3_000;
 const DEFAULT_MAX_MAINTENANCE_TICK_MS = 200;
 const DEFAULT_MAX_DELETE_TRANSACTION_MS = 150;
 const MIN_DELETE_BATCH_SIZE = 10;
-const MAX_DELETE_BATCH_SIZE = 10_000;
-const MIN_MAINTENANCE_INTERVAL_MS = 500;
+const MAX_DELETE_BATCH_SIZE = 100_000;
+const MIN_MAINTENANCE_INTERVAL_MS = 250;
 const MAX_MAINTENANCE_INTERVAL_MS = 60_000;
 const MIN_MAX_MAINTENANCE_TICK_MS = 50;
-const MAX_MAX_MAINTENANCE_TICK_MS = 2_000;
+const MAX_MAX_MAINTENANCE_TICK_MS = 10_000;
 const MIN_MAX_DELETE_TRANSACTION_MS = 50;
-const MAX_MAX_DELETE_TRANSACTION_MS = 1_000;
+const MAX_MAX_DELETE_TRANSACTION_MS = 5_000;
 const DEFAULT_MANUAL_CLEANUP_MAX_BATCHES = 20;
 const DEFAULT_MANUAL_CLEANUP_MAX_DURATION_MS = 2_000;
 
@@ -178,6 +178,7 @@ export type TrendDeleteBatchDiagnosticsRow = {
 export type EventArchiveStatusRow = {
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
   statusDetail?: string;
+  aggressivenessMode?: "configured" | "fast_boost" | "emergency_boost";
   dbSizeMb: number;
   maxDatabaseSizeMb?: number | null;
   startThresholdMb?: number | null;
@@ -186,6 +187,15 @@ export type EventArchiveStatusRow = {
   recordsDeletedInLastBatch?: number;
   totalRecordsDeletedThisRun?: number;
   lastBatchDurationMs?: number;
+  deletedRecordsPerSecond?: number;
+  deletedRecordsPerMinute?: number;
+  estimatedRemainingRecords?: number | null;
+  estimatedRemainingMb?: number | null;
+  cleanupProgressPercent?: number | null;
+  effectiveDeleteBatchSize?: number;
+  effectiveMaintenanceIntervalMs?: number;
+  effectiveMaxMaintenanceTickMs?: number;
+  effectiveMaxDeleteTransactionMs?: number;
   nextRunAt?: string | null;
   pauseReason?: string;
   oldestRecordAt: string | null;
@@ -202,6 +212,7 @@ export type EventArchiveCleanupResultRow = {
 export type OperatorActionArchiveStatusRow = {
   status?: "idle" | "scheduled" | "pruning" | "paused" | "cooling_down" | "compacting" | "error";
   statusDetail?: string;
+  aggressivenessMode?: "configured" | "fast_boost" | "emergency_boost";
   dbSizeMb: number;
   maxDatabaseSizeMb?: number | null;
   startThresholdMb?: number | null;
@@ -210,6 +221,15 @@ export type OperatorActionArchiveStatusRow = {
   recordsDeletedInLastBatch?: number;
   totalRecordsDeletedThisRun?: number;
   lastBatchDurationMs?: number;
+  deletedRecordsPerSecond?: number;
+  deletedRecordsPerMinute?: number;
+  estimatedRemainingRecords?: number | null;
+  estimatedRemainingMb?: number | null;
+  cleanupProgressPercent?: number | null;
+  effectiveDeleteBatchSize?: number;
+  effectiveMaintenanceIntervalMs?: number;
+  effectiveMaxMaintenanceTickMs?: number;
+  effectiveMaxDeleteTransactionMs?: number;
   nextRunAt?: string | null;
   pauseReason?: string;
   oldestRecordAt: string | null;
@@ -2838,35 +2858,44 @@ export class ArchiveRepository {
     try {
       await client.query("BEGIN");
       await client.query("SELECT set_config('statement_timeout', $1, true)", [`${maxTransactionMs}ms`]);
-      const diagnostics = await this.readTrendDeleteDiagnostics(client, limit);
-      const result = await client.query(
+      const result = await client.query<{ deleted_records: string | number | null }>(
         `
         WITH oldest AS (
           SELECT tag_id, time
           FROM archive_samples
           ORDER BY time ASC
           LIMIT $1
+        ),
+        deleted AS (
+          DELETE FROM archive_samples s
+          USING oldest
+          WHERE s.tag_id = oldest.tag_id
+            AND s.time = oldest.time
+          RETURNING s.time
         )
-        DELETE FROM archive_samples s
-        USING oldest
-        WHERE s.tag_id = oldest.tag_id
-          AND s.time = oldest.time
+        SELECT COUNT(*)::bigint AS deleted_records
+        FROM deleted
         `,
         [limit],
       );
       await client.query("COMMIT");
-      const deletedRecords = result.rowCount ?? 0;
+      const deletedRaw = result.rows[0]?.deleted_records ?? 0;
+      const deletedRecords = typeof deletedRaw === "string" ? Number.parseInt(deletedRaw, 10) : Number(deletedRaw);
+      const normalizedDeleted = Number.isFinite(deletedRecords) ? Math.max(0, Math.round(deletedRecords)) : 0;
+      let diagnostics: TrendDeleteBatchDiagnosticsRow | undefined;
+      if (normalizedDeleted === 0) {
+        const zeroDiagnostics = await this.readTrendDeleteDiagnostics(client, limit);
+        diagnostics = {
+          ...zeroDiagnostics,
+          reason: zeroDiagnostics.selectedRowsBeforeDelete > 0
+            ? "size above threshold but DELETE returned 0 despite available candidates"
+            : "size above threshold but no oldest candidates were selected",
+        };
+      }
       return {
-        deletedRecords,
+        deletedRecords: normalizedDeleted,
         durationMs: Math.max(0, Date.now() - startedAt),
-        diagnostics: deletedRecords === 0
-          ? {
-            ...diagnostics,
-            reason: diagnostics.selectedRowsBeforeDelete > 0
-              ? "size above threshold but DELETE returned 0 despite available candidates"
-              : "size above threshold but no oldest candidates were selected",
-          }
-          : undefined,
+        diagnostics,
       };
     } catch (error) {
       const errorCode = this.extractPgErrorCode(error);
