@@ -3046,6 +3046,55 @@ body {
   max-width: 420px;
 }
 
+.project-manager-cleanup-categories {
+  min-width: 0;
+  border: 1px solid #2d2d2d;
+  background: #202020;
+  padding: 8px;
+}
+
+.project-manager-cleanup-categories__title {
+  margin-bottom: 8px;
+  color: #b8b8b8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-manager-cleanup-categories__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 6px;
+}
+
+.project-manager-cleanup-category {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid #333333;
+  background: #252526;
+  color: #d6d6d6;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+}
+
+.project-manager-cleanup-category:hover {
+  border-color: #3f3f46;
+  background: #2c2c31;
+}
+
+.project-manager-cleanup-category__check {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #0e639c;
+}
+
 .project-manager-validation-summary {
   min-width: 0;
   display: grid;

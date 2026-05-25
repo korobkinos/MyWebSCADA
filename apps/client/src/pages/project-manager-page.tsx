@@ -1756,22 +1756,27 @@ export function ProjectManagerPage() {
             {maintenanceWorkflow === "cleanup" ? (
               <WorkbenchSection title="Project Cleanup">
                 <div className="project-manager-workflow">
-                  <div className="project-manager-inline-controls">
-                    {(["assets", "libraries", "macros", "variables", "lw", "tags", "events", "event-sounds", "files", "drivers"] as ProjectCleanupCategory[]).map((category) => (
-                      <label key={category} className="screen-editor-item-meta">
-                        <input
-                          type="checkbox"
-                          checked={cleanupCategories.includes(category)}
-                          onChange={(event) => {
-                            if (event.target.checked) {
-                              setCleanupCategories((prev) => (prev.includes(category) ? prev : [...prev, category]));
-                              return;
-                            }
-                            setCleanupCategories((prev) => prev.filter((item) => item !== category));
-                          }}
-                        /> {cleanupCategoryLabel(category)}
-                      </label>
-                    ))}
+                  <div className="project-manager-cleanup-categories">
+                    <div className="project-manager-cleanup-categories__title">Categories</div>
+                    <div className="project-manager-cleanup-categories__grid">
+                      {(["assets", "libraries", "macros", "variables", "lw", "tags", "events", "event-sounds", "files", "drivers"] as ProjectCleanupCategory[]).map((category) => (
+                        <label key={category} className="project-manager-cleanup-category">
+                          <input
+                            className="project-manager-cleanup-category__check"
+                            type="checkbox"
+                            checked={cleanupCategories.includes(category)}
+                            onChange={(event) => {
+                              if (event.target.checked) {
+                                setCleanupCategories((prev) => (prev.includes(category) ? prev : [...prev, category]));
+                                return;
+                              }
+                              setCleanupCategories((prev) => prev.filter((item) => item !== category));
+                            }}
+                          />
+                          <span>{cleanupCategoryLabel(category)}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
                   <div className="project-manager-actions">
                     <WorkbenchButton variant="primary" disabled={busy || cleanupCategories.length === 0} onClick={() => void analyzeCleanup()}>Analyze Project</WorkbenchButton>
