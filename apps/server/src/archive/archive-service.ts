@@ -176,6 +176,10 @@ export class ArchiveService {
   private maintenanceActualSamplesCount: number | null = null;
   private maintenanceOldestSampleTime: string | null = null;
   private maintenanceNewestSampleTime: string | null = null;
+  private maintenanceArchiveSamplesRelationSizeMb: number | null = null;
+  private maintenanceArchiveSamplesTotalSizeMb: number | null = null;
+  private maintenanceHypertableChunksCount: number | null = null;
+  private maintenanceCompressedChunksCount: number | null = null;
   private maintenanceNextRunAt: number | null = null;
   private maintenanceDbSizeMb: number | null = null;
   private maintenanceRecordsTotal: number | null = null;
@@ -412,6 +416,10 @@ export class ArchiveService {
     actualSamplesCount?: number | null;
     oldestSampleTime?: string | null;
     newestSampleTime?: string | null;
+    archiveSamplesRelationSizeMb?: number | null;
+    archiveSamplesTotalSizeMb?: number | null;
+    hypertableChunksCount?: number | null;
+    compressedChunksCount?: number | null;
     recordsDeletedInLastBatch: number;
     totalRecordsDeletedThisRun: number;
     lastBatchDurationMs: number;
@@ -441,6 +449,10 @@ export class ArchiveService {
         actualSamplesCount: null,
         oldestSampleTime: null,
         newestSampleTime: null,
+        archiveSamplesRelationSizeMb: null,
+        archiveSamplesTotalSizeMb: null,
+        hypertableChunksCount: null,
+        compressedChunksCount: null,
         recordsDeletedInLastBatch: 0,
         totalRecordsDeletedThisRun: 0,
         lastBatchDurationMs: 0,
@@ -449,13 +461,17 @@ export class ArchiveService {
     }
 
     if (this.maintenanceDbSizeMb === null || this.maintenanceRecordsTotal === null) {
-      const stats = await this.repository.getStorageStats();
+      const stats = await this.repository.getStorageStats({ includeActualCount: true });
       this.maintenanceDbSizeMb = stats.dbSizeMb;
       this.maintenanceRecordsTotal = stats.recordsCount;
       this.maintenanceEstimatedSamplesCount = stats.estimatedSamplesCount;
       this.maintenanceActualSamplesCount = stats.actualSamplesCount;
       this.maintenanceOldestSampleTime = stats.oldestSampleTime;
       this.maintenanceNewestSampleTime = stats.newestSampleTime;
+      this.maintenanceArchiveSamplesRelationSizeMb = stats.archiveSamplesRelationSizeMb;
+      this.maintenanceArchiveSamplesTotalSizeMb = stats.archiveSamplesTotalSizeMb;
+      this.maintenanceHypertableChunksCount = stats.hypertableChunksCount;
+      this.maintenanceCompressedChunksCount = stats.compressedChunksCount;
     }
 
     return {
@@ -482,6 +498,10 @@ export class ArchiveService {
       actualSamplesCount: this.maintenanceActualSamplesCount,
       oldestSampleTime: this.maintenanceOldestSampleTime,
       newestSampleTime: this.maintenanceNewestSampleTime,
+      archiveSamplesRelationSizeMb: this.maintenanceArchiveSamplesRelationSizeMb,
+      archiveSamplesTotalSizeMb: this.maintenanceArchiveSamplesTotalSizeMb,
+      hypertableChunksCount: this.maintenanceHypertableChunksCount,
+      compressedChunksCount: this.maintenanceCompressedChunksCount,
       recordsDeletedInLastBatch: this.recordsDeletedInLastBatch,
       totalRecordsDeletedThisRun: this.totalRecordsDeletedThisRun,
       lastBatchDurationMs: this.lastBatchDurationMs,
@@ -802,6 +822,10 @@ export class ArchiveService {
     this.maintenanceActualSamplesCount = null;
     this.maintenanceOldestSampleTime = null;
     this.maintenanceNewestSampleTime = null;
+    this.maintenanceArchiveSamplesRelationSizeMb = null;
+    this.maintenanceArchiveSamplesTotalSizeMb = null;
+    this.maintenanceHypertableChunksCount = null;
+    this.maintenanceCompressedChunksCount = null;
     this.eventArchiveMaintenance.status = "idle";
     this.eventArchiveMaintenance.statusDetail = null;
     this.eventArchiveMaintenance.nextRunAt = null;
@@ -943,7 +967,7 @@ export class ArchiveService {
       maxDeleteTransactionMs: boundedMaxDeleteTransactionMs,
     };
     const thresholds = resolveArchiveMaintenanceThresholds(normalizedSettings.maxDbSizeMb);
-    const stats = await this.repository.getStorageStats();
+    const stats = await this.repository.getStorageStats({ includeActualCount: true });
 
     this.maintenanceDbSizeMb = stats.dbSizeMb;
     this.maintenanceRecordsTotal = stats.recordsCount;
@@ -951,6 +975,10 @@ export class ArchiveService {
     this.maintenanceActualSamplesCount = stats.actualSamplesCount;
     this.maintenanceOldestSampleTime = stats.oldestSampleTime;
     this.maintenanceNewestSampleTime = stats.newestSampleTime;
+    this.maintenanceArchiveSamplesRelationSizeMb = stats.archiveSamplesRelationSizeMb;
+    this.maintenanceArchiveSamplesTotalSizeMb = stats.archiveSamplesTotalSizeMb;
+    this.maintenanceHypertableChunksCount = stats.hypertableChunksCount;
+    this.maintenanceCompressedChunksCount = stats.compressedChunksCount;
     this.maintenanceMaxDbSizeMb = normalizedSettings.maxDbSizeMb;
     this.maintenanceStartThresholdMb = thresholds.startThresholdMb;
     this.maintenanceStopThresholdMb = thresholds.stopThresholdMb;
@@ -967,6 +995,10 @@ export class ArchiveService {
       this.maintenanceLastRetentionDeleted = 0;
       this.maintenanceLastSizeDeleted = 0;
       this.maintenanceLastDeleteAttemptAt = null;
+      this.maintenanceArchiveSamplesRelationSizeMb = stats.archiveSamplesRelationSizeMb;
+      this.maintenanceArchiveSamplesTotalSizeMb = stats.archiveSamplesTotalSizeMb;
+      this.maintenanceHypertableChunksCount = stats.hypertableChunksCount;
+      this.maintenanceCompressedChunksCount = stats.compressedChunksCount;
       this.maintenanceState = "idle";
       await this.runMessageArchiveMaintenanceTick("event");
       await this.runMessageArchiveMaintenanceTick("operator");
@@ -994,6 +1026,10 @@ export class ArchiveService {
       this.maintenanceLastPruneReason = null;
       this.maintenanceLastRetentionDeleted = 0;
       this.maintenanceLastSizeDeleted = 0;
+      this.maintenanceArchiveSamplesRelationSizeMb = stats.archiveSamplesRelationSizeMb;
+      this.maintenanceArchiveSamplesTotalSizeMb = stats.archiveSamplesTotalSizeMb;
+      this.maintenanceHypertableChunksCount = stats.hypertableChunksCount;
+      this.maintenanceCompressedChunksCount = stats.compressedChunksCount;
       this.maintenanceState = "scheduled";
       await this.runMessageArchiveMaintenanceTick("event");
       await this.runMessageArchiveMaintenanceTick("operator");
@@ -1066,18 +1102,70 @@ export class ArchiveService {
             this.maintenanceLastPruneReason = sizeDeleteResult.diagnostics.reason;
             this.maintenanceEstimatedSamplesCount = sizeDeleteResult.diagnostics.estimatedSamplesCount;
             this.maintenanceActualSamplesCount = sizeDeleteResult.diagnostics.actualSamplesCount;
-            this.maintenanceOldestSampleTime = sizeDeleteResult.diagnostics.oldestSampleTime;
-            this.maintenanceNewestSampleTime = sizeDeleteResult.diagnostics.newestSampleTime;
+            this.maintenanceOldestSampleTime = sizeDeleteResult.diagnostics.oldestTimeBeforeDelete;
+            this.maintenanceNewestSampleTime = sizeDeleteResult.diagnostics.newestTimeBeforeDelete;
+            this.maintenanceArchiveSamplesRelationSizeMb = sizeDeleteResult.diagnostics.archiveSamplesRelationSizeMb;
+            this.maintenanceArchiveSamplesTotalSizeMb = sizeDeleteResult.diagnostics.archiveSamplesTotalSizeMb;
+            this.maintenanceHypertableChunksCount = sizeDeleteResult.diagnostics.hypertableChunksCount;
+            this.maintenanceCompressedChunksCount = sizeDeleteResult.diagnostics.compressedChunksCount;
             this.maintenanceLastDeleteAttemptAt = Date.parse(sizeDeleteResult.diagnostics.deleteAttemptAt);
+          }
+
+          if (sizeDeleteResult.errorMessage) {
+            this.recordsDeletedInLastBatch = 0;
+            this.lastBatchDurationMs = batchDurationMs;
+            this.maintenanceLastRetentionDeleted = deletedByRetention;
+            this.maintenanceLastSizeDeleted = deletedBySize;
+            this.maintenanceLastPruneError = sizeDeleteResult.errorMessage;
+            this.maintenanceStatusDetail = this.isStatementTimeoutError({
+              code: sizeDeleteResult.errorCode,
+              message: sizeDeleteResult.errorMessage,
+            })
+              ? "delete_timed_out"
+              : "delete_failed";
+            this.maintenanceLastPruneReason = this.maintenanceStatusDetail === "delete_timed_out"
+              ? `size pruning timed out after ${normalizedSettings.maxDeleteTransactionMs} ms`
+              : `size pruning delete failed (code=${sizeDeleteResult.errorCode ?? "unknown"})`;
+            this.pruningActive = false;
+            this.maintenanceState = this.maintenanceStatusDetail === "delete_timed_out" ? "paused" : "error";
+            this.logTrendPruningTick({
+              dbSizeMb: currentDbSizeMb,
+              startThresholdMb: startThreshold,
+              stopThresholdMb: stopThreshold,
+              deleteBatchSize: normalizedSettings.deleteBatchSize,
+              maxDeleteTransactionMs: normalizedSettings.maxDeleteTransactionMs,
+              retentionDeleted: deletedByRetention,
+              sizeDeleted: deletedBySize,
+              lastBatchDurationMs: this.lastBatchDurationMs,
+              statusDetail: this.maintenanceStatusDetail,
+            });
+            if (this.maintenanceStatusDetail === "delete_failed") {
+              this.logger.error(`Trend archive size pruning failed: code=${sizeDeleteResult.errorCode ?? "-"} message=${sizeDeleteResult.errorMessage}`);
+            } else {
+              this.logger.warn(`Trend archive size pruning timed out: code=${sizeDeleteResult.errorCode ?? "-"} message=${sizeDeleteResult.errorMessage}`);
+            }
+            break;
           }
 
           if (deletedBySize > 0) {
             this.maintenanceStatusDetail = "pruning_by_size";
             this.maintenanceLastPruneReason = "deleted oldest samples due to size threshold";
           } else {
-            this.maintenanceStatusDetail = "no_deletable_records";
-            this.maintenanceLastPruneReason = this.maintenanceLastPruneReason
-              ?? "size above threshold but DELETE returned 0";
+            const selectedRowsBeforeDelete = sizeDeleteResult.diagnostics?.selectedRowsBeforeDelete ?? 0;
+            const compressedChunksCount = sizeDeleteResult.diagnostics?.compressedChunksCount ?? 0;
+            const isHypertable = sizeDeleteResult.diagnostics?.isHypertable === true;
+            if (isHypertable && compressedChunksCount > 0 && selectedRowsBeforeDelete === 0) {
+              this.maintenanceStatusDetail = "timescale_chunk_cleanup_required";
+              this.maintenanceLastPruneReason = "size is above threshold, no row candidates were selected, and compressed chunks exist";
+            } else if (selectedRowsBeforeDelete > 0) {
+              this.maintenanceStatusDetail = "delete_returned_zero";
+              this.maintenanceLastPruneReason = this.maintenanceLastPruneReason
+                ?? "size above threshold but DELETE returned 0";
+            } else {
+              this.maintenanceStatusDetail = "no_deletable_records";
+              this.maintenanceLastPruneReason = this.maintenanceLastPruneReason
+                ?? "size above threshold but no rows matched the delete batch";
+            }
           }
         }
       } catch (error) {
@@ -1104,9 +1192,9 @@ export class ArchiveService {
           statusDetail: this.maintenanceStatusDetail,
         });
         if (this.maintenanceStatusDetail === "delete_failed") {
-          this.logger.error(`Trend archive size pruning failed: ${this.maintenanceLastPruneError}`);
+          this.logger.error(`Trend archive size pruning failed: error=${this.maintenanceLastPruneError} dbSizeMb=${currentDbSizeMb.toFixed(2)} batch=${normalizedSettings.deleteBatchSize} timeoutMs=${normalizedSettings.maxDeleteTransactionMs}`);
         } else {
-          this.logger.warn(`Trend archive size pruning timed out: ${this.maintenanceLastPruneError}`);
+          this.logger.warn(`Trend archive size pruning timed out: error=${this.maintenanceLastPruneError} dbSizeMb=${currentDbSizeMb.toFixed(2)} batch=${normalizedSettings.deleteBatchSize} timeoutMs=${normalizedSettings.maxDeleteTransactionMs}`);
         }
         break;
       }
@@ -1125,6 +1213,10 @@ export class ArchiveService {
       this.maintenanceActualSamplesCount = refreshedStats.actualSamplesCount;
       this.maintenanceOldestSampleTime = refreshedStats.oldestSampleTime;
       this.maintenanceNewestSampleTime = refreshedStats.newestSampleTime;
+      this.maintenanceArchiveSamplesRelationSizeMb = refreshedStats.archiveSamplesRelationSizeMb;
+      this.maintenanceArchiveSamplesTotalSizeMb = refreshedStats.archiveSamplesTotalSizeMb;
+      this.maintenanceHypertableChunksCount = refreshedStats.hypertableChunksCount;
+      this.maintenanceCompressedChunksCount = refreshedStats.compressedChunksCount;
       currentDbSizeMb = refreshedStats.dbSizeMb;
 
       this.logTrendPruningTick({
@@ -1148,7 +1240,9 @@ export class ArchiveService {
       if (deletedInBatch === 0) {
         this.pruningActive = false;
         this.maintenanceState = "paused";
-        this.maintenanceStatusDetail = "no_deletable_records";
+        if (!this.maintenanceStatusDetail) {
+          this.maintenanceStatusDetail = "no_deletable_records";
+        }
         this.maintenanceLastPruneReason = this.maintenanceLastPruneReason ?? "size above threshold but DELETE returned 0";
         break;
       }
@@ -1503,6 +1597,10 @@ export class ArchiveService {
       newestSampleTime: this.maintenanceNewestSampleTime,
       actualSamplesCount: this.maintenanceActualSamplesCount,
       estimatedSamplesCount: this.maintenanceEstimatedSamplesCount,
+      archiveSamplesRelationSizeMb: this.maintenanceArchiveSamplesRelationSizeMb,
+      archiveSamplesTotalSizeMb: this.maintenanceArchiveSamplesTotalSizeMb,
+      hypertableChunksCount: this.maintenanceHypertableChunksCount,
+      compressedChunksCount: this.maintenanceCompressedChunksCount,
     })}`);
   }
 

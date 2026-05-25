@@ -15,6 +15,7 @@ import {
   type OperatorActionArchiveStatus,
 } from "../services/api";
 import type { EventArchiveSettings, OperatorActionArchiveSettings } from "@web-scada/shared";
+import { buildTrendMaintenanceHints } from "./archive-maintenance-details";
 
 type PolicyFormState = ArchivePolicyPayload;
 type ArchiveColumnId = "select" | "name" | "policy" | "mode" | "period" | "retention" | "override";
@@ -1317,6 +1318,10 @@ export function ArchivePage() {
       `Records: ${formatRecordsCount(status.recordsTotal ?? status.recordsCount)}`,
       `Estimated records: ${formatRecordsCount(status.estimatedSamplesCount)}`,
       `Actual records: ${formatRecordsCount(status.actualSamplesCount)}`,
+      `archive_samples relation: ${formatDbSizeMb(status.archiveSamplesRelationSizeMb)} MB`,
+      `archive_samples total: ${formatDbSizeMb(status.archiveSamplesTotalSizeMb)} MB`,
+      `Hypertable chunks: ${formatRecordsCount(status.hypertableChunksCount)}`,
+      `Compressed chunks: ${formatRecordsCount(status.compressedChunksCount)}`,
       `Deleted(batch): ${formatRecordsCount(status.recordsDeletedInLastBatch)}`,
       `Deleted(run): ${formatRecordsCount(status.totalRecordsDeletedThisRun)}`,
       `Retention deleted: ${formatRecordsCount(status.lastRetentionDeleted)}`,
@@ -1391,6 +1396,10 @@ export function ArchivePage() {
     status.enabled,
     status.estimatedSamplesCount,
     status.actualSamplesCount,
+    status.archiveSamplesRelationSizeMb,
+    status.archiveSamplesTotalSizeMb,
+    status.hypertableChunksCount,
+    status.compressedChunksCount,
     status.lastBatchDurationMs,
     status.lastDeleteAttemptAt,
     status.lastPruneError,
@@ -1897,10 +1906,24 @@ export function ArchivePage() {
             <div className="screen-editor-tag-editor__kv"><span>Start threshold</span><strong>{formatDbSizeMb(status.startThresholdMb)} MB</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Stop threshold</span><strong>{formatDbSizeMb(status.stopThresholdMb)} MB</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Records</span><strong>{formatRecordsCount(status.recordsTotal ?? status.recordsCount)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Estimated records</span><strong>{formatRecordsCount(status.estimatedSamplesCount)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Actual records</span><strong>{formatRecordsCount(status.actualSamplesCount)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>`archive_samples` relation</span><strong>{formatDbSizeMb(status.archiveSamplesRelationSizeMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>`archive_samples` total</span><strong>{formatDbSizeMb(status.archiveSamplesTotalSizeMb)} MB</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Hypertable chunks</span><strong>{formatRecordsCount(status.hypertableChunksCount)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Compressed chunks</span><strong>{formatRecordsCount(status.compressedChunksCount)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Deleted last batch</span><strong>{formatRecordsCount(status.recordsDeletedInLastBatch)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Deleted in run</span><strong>{formatRecordsCount(status.totalRecordsDeletedThisRun)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Last batch duration</span><strong>{typeof status.lastBatchDurationMs === "number" ? `${Math.max(0, Math.round(status.lastBatchDurationMs))} ms` : "-"}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Retention deleted</span><strong>{formatRecordsCount(status.lastRetentionDeleted)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Size deleted</span><strong>{formatRecordsCount(status.lastSizeDeleted)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Oldest sample</span><strong>{formatDateTime(status.oldestSampleTime)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Newest sample</span><strong>{formatDateTime(status.newestSampleTime)}</strong></div>
+            <div className="screen-editor-tag-editor__kv"><span>Last delete attempt</span><strong>{formatDateTime(status.lastDeleteAttemptAt)}</strong></div>
             <div className="screen-editor-tag-editor__kv"><span>Next run</span><strong>{formatDateTime(status.nextRunAt)}</strong></div>
+            {buildTrendMaintenanceHints(status).map((hint) => (
+              <div key={hint} className="screen-editor-tag-editor__hint">{hint}</div>
+            ))}
             {status.pauseReason ? <div className="screen-editor-tag-editor__hint">Pause reason: {status.pauseReason}</div> : null}
           </div>
 

@@ -61,7 +61,19 @@ function createServiceWithRepository(repository: Record<string, unknown>): Archi
   (service as unknown as { initialized: boolean }).initialized = true;
   (service as unknown as { repository: Record<string, unknown> }).repository = {
     getRuntimeSettings: async () => ({ ...baseRuntimeSettings }),
-    getStorageStats: async () => ({ dbSizeMb: 900, recordsCount: 1000 }),
+    getStorageStats: async () => ({
+      dbSizeMb: 900,
+      recordsCount: 1000,
+      estimatedSamplesCount: 1000,
+      actualSamplesCount: 1000,
+      oldestSampleTime: "2026-01-01T00:00:00.000Z",
+      newestSampleTime: "2026-01-02T00:00:00.000Z",
+      isHypertable: false,
+      hypertableChunksCount: null,
+      compressedChunksCount: null,
+      archiveSamplesRelationSizeMb: 200,
+      archiveSamplesTotalSizeMb: 220,
+    }),
     getActiveTrendQueries: () => 0,
     getActiveEventQueries: () => 0,
     getActiveOperatorActionQueries: () => 0,
@@ -161,7 +173,7 @@ describe("ArchiveService soft maintenance behavior", () => {
     expect(status.stopThresholdMb).toBe(950);
   });
 
-  it("marks trend maintenance as no_deletable_records when size pruning deletes zero rows", async () => {
+  it("marks trend maintenance as delete_returned_zero when size pruning deletes zero rows with selected candidates", async () => {
     const service = createServiceWithRepository({
       getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 1000 }),
       getStorageStats: async () => ({ dbSizeMb: 1300, recordsCount: 5000 }),
@@ -173,13 +185,16 @@ describe("ArchiveService soft maintenance behavior", () => {
           reason: "size above threshold but DELETE returned 0 despite available candidates",
           actualSamplesCount: 5_000,
           estimatedSamplesCount: 4_900,
-          oldestSampleTime: "2026-01-01T00:00:00.000Z",
-          newestSampleTime: "2026-05-24T09:59:59.000Z",
-          candidateRows: 500,
-          oldestCandidateTime: "2026-01-01T00:00:00.000Z",
-          newestCandidateTime: "2026-01-02T00:00:00.000Z",
+          oldestTimeBeforeDelete: "2026-01-01T00:00:00.000Z",
+          newestTimeBeforeDelete: "2026-05-24T09:59:59.000Z",
+          selectedRowsBeforeDelete: 500,
+          oldestSelectedTimeBeforeDelete: "2026-01-01T00:00:00.000Z",
+          newestSelectedTimeBeforeDelete: "2026-01-02T00:00:00.000Z",
           isHypertable: true,
-          hypertableChunks: 42,
+          hypertableChunksCount: 42,
+          compressedChunksCount: 12,
+          archiveSamplesRelationSizeMb: 10,
+          archiveSamplesTotalSizeMb: 1500,
         },
       }),
     });
@@ -188,11 +203,44 @@ describe("ArchiveService soft maintenance behavior", () => {
     const status = await service.getStatus();
 
     expect(status.status).toBe("paused");
-    expect(status.statusDetail).toBe("no_deletable_records");
+    expect(status.statusDetail).toBe("delete_returned_zero");
     expect(status.recordsDeletedInLastBatch).toBe(0);
     expect(status.lastBatchDurationMs).toBe(7);
     expect(status.lastPruneReason).toContain("DELETE returned 0");
     expect(status.status).not.toBe("pruning");
+  });
+
+  it("marks trend maintenance as timescale_chunk_cleanup_required when zero delete has only compressed hypertable chunks", async () => {
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 1000 }),
+      getStorageStats: async () => ({ dbSizeMb: 1300, recordsCount: 5000 }),
+      deleteOldestSamplesBatch: async () => ({
+        deletedRecords: 0,
+        durationMs: 8,
+        diagnostics: {
+          deleteAttemptAt: "2026-05-24T10:00:00.000Z",
+          reason: "size above threshold but no oldest candidates were selected",
+          actualSamplesCount: 5_000,
+          estimatedSamplesCount: 4_900,
+          oldestTimeBeforeDelete: "2026-01-01T00:00:00.000Z",
+          newestTimeBeforeDelete: "2026-05-24T09:59:59.000Z",
+          selectedRowsBeforeDelete: 0,
+          oldestSelectedTimeBeforeDelete: null,
+          newestSelectedTimeBeforeDelete: null,
+          isHypertable: true,
+          hypertableChunksCount: 42,
+          compressedChunksCount: 42,
+          archiveSamplesRelationSizeMb: 10,
+          archiveSamplesTotalSizeMb: 1500,
+        },
+      }),
+    });
+
+    await service.runMaintenance();
+    const status = await service.getStatus();
+
+    expect(status.status).toBe("paused");
+    expect(status.statusDetail).toBe("timescale_chunk_cleanup_required");
   });
 
   it("reports delete_timed_out when trend size delete hits statement timeout", async () => {
@@ -211,6 +259,44 @@ describe("ArchiveService soft maintenance behavior", () => {
     expect(status.status).toBe("paused");
     expect(status.statusDetail).toBe("delete_timed_out");
     expect(status.lastPruneError).toContain("statement timeout");
+  });
+
+  it("surfaces delete_failed when repository returns structured delete error", async () => {
+    const service = createServiceWithRepository({
+      getRuntimeSettings: async () => ({ ...baseRuntimeSettings, maxDbSizeMb: 1000, maxDeleteTransactionMs: 50 }),
+      getStorageStats: async () => ({ dbSizeMb: 1300, recordsCount: 5000 }),
+      deleteOldestSamplesBatch: async () => ({
+        deletedRecords: 0,
+        durationMs: 9,
+        errorCode: "XX000",
+        errorMessage: "delete execution failed",
+        diagnostics: {
+          deleteAttemptAt: "2026-05-24T10:00:00.000Z",
+          reason: "size delete failed",
+          actualSamplesCount: null,
+          estimatedSamplesCount: null,
+          oldestTimeBeforeDelete: null,
+          newestTimeBeforeDelete: null,
+          selectedRowsBeforeDelete: 0,
+          oldestSelectedTimeBeforeDelete: null,
+          newestSelectedTimeBeforeDelete: null,
+          isHypertable: false,
+          hypertableChunksCount: null,
+          compressedChunksCount: null,
+          archiveSamplesRelationSizeMb: null,
+          archiveSamplesTotalSizeMb: null,
+          errorCode: "XX000",
+          errorMessage: "delete execution failed",
+        },
+      }),
+    });
+
+    await service.runMaintenance();
+    const status = await service.getStatus();
+
+    expect(status.status).toBe("error");
+    expect(status.statusDetail).toBe("delete_failed");
+    expect(status.lastPruneError).toContain("delete execution failed");
   });
 
   it("pauses trend maintenance when trend load is active", async () => {

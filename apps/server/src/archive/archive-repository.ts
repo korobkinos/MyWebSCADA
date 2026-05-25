@@ -132,7 +132,10 @@ export type ArchiveStorageStatsRow = {
   oldestSampleTime: string | null;
   newestSampleTime: string | null;
   isHypertable: boolean;
-  hypertableChunks: number | null;
+  hypertableChunksCount: number | null;
+  compressedChunksCount: number | null;
+  archiveSamplesRelationSizeMb: number | null;
+  archiveSamplesTotalSizeMb: number | null;
 };
 
 export type ArchiveRuntimeSettingsRow = {
@@ -149,6 +152,8 @@ export type ArchivePruneBatchResultRow = {
   deletedRecords: number;
   durationMs: number;
   diagnostics?: TrendDeleteBatchDiagnosticsRow;
+  errorCode?: string;
+  errorMessage?: string;
 };
 
 export type TrendDeleteBatchDiagnosticsRow = {
@@ -156,13 +161,18 @@ export type TrendDeleteBatchDiagnosticsRow = {
   reason: string;
   actualSamplesCount: number | null;
   estimatedSamplesCount: number | null;
-  oldestSampleTime: string | null;
-  newestSampleTime: string | null;
-  candidateRows: number;
-  oldestCandidateTime: string | null;
-  newestCandidateTime: string | null;
+  oldestTimeBeforeDelete: string | null;
+  newestTimeBeforeDelete: string | null;
+  selectedRowsBeforeDelete: number;
+  oldestSelectedTimeBeforeDelete: string | null;
+  newestSelectedTimeBeforeDelete: string | null;
   isHypertable: boolean;
-  hypertableChunks: number | null;
+  hypertableChunksCount: number | null;
+  compressedChunksCount: number | null;
+  archiveSamplesRelationSizeMb: number | null;
+  archiveSamplesTotalSizeMb: number | null;
+  errorCode?: string;
+  errorMessage?: string;
 };
 
 export type EventArchiveStatusRow = {
@@ -1132,10 +1142,13 @@ export class ArchiveRepository {
     const result = await this.pool.query<{
       estimated_count: string | number | null;
       db_size_bytes: string | number | null;
+      relation_size_bytes: string | number | null;
+      total_size_bytes: string | number | null;
       oldest_sample_time: Date | null;
       newest_sample_time: Date | null;
       is_hypertable: boolean | null;
-      hypertable_chunks: string | number | null;
+      hypertable_chunks_count: string | number | null;
+      compressed_chunks_count: string | number | null;
     }>(
       `
       WITH meta AS (
@@ -1157,19 +1170,70 @@ export class ArchiveRepository {
               WHERE c.hypertable_schema = current_schema()
                 AND c.hypertable_name = 'archive_samples'
             )
-          END AS hypertable_chunks
+          END AS hypertable_chunks_count,
+          CASE
+            WHEN to_regclass('timescaledb_information.chunks') IS NULL THEN NULL::bigint
+            ELSE (
+              SELECT COUNT(*)::bigint
+              FROM timescaledb_information.chunks c
+              WHERE c.hypertable_schema = current_schema()
+                AND c.hypertable_name = 'archive_samples'
+                AND c.is_compressed = TRUE
+            )
+          END AS compressed_chunks_count
       )
       SELECT
-          COALESCE((SELECT n_live_tup::bigint FROM pg_stat_user_tables WHERE relname = 'archive_samples'), 0) AS estimated_count,
+          COALESCE(
+            (
+              SELECT n_live_tup::bigint
+              FROM pg_stat_user_tables
+              WHERE schemaname = current_schema()
+                AND relname = 'archive_samples'
+            ),
+            0
+          ) AS estimated_count,
           CASE
             WHEN meta.is_hypertable
-            THEN COALESCE(pg_total_relation_size('archive_samples'), 0)
+              AND to_regprocedure('hypertable_size(regclass)') IS NOT NULL
+            THEN COALESCE(hypertable_size('archive_samples'::regclass), 0)
+            WHEN meta.is_hypertable
+              AND to_regclass('timescaledb_information.chunks') IS NOT NULL
+            THEN COALESCE(
+              (
+                SELECT
+                  SUM(pg_total_relation_size(format('%I.%I', c.chunk_schema, c.chunk_name)::regclass))::bigint
+                FROM timescaledb_information.chunks c
+                WHERE c.hypertable_schema = current_schema()
+                  AND c.hypertable_name = 'archive_samples'
+              ),
+              0
+            )
             ELSE COALESCE(pg_total_relation_size('archive_samples'), 0)
           END AS db_size_bytes,
+          COALESCE(pg_relation_size('archive_samples'::regclass), 0) AS relation_size_bytes,
+          CASE
+            WHEN meta.is_hypertable
+              AND to_regprocedure('hypertable_size(regclass)') IS NOT NULL
+            THEN COALESCE(hypertable_size('archive_samples'::regclass), 0)
+            WHEN meta.is_hypertable
+              AND to_regclass('timescaledb_information.chunks') IS NOT NULL
+            THEN COALESCE(
+              (
+                SELECT
+                  SUM(pg_total_relation_size(format('%I.%I', c.chunk_schema, c.chunk_name)::regclass))::bigint
+                FROM timescaledb_information.chunks c
+                WHERE c.hypertable_schema = current_schema()
+                  AND c.hypertable_name = 'archive_samples'
+              ),
+              0
+            )
+            ELSE COALESCE(pg_total_relation_size('archive_samples'), 0)
+          END AS total_size_bytes,
           (SELECT MIN(time) FROM archive_samples) AS oldest_sample_time,
           (SELECT MAX(time) FROM archive_samples) AS newest_sample_time,
           meta.is_hypertable,
-          meta.hypertable_chunks
+          meta.hypertable_chunks_count,
+          meta.compressed_chunks_count
       FROM meta
       `,
     );
@@ -1178,10 +1242,24 @@ export class ArchiveRepository {
     const dbSizeBytesRaw = row?.db_size_bytes ?? 0;
     const estimatedCount = typeof estimatedCountRaw === "string" ? Number.parseInt(estimatedCountRaw, 10) : Number(estimatedCountRaw);
     const dbSizeBytes = typeof dbSizeBytesRaw === "string" ? Number.parseInt(dbSizeBytesRaw, 10) : Number(dbSizeBytesRaw);
-    const chunkCountRaw = row?.hypertable_chunks ?? null;
-    const hypertableChunks = chunkCountRaw === null
+    const chunkCountRaw = row?.hypertable_chunks_count ?? null;
+    const compressedChunkCountRaw = row?.compressed_chunks_count ?? null;
+    const relationSizeRaw = row?.relation_size_bytes ?? 0;
+    const totalSizeRaw = row?.total_size_bytes ?? 0;
+    const hypertableChunksCount = chunkCountRaw === null
       ? null
       : (typeof chunkCountRaw === "string" ? Number.parseInt(chunkCountRaw, 10) : Number(chunkCountRaw));
+    const compressedChunksCount = compressedChunkCountRaw === null
+      ? null
+      : (typeof compressedChunkCountRaw === "string"
+        ? Number.parseInt(compressedChunkCountRaw, 10)
+        : Number(compressedChunkCountRaw));
+    const relationSizeBytes = typeof relationSizeRaw === "string"
+      ? Number.parseInt(relationSizeRaw, 10)
+      : Number(relationSizeRaw);
+    const totalSizeBytes = typeof totalSizeRaw === "string"
+      ? Number.parseInt(totalSizeRaw, 10)
+      : Number(totalSizeRaw);
 
     let actualSamplesCount: number | null = null;
     if (includeActualCount) {
@@ -1204,7 +1282,10 @@ export class ArchiveRepository {
       oldestSampleTime: row?.oldest_sample_time ? row.oldest_sample_time.toISOString() : null,
       newestSampleTime: row?.newest_sample_time ? row.newest_sample_time.toISOString() : null,
       isHypertable: row?.is_hypertable === true,
-      hypertableChunks: Number.isFinite(hypertableChunks as number) ? Math.max(0, Math.round(hypertableChunks as number)) : null,
+      hypertableChunksCount: Number.isFinite(hypertableChunksCount as number) ? Math.max(0, Math.round(hypertableChunksCount as number)) : null,
+      compressedChunksCount: Number.isFinite(compressedChunksCount as number) ? Math.max(0, Math.round(compressedChunksCount as number)) : null,
+      archiveSamplesRelationSizeMb: Number.isFinite(relationSizeBytes) ? Math.max(0, relationSizeBytes / (1024 * 1024)) : null,
+      archiveSamplesTotalSizeMb: Number.isFinite(totalSizeBytes) ? Math.max(0, totalSizeBytes / (1024 * 1024)) : null,
     };
   }
 
@@ -2781,13 +2862,15 @@ export class ArchiveRepository {
         diagnostics: deletedRecords === 0
           ? {
             ...diagnostics,
-            reason: diagnostics.candidateRows > 0
+            reason: diagnostics.selectedRowsBeforeDelete > 0
               ? "size above threshold but DELETE returned 0 despite available candidates"
               : "size above threshold but no oldest candidates were selected",
           }
           : undefined,
       };
     } catch (error) {
+      const errorCode = this.extractPgErrorCode(error);
+      const errorMessage = this.errorText(error);
       try {
         await client.query("ROLLBACK");
       } catch {
@@ -2796,7 +2879,30 @@ export class ArchiveRepository {
       if (this.isStatementTimeoutError(error)) {
         this.logger.warn(`Trend size-delete timed out after ${maxTransactionMs} ms (limit=${limit})`);
       }
-      throw error;
+      return {
+        deletedRecords: 0,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        errorCode,
+        errorMessage,
+        diagnostics: {
+          deleteAttemptAt: new Date().toISOString(),
+          reason: "size delete failed",
+          actualSamplesCount: null,
+          estimatedSamplesCount: null,
+          oldestTimeBeforeDelete: null,
+          newestTimeBeforeDelete: null,
+          selectedRowsBeforeDelete: 0,
+          oldestSelectedTimeBeforeDelete: null,
+          newestSelectedTimeBeforeDelete: null,
+          isHypertable: false,
+          hypertableChunksCount: null,
+          compressedChunksCount: null,
+          archiveSamplesRelationSizeMb: null,
+          archiveSamplesTotalSizeMb: null,
+          errorCode,
+          errorMessage,
+        },
+      };
     } finally {
       client.release();
     }
@@ -3062,14 +3168,8 @@ export class ArchiveRepository {
     const sizeExpression = tableName === "archive_samples"
       ? `
         CASE
-          WHEN to_regclass('timescaledb_information.hypertables') IS NOT NULL
-            AND EXISTS (
-              SELECT 1
-              FROM timescaledb_information.hypertables h
-              WHERE h.hypertable_schema = current_schema()
-                AND h.hypertable_name = 'archive_samples'
-            )
-          THEN COALESCE(pg_total_relation_size('archive_samples'), 0)
+          WHEN to_regprocedure('hypertable_size(regclass)') IS NOT NULL
+          THEN COALESCE(hypertable_size('archive_samples'::regclass), 0)
           ELSE COALESCE(pg_total_relation_size('archive_samples'), 0)
         END
       `
@@ -3915,14 +4015,17 @@ export class ArchiveRepository {
     }
   }
 
-  private async readTrendDeleteDiagnostics(client: PoolClient, limit: number): Promise<Omit<TrendDeleteBatchDiagnosticsRow, "reason">> {
+  private async readTrendDeleteDiagnostics(client: PoolClient, limit: number): Promise<Omit<TrendDeleteBatchDiagnosticsRow, "reason" | "errorCode" | "errorMessage">> {
     const summaryResult = await client.query<{
       actual_count: string | number | null;
       estimated_count: string | number | null;
       oldest_sample_time: Date | null;
       newest_sample_time: Date | null;
       is_hypertable: boolean | null;
-      hypertable_chunks: string | number | null;
+      hypertable_chunks_count: string | number | null;
+      compressed_chunks_count: string | number | null;
+      archive_relation_size_bytes: string | number | null;
+      archive_total_size_bytes: string | number | null;
     }>(
       `
       WITH meta AS (
@@ -3944,15 +4047,53 @@ export class ArchiveRepository {
               WHERE c.hypertable_schema = current_schema()
                 AND c.hypertable_name = 'archive_samples'
             )
-          END AS hypertable_chunks
+          END AS hypertable_chunks_count,
+          CASE
+            WHEN to_regclass('timescaledb_information.chunks') IS NULL THEN NULL::bigint
+            ELSE (
+              SELECT COUNT(*)::bigint
+              FROM timescaledb_information.chunks c
+              WHERE c.hypertable_schema = current_schema()
+                AND c.hypertable_name = 'archive_samples'
+                AND c.is_compressed = TRUE
+            )
+          END AS compressed_chunks_count
       )
       SELECT
           (SELECT COUNT(*)::bigint FROM archive_samples) AS actual_count,
-          COALESCE((SELECT n_live_tup::bigint FROM pg_stat_user_tables WHERE relname = 'archive_samples'), 0) AS estimated_count,
+          COALESCE(
+            (
+              SELECT n_live_tup::bigint
+              FROM pg_stat_user_tables
+              WHERE schemaname = current_schema()
+                AND relname = 'archive_samples'
+            ),
+            0
+          ) AS estimated_count,
           (SELECT MIN(time) FROM archive_samples) AS oldest_sample_time,
           (SELECT MAX(time) FROM archive_samples) AS newest_sample_time,
           meta.is_hypertable,
-          meta.hypertable_chunks
+          meta.hypertable_chunks_count,
+          meta.compressed_chunks_count,
+          COALESCE(pg_relation_size('archive_samples'::regclass), 0) AS archive_relation_size_bytes,
+          CASE
+            WHEN meta.is_hypertable
+              AND to_regprocedure('hypertable_size(regclass)') IS NOT NULL
+            THEN COALESCE(hypertable_size('archive_samples'::regclass), 0)
+            WHEN meta.is_hypertable
+              AND to_regclass('timescaledb_information.chunks') IS NOT NULL
+            THEN COALESCE(
+              (
+                SELECT
+                  SUM(pg_total_relation_size(format('%I.%I', c.chunk_schema, c.chunk_name)::regclass))::bigint
+                FROM timescaledb_information.chunks c
+                WHERE c.hypertable_schema = current_schema()
+                  AND c.hypertable_name = 'archive_samples'
+              ),
+              0
+            )
+            ELSE COALESCE(pg_total_relation_size('archive_samples'), 0)
+          END AS archive_total_size_bytes
       FROM meta
       `,
     );
@@ -3981,7 +4122,10 @@ export class ArchiveRepository {
     const candidates = candidateResult.rows[0];
     const actualCountRaw = summary?.actual_count ?? null;
     const estimatedCountRaw = summary?.estimated_count ?? null;
-    const chunkCountRaw = summary?.hypertable_chunks ?? null;
+    const chunkCountRaw = summary?.hypertable_chunks_count ?? null;
+    const compressedChunkCountRaw = summary?.compressed_chunks_count ?? null;
+    const relationSizeRaw = summary?.archive_relation_size_bytes ?? 0;
+    const totalSizeRaw = summary?.archive_total_size_bytes ?? 0;
     const candidateRowsRaw = candidates?.candidate_rows ?? 0;
     const actualSamplesCount = actualCountRaw === null
       ? null
@@ -3989,25 +4133,49 @@ export class ArchiveRepository {
     const estimatedSamplesCount = estimatedCountRaw === null
       ? null
       : (typeof estimatedCountRaw === "string" ? Number.parseInt(estimatedCountRaw, 10) : Number(estimatedCountRaw));
-    const hypertableChunks = chunkCountRaw === null
+    const hypertableChunksCount = chunkCountRaw === null
       ? null
       : (typeof chunkCountRaw === "string" ? Number.parseInt(chunkCountRaw, 10) : Number(chunkCountRaw));
+    const compressedChunksCount = compressedChunkCountRaw === null
+      ? null
+      : (typeof compressedChunkCountRaw === "string"
+        ? Number.parseInt(compressedChunkCountRaw, 10)
+        : Number(compressedChunkCountRaw));
     const candidateRowsParsed = typeof candidateRowsRaw === "string"
       ? Number.parseInt(candidateRowsRaw, 10)
       : Number(candidateRowsRaw);
+    const relationSizeBytes = typeof relationSizeRaw === "string"
+      ? Number.parseInt(relationSizeRaw, 10)
+      : Number(relationSizeRaw);
+    const totalSizeBytes = typeof totalSizeRaw === "string"
+      ? Number.parseInt(totalSizeRaw, 10)
+      : Number(totalSizeRaw);
 
     return {
       deleteAttemptAt: new Date().toISOString(),
       actualSamplesCount: Number.isFinite(actualSamplesCount as number) ? Math.max(0, Math.round(actualSamplesCount as number)) : null,
       estimatedSamplesCount: Number.isFinite(estimatedSamplesCount as number) ? Math.max(0, Math.round(estimatedSamplesCount as number)) : null,
-      oldestSampleTime: summary?.oldest_sample_time ? summary.oldest_sample_time.toISOString() : null,
-      newestSampleTime: summary?.newest_sample_time ? summary.newest_sample_time.toISOString() : null,
-      candidateRows: Number.isFinite(candidateRowsParsed) ? Math.max(0, Math.round(candidateRowsParsed)) : 0,
-      oldestCandidateTime: candidates?.oldest_candidate_time ? candidates.oldest_candidate_time.toISOString() : null,
-      newestCandidateTime: candidates?.newest_candidate_time ? candidates.newest_candidate_time.toISOString() : null,
+      oldestTimeBeforeDelete: summary?.oldest_sample_time ? summary.oldest_sample_time.toISOString() : null,
+      newestTimeBeforeDelete: summary?.newest_sample_time ? summary.newest_sample_time.toISOString() : null,
+      selectedRowsBeforeDelete: Number.isFinite(candidateRowsParsed) ? Math.max(0, Math.round(candidateRowsParsed)) : 0,
+      oldestSelectedTimeBeforeDelete: candidates?.oldest_candidate_time ? candidates.oldest_candidate_time.toISOString() : null,
+      newestSelectedTimeBeforeDelete: candidates?.newest_candidate_time ? candidates.newest_candidate_time.toISOString() : null,
       isHypertable: summary?.is_hypertable === true,
-      hypertableChunks: Number.isFinite(hypertableChunks as number) ? Math.max(0, Math.round(hypertableChunks as number)) : null,
+      hypertableChunksCount: Number.isFinite(hypertableChunksCount as number) ? Math.max(0, Math.round(hypertableChunksCount as number)) : null,
+      compressedChunksCount: Number.isFinite(compressedChunksCount as number) ? Math.max(0, Math.round(compressedChunksCount as number)) : null,
+      archiveSamplesRelationSizeMb: Number.isFinite(relationSizeBytes) ? Math.max(0, relationSizeBytes / (1024 * 1024)) : null,
+      archiveSamplesTotalSizeMb: Number.isFinite(totalSizeBytes) ? Math.max(0, totalSizeBytes / (1024 * 1024)) : null,
     };
+  }
+
+  private extractPgErrorCode(error: unknown): string | undefined {
+    if (typeof error === "object" && error !== null && "code" in error) {
+      const code = (error as { code?: unknown }).code;
+      if (typeof code === "string" && code.length > 0) {
+        return code;
+      }
+    }
+    return undefined;
   }
 
   private isStatementTimeoutError(error: unknown): boolean {

@@ -104,7 +104,10 @@ class ZeroDeleteDiagnosticsPool {
               oldest_sample_time: new Date("2026-01-01T00:00:00.000Z"),
               newest_sample_time: new Date("2026-05-24T00:00:00.000Z"),
               is_hypertable: true,
-              hypertable_chunks: "7",
+              hypertable_chunks_count: "7",
+              compressed_chunks_count: "3",
+              archive_relation_size_bytes: String(64 * 1024 * 1024),
+              archive_total_size_bytes: String(512 * 1024 * 1024),
             }],
           };
         }
@@ -119,6 +122,54 @@ class ZeroDeleteDiagnosticsPool {
         }
         if (sql.includes("DELETE FROM archive_samples")) {
           return { rowCount: 0, rows: [] };
+        }
+        return { rows: [] };
+      },
+      release: () => undefined,
+    };
+  }
+}
+
+class TimeoutDeletePool {
+  public async query(_sql: string, _params?: unknown[]): Promise<QueryResult> {
+    return { rows: [] };
+  }
+
+  public async connect(): Promise<{
+    query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
+    release: () => void;
+  }> {
+    return {
+      query: async (sql: string, _params?: unknown[]) => {
+        if (sql.startsWith("ROLLBACK")) {
+          return { rows: [] };
+        }
+        if (sql.includes("DELETE FROM archive_samples")) {
+          throw Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+        }
+        if (sql.includes("SELECT COUNT(*)::bigint FROM archive_samples")) {
+          return {
+            rows: [{
+              actual_count: "100",
+              estimated_count: "99",
+              oldest_sample_time: new Date("2026-01-01T00:00:00.000Z"),
+              newest_sample_time: new Date("2026-05-24T00:00:00.000Z"),
+              is_hypertable: false,
+              hypertable_chunks_count: null,
+              compressed_chunks_count: null,
+              archive_relation_size_bytes: String(12 * 1024 * 1024),
+              archive_total_size_bytes: String(24 * 1024 * 1024),
+            }],
+          };
+        }
+        if (sql.includes("FROM oldest") && sql.includes("candidate_rows")) {
+          return {
+            rows: [{
+              candidate_rows: "10",
+              oldest_candidate_time: new Date("2026-01-01T00:00:00.000Z"),
+              newest_candidate_time: new Date("2026-01-02T00:00:00.000Z"),
+            }],
+          };
         }
         return { rows: [] };
       },
@@ -174,6 +225,32 @@ describe("ArchiveRepository.deleteOldestSamplesBatch", () => {
     expect(result.diagnostics?.actualSamplesCount).toBe(26);
     expect(result.diagnostics?.estimatedSamplesCount).toBe(30);
     expect(result.diagnostics?.isHypertable).toBe(true);
+    expect(result.diagnostics?.selectedRowsBeforeDelete).toBe(10);
+    expect(result.diagnostics?.hypertableChunksCount).toBe(7);
+    expect(result.diagnostics?.compressedChunksCount).toBe(3);
+  });
+
+  it("returns errorCode/errorMessage diagnostics when delete fails", async () => {
+    const repository = new ArchiveRepository(
+      { connectionString: "postgres://unused" },
+      {
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    );
+    const pool = new TimeoutDeletePool();
+    (repository as unknown as { pool: TimeoutDeletePool }).pool = pool;
+
+    const result = await repository.deleteOldestSamplesBatch({
+      limit: 10,
+      maxTransactionMs: 50,
+    });
+
+    expect(result.deletedRecords).toBe(0);
+    expect(result.errorCode).toBe("57014");
+    expect(result.errorMessage).toContain("statement timeout");
+    expect(result.diagnostics?.errorCode).toBe("57014");
   });
 });
 

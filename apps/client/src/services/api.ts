@@ -147,6 +147,10 @@ export type ArchiveStatus = {
   estimatedSamplesCount?: number | null;
   oldestSampleTime?: string | null;
   newestSampleTime?: string | null;
+  archiveSamplesRelationSizeMb?: number | null;
+  archiveSamplesTotalSizeMb?: number | null;
+  hypertableChunksCount?: number | null;
+  compressedChunksCount?: number | null;
   recordsDeletedInLastBatch?: number;
   totalRecordsDeletedThisRun?: number;
   lastBatchDurationMs?: number;
