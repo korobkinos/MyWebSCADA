@@ -242,10 +242,16 @@ const archiveDeletedTagsPurgeSchema = z.discriminatedUnion("mode", [
     mode: z.literal("selected"),
     selectedTagIds: z.array(z.number().int().positive()).min(1),
     batchSize: z.number().int().min(10).max(100_000).optional(),
+    maxBatches: z.number().int().min(1).max(1_000).optional(),
+    maxPurgeMs: z.number().int().min(500).max(60_000).optional(),
+    maxDeleteTransactionMs: z.number().int().min(50).max(10_000).optional(),
   }),
   z.object({
     mode: z.literal("all"),
     batchSize: z.number().int().min(10).max(100_000).optional(),
+    maxBatches: z.number().int().min(1).max(1_000).optional(),
+    maxPurgeMs: z.number().int().min(500).max(60_000).optional(),
+    maxDeleteTransactionMs: z.number().int().min(50).max(10_000).optional(),
   }),
 ]);
 const eventHistoryQuerySchema = z.object({

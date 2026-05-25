@@ -11,6 +11,7 @@ import {
   type ArchiveStatus,
   type ArchiveTagConfig,
   type ArchiveTagOverride,
+  type DeletedTagsArchivePurgeResult,
   type EventArchiveStatus,
   type OperatorActionArchiveStatus,
 } from "../services/api";
@@ -376,6 +377,34 @@ function formatCleanupSpeed(perSecond: number | null | undefined, perMinute: num
 
 function formatConsoleTimestamp(): string {
   return new Date().toLocaleTimeString("ru-RU", { hour12: false });
+}
+
+function formatDeletedTagPurgeReason(reason: DeletedTagsArchivePurgeResult["reason"]): string {
+  switch (reason) {
+    case "completed":
+      return "completed";
+    case "max_batches_reached":
+      return "max batches reached";
+    case "max_time_reached":
+      return "max time reached";
+    case "delete_timeout":
+      return "delete timeout";
+    case "delete_failed":
+      return "delete failed";
+    case "no_deleted_tags":
+      return "no deleted tags";
+    default:
+      return reason;
+  }
+}
+
+function formatDeletedTagPurgeSummary(result: DeletedTagsArchivePurgeResult): string {
+  return [
+    `samples=${result.deletedSamples.toLocaleString("ru-RU")}`,
+    `batches=${result.batches}`,
+    `duration=${Math.max(0, Math.round(result.durationMs))} ms`,
+    `reason=${formatDeletedTagPurgeReason(result.reason)}`,
+  ].join(", ");
 }
 
 function normalizeMessageArchiveDraft(
@@ -1085,9 +1114,16 @@ export function ArchivePage() {
           mode: "selected",
           selectedTagIds: deletedTargets.map((tag) => tag.tagId),
         });
-        void message.success(
-          `Purged ${result.deletedSamples.toLocaleString("ru-RU")} samples for ${result.deletedTagsCount} deleted tags`,
-        );
+        const summary = formatDeletedTagPurgeSummary(result);
+        if (result.reason === "delete_failed" || result.reason === "delete_timeout") {
+          void message.error(`Deleted tags purge stopped: ${summary}${result.errorMessage ? ` (${result.errorMessage})` : ""}`);
+        } else if (result.partial || result.hasMore) {
+          void message.warning(`Partial purge completed. More data remains. Run purge again to continue. ${summary}`);
+        } else if (result.reason === "no_deleted_tags") {
+          void message.info("No deleted tags found for purge.");
+        } else {
+          void message.success(`Purge completed: ${summary}`);
+        }
         await load();
       },
     });
@@ -1111,9 +1147,16 @@ export function ArchivePage() {
         + "This action is irreversible and can permanently remove historical samples.",
       onConfirm: async () => {
         const result = await api.purgeDeletedArchiveTags({ mode: "all" });
-        void message.success(
-          `Purged ${result.deletedSamples.toLocaleString("ru-RU")} samples for ${result.deletedTagsCount} deleted tags`,
-        );
+        const summary = formatDeletedTagPurgeSummary(result);
+        if (result.reason === "delete_failed" || result.reason === "delete_timeout") {
+          void message.error(`Deleted tags purge stopped: ${summary}${result.errorMessage ? ` (${result.errorMessage})` : ""}`);
+        } else if (result.partial || result.hasMore) {
+          void message.warning(`Partial purge completed. More data remains. Run purge again to continue. ${summary}`);
+        } else if (result.reason === "no_deleted_tags") {
+          void message.info("No deleted tags found for purge.");
+        } else {
+          void message.success(`Purge completed: ${summary}`);
+        }
         await load();
       },
     });

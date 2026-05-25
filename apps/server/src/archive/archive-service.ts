@@ -699,6 +699,9 @@ export class ArchiveService {
     mode: "selected" | "all";
     selectedTagIds?: number[];
     batchSize?: number;
+    maxBatches?: number;
+    maxPurgeMs?: number;
+    maxDeleteTransactionMs?: number;
   }): Promise<DeletedTagsPurgeResultRow> {
     return this.repository.purgeDeletedTagsArchiveData(options);
   }

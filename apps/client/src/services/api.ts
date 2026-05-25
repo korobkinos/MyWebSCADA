@@ -239,9 +239,18 @@ export type DeletedTagsArchivePurgeResult = {
   scope: "deleted_tags_archive_data";
   mode: "selected" | "all";
   selectedDeletedTagIds: number[];
+  partial: boolean;
+  hasMore: boolean;
+  reason: "completed" | "max_batches_reached" | "max_time_reached" | "delete_timeout" | "delete_failed" | "no_deleted_tags";
   deletedSamples: number;
   deletedTagsCount: number;
   batches: number;
+  durationMs: number;
+  batchSize: number;
+  maxBatches: number;
+  maxPurgeMs: number;
+  maxDeleteTransactionMs: number;
+  errorMessage?: string;
 };
 
 export type EventArchiveStatus = {
@@ -825,7 +834,11 @@ export const api = {
     }),
   previewArchivePurge: () => request<ArchivePurgePreview>("/api/archive/purge/preview", { method: "POST" }),
   runArchivePurge: () => request<ArchivePurgeResult>("/api/archive/purge/run", { method: "POST" }),
-  purgeDeletedArchiveTags: (payload: { mode: "selected"; selectedTagIds: number[]; batchSize?: number } | { mode: "all"; batchSize?: number }) =>
+  purgeDeletedArchiveTags: (
+    payload:
+      | { mode: "selected"; selectedTagIds: number[]; batchSize?: number; maxBatches?: number; maxPurgeMs?: number; maxDeleteTransactionMs?: number }
+      | { mode: "all"; batchSize?: number; maxBatches?: number; maxPurgeMs?: number; maxDeleteTransactionMs?: number },
+  ) =>
     request<DeletedTagsArchivePurgeResult>("/api/archive/tags/purge-deleted", {
       method: "POST",
       body: JSON.stringify(payload),

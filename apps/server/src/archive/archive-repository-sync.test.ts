@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TagDefinition, TagValue } from "@web-scada/shared";
 import { ArchiveRepository } from "./archive-repository";
 
@@ -18,8 +18,11 @@ type TagRecord = {
 
 class SyncMetadataPool {
   public readonly settings = { archiveNewTagsByDefault: false };
+  public readonly calls: string[] = [];
+  public failSampleDelete: "none" | "timeout" | "error" = "none";
   private readonly tags = new Map<string, TagRecord>();
   private readonly samples: Array<{ tagId: number; time: number }> = [];
+  private readonly aggregates: Array<{ tagId: number; bucket: number }> = [];
   private readonly policies = new Map<number, { id: number; name: string; enabled: boolean }>([
     [1, { id: 1, name: "Default archive", enabled: true }],
     [7, { id: 7, name: "Manual policy", enabled: true }],
@@ -46,6 +49,14 @@ class SyncMetadataPool {
     this.samples.push({ tagId: tag.id, time: timestamp });
   }
 
+  public seedAggregate(tagName: string, bucket: number): void {
+    const tag = this.tags.get(tagName);
+    if (!tag) {
+      throw new Error(`Tag ${tagName} not found`);
+    }
+    this.aggregates.push({ tagId: tag.id, bucket });
+  }
+
   public getTag(tagName: string): TagRecord | undefined {
     return this.tags.get(tagName);
   }
@@ -58,7 +69,16 @@ class SyncMetadataPool {
     return this.samples.filter((sample) => sample.tagId === tag.id).length;
   }
 
+  public getAggregateCount(tagName: string): number {
+    const tag = this.tags.get(tagName);
+    if (!tag) {
+      return 0;
+    }
+    return this.aggregates.filter((sample) => sample.tagId === tag.id).length;
+  }
+
   public async query(sql: string, params?: unknown[]): Promise<QueryResult> {
+    this.calls.push(sql);
     if (sql.includes("SELECT id, code FROM archive_qualities")) {
       return { rows: [{ id: 1, code: "Good" }, { id: 2, code: "Bad" }, { id: 3, code: "Uncertain" }] };
     }
@@ -101,6 +121,12 @@ class SyncMetadataPool {
       return { rows };
     }
     if (sql.includes("WITH target AS (") && sql.includes("DELETE FROM archive_samples s")) {
+      if (this.failSampleDelete === "timeout") {
+        throw Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+      }
+      if (this.failSampleDelete === "error") {
+        throw new Error("forced sample delete failure");
+      }
       const targetIds = (params?.[0] as number[]) ?? [];
       const limit = Number(params?.[1] ?? 0);
       const targetIndexes: number[] = [];
@@ -117,8 +143,30 @@ class SyncMetadataPool {
       }
       return { rows: [{ deleted_rows: String(targetIndexes.length) }], rowCount: 1 };
     }
-    if (sql.includes("DELETE FROM archive_aggregates_1m")) {
-      return { rowCount: 0, rows: [] };
+    if (sql.includes("WITH target AS (") && sql.includes("DELETE FROM archive_aggregates_1m a")) {
+      const targetIds = (params?.[0] as number[]) ?? [];
+      const limit = Number(params?.[1] ?? 0);
+      const targetIndexes: number[] = [];
+      for (let index = 0; index < this.aggregates.length; index += 1) {
+        if (targetIndexes.length >= limit) {
+          break;
+        }
+        if (targetIds.includes(this.aggregates[index]!.tagId)) {
+          targetIndexes.push(index);
+        }
+      }
+      for (let index = targetIndexes.length - 1; index >= 0; index -= 1) {
+        this.aggregates.splice(targetIndexes[index]!, 1);
+      }
+      return { rows: [{ deleted_rows: String(targetIndexes.length) }], rowCount: 1 };
+    }
+    if (sql.includes("SELECT EXISTS (") && sql.includes("FROM archive_samples s")) {
+      const targetIds = (params?.[0] as number[]) ?? [];
+      return { rows: [{ has_rows: this.samples.some((sample) => targetIds.includes(sample.tagId)) }] };
+    }
+    if (sql.includes("SELECT EXISTS (") && sql.includes("FROM archive_aggregates_1m a")) {
+      const targetIds = (params?.[0] as number[]) ?? [];
+      return { rows: [{ has_rows: this.aggregates.some((sample) => targetIds.includes(sample.tagId)) }] };
     }
     return { rows: [] };
   }
@@ -130,6 +178,9 @@ class SyncMetadataPool {
     return {
       query: async (sql: string, params?: unknown[]) => {
         if (sql.startsWith("BEGIN") || sql.startsWith("COMMIT") || sql.startsWith("ROLLBACK")) {
+          return { rows: [] };
+        }
+        if (sql.startsWith("SET LOCAL statement_timeout")) {
           return { rows: [] };
         }
         if (sql.includes("SELECT archive_new_tags_by_default")) {
@@ -221,6 +272,10 @@ function realTag(name: string): TagDefinition {
 function sample(name: string, timestamp: number): TagValue {
   return { name, value: 1, quality: "Good", timestamp, source: "manual" };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("ArchiveRepository sync metadata behavior", () => {
   it("new synced tag has archive_policy_id = null when archiveNewTagsByDefault is false", async () => {
@@ -323,8 +378,132 @@ describe("ArchiveRepository sync metadata behavior", () => {
     const result = await repository.purgeDeletedTagsArchiveData({ mode: "all", batchSize: 2 });
 
     expect(result.deletedSamples).toBe(5);
-    expect(result.batches).toBe(3);
+    expect(result.batches).toBe(2);
+    expect(result.reason).toBe("completed");
+    expect(result.partial).toBe(false);
+    expect(result.hasMore).toBe(false);
     expect(pool.getSampleCount("deleted")).toBe(0);
     expect(pool.getSampleCount("active")).toBe(2);
+  });
+
+  it("selected purge only affects deleted tags even if active tag ids are passed", async () => {
+    const pool = new SyncMetadataPool();
+    pool.seedTag({ name: "active", archivePolicyId: 1, isDeleted: false });
+    pool.seedTag({ name: "deleted", archivePolicyId: 1, isDeleted: true });
+    pool.seedSample("active", 1_000);
+    pool.seedSample("deleted", 1_000);
+    pool.seedSample("deleted", 2_000);
+    const repository = createRepository(pool);
+
+    const activeId = pool.getTag("active")?.id ?? 0;
+    const deletedId = pool.getTag("deleted")?.id ?? 0;
+    const result = await repository.purgeDeletedTagsArchiveData({
+      mode: "selected",
+      selectedTagIds: [activeId, deletedId],
+      batchSize: 10,
+    });
+
+    expect(result.selectedDeletedTagIds).toEqual([deletedId]);
+    expect(pool.getSampleCount("active")).toBe(1);
+    expect(pool.getSampleCount("deleted")).toBe(0);
+  });
+
+  it("stops purge after maxBatches and returns partial progress", async () => {
+    const pool = new SyncMetadataPool();
+    pool.seedTag({ name: "deleted", archivePolicyId: 1, isDeleted: true });
+    for (let index = 0; index < 35; index += 1) {
+      pool.seedSample("deleted", 1_000 + index);
+    }
+    const repository = createRepository(pool);
+
+    const result = await repository.purgeDeletedTagsArchiveData({
+      mode: "all",
+      batchSize: 2,
+      maxBatches: 2,
+    });
+
+    expect(result.deletedSamples).toBe(20);
+    expect(result.batches).toBe(2);
+    expect(result.reason).toBe("max_batches_reached");
+    expect(result.partial).toBe(true);
+    expect(result.hasMore).toBe(true);
+    expect(pool.getSampleCount("deleted")).toBe(15);
+  });
+
+  it("stops purge after maxPurgeMs and returns partial progress", async () => {
+    const pool = new SyncMetadataPool();
+    pool.seedTag({ name: "deleted", archivePolicyId: 1, isDeleted: true });
+    for (let index = 0; index < 30; index += 1) {
+      pool.seedSample("deleted", 1_000 + index);
+    }
+    const repository = createRepository(pool);
+    let nowTick = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      nowTick += 600;
+      return nowTick;
+    });
+
+    const result = await repository.purgeDeletedTagsArchiveData({
+      mode: "all",
+      batchSize: 10,
+      maxPurgeMs: 1500,
+    });
+
+    expect(result.reason).toBe("max_time_reached");
+    expect(result.partial).toBe(true);
+    expect(result.hasMore).toBe(true);
+    expect(result.deletedSamples).toBeGreaterThan(0);
+  });
+
+  it("returns partial result on delete timeout with error message", async () => {
+    const pool = new SyncMetadataPool();
+    pool.seedTag({ name: "deleted", archivePolicyId: 1, isDeleted: true });
+    pool.seedSample("deleted", 1_000);
+    pool.failSampleDelete = "timeout";
+    const repository = createRepository(pool);
+
+    const result = await repository.purgeDeletedTagsArchiveData({ mode: "all", batchSize: 1 });
+
+    expect(result.reason).toBe("delete_timeout");
+    expect(result.partial).toBe(true);
+    expect(result.hasMore).toBe(true);
+    expect(result.errorMessage).toContain("timeout");
+  });
+
+  it("returns partial result on delete failure with error message", async () => {
+    const pool = new SyncMetadataPool();
+    pool.seedTag({ name: "deleted", archivePolicyId: 1, isDeleted: true });
+    pool.seedSample("deleted", 1_000);
+    pool.failSampleDelete = "error";
+    const repository = createRepository(pool);
+
+    const result = await repository.purgeDeletedTagsArchiveData({ mode: "all", batchSize: 1 });
+
+    expect(result.reason).toBe("delete_failed");
+    expect(result.partial).toBe(true);
+    expect(result.hasMore).toBe(true);
+    expect(result.errorMessage).toContain("forced sample delete failure");
+  });
+
+  it("runs aggregate cleanup in bounded batches, not one unlimited delete", async () => {
+    const pool = new SyncMetadataPool();
+    pool.seedTag({ name: "deleted", archivePolicyId: 1, isDeleted: true });
+    for (let index = 0; index < 25; index += 1) {
+      pool.seedAggregate("deleted", index);
+    }
+    const repository = createRepository(pool);
+
+    const result = await repository.purgeDeletedTagsArchiveData({
+      mode: "all",
+      batchSize: 10,
+      maxBatches: 2,
+    });
+
+    expect(result.reason).toBe("max_batches_reached");
+    expect(result.partial).toBe(true);
+    expect(result.hasMore).toBe(true);
+    expect(pool.getAggregateCount("deleted")).toBe(15);
+    expect(pool.calls.some((sql) => sql.includes("DELETE FROM archive_aggregates_1m WHERE tag_id = ANY"))).toBe(false);
+    expect(pool.calls.some((sql) => sql.includes("DELETE FROM archive_aggregates_1m a"))).toBe(true);
   });
 });

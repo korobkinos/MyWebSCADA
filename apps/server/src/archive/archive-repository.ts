@@ -31,6 +31,9 @@ const DEFAULT_DELETE_BATCH_SIZE = 500;
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 3_000;
 const DEFAULT_MAX_MAINTENANCE_TICK_MS = 200;
 const DEFAULT_MAX_DELETE_TRANSACTION_MS = 150;
+const DEFAULT_DELETED_TAGS_PURGE_MAX_BATCHES = 50;
+const DEFAULT_DELETED_TAGS_PURGE_MAX_MS = 3_000;
+const DEFAULT_DELETED_TAGS_PURGE_MAX_DELETE_TRANSACTION_MS = 1_000;
 const MIN_DELETE_BATCH_SIZE = 10;
 const MAX_DELETE_BATCH_SIZE = 100_000;
 const MIN_MAINTENANCE_INTERVAL_MS = 250;
@@ -260,9 +263,18 @@ export type DeletedTagsPurgeResultRow = {
   scope: "deleted_tags_archive_data";
   mode: "selected" | "all";
   selectedDeletedTagIds: number[];
+  partial: boolean;
+  hasMore: boolean;
+  reason: "completed" | "max_batches_reached" | "max_time_reached" | "delete_timeout" | "delete_failed" | "no_deleted_tags";
   deletedSamples: number;
   deletedTagsCount: number;
   batches: number;
+  durationMs: number;
+  batchSize: number;
+  maxBatches: number;
+  maxPurgeMs: number;
+  maxDeleteTransactionMs: number;
+  errorMessage?: string;
 };
 
 export type TrendAggregationMode = "auto" | "raw" | "minmax" | "avg" | "lttb";
@@ -1655,10 +1667,23 @@ export class ArchiveRepository {
     mode: "selected" | "all";
     selectedTagIds?: number[];
     batchSize?: number;
+    maxBatches?: number;
+    maxPurgeMs?: number;
+    maxDeleteTransactionMs?: number;
   }): Promise<DeletedTagsPurgeResultRow> {
+    const startedAt = Date.now();
     const selectedIds = Array.isArray(options.selectedTagIds)
       ? options.selectedTagIds.filter((id) => Number.isFinite(id) && id > 0).map((id) => Math.round(id))
       : [];
+    const safeBatchSize = this.normalizeBoundedInteger(options.batchSize, this.defaultDeleteBatchSize, 10, 100_000);
+    const safeMaxBatches = this.normalizeBoundedInteger(options.maxBatches, DEFAULT_DELETED_TAGS_PURGE_MAX_BATCHES, 1, 1_000);
+    const safeMaxPurgeMs = this.normalizeBoundedInteger(options.maxPurgeMs, DEFAULT_DELETED_TAGS_PURGE_MAX_MS, 500, 60_000);
+    const safeMaxDeleteTransactionMs = this.normalizeBoundedInteger(
+      options.maxDeleteTransactionMs,
+      DEFAULT_DELETED_TAGS_PURGE_MAX_DELETE_TRANSACTION_MS,
+      50,
+      10_000,
+    );
     const targetResult = options.mode === "selected"
       ? await this.pool.query<{ id: number }>(
         `
@@ -1684,56 +1709,173 @@ export class ArchiveRepository {
         scope: "deleted_tags_archive_data",
         mode: options.mode,
         selectedDeletedTagIds: [],
+        partial: false,
+        hasMore: false,
+        reason: "no_deleted_tags",
         deletedSamples: 0,
         deletedTagsCount: 0,
         batches: 0,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        batchSize: safeBatchSize,
+        maxBatches: safeMaxBatches,
+        maxPurgeMs: safeMaxPurgeMs,
+        maxDeleteTransactionMs: safeMaxDeleteTransactionMs,
       };
     }
 
-    const safeBatchSize = this.normalizePositiveInteger(options.batchSize, this.defaultDeleteBatchSize);
-    const batchesLimit = 100_000;
     let deletedSamples = 0;
     let batches = 0;
+    let reason: DeletedTagsPurgeResultRow["reason"] = "completed";
+    let errorMessage: string | undefined;
 
-    while (batches < batchesLimit) {
-      batches += 1;
-      const batchResult = await this.pool.query<{ deleted_rows: string | number }>(
-        `
-        WITH target AS (
-          SELECT s.ctid
-          FROM archive_samples s
-          WHERE s.tag_id = ANY($1::bigint[])
-          LIMIT $2
-        ),
-        deleted AS (
-          DELETE FROM archive_samples s
-          USING target
-          WHERE s.ctid = target.ctid
-          RETURNING 1
-        )
-        SELECT COUNT(*)::bigint AS deleted_rows
-        FROM deleted
-        `,
-        [targetTagIds, safeBatchSize],
-      );
-      const raw = batchResult.rows[0]?.deleted_rows ?? 0;
-      const deleted = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
-      const normalizedDeleted = Number.isFinite(deleted) ? Math.max(0, Math.round(deleted)) : 0;
-      deletedSamples += normalizedDeleted;
-      if (normalizedDeleted < safeBatchSize) {
+    const runDeleteBatch = async (sql: string, params: unknown[]): Promise<number> => {
+      const client = await this.pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SET LOCAL statement_timeout = $1", [`${safeMaxDeleteTransactionMs}ms`]);
+        const result = await client.query<{ deleted_rows: string | number }>(sql, params);
+        await client.query("COMMIT");
+        const raw = result.rows[0]?.deleted_rows ?? 0;
+        const deleted = typeof raw === "string" ? Number.parseInt(raw, 10) : Number(raw);
+        return Number.isFinite(deleted) ? Math.max(0, Math.round(deleted)) : 0;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    };
+
+    let continueSamplesPurge = true;
+    while (continueSamplesPurge) {
+      const durationMs = Math.max(0, Date.now() - startedAt);
+      if (durationMs >= safeMaxPurgeMs) {
+        reason = "max_time_reached";
+        break;
+      }
+      if (batches >= safeMaxBatches) {
+        reason = "max_batches_reached";
+        break;
+      }
+      try {
+        const deletedInBatch = await runDeleteBatch(
+          `
+          WITH target AS (
+            SELECT s.ctid
+            FROM archive_samples s
+            WHERE s.tag_id = ANY($1::bigint[])
+            LIMIT $2
+          ),
+          deleted AS (
+            DELETE FROM archive_samples s
+            USING target
+            WHERE s.ctid = target.ctid
+            RETURNING 1
+          )
+          SELECT COUNT(*)::bigint AS deleted_rows
+          FROM deleted
+          `,
+          [targetTagIds, safeBatchSize],
+        );
+        batches += 1;
+        deletedSamples += deletedInBatch;
+        if (deletedInBatch < safeBatchSize) {
+          continueSamplesPurge = false;
+        }
+      } catch (error) {
+        reason = this.isStatementTimeoutError(error) ? "delete_timeout" : "delete_failed";
+        errorMessage = this.errorText(error);
         break;
       }
     }
 
-    await this.pool.query("DELETE FROM archive_aggregates_1m WHERE tag_id = ANY($1::bigint[])", [targetTagIds]);
+    if (reason === "completed" && !continueSamplesPurge) {
+      while (true) {
+        const durationMs = Math.max(0, Date.now() - startedAt);
+        if (durationMs >= safeMaxPurgeMs) {
+          reason = "max_time_reached";
+          break;
+        }
+        if (batches >= safeMaxBatches) {
+          reason = "max_batches_reached";
+          break;
+        }
+        try {
+          const deletedInBatch = await runDeleteBatch(
+            `
+            WITH target AS (
+              SELECT a.ctid
+              FROM archive_aggregates_1m a
+              WHERE a.tag_id = ANY($1::bigint[])
+              LIMIT $2
+            ),
+            deleted AS (
+              DELETE FROM archive_aggregates_1m a
+              USING target
+              WHERE a.ctid = target.ctid
+              RETURNING 1
+            )
+            SELECT COUNT(*)::bigint AS deleted_rows
+            FROM deleted
+            `,
+            [targetTagIds, safeBatchSize],
+          );
+          batches += 1;
+          if (deletedInBatch < safeBatchSize) {
+            break;
+          }
+        } catch (error) {
+          reason = this.isStatementTimeoutError(error) ? "delete_timeout" : "delete_failed";
+          errorMessage = this.errorText(error);
+          break;
+        }
+      }
+    }
+
+    const [samplesMoreResult, aggregatesMoreResult] = await Promise.all([
+      this.pool.query<{ has_rows: boolean }>(
+        `
+        SELECT EXISTS (
+          SELECT 1
+          FROM archive_samples s
+          WHERE s.tag_id = ANY($1::bigint[])
+        ) AS has_rows
+        `,
+        [targetTagIds],
+      ),
+      this.pool.query<{ has_rows: boolean }>(
+        `
+        SELECT EXISTS (
+          SELECT 1
+          FROM archive_aggregates_1m a
+          WHERE a.tag_id = ANY($1::bigint[])
+        ) AS has_rows
+        `,
+        [targetTagIds],
+      ),
+    ]);
+    const hasMore = samplesMoreResult.rows[0]?.has_rows === true || aggregatesMoreResult.rows[0]?.has_rows === true;
+    if (reason !== "delete_failed" && reason !== "delete_timeout" && !hasMore) {
+      reason = "completed";
+    }
+    const partial = reason !== "completed";
 
     return {
       scope: "deleted_tags_archive_data",
       mode: options.mode,
       selectedDeletedTagIds: targetTagIds,
+      partial,
+      hasMore,
+      reason,
       deletedSamples,
       deletedTagsCount: targetTagIds.length,
       batches,
+      durationMs: Math.max(0, Date.now() - startedAt),
+      batchSize: safeBatchSize,
+      maxBatches: safeMaxBatches,
+      maxPurgeMs: safeMaxPurgeMs,
+      maxDeleteTransactionMs: safeMaxDeleteTransactionMs,
+      errorMessage,
     };
   }
 
