@@ -69,7 +69,10 @@ type GroupEditableOption = {
   isRoot: boolean;
 };
 
-type OperatorActionPreviewObject = Extract<HmiObject, { type: "button" | "checkbox" | "slider" | "numeric-input" }>;
+type OperatorActionPreviewObject = Extract<
+  HmiObject,
+  { type: "button" | "checkbox" | "slider" | "numeric-input" | "select" | "radio-group" | "switch" | "valueSelect" | "value-input" }
+>;
 
 const fontOptions = ["Arial", "Tahoma", "Verdana", "Consolas", "Segoe UI", "Roboto", "Noto Sans"];
 const gradientDirectionOptions = [
@@ -1117,6 +1120,18 @@ function renderOperatorActionPreviewTemplate(template: string, values: Record<st
 }
 
 function resolveOperatorActionPreviewKind(object: OperatorActionPreviewObject): string {
+  if (object.type === "button") {
+    if (object.action.type === "pulse") {
+      return "pulse";
+    }
+    if (object.action.type === "toggle") {
+      return "toggle";
+    }
+    if (object.action.type === "runMacro") {
+      return "macro";
+    }
+    return "button";
+  }
   if (object.type === "checkbox") {
     return "checkbox";
   }
@@ -1126,16 +1141,19 @@ function resolveOperatorActionPreviewKind(object: OperatorActionPreviewObject): 
   if (object.type === "numeric-input") {
     return "numericInput";
   }
-  if (object.action.type === "pulse") {
-    return "pulse";
+  if (object.type === "switch") {
+    return "switch";
   }
-  if (object.action.type === "toggle") {
-    return "toggle";
+  if (object.type === "value-input") {
+    return "value-input";
   }
-  if (object.action.type === "runMacro") {
-    return "macro";
+  if (object.type === "valueSelect") {
+    return "valueSelect";
   }
-  return "button";
+  if (object.type === "radio-group") {
+    return "radio-group";
+  }
+  return "select";
 }
 
 function resolveOperatorActionPreviewActionType(object: OperatorActionPreviewObject, kind: string): string {
@@ -1192,8 +1210,19 @@ function resolveOperatorActionPreviewTarget(object: OperatorActionPreviewObject)
   if (object.type === "slider") {
     return object.writeTag?.trim() || object.tag?.trim() || "Tag.Name";
   }
+  if (object.type === "valueSelect") {
+    if (object.target.type === "tag") {
+      return object.target.tag?.trim() || "Tag.Name";
+    }
+    if (object.target.type === "internal") {
+      return object.target.name?.trim() || "Tag.Name";
+    }
+    return `LW${Math.max(0, Math.floor(object.target.address))}`;
+  }
   const maybeTarget = (object as { targetTag?: string }).targetTag;
-  return maybeTarget?.trim() || object.writeTag?.trim() || object.tag?.trim() || "Tag.Name";
+  const maybeWriteTag = (object as { writeTag?: string }).writeTag;
+  const maybeTag = (object as { tag?: string }).tag;
+  return maybeTarget?.trim() || maybeWriteTag?.trim() || maybeTag?.trim() || "Tag.Name";
 }
 
 function buildOperatorActionPreviewMessage(object: OperatorActionPreviewObject): string {
@@ -2274,6 +2303,7 @@ function SpecificPropertyFields({
         <Form.Item label="Max">
           <InputNumber style={{ width: "100%" }} value={object.max} onChange={(v) => onPatch({ max: Number(v ?? 0) } as Partial<HmiObject>)} />
         </Form.Item>
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
   }
@@ -2751,6 +2781,7 @@ function SpecificPropertyFields({
             onChange={(v) => onPatch({ borderWidth: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)}
           />
         </Form.Item>
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
     return (
@@ -2871,6 +2902,7 @@ function SpecificPropertyFields({
             }}
           />
         </Form.Item>
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
   }
@@ -4966,6 +4998,7 @@ function SpecificPropertyFields({
         <ColorField label="Bad Border Color" value={object.badBorderColor ?? "#a03030"} fallback="#a03030" onChange={(next) => onPatch({ badBorderColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Background Color" value={object.disabledBackgroundColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledBackgroundColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
   }
@@ -5058,6 +5091,7 @@ function SpecificPropertyFields({
         <ColorField label="Bad Background Color" value={object.badBackgroundColor ?? "#2b1a1a"} fallback="#2b1a1a" onChange={(next) => onPatch({ badBackgroundColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Color" value={object.disabledColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
 
