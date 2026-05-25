@@ -1289,7 +1289,7 @@ export const tagSchema = z.object({
   updatedAt: z.string().optional(),
 });
 
-const variableSchema = z.object({
+export const variableSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1),
   description: z.string().optional(),

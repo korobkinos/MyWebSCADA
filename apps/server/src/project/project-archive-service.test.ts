@@ -172,6 +172,71 @@ describe("ProjectArchiveService", () => {
     expect(result.errors).toEqual([]);
   });
 
+  it("exports generated simulation references as portable tag definitions", async () => {
+    const project = makeProject("Generated Simulation Project");
+    project.drivers = [{ id: "sim_1", type: "simulated", enabled: true }];
+    project.tags = [{
+      id: "tag_ai_001",
+      name: "AI_SIM_001",
+      sourceType: "simulated",
+      driverId: "sim_1",
+      dataType: "REAL",
+      scanRateMs: 1000,
+      simulation: { enabled: true, profile: "ramp", updateIntervalMs: 1000 },
+    }];
+    project.screens[0]!.objects = [{
+      id: "trend1",
+      type: "trendChart",
+      name: "Trend",
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 240,
+      selectedTags: [
+        { tag: "AI_SIM_004", color: "#fff" },
+        { tag: "AI_SIM_009", color: "#fff" },
+        { tag: "AI_SIM_010", color: "#fff" },
+      ],
+    }];
+    const harness = await makeHarness(project);
+    const exported = await harness.service.exportProjectArchive();
+    const zip = new AdmZip(exported.buffer);
+    const archivedProject = JSON.parse(zip.readAsText("project.json")) as ScadaProject;
+
+    const result = await harness.service.validateProjectArchive(upload(exported.buffer));
+
+    expect(result.valid).toBe(true);
+    expect(archivedProject.tags.map((tag) => tag.name)).toEqual(expect.arrayContaining(["AI_SIM_004", "AI_SIM_009", "AI_SIM_010"]));
+    expect(result.warnings.some((issue) => issue.code === "BROKEN_TAG_REFERENCE" && /AI_SIM_00[49]|AI_SIM_010/.test(issue.message))).toBe(false);
+  });
+
+  it("includes and restores full project variable sources", async () => {
+    const sourceProject = makeProject("Portable Variable Sources");
+    sourceProject.drivers = [{ id: "sim_1", type: "simulated", enabled: true, updateIntervalMs: 500 }];
+    sourceProject.tags = [
+      { name: "Tank.Level", dataType: "REAL", sourceType: "opcua", driverId: "opc1", nodeId: "ns=1;s=Tank.Level" },
+      { name: "AI_SIM_001", dataType: "REAL", sourceType: "simulated", driverId: "sim_1", simulation: { enabled: true, profile: "random" } },
+    ];
+    sourceProject.variables = [
+      { name: "Counter", dataType: "DINT", initialValue: 1, writable: true },
+      { name: "Mapped", dataType: "INT", initialValue: 2, lwAddress: 12, writable: true },
+    ];
+    sourceProject.lwStore = { mode: "persistent", values: { 12: 345, 20: 678 } };
+    const source = await makeHarness(sourceProject);
+    const target = await makeHarness(makeProject("Target Project"));
+    const exported = await source.service.exportProjectArchive();
+
+    const imported = await target.service.importProjectArchive(upload(exported.buffer), { mode: "replace-current" });
+
+    expect(imported.project.tags).toEqual([
+      { ...sourceProject.tags[0]!, address: { nodeId: "ns=1;s=Tank.Level" } },
+      sourceProject.tags[1],
+    ]);
+    expect(imported.project.drivers).toEqual(sourceProject.drivers);
+    expect(imported.project.variables).toEqual(sourceProject.variables);
+    expect(imported.project.lwStore).toEqual(sourceProject.lwStore);
+  });
+
   it("exports and validates a valid HMAC signature when PROJECT_ARCHIVE_SECRET is set", async () => {
     process.env.PROJECT_ARCHIVE_SECRET = "test-secret";
     const harness = await makeHarness(makeProject("Signed Project"));
@@ -421,7 +486,7 @@ describe("ProjectArchiveService", () => {
     expect(result.warnings.some((issue) => issue.code === "MACRO_IMPORTED_AS_COPY")).toBe(true);
   });
 
-  it("reports statically detectable missing asset and library references", async () => {
+  it("reports full-project missing asset and library references as warnings", async () => {
     const project = makeProject("Broken Refs");
     project.assets = [];
     project.libraries = [{ libraryId: "lib1", name: "lib1", version: "1.0.0", enabled: true }];
@@ -481,8 +546,166 @@ describe("ProjectArchiveService", () => {
 
     const result = await harness.service.validateProjectArchive(upload(zip.toBuffer() as Buffer));
 
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.some((issue) => issue.code === "BROKEN_ASSET_REFERENCE")).toBe(true);
+    expect(result.warnings.some((issue) => issue.code === "BROKEN_LIBRARY_ELEMENT_REFERENCE")).toBe(true);
+  });
+
+  it("includes referenced internal variables and LW store in minimal screen archives", async () => {
+    const project = makeProject("Screen Variable Dependencies");
+    project.variables = [
+      { name: "Counter", dataType: "DINT", initialValue: 0, writable: true },
+      { name: "Mapped", dataType: "INT", initialValue: 0, lwAddress: 10, writable: true },
+    ];
+    project.lwStore = { mode: "persistent", values: { 10: 123, 11: 456 } };
+    project.screens[0]!.objects = [
+      {
+        id: "select-internal",
+        type: "valueSelect",
+        name: "Internal Select",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        options: [{ label: "One", value: 1 }],
+        target: { type: "internal", name: "Counter" },
+        valueType: "number",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+      {
+        id: "select-lw",
+        type: "valueSelect",
+        name: "LW Select",
+        x: 0,
+        y: 50,
+        width: 100,
+        height: 40,
+        options: [{ label: "One", value: 1 }],
+        target: { type: "lw", address: 10 },
+        valueType: "number",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+    ];
+    const harness = await makeHarness(project);
+    const exported = await harness.service.exportScreenArchive("main", { dependencyMode: "minimal" });
+    const zip = new AdmZip(exported.buffer);
+    const data = JSON.parse(zip.readAsText("screen.json")) as { variables?: unknown[]; lwStore?: { values?: Record<string, number> } };
+
+    expect(data.variables).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Counter" }), expect.objectContaining({ name: "Mapped" })]));
+    expect(data.lwStore?.values).toEqual({ 10: 123 });
+  });
+
+  it("does not treat relative/local state strings as project references", async () => {
+    const project = makeProject("Relative State Strings");
+    project.screens[0]!.objects = [
+      {
+        id: "opened",
+        type: "state-indicator",
+        name: "Opened",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 30,
+        tag: ".Opened",
+        trueText: "Opened",
+        falseText: "Closed",
+        trueColor: "#0f0",
+        falseColor: "#333",
+        badColor: "#f00",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+      {
+        id: "fault",
+        type: "text",
+        name: "Fault",
+        x: 0,
+        y: 40,
+        width: 100,
+        height: 30,
+        text: "Fault",
+        textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      },
+    ];
+    const harness = await makeHarness(project);
+    const exported = await harness.service.exportProjectArchive();
+
+    const result = await harness.service.validateProjectArchive(upload(exported.buffer));
+
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some((issue) => /Opened|Closed|Fault/.test(issue.message))).toBe(false);
+  });
+
+  it("reports explicit missing macro references as full-project diagnostics", async () => {
+    const project = makeProject("Missing Macro Diagnostic");
+    project.screens[0]!.objects = [{
+      id: "button1",
+      type: "button",
+      name: "Button",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+      textStyle: { fontFamily: "Arial", fontSize: 12, color: "#fff", horizontalAlign: "center", verticalAlign: "middle" },
+      action: { type: "runMacro", macroId: "missingMacro" },
+    }];
+    const harness = await makeHarness(project);
+    const exported = await harness.service.exportProjectArchive();
+
+    const result = await harness.service.validateProjectArchive(upload(exported.buffer));
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.some((issue) => issue.code === "BROKEN_MACRO_REFERENCE" && issue.message.includes("missingMacro"))).toBe(true);
+  });
+
+  it("keeps standalone screen archive dependency validation blocking", async () => {
+    const project = makeProject("Broken Screen Zip");
+    project.assets = [];
+    project.screens[0]!.objects = [{
+      id: "image1",
+      type: "image",
+      name: "Image 1",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      assetId: "missing-asset",
+      fit: "contain",
+    }];
+    const harness = await makeHarness(project);
+    const data = {
+      screen: project.screens[0],
+      assets: [],
+      libraries: [],
+      tags: [],
+      macros: [],
+      events: [],
+    };
+    const zip = new AdmZip();
+    const screenBytes = Buffer.from(JSON.stringify(data, null, 2), "utf8");
+    zip.addFile("screen.json", screenBytes);
+    const manifest = {
+      format: "mywebscada-screen",
+      formatVersion: 1,
+      exportedAt: "2026-01-01T00:00:00.000Z",
+      screenId: "main",
+      screenName: "Main",
+      counts: { assets: 0, libraries: 0, tags: 0, macros: 0, events: 0 },
+      files: [
+        {
+          path: "screen.json",
+          type: "screen",
+          size: screenBytes.byteLength,
+          sha256: await import("node:crypto").then(({ createHash }) => createHash("sha256").update(screenBytes).digest("hex")),
+        },
+      ],
+    };
+    zip.addFile("manifest.json", Buffer.from(JSON.stringify(manifest, null, 2), "utf8"));
+
+    const result = await harness.service.validateScreenArchive(upload(zip.toBuffer() as Buffer));
+
     expect(result.valid).toBe(false);
     expect(result.errors.some((issue) => issue.code === "BROKEN_ASSET_REFERENCE")).toBe(true);
-    expect(result.errors.some((issue) => issue.code === "BROKEN_LIBRARY_ELEMENT_REFERENCE")).toBe(true);
   });
 });

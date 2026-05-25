@@ -11,6 +11,8 @@ import type {
   EventSound,
   HmiObject,
   HmiScreen,
+  InternalVariableDefinition,
+  LwStoreConfig,
   MacroDefinition,
   ProjectArchiveAssetsImportOptions,
   ProjectArchiveImportOptions,
@@ -55,6 +57,7 @@ import {
 import { getRuntimeValueSourceDependencies } from "@web-scada/shared";
 import { EventSoundService } from "../events/event-sound-service.js";
 import { LibraryService } from "../libraries/library-service.js";
+import { buildInternalAndLwTagDefinitions, toInternalTagName, toLwTagName } from "../runtime/internal-variable-service.js";
 import { ProjectService } from "./project-service.js";
 
 export type UploadInput = {
@@ -283,11 +286,51 @@ function collectObjectLibraryIds(object: HmiObject, out: Set<string>): void {
   }
 }
 
+const EXPLICIT_TAG_REFERENCE_KEYS = new Set([
+  "tag",
+  "tagname",
+  "tagid",
+  "sourcetag",
+  "sourcetagname",
+  "readtag",
+  "writetag",
+  "pulsetag",
+  "toggletag",
+  "visibletag",
+  "disabledtag",
+  "statetag",
+  "valuetag",
+  "opentag",
+  "closedtag",
+  "errortag",
+  "faulttag",
+  "runtag",
+  "commandopentag",
+  "commandclosetag",
+  "commandstarttag",
+  "commandstoptag",
+  "triggertag",
+  "speedtag",
+  "acktagname",
+  "notificationtagname",
+  "elapsedtimetagname",
+  "securitytagname",
+]);
+
+function isStaticReferenceValue(value: string): boolean {
+  const trimmed = value.trim();
+  return Boolean(trimmed)
+    && !trimmed.includes("${")
+    && !trimmed.includes("{{")
+    && !trimmed.startsWith(".")
+    && !trimmed.startsWith("$binding");
+}
+
 function collectObjectTagNames(object: HmiObject, out: Set<string>): void {
   const visit = (value: unknown, keyHint = ""): void => {
     if (typeof value === "string") {
       const key = keyHint.toLowerCase();
-      if ((key.includes("tag") || key === "source") && value.trim() && !value.includes("${")) {
+      if (EXPLICIT_TAG_REFERENCE_KEYS.has(key) && isStaticReferenceValue(value)) {
         out.add(value.trim());
       }
       return;
@@ -311,7 +354,7 @@ function macroTagReferences(macroCode: string): string[] {
   let match = pattern.exec(macroCode);
   while (match) {
     const tagName = match[2]?.trim();
-    if (tagName && !tagName.startsWith(".")) {
+    if (tagName && isStaticReferenceValue(tagName)) {
       refs.add(tagName);
     }
     match = pattern.exec(macroCode);
@@ -325,7 +368,7 @@ function collectExpressionTagReferences(expression: string): string[] {
   let match = pattern.exec(expression);
   while (match) {
     const value = match[2]?.trim();
-    if (value && !value.includes("${")) {
+    if (value && isStaticReferenceValue(value)) {
       refs.add(value);
     }
     match = pattern.exec(expression);
@@ -338,6 +381,8 @@ type ScreenDependencyRefs = {
   libraryIds: Set<string>;
   libraryElements: Map<string, Set<string>>;
   tagNames: Set<string>;
+  variableNames: Set<string>;
+  lwAddresses: Set<number>;
   macroIds: Set<string>;
   screenIds: Set<string>;
   dynamicWarnings: ProjectArchiveIssue[];
@@ -349,6 +394,8 @@ function makeScreenDependencyRefs(): ScreenDependencyRefs {
     libraryIds: new Set(),
     libraryElements: new Map(),
     tagNames: new Set(),
+    variableNames: new Set(),
+    lwAddresses: new Set(),
     macroIds: new Set(),
     screenIds: new Set(),
     dynamicWarnings: [],
@@ -389,14 +436,27 @@ function collectRuntimeActionRefs(action: unknown, refs: ScreenDependencyRefs): 
     case "write":
     case "pulse":
     case "toggle":
-      if (typeof value.tag === "string") {
+      if (typeof value.tag === "string" && isStaticReferenceValue(value.tag)) {
         refs.tagNames.add(value.tag);
       }
       break;
     case "writeConst":
     case "writeNumberPrompt":
-      if (value.target === "tag" && typeof value.name === "string") {
+      if (value.target === "tag" && typeof value.name === "string" && isStaticReferenceValue(value.name)) {
         refs.tagNames.add(value.name);
+      }
+      if (value.target === "variable" && typeof value.name === "string") {
+        refs.variableNames.add(value.name);
+      }
+      break;
+    case "setLW":
+      if (typeof value.address === "number" && Number.isFinite(value.address)) {
+        refs.lwAddresses.add(Math.max(0, Math.floor(value.address)));
+      }
+      break;
+    case "setInternalVar":
+      if (typeof value.name === "string") {
+        refs.variableNames.add(value.name);
       }
       break;
     default:
@@ -412,6 +472,10 @@ function collectRuntimeValueSourceRefs(source: unknown, refs: ScreenDependencyRe
   for (const dependency of dependencies) {
     if (dependency.type === "tag") {
       refs.tagNames.add(dependency.tag);
+    } else if (dependency.type === "lw") {
+      refs.lwAddresses.add(dependency.address);
+    } else if (dependency.type === "internal") {
+      refs.variableNames.add(dependency.name);
     }
   }
 }
@@ -425,7 +489,7 @@ function collectBindingRefs(bindings: unknown, refs: ScreenDependencyRefs): void
       continue;
     }
     const value = binding as Record<string, unknown>;
-    if (value.mode === "tag" && typeof value.source === "string") {
+    if (value.mode === "tag" && typeof value.source === "string" && isStaticReferenceValue(value.source)) {
       refs.tagNames.add(value.source);
     }
     if (value.mode === "expr" && typeof value.source === "string") {
@@ -440,10 +504,10 @@ function collectBindingRefs(bindings: unknown, refs: ScreenDependencyRefs): void
 
 function collectKnownObjectRefs(object: HmiObject, refs: ScreenDependencyRefs): void {
   collectBindingRefs(object.bindings, refs);
-  if (object.visibleTag) {
+  if (object.visibleTag && isStaticReferenceValue(object.visibleTag)) {
     refs.tagNames.add(object.visibleTag);
   }
-  if (object.disabledTag) {
+  if (object.disabledTag && isStaticReferenceValue(object.disabledTag)) {
     refs.tagNames.add(object.disabledTag);
   }
   if (object.onPressMacroId) {
@@ -468,7 +532,7 @@ function collectKnownObjectRefs(object: HmiObject, refs: ScreenDependencyRefs): 
       if (object.assetId) {
         refs.assetIds.add(object.assetId);
       }
-      if (object.stateTag) {
+      if (object.stateTag && isStaticReferenceValue(object.stateTag)) {
         refs.tagNames.add(object.stateTag);
       }
       object.stateImages?.forEach((state) => {
@@ -478,7 +542,9 @@ function collectKnownObjectRefs(object: HmiObject, refs: ScreenDependencyRefs): 
       });
       break;
     case "stateImage":
-      refs.tagNames.add(object.tag);
+      if (isStaticReferenceValue(object.tag)) {
+        refs.tagNames.add(object.tag);
+      }
       if (object.defaultAssetId) {
         refs.assetIds.add(object.defaultAssetId);
       }
@@ -524,10 +590,10 @@ function collectKnownObjectRefs(object: HmiObject, refs: ScreenDependencyRefs): 
         addIssue(refs.dynamicWarnings, "UNRESOLVED_DYNAMIC_REFERENCE", "Library tagPrefix may resolve tags dynamically.", `object:${object.id}`);
       }
       for (const assignment of Object.values(object.bindingAssignments ?? {})) {
-        if (assignment.baseTag) {
+        if (assignment.baseTag && isStaticReferenceValue(assignment.baseTag)) {
           refs.tagNames.add(assignment.baseTag);
         }
-        if (assignment.overrideTag) {
+        if (assignment.overrideTag && isStaticReferenceValue(assignment.overrideTag)) {
           refs.tagNames.add(assignment.overrideTag);
         }
         collectRuntimeValueSourceRefs(assignment.prefixSource, refs);
@@ -545,17 +611,29 @@ function collectKnownObjectRefs(object: HmiObject, refs: ScreenDependencyRefs): 
       }
       break;
     case "trendChart":
-      object.selectedTags.forEach((series) => refs.tagNames.add(series.tag));
+      object.selectedTags.forEach((series) => {
+        if (isStaticReferenceValue(series.tag)) {
+          refs.tagNames.add(series.tag);
+        }
+      });
       break;
     case "eventTable":
       if (object.sourceTagFilter) {
         refs.tagNames.add(object.sourceTagFilter);
       }
       break;
+    case "valueSelect":
+      if (object.target.type === "tag" && isStaticReferenceValue(object.target.tag)) {
+        refs.tagNames.add(object.target.tag);
+      } else if (object.target.type === "internal") {
+        refs.variableNames.add(object.target.name);
+      } else if (object.target.type === "lw") {
+        refs.lwAddresses.add(object.target.address);
+      }
+      break;
     default:
       collectObjectTagNames(object, refs.tagNames);
       collectObjectAssetIds(object, refs.assetIds);
-      collectObjectMacroIds(object, refs.macroIds);
       break;
   }
 }
@@ -564,6 +642,8 @@ function collectDependencies(project: ScadaProject, screen: HmiScreen): {
   assets: Asset[];
   libraries: string[];
   tags: TagDefinition[];
+  variables: InternalVariableDefinition[];
+  lwStore?: LwStoreConfig;
   macros: MacroDefinition[];
   events: EventDefinition[];
   warnings: ProjectArchiveIssue[];
@@ -605,11 +685,54 @@ function collectDependencies(project: ScadaProject, screen: HmiScreen): {
   return {
     assets: (project.assets ?? []).filter((asset) => refs.assetIds.has(asset.id)),
     libraries: [...refs.libraryIds],
-    tags: project.tags.filter((tag) => refs.tagNames.has(tag.name)),
+    tags: collectReferencedTags(project, refs),
+    variables: collectReferencedVariables(project, refs),
+    lwStore: collectReferencedLwStore(project, refs),
     macros,
     events: [],
     warnings: refs.dynamicWarnings,
   };
+}
+
+function collectReferencedTags(project: ScadaProject, refs: ScreenDependencyRefs): TagDefinition[] {
+  const names = new Set(refs.tagNames);
+  for (const variableName of refs.variableNames) {
+    names.add(variableName);
+    names.add(toInternalTagName(variableName));
+  }
+  for (const address of refs.lwAddresses) {
+    names.add(toLwTagName(address));
+  }
+  return completeGeneratedSimulationTags(project, names).filter((tag) => names.has(tag.name));
+}
+
+function collectReferencedVariables(project: ScadaProject, refs: ScreenDependencyRefs): InternalVariableDefinition[] {
+  const names = new Set(refs.variableNames);
+  for (const tagName of refs.tagNames) {
+    names.add(tagName);
+  }
+  return (project.variables ?? []).filter((variable) =>
+    names.has(variable.name) ||
+    names.has(toInternalTagName(variable.name)) ||
+    (typeof variable.lwAddress === "number" && refs.lwAddresses.has(variable.lwAddress)),
+  );
+}
+
+function collectReferencedLwStore(project: ScadaProject, refs: ScreenDependencyRefs): LwStoreConfig | undefined {
+  const values = project.lwStore?.values ?? {};
+  const selected: Record<number, number> = {};
+  for (const [addressText, value] of Object.entries(values)) {
+    const address = Number(addressText);
+    if (Number.isFinite(address) && refs.lwAddresses.has(address)) {
+      selected[address] = value;
+    }
+  }
+  for (const variable of project.variables ?? []) {
+    if (typeof variable.lwAddress === "number" && refs.variableNames.has(variable.name) && values[variable.lwAddress] !== undefined) {
+      selected[variable.lwAddress] = values[variable.lwAddress]!;
+    }
+  }
+  return Object.keys(selected).length > 0 ? { mode: project.lwStore?.mode, values: selected } : undefined;
 }
 
 function replaceIdsInUnknown(value: unknown, maps: { assetIds: Map<string, string>; libraryIds: Map<string, string>; macroIds?: Map<string, string> }): unknown {
@@ -651,6 +774,142 @@ function canonicalLibraryPayload(library: ElementLibrary, files: Map<string, Buf
   return Buffer.concat(chunks);
 }
 
+function collectProjectReferenceRefs(project: ScadaProject): ScreenDependencyRefs {
+  const refs = makeScreenDependencyRefs();
+  for (const screen of project.screens) {
+    screen.objects.forEach((object) => collectKnownObjectRefs(object, refs));
+  }
+  for (const macro of project.macros ?? []) {
+    macroTagReferences(macro.code).forEach((tagName) => refs.tagNames.add(tagName));
+    macroVariableReferences(macro.code).forEach((variableName) => refs.variableNames.add(variableName));
+    macroLwReferences(macro.code).forEach((address) => refs.lwAddresses.add(address));
+    for (const trigger of macro.triggers ?? []) {
+      if (trigger.type === "onTagChange" && isStaticReferenceValue(trigger.tag)) {
+        refs.tagNames.add(trigger.tag);
+      }
+      if (trigger.type === "onCondition") {
+        collectExpressionTagReferences(trigger.condition).forEach((tagName) => refs.tagNames.add(tagName));
+      }
+    }
+  }
+  for (const event of project.events ?? []) {
+    [
+      event.sourceTagName,
+      event.ackTagName,
+      event.notificationTagName,
+      event.elapsedTimeTagName,
+      event.securityTagName,
+    ].forEach((tagName) => {
+      if (tagName && isStaticReferenceValue(tagName)) {
+        refs.tagNames.add(tagName);
+      }
+    });
+    [...(event.onActiveActions ?? []), ...(event.onClearedActions ?? []), ...(event.onAckActions ?? [])].forEach((action) =>
+      collectRuntimeActionRefs(action, refs),
+    );
+  }
+  return refs;
+}
+
+function macroVariableReferences(macroCode: string): string[] {
+  const refs = new Set<string>();
+  const pattern = /\b(?:getVar|setVar|readVariable|writeVariable)\s*\(\s*(['"`])([^'"`]+)\1/g;
+  let match = pattern.exec(macroCode);
+  while (match) {
+    const variableName = match[2]?.trim();
+    if (variableName && isStaticReferenceValue(variableName)) {
+      refs.add(variableName);
+    }
+    match = pattern.exec(macroCode);
+  }
+  return [...refs];
+}
+
+function macroLwReferences(macroCode: string): number[] {
+  const refs = new Set<number>();
+  const pattern = /\b(?:getLW|setLW)\s*\(\s*(\d+)/g;
+  let match = pattern.exec(macroCode);
+  while (match) {
+    const address = Number(match[1]);
+    if (Number.isFinite(address)) {
+      refs.add(Math.max(0, Math.floor(address)));
+    }
+    match = pattern.exec(macroCode);
+  }
+  return [...refs];
+}
+
+function buildBindableTagNames(project: ScadaProject): Set<string> {
+  const names = new Set<string>();
+  const requiredNames = collectProjectReferenceRefs(project).tagNames;
+  for (const tag of completeGeneratedSimulationTags(project, requiredNames)) {
+    names.add(tag.name);
+  }
+  for (const definition of buildInternalAndLwTagDefinitions(project.variables ?? [], project.lwStore)) {
+    names.add(definition.name);
+  }
+  for (const variable of project.variables ?? []) {
+    names.add(variable.name);
+    names.add(toInternalTagName(variable.name));
+  }
+  return names;
+}
+
+function completeGeneratedSimulationTags(project: ScadaProject, requiredNames?: Set<string>): TagDefinition[] {
+  const tags = [...project.tags];
+  const existingNames = new Set(tags.map((tag) => tag.name));
+  const simulatedDriver = project.drivers.find((driver) => driver.type === "simulated" && driver.enabled !== false);
+  if (!simulatedDriver || !requiredNames) {
+    return tags;
+  }
+
+  const simulatedTemplates = tags.filter((tag) => (tag.sourceType ?? (tag.driverId ? undefined : "simulated")) === "simulated" || tag.driverId === simulatedDriver.id);
+  const templateByPrefix = new Map<string, TagDefinition>();
+  for (const tag of simulatedTemplates) {
+    const match = /^(.*_)(\d+)$/.exec(tag.name);
+    if (match && !templateByPrefix.has(match[1]!)) {
+      templateByPrefix.set(match[1]!, tag);
+    }
+  }
+
+  for (const name of requiredNames) {
+    if (existingNames.has(name)) {
+      continue;
+    }
+    const match = /^(.*_)(\d+)$/.exec(name);
+    if (!match) {
+      continue;
+    }
+    const template = templateByPrefix.get(match[1]!) ?? (match[1] === "AI_SIM_" ? simulatedTemplates[0] : undefined);
+    if (!template) {
+      continue;
+    }
+    const generated: TagDefinition = {
+      ...template,
+      id: undefined,
+      name,
+      description: `Generated simulation tag ${name}`,
+      sourceType: "simulated",
+      driverId: template.driverId ?? simulatedDriver.id,
+      createdAt: undefined,
+      updatedAt: undefined,
+    };
+    tags.push(generated);
+    existingNames.add(name);
+  }
+  return tags;
+}
+
+function completePortableProjectForArchive(project: ScadaProject): ScadaProject {
+  const refs = collectProjectReferenceRefs(project);
+  const completedTags = completeGeneratedSimulationTags(project, refs.tagNames);
+  const portableVariables = project.variables?.map(({ currentValue: _currentValue, ...variable }) => variable);
+  if (completedTags.length === project.tags.length && portableVariables === project.variables) {
+    return project;
+  }
+  return { ...project, tags: completedTags, variables: portableVariables };
+}
+
 export class ProjectArchiveService {
   public constructor(
     private readonly projectService: ProjectService,
@@ -659,7 +918,7 @@ export class ProjectArchiveService {
   ) {}
 
   public async exportProjectArchive(): Promise<ExportArchiveResult> {
-    const project = projectSchema.parse(this.projectService.getProject());
+    const project = projectSchema.parse(completePortableProjectForArchive(this.projectService.getProject()));
     const zip = new AdmZip();
     const files: ArchiveManifestFile[] = [];
     const projectDir = path.dirname(this.projectService.getProjectFile());
@@ -769,6 +1028,8 @@ export class ProjectArchiveService {
       assets: dependencies.assets,
       libraries: includedLibraries,
       tags: dependencies.tags,
+      variables: dependencies.variables,
+      lwStore: dependencies.lwStore,
       macros: dependencies.macros,
       events: dependencies.events,
     };
@@ -949,6 +1210,8 @@ export class ProjectArchiveService {
         assets: dependencies.assets,
         libraries: this.readProjectArchiveLibraries(inspected.parsed).filter((library) => librarySet.has(library.id)),
         tags: dependencies.tags,
+        variables: dependencies.variables,
+        lwStore: dependencies.lwStore,
         macros: dependencies.macros,
         events: dependencies.events,
       };
@@ -1197,6 +1460,9 @@ export class ProjectArchiveService {
       importedTags += 1;
     }
 
+    const variableMerge = this.mergeVariables(project.variables ?? [], data.variables ?? [], warnings);
+    const mergedLwStore = this.mergeLwStore(project.lwStore, data.lwStore, warnings);
+
     const existingLibraries = await this.libraryService.listLibraries();
     const existingLibrariesById = new Map(existingLibraries.map((library) => [library.id, library]));
     const takenLibraryIds = new Set(existingLibraries.map((library) => library.id));
@@ -1268,6 +1534,8 @@ export class ProjectArchiveService {
       ...project,
       assets: nextAssets,
       tags: nextTags,
+      variables: variableMerge,
+      lwStore: mergedLwStore,
       libraries: nextProjectLibraryRefs,
       macros: macroMerge.macros,
       events: this.mergeEvents(project.events ?? [], data.events ?? [], warnings),
@@ -1886,26 +2154,36 @@ export class ProjectArchiveService {
     assets: Asset[];
     libraries: string[];
     tags: TagDefinition[];
+    variables: InternalVariableDefinition[];
+    lwStore?: LwStoreConfig;
     macros: MacroDefinition[];
     events: EventDefinition[];
     warnings: ProjectArchiveIssue[];
   } {
+    const completedProject = completePortableProjectForArchive(project);
     if (mode === "safe") {
       return {
-        assets: [...(project.assets ?? [])],
-        libraries: (project.libraries ?? []).filter((ref) => ref.enabled !== false).map((ref) => ref.libraryId),
-        tags: [...project.tags],
-        macros: [...(project.macros ?? [])],
-        events: [...(project.events ?? [])],
+        assets: [...(completedProject.assets ?? [])],
+        libraries: (completedProject.libraries ?? []).filter((ref) => ref.enabled !== false).map((ref) => ref.libraryId),
+        tags: [...completedProject.tags],
+        variables: [...(completedProject.variables ?? [])],
+        lwStore: completedProject.lwStore ? { ...completedProject.lwStore, values: { ...(completedProject.lwStore.values ?? {}) } } : undefined,
+        macros: [...(completedProject.macros ?? [])],
+        events: [...(completedProject.events ?? [])],
         warnings: [],
       };
     }
-    return collectDependencies(project, screen);
+    return collectDependencies(completedProject, screen);
   }
 
   private validateProjectReferences(project: ScadaProject, files: Map<string, Buffer>, errors: ProjectArchiveIssue[], warnings: ProjectArchiveIssue[]): void {
     const assetIds = new Set((project.assets ?? []).map((asset) => asset.id));
-    const tagNames = new Set(project.tags.map((tag) => tag.name));
+    const tagNames = buildBindableTagNames(project);
+    const variableNames = new Set((project.variables ?? []).flatMap((variable) => [variable.name, toInternalTagName(variable.name)]));
+    const lwAddresses = new Set<number>([
+      ...Object.keys(project.lwStore?.values ?? {}).map((address) => Number(address)).filter((address) => Number.isFinite(address)),
+      ...(project.variables ?? []).map((variable) => variable.lwAddress).filter((address): address is number => typeof address === "number" && Number.isFinite(address)),
+    ]);
     const macroIds = new Set((project.macros ?? []).map((macro) => macro.id));
     const screenIds = new Set(project.screens.map((screen) => screen.id));
     const libraryElements = new Map<string, Set<string>>();
@@ -1917,7 +2195,11 @@ export class ProjectArchiveService {
       }
       try {
         const library = JSON.parse(bytes.toString("utf8")) as ElementLibrary;
-        libraryElements.set(library.id, new Set(library.elements.map((element) => element.id)));
+        libraryElements.set(library.id, new Set(library.elements.flatMap((element) => [
+          element.id,
+          element.name,
+          (element as { elementKey?: string }).elementKey,
+        ].filter((value): value is string => Boolean(value)))));
       } catch {
         addIssue(errors, "INVALID_LIBRARY_JSON", "Attached library JSON is invalid.", `libraries/${ref.libraryId}/library.json`);
       }
@@ -1926,26 +2208,36 @@ export class ProjectArchiveService {
     for (const screen of project.screens) {
       const refs = makeScreenDependencyRefs();
       screen.objects.forEach((object) => collectKnownObjectRefs(object, refs));
-      this.reportBrokenRefs(refs, { assetIds, tagNames, macroIds, screenIds, libraryElements }, errors, warnings, `screen:${screen.id}`);
+      this.reportBrokenRefs(refs, { assetIds, tagNames, variableNames, lwAddresses, macroIds, screenIds, libraryElements }, warnings, warnings, `screen:${screen.id}`);
     }
 
     for (const macro of project.macros ?? []) {
       macroTagReferences(macro.code).forEach((tagName) => {
         if (!tagNames.has(tagName)) {
-          addIssue(errors, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' references missing tag '${tagName}'.`, `macro:${macro.id}`);
+          addIssue(warnings, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' references missing tag '${tagName}'.`, `macro:${macro.id}`);
+        }
+      });
+      macroVariableReferences(macro.code).forEach((variableName) => {
+        if (!variableNames.has(variableName) && !variableNames.has(toInternalTagName(variableName))) {
+          addIssue(warnings, "BROKEN_VARIABLE_REFERENCE", `Macro '${macro.id}' references missing variable '${variableName}'.`, `macro:${macro.id}`);
+        }
+      });
+      macroLwReferences(macro.code).forEach((address) => {
+        if (!lwAddresses.has(address)) {
+          addIssue(warnings, "BROKEN_LW_REFERENCE", `Macro '${macro.id}' references missing LW address ${address}.`, `macro:${macro.id}`);
         }
       });
       for (const trigger of macro.triggers ?? []) {
         if ((trigger.type === "onScreenOpen" || trigger.type === "onScreenClose" || trigger.type === "onButtonClick") && trigger.screenKey && !screenIds.has(trigger.screenKey) && !project.screens.some((screen) => screen.name === trigger.screenKey)) {
-          addIssue(errors, "BROKEN_SCREEN_REFERENCE", `Macro '${macro.id}' references missing screen '${trigger.screenKey}'.`, `macro:${macro.id}`);
+          addIssue(warnings, "BROKEN_SCREEN_REFERENCE", `Macro '${macro.id}' references missing screen '${trigger.screenKey}'.`, `macro:${macro.id}`);
         }
         if (trigger.type === "onTagChange" && !tagNames.has(trigger.tag)) {
-          addIssue(errors, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' references missing tag '${trigger.tag}'.`, `macro:${macro.id}`);
+          addIssue(warnings, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' references missing tag '${trigger.tag}'.`, `macro:${macro.id}`);
         }
         if (trigger.type === "onCondition") {
           collectExpressionTagReferences(trigger.condition).forEach((tagName) => {
             if (!tagNames.has(tagName)) {
-              addIssue(errors, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' condition references missing tag '${tagName}'.`, `macro:${macro.id}`);
+              addIssue(warnings, "BROKEN_TAG_REFERENCE", `Macro '${macro.id}' condition references missing tag '${tagName}'.`, `macro:${macro.id}`);
             }
           });
         }
@@ -1955,7 +2247,7 @@ export class ProjectArchiveService {
     for (const event of project.events ?? []) {
       this.collectEventTagRefs(event).forEach((tagName) => {
         if (!tagNames.has(tagName)) {
-          addIssue(errors, "BROKEN_TAG_REFERENCE", `Event '${event.id}' references missing tag '${tagName}'.`, `event:${event.id}`);
+          addIssue(warnings, "BROKEN_TAG_REFERENCE", `Event '${event.id}' references missing tag '${tagName}'.`, `event:${event.id}`);
         }
       });
     }
@@ -1963,14 +2255,27 @@ export class ProjectArchiveService {
 
   private validateScreenReferences(data: ScreenArchiveData, errors: ProjectArchiveIssue[], warnings: ProjectArchiveIssue[]): void {
     const assetIds = new Set(data.assets.map((asset) => asset.id));
-    const tagNames = new Set(data.tags.map((tag) => tag.name));
+    const tagNames = buildBindableTagNames({
+      version: 1,
+      name: "screen",
+      drivers: [],
+      tags: data.tags,
+      variables: data.variables ?? [],
+      lwStore: data.lwStore,
+      screens: [data.screen],
+    });
+    const variableNames = new Set((data.variables ?? []).flatMap((variable) => [variable.name, toInternalTagName(variable.name)]));
+    const lwAddresses = new Set<number>([
+      ...Object.keys(data.lwStore?.values ?? {}).map((address) => Number(address)).filter((address) => Number.isFinite(address)),
+      ...(data.variables ?? []).map((variable) => variable.lwAddress).filter((address): address is number => typeof address === "number" && Number.isFinite(address)),
+    ]);
     const macroIds = new Set(data.macros.map((macro) => macro.id));
     const screenIds = new Set([data.screen.id]);
     const libraryElements = new Map(data.libraries.map((library) => [library.id, new Set(library.elements.map((element) => element.id))]));
     const refs = makeScreenDependencyRefs();
 
     data.screen.objects.forEach((object) => collectKnownObjectRefs(object, refs));
-    this.reportBrokenRefs(refs, { assetIds, tagNames, macroIds, screenIds, libraryElements }, errors, warnings, `screen:${data.screen.id}`);
+    this.reportBrokenRefs(refs, { assetIds, tagNames, variableNames, lwAddresses, macroIds, screenIds, libraryElements }, errors, warnings, `screen:${data.screen.id}`);
     for (const event of data.events ?? []) {
       this.collectEventTagRefs(event).forEach((tagName) => {
         if (!tagNames.has(tagName)) {
@@ -1989,7 +2294,7 @@ export class ProjectArchiveService {
       event.elapsedTimeTagName,
       event.securityTagName,
     ].forEach((tagName) => {
-      if (tagName) {
+      if (tagName && isStaticReferenceValue(tagName)) {
         refs.add(tagName);
       }
     });
@@ -2006,6 +2311,8 @@ export class ProjectArchiveService {
     known: {
       assetIds: Set<string>;
       tagNames: Set<string>;
+      variableNames: Set<string>;
+      lwAddresses: Set<number>;
       macroIds: Set<string>;
       screenIds: Set<string>;
       libraryElements: Map<string, Set<string>>;
@@ -2022,6 +2329,16 @@ export class ProjectArchiveService {
     for (const tagName of refs.tagNames) {
       if (!known.tagNames.has(tagName)) {
         addIssue(warnings, "BROKEN_TAG_REFERENCE", `Missing statically detectable tag reference '${tagName}'.`, scope);
+      }
+    }
+    for (const variableName of refs.variableNames) {
+      if (!known.variableNames.has(variableName) && !known.variableNames.has(toInternalTagName(variableName))) {
+        addIssue(warnings, "BROKEN_VARIABLE_REFERENCE", `Missing internal variable reference '${variableName}'.`, scope);
+      }
+    }
+    for (const address of refs.lwAddresses) {
+      if (!known.lwAddresses.has(address) && !known.tagNames.has(toLwTagName(address))) {
+        addIssue(warnings, "BROKEN_LW_REFERENCE", `Missing LW address reference '${address}'.`, scope);
       }
     }
     for (const macroId of refs.macroIds) {
@@ -2389,6 +2706,50 @@ export class ProjectArchiveService {
       idMap.set(macro.id, macro.id);
     }
     return { macros: next, idMap };
+  }
+
+  private mergeVariables(
+    existing: InternalVariableDefinition[],
+    incoming: InternalVariableDefinition[],
+    warnings: ProjectArchiveIssue[],
+  ): InternalVariableDefinition[] {
+    const next = [...existing];
+    const existingByName = new Map(next.map((variable) => [variable.name, variable]));
+    for (const variable of incoming) {
+      const existingVariable = existingByName.get(variable.name);
+      if (!existingVariable) {
+        next.push(variable);
+        existingByName.set(variable.name, variable);
+        continue;
+      }
+      if (JSON.stringify(existingVariable) !== JSON.stringify(variable)) {
+        addIssue(warnings, "VARIABLE_CONFLICT_KEEP_EXISTING", `Internal variable '${variable.name}' already exists with different definition; kept existing definition.`);
+      }
+    }
+    return next;
+  }
+
+  private mergeLwStore(existing: LwStoreConfig | undefined, incoming: LwStoreConfig | undefined, warnings: ProjectArchiveIssue[]): LwStoreConfig | undefined {
+    if (!incoming) {
+      return existing;
+    }
+    const next: LwStoreConfig = {
+      mode: existing?.mode ?? incoming.mode,
+      values: { ...(existing?.values ?? {}) },
+    };
+    for (const [address, value] of Object.entries(incoming.values ?? {})) {
+      const numericAddress = Number(address);
+      if (!Number.isFinite(numericAddress)) {
+        continue;
+      }
+      const current = next.values?.[numericAddress];
+      if (current === undefined) {
+        next.values![numericAddress] = value;
+      } else if (current !== value) {
+        addIssue(warnings, "LW_STORE_CONFLICT_KEEP_EXISTING", `LW address ${numericAddress} already exists with different value; kept existing value.`);
+      }
+    }
+    return next;
   }
 
   private mergeEvents(existing: EventDefinition[], incoming: EventDefinition[], warnings: ProjectArchiveIssue[]): EventDefinition[] {

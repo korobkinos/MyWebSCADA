@@ -79,6 +79,9 @@ function validationTitle(result: ProjectArchiveInspectionResult | null): string 
   if (!result) {
     return "Archive not checked yet";
   }
+  if (result.valid && result.warnings.length > 0) {
+    return "Archive is valid with warnings";
+  }
   return result.valid ? "Archive is valid" : "Archive is invalid";
 }
 
@@ -296,7 +299,11 @@ function ArchiveStatusPanel({
     {
       title: "Archive",
       items: [
-        { label: "Status", value: result.valid ? "Valid" : "Invalid", tone: result.valid ? "success" : "error" },
+        {
+          label: "Status",
+          value: result.valid ? (result.warnings.length > 0 ? "Valid with warnings" : "Valid") : "Invalid",
+          tone: result.valid ? (result.warnings.length > 0 ? "warning" : "success") : "error",
+        },
         { label: "Type", value: formatArchiveType(result) },
         { label: "Name", value: summary?.name ?? "-" },
         { label: "File", value: file.name },
@@ -336,7 +343,7 @@ function ArchiveStatusPanel({
 
   return (
     <WorkbenchStatusBlock
-      variant={result.valid ? "success" : "error"}
+      variant={result.valid ? (result.warnings.length > 0 ? "warning" : "success") : "error"}
       title={validationTitle(result)}
       description={label}
     >

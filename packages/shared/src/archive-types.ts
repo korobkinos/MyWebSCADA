@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { Asset, ElementLibrary } from "./asset-library-types";
 import type { EventDefinition } from "./event-types";
-import type { HmiScreen, MacroDefinition, ScadaProject } from "./project-types";
+import type { HmiScreen, InternalVariableDefinition, LwStoreConfig, MacroDefinition, ScadaProject } from "./project-types";
 import type { TagDefinition } from "./tag-types";
-import { assetSchema, elementLibrarySchema, eventDefinitionSchema, hmiScreenSchema, macroSchema, projectSchema, tagSchema } from "./validation";
+import { assetSchema, elementLibrarySchema, eventDefinitionSchema, hmiScreenSchema, macroSchema, projectSchema, tagSchema, variableSchema } from "./validation";
 
 export type ArchiveFileKind =
   | "metadata"
@@ -52,6 +52,8 @@ export type ScreenArchiveData = {
   assets: Asset[];
   libraries: ElementLibrary[];
   tags: TagDefinition[];
+  variables?: InternalVariableDefinition[];
+  lwStore?: LwStoreConfig;
   macros: MacroDefinition[];
   events?: EventDefinition[];
 };
@@ -297,6 +299,13 @@ export const screenArchiveDataSchema = z.object({
   assets: z.array(assetSchema),
   libraries: z.array(elementLibrarySchema),
   tags: z.array(tagSchema),
+  variables: z.array(variableSchema).optional(),
+  lwStore: z
+    .object({
+      mode: z.enum(["volatile", "persistent"]).optional(),
+      values: z.record(z.coerce.number()).optional(),
+    })
+    .optional(),
   macros: z.array(macroSchema),
   events: z.array(eventDefinitionSchema).optional(),
 });
