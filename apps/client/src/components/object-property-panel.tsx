@@ -23,6 +23,7 @@ import {
   DEFAULT_OPERATOR_ACTION_SLIDER_TEMPLATE,
   DEFAULT_OPERATOR_ACTION_VALUE_CHANGE_TEMPLATE,
   extractIndexedAddressSlots,
+  isOperatorActionEnabledForObject,
   resolveIndexedAddress,
   resolveLibraryElementInstanceBindingsDetailed,
 } from "@web-scada/shared";
@@ -1221,22 +1222,34 @@ function buildOperatorActionPreviewMessage(object: OperatorActionPreviewObject):
 }
 
 function OperatorActionLogSection({
+  project,
   object,
   onPatch,
 }: {
+  project: ScadaProject;
   object: OperatorActionPreviewObject;
   onPatch: (patch: Partial<HmiObject>) => void;
 }) {
   const loggingConfig = object.operatorActionLogging;
+  const effectiveLoggingEnabled = isOperatorActionEnabledForObject(object, project);
+  const loggingStatus = project.operatorActionSettings?.enabled === false
+    ? "Disabled by project settings"
+    : loggingConfig?.enabled === true
+      ? "Explicitly enabled"
+      : loggingConfig?.enabled === false
+        ? "Explicitly disabled"
+        : effectiveLoggingEnabled
+          ? "Enabled by default"
+          : "Disabled by default";
   const preview = buildOperatorActionPreviewMessage(object);
   return (
     <>
       <Divider style={{ margin: "10px 0" }} />
       <Typography.Text strong>Operator Action Log</Typography.Text>
-      <Space style={{ marginTop: 8, marginBottom: 8 }}>
+      <Space wrap style={{ marginTop: 8, marginBottom: 8 }}>
         <span>Enable logging</span>
         <Switch
-          checked={loggingConfig?.enabled === true}
+          checked={effectiveLoggingEnabled}
           onChange={(checked) =>
             onPatch({
               operatorActionLogging: {
@@ -1246,6 +1259,9 @@ function OperatorActionLogSection({
             } as Partial<HmiObject>)
           }
         />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {loggingStatus}
+        </Typography.Text>
       </Space>
       <Form.Item label="Message template">
         <Input.TextArea
@@ -1254,13 +1270,13 @@ function OperatorActionLogSection({
           placeholder={resolveOperatorActionPreviewTemplate(object)}
           onChange={(event) => {
             const nextTemplate = event.target.value;
-            if (!(loggingConfig?.enabled) && !nextTemplate.trim() && !loggingConfig?.messageTemplate) {
+            if (loggingConfig?.enabled === undefined && !nextTemplate.trim()) {
               onPatch({ operatorActionLogging: undefined } as Partial<HmiObject>);
               return;
             }
             onPatch({
               operatorActionLogging: {
-                ...(loggingConfig ?? { enabled: false }),
+                ...(loggingConfig ?? {}),
                 messageTemplate: nextTemplate.trim() ? nextTemplate : undefined,
               },
             } as Partial<HmiObject>);
@@ -2682,7 +2698,7 @@ function SpecificPropertyFields({
             </Form.Item>
           </>
         ) : null}
-        <OperatorActionLogSection object={object} onPatch={onPatch} />
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
     const buttonGradientContent = (
@@ -3917,7 +3933,7 @@ function SpecificPropertyFields({
         </Form.Item>
         <ColorField label="Checked Color" value={object.checkedColor ?? "#0e639c"} fallback="#0e639c" onChange={(next) => onPatch({ checkedColor: next } as Partial<HmiObject>)} />
         <ColorField label="Unchecked Color" value={object.uncheckedColor ?? "#3c3c3c"} fallback="#3c3c3c" onChange={(next) => onPatch({ uncheckedColor: next } as Partial<HmiObject>)} />
-        <OperatorActionLogSection object={object} onPatch={onPatch} />
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
   }
@@ -4060,7 +4076,7 @@ function SpecificPropertyFields({
         <ColorField label="Bad Text Color" value={object.badTextColor ?? "#f14c4c"} fallback="#f14c4c" onChange={(next) => onPatch({ badTextColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Color" value={object.disabledColor ?? "#3d3d3d"} fallback="#3d3d3d" onChange={(next) => onPatch({ disabledColor: next } as Partial<HmiObject>)} />
         <ColorField label="Disabled Text Color" value={object.disabledTextColor ?? "#8c8c8c"} fallback="#8c8c8c" onChange={(next) => onPatch({ disabledTextColor: next } as Partial<HmiObject>)} />
-        <OperatorActionLogSection object={object} onPatch={onPatch} />
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
   }
@@ -5130,7 +5146,7 @@ function SpecificPropertyFields({
         <Form.Item label="Placeholder">
           <Input value={object.placeholder ?? ""} onChange={(e) => onPatch({ placeholder: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
-        <OperatorActionLogSection object={object} onPatch={onPatch} />
+        <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />
       </>
     );
 
