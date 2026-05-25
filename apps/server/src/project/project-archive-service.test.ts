@@ -515,6 +515,38 @@ describe("ProjectArchiveService", () => {
     })).rejects.toThrow("Select a source screen to import");
   });
 
+  it("replaces a stale target library directory during project screen import", async () => {
+    const sourceProject = makeProject("Source Project", "main", "asset1");
+    sourceProject.libraries = [{ libraryId: "lib1", name: "lib1", version: "1.0.0", enabled: true }];
+    sourceProject.screens[0]!.objects = [{
+      id: "lib-object",
+      type: "libraryElementInstance",
+      name: "Library Object",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      libraryId: "lib1",
+      elementId: "element1",
+    }];
+    const source = await makeHarness(sourceProject);
+    await writeLibrary(source.root, makeLibrary("lib1", "lib-asset", "element1"), Buffer.from("source-library-asset"));
+    const target = await makeHarness(makeProject("Target Project", "target", "asset2"));
+    await mkdir(path.join(target.root, "libraries", "lib1", "assets"), { recursive: true });
+    const exported = await source.service.exportProjectArchive();
+
+    const result = await target.service.importScreenFromProjectArchive(upload(exported.buffer), {
+      screenIds: ["main"],
+      mode: "add",
+      dependencyMode: "minimal",
+    });
+
+    expect(result.importedLibraries).toBe(1);
+    expect(result.project.libraries?.some((ref) => ref.libraryId === "lib1")).toBe(true);
+    const libraryFile = await readFile(path.join(target.root, "libraries", "lib1", "library.json"), "utf8");
+    expect(JSON.parse(libraryFile)).toMatchObject({ id: "lib1", name: "lib1" });
+  });
+
   it("imports a conflicting library as a copy and rewrites screen references", async () => {
     const sourceProject = makeProject("Source Project", "main", "asset1");
     sourceProject.libraries = [{ libraryId: "lib1", name: "lib1", version: "1.0.0", enabled: true }];

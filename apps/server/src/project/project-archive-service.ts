@@ -3031,6 +3031,7 @@ export class ProjectArchiveService {
     const targetDir = path.dirname(this.libraryService.libraryFilePath(library.id));
     const tmpDir = `${targetDir}.import-${randomUUID()}`;
     const backupDir = `${targetDir}.backup-${Date.now()}`;
+    await this.cleanupStaleLibraryImportDirs(targetDir);
     await mkdir(tmpDir, { recursive: true });
     await writeFile(path.join(tmpDir, "library.json"), JSON.stringify(library, null, 2), "utf8");
 
@@ -3048,7 +3049,7 @@ export class ProjectArchiveService {
     }
 
     await mkdir(path.dirname(targetDir), { recursive: true });
-    const existed = await readFile(this.libraryService.libraryFilePath(library.id)).then(() => true).catch(() => false);
+    const existed = await this.pathExists(targetDir);
     if (existed) {
       await rename(targetDir, backupDir);
     }
@@ -3059,11 +3060,27 @@ export class ProjectArchiveService {
       }
     } catch (error) {
       if (existed) {
+        await rm(targetDir, { recursive: true, force: true }).catch(() => undefined);
         await rename(backupDir, targetDir).catch(() => undefined);
       }
       throw error;
     } finally {
       await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  private async cleanupStaleLibraryImportDirs(targetDir: string): Promise<void> {
+    const parent = path.dirname(targetDir);
+    const base = path.basename(targetDir);
+    const entries = await readdir(parent, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      if (!entry.name.startsWith(`${base}.import-`)) {
+        continue;
+      }
+      await rm(path.join(parent, entry.name), { recursive: true, force: true }).catch(() => undefined);
     }
   }
 
