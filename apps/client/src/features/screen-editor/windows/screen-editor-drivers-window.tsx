@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DriverStatus, OpcUaDriverConfig, ScadaProject, SimulatedDriverConfig } from "@web-scada/shared";
-import { message, Modal } from "antd";
+import { InputNumber, message, Modal } from "antd";
 import { api, type DriverMacroImpact, type OpcUaDriverImpactResponse } from "../../../services/api";
 import { useScadaStore } from "../../../store/scada-store";
 import {
@@ -102,6 +102,25 @@ function toOptionalNumber(value: string): number | undefined {
     return undefined;
   }
   const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function toInputNumberValue(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function toOptionalInputNumber(value: number | string | null): number | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
@@ -879,49 +898,45 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                     </label>
                     <label className="screen-editor-settings-field">
                       <span>Publishing Interval (ms)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={1}
-                        value={opcUaDraft.publishingIntervalMs ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev
-                          ? { ...prev, publishingIntervalMs: toOptionalNumber(event.target.value) }
+                        value={toInputNumberValue(opcUaDraft.publishingIntervalMs)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, publishingIntervalMs: toOptionalInputNumber(value) }
                           : prev))}
                       />
                     </label>
                     <label className="screen-editor-settings-field">
                       <span>Sampling Interval (ms)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={1}
-                        value={opcUaDraft.samplingIntervalMs ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev
-                          ? { ...prev, samplingIntervalMs: toOptionalNumber(event.target.value) }
+                        value={toInputNumberValue(opcUaDraft.samplingIntervalMs)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, samplingIntervalMs: toOptionalInputNumber(value) }
                           : prev))}
                       />
                     </label>
                     <label className="screen-editor-settings-field">
                       <span>Queue Size</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={1}
-                        value={opcUaDraft.queueSize ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev
-                          ? { ...prev, queueSize: toOptionalNumber(event.target.value) }
+                        value={toInputNumberValue(opcUaDraft.queueSize)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, queueSize: toOptionalInputNumber(value) }
                           : prev))}
                       />
                     </label>
                     <label className="screen-editor-settings-field">
                       <span>Subscription Batch Size</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={1}
-                        value={opcUaDraft.subscriptionBatchSize ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev
-                          ? { ...prev, subscriptionBatchSize: toOptionalNumber(event.target.value) }
+                        value={toInputNumberValue(opcUaDraft.subscriptionBatchSize)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev
+                          ? { ...prev, subscriptionBatchSize: toOptionalInputNumber(value) }
                           : prev))}
                       />
                     </label>
@@ -945,52 +960,47 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                   <div className="screen-editor-drivers-form screen-editor-drivers-form--two-columns">
                     <label className="screen-editor-settings-field">
                       <span>Connect Timeout (ms)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={100}
-                        value={opcUaDraft.connectTimeoutMs ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, connectTimeoutMs: toOptionalNumber(event.target.value) } : prev))}
+                        value={toInputNumberValue(opcUaDraft.connectTimeoutMs)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev ? { ...prev, connectTimeoutMs: toOptionalInputNumber(value) } : prev))}
                       />
                     </label>
                     <label className="screen-editor-settings-field">
                       <span>Operation Timeout (ms)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={100}
-                        value={opcUaDraft.operationTimeoutMs ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, operationTimeoutMs: toOptionalNumber(event.target.value) } : prev))}
+                        value={toInputNumberValue(opcUaDraft.operationTimeoutMs)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev ? { ...prev, operationTimeoutMs: toOptionalInputNumber(value) } : prev))}
                       />
                     </label>
                     <label className="screen-editor-settings-field">
                       <span>Session Timeout (ms)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={1000}
-                        value={opcUaDraft.sessionTimeoutMs ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, sessionTimeoutMs: toOptionalNumber(event.target.value) } : prev))}
+                        value={toInputNumberValue(opcUaDraft.sessionTimeoutMs)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev ? { ...prev, sessionTimeoutMs: toOptionalInputNumber(value) } : prev))}
                       />
                     </label>
                     <label className="screen-editor-settings-field">
                       <span>Keep Alive (ms)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={500}
-                        value={opcUaDraft.keepAliveIntervalMs ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, keepAliveIntervalMs: toOptionalNumber(event.target.value) } : prev))}
+                        value={toInputNumberValue(opcUaDraft.keepAliveIntervalMs)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev ? { ...prev, keepAliveIntervalMs: toOptionalInputNumber(value) } : prev))}
                       />
                     </label>
                     <label className="screen-editor-settings-field">
                       <span>Reconnect (ms)</span>
-                      <input
-                        className="workbench-input"
-                        type="number"
+                      <InputNumber
+                        className="screen-editor-settings-input-number"
                         min={100}
-                        value={opcUaDraft.reconnectMs ?? ""}
-                        onChange={(event) => setOpcUaDraft((prev) => (prev ? { ...prev, reconnectMs: toOptionalNumber(event.target.value) } : prev))}
+                        value={toInputNumberValue(opcUaDraft.reconnectMs)}
+                        onChange={(value) => setOpcUaDraft((prev) => (prev ? { ...prev, reconnectMs: toOptionalInputNumber(value) } : prev))}
                       />
                     </label>
                   </div>
@@ -1182,31 +1192,28 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
                   </label>
                   <label className="screen-editor-settings-field">
                     <span>Update Interval (ms)</span>
-                    <input
-                      className="workbench-input"
-                      type="number"
+                    <InputNumber
+                      className="screen-editor-settings-input-number"
                       min={100}
-                      value={simulationDraft.updateIntervalMs ?? ""}
-                      onChange={(event) => setSimulationDraft((prev) => (prev ? { ...prev, updateIntervalMs: toOptionalNumber(event.target.value) } : prev))}
+                      value={toInputNumberValue(simulationDraft.updateIntervalMs)}
+                      onChange={(value) => setSimulationDraft((prev) => (prev ? { ...prev, updateIntervalMs: toOptionalInputNumber(value) } : prev))}
                     />
                   </label>
                   <label className="screen-editor-settings-field">
                     <span>Scheduler Tick (ms)</span>
-                    <input
-                      className="workbench-input"
-                      type="number"
+                    <InputNumber
+                      className="screen-editor-settings-input-number"
                       min={50}
-                      value={simulationDraft.schedulerTickMs ?? ""}
-                      onChange={(event) => setSimulationDraft((prev) => (prev ? { ...prev, schedulerTickMs: toOptionalNumber(event.target.value) } : prev))}
+                      value={toInputNumberValue(simulationDraft.schedulerTickMs)}
+                      onChange={(value) => setSimulationDraft((prev) => (prev ? { ...prev, schedulerTickMs: toOptionalInputNumber(value) } : prev))}
                     />
                   </label>
                   <label className="screen-editor-settings-field">
                     <span>Global Seed</span>
-                    <input
-                      className="workbench-input"
-                      type="number"
-                      value={simulationDraft.globalSeed ?? ""}
-                      onChange={(event) => setSimulationDraft((prev) => (prev ? { ...prev, globalSeed: toOptionalNumber(event.target.value) } : prev))}
+                    <InputNumber
+                      className="screen-editor-settings-input-number"
+                      value={toInputNumberValue(simulationDraft.globalSeed)}
+                      onChange={(value) => setSimulationDraft((prev) => (prev ? { ...prev, globalSeed: toOptionalInputNumber(value) } : prev))}
                     />
                   </label>
                   <label className="screen-editor-settings-field">

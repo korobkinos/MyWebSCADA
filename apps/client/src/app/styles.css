@@ -1,32 +1,32 @@
 :root {
-  font-family: "Segoe UI", "Tahoma", sans-serif;
-  --scada-bg: #f4f6f8;
-  --scada-panel-bg: #ffffff;
-  --scada-border: #d9d9d9;
-  --scada-text: #111827;
-  --scada-text-secondary: #6b7280;
-  --scada-header-bg: #ffffff;
-  --scada-ribbon-bg: linear-gradient(180deg, #f8fafc 0%, #f0f4f9 100%);
-  --scada-ribbon-border: #d5dbe6;
-  --scada-canvas-bg: #0f1720;
-  --scada-canvas-border: #2f4050;
-  --scada-selected-row-bg: #e6f4ff;
-  --scada-selected-row-text: #102a43;
+  font-family: var(--app-font-family, "Segoe UI", "Tahoma", sans-serif);
+  --scada-bg: var(--app-bg, #1e1e1e);
+  --scada-panel-bg: var(--app-panel, #252526);
+  --scada-border: var(--app-border, #3c3c3c);
+  --scada-text: var(--app-text, #cccccc);
+  --scada-text-secondary: var(--app-text-muted, #8c8c8c);
+  --scada-header-bg: var(--app-panel, #252526);
+  --scada-ribbon-bg: linear-gradient(180deg, var(--app-panel-alt, #2d2d30) 0%, var(--app-panel, #252526) 100%);
+  --scada-ribbon-border: var(--app-border, #3c3c3c);
+  --scada-canvas-bg: #131619;
+  --scada-canvas-border: var(--app-border, #3c3c3c);
+  --scada-selected-row-bg: #37373d;
+  --scada-selected-row-text: var(--app-text, #cccccc);
 }
 
 .app-theme-dark {
-  --scada-bg: #191a1b;
-  --scada-panel-bg: #202224;
-  --scada-border: #34383d;
-  --scada-text: #e5e7eb;
-  --scada-text-secondary: #9aa1a9;
-  --scada-header-bg: #202224;
-  --scada-ribbon-bg: linear-gradient(180deg, #22262b 0%, #1d2024 100%);
-  --scada-ribbon-border: #34383d;
+  --scada-bg: var(--app-bg, #1e1e1e);
+  --scada-panel-bg: var(--app-panel, #252526);
+  --scada-border: var(--app-border, #3c3c3c);
+  --scada-text: var(--app-text, #cccccc);
+  --scada-text-secondary: var(--app-text-muted, #8c8c8c);
+  --scada-header-bg: var(--app-panel, #252526);
+  --scada-ribbon-bg: linear-gradient(180deg, var(--app-panel-alt, #2d2d30) 0%, var(--app-panel, #252526) 100%);
+  --scada-ribbon-border: var(--app-border, #3c3c3c);
   --scada-canvas-bg: #131619;
-  --scada-canvas-border: #3b4148;
-  --scada-selected-row-bg: #2a3440;
-  --scada-selected-row-text: #e8edf3;
+  --scada-canvas-border: var(--app-border, #3c3c3c);
+  --scada-selected-row-bg: #37373d;
+  --scada-selected-row-text: var(--app-text, #cccccc);
 }
 
 *,
@@ -1326,7 +1326,8 @@ body {
 }
 
 .workbench-input,
-.workbench-select {
+.workbench-select,
+.workbench-select.ant-select {
   width: 100%;
   height: 26px;
   box-sizing: border-box;
@@ -1339,8 +1340,58 @@ body {
   outline: none;
 }
 
+.workbench-select:not(.ant-select) {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 22px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #9a9a9a 50%),
+    linear-gradient(135deg, #9a9a9a 50%, transparent 50%);
+  background-position:
+    calc(100% - 13px) 10px,
+    calc(100% - 8px) 10px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
 .workbench-input:focus,
 .workbench-select:focus {
+  border-color: #007acc;
+}
+
+.workbench-input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.workbench-input[type="number"]::-webkit-outer-spin-button,
+.workbench-input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.workbench-select.ant-select .ant-select-selector {
+  height: 24px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.workbench-select.ant-select .ant-select-selection-item,
+.workbench-select.ant-select .ant-select-selection-placeholder {
+  line-height: 24px !important;
+  color: #cccccc !important;
+  font-size: 12px !important;
+}
+
+.workbench-select.ant-select .ant-select-arrow {
+  color: #a8a8a8 !important;
+  font-size: 10px !important;
+}
+
+.workbench-select.ant-select.ant-select-focused {
   border-color: #007acc;
 }
 
@@ -1366,6 +1417,10 @@ body {
 .workbench-select optgroup {
   background: #1e1e1e;
   color: #cccccc;
+}
+
+.workbench-select::-ms-expand {
+  display: none;
 }
 
 .workbench-select-menu {
@@ -2808,6 +2863,7 @@ body {
 }
 
 .project-manager-window {
+  --project-manager-field-width: 520px;
   height: 100%;
   min-height: 0;
   display: flex;
@@ -2965,7 +3021,18 @@ body {
 
 .project-manager-workflow > .workbench-select,
 .project-manager-workflow > .workbench-field {
-  max-width: 520px;
+  width: min(100%, var(--project-manager-field-width));
+  max-width: var(--project-manager-field-width);
+}
+
+.project-manager-window .workbench-field .workbench-input,
+.project-manager-window .workbench-field .workbench-select,
+.project-manager-window .workbench-field .workbench-select.ant-select,
+.project-manager-window .workbench-field .ant-select,
+.project-manager-window .workbench-field .ant-input-number,
+.project-manager-window .workbench-field .ant-input-number-affix-wrapper,
+.project-manager-window .workbench-field .ant-picker {
+  width: 100% !important;
 }
 
 .project-manager-workflow-selector {
@@ -3389,6 +3456,10 @@ body {
   gap: 8px;
 }
 
+.screen-editor-project-settings-window {
+  --project-settings-field-width: 520px;
+}
+
 .screen-editor-settings-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3400,6 +3471,8 @@ body {
   gap: 4px;
   font-size: 11px;
   color: #bcbcbc;
+  width: min(100%, var(--project-settings-field-width));
+  max-width: var(--project-settings-field-width);
 }
 
 .screen-editor-settings-check {
@@ -3421,6 +3494,18 @@ body {
 
 .screen-editor-settings-field .ant-input {
   min-width: 0;
+}
+
+.screen-editor-project-settings-window .screen-editor-settings-field .workbench-input,
+.screen-editor-project-settings-window .screen-editor-settings-field .workbench-select,
+.screen-editor-project-settings-window .screen-editor-settings-field .workbench-select.ant-select,
+.screen-editor-project-settings-window .screen-editor-settings-field .ant-select,
+.screen-editor-project-settings-window .screen-editor-settings-field .ant-select-selector,
+.screen-editor-project-settings-window .screen-editor-settings-field .ant-input-number,
+.screen-editor-project-settings-window .screen-editor-settings-field .ant-input-number-affix-wrapper,
+.screen-editor-project-settings-window .screen-editor-settings-field .ant-input,
+.screen-editor-project-settings-window .screen-editor-settings-field .ant-picker {
+  width: 100% !important;
 }
 
 .screen-editor-settings-input-number,
@@ -5815,6 +5900,9 @@ body {
 }
 
 /* Ant Design portals in Workbench dark theme */
+.app-workbench-theme .ant-select-dropdown,
+.app-workbench-theme .ant-dropdown-menu,
+.app-workbench-theme .ant-popover .ant-popover-inner,
 .workbench-theme .ant-modal-content,
 .workbench-theme .ant-modal-header,
 .workbench-theme .ant-modal-footer,
@@ -5826,6 +5914,13 @@ body {
   color: #cccccc !important;
 }
 
+.app-workbench-theme .ant-select-dropdown,
+.app-workbench-theme .ant-dropdown-menu {
+  border: 1px solid #3c3c3c !important;
+  border-radius: 0 !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45) !important;
+}
+
 .workbench-theme .ant-modal-title,
 .workbench-theme .ant-modal-confirm-title,
 .workbench-theme .ant-modal-confirm-content,
@@ -5834,6 +5929,11 @@ body {
   color: #cccccc !important;
 }
 
+.app-workbench-theme .ant-input,
+.app-workbench-theme .ant-input-number,
+.app-workbench-theme .ant-select-selector,
+.app-workbench-theme .ant-picker,
+.app-workbench-theme textarea,
 .workbench-theme .ant-input,
 .workbench-theme .ant-input-number,
 .workbench-theme .ant-select-selector,
@@ -5844,6 +5944,22 @@ body {
   color: #cccccc !important;
 }
 
+.app-workbench-theme .ant-input-number-input,
+.app-workbench-theme .ant-input::placeholder,
+.app-workbench-theme .ant-select-selection-placeholder,
+.workbench-theme .ant-input-number-input,
+.workbench-theme .ant-input::placeholder,
+.workbench-theme .ant-select-selection-placeholder {
+  color: #a8a8a8 !important;
+}
+
+.app-workbench-theme .ant-select,
+.app-workbench-theme .ant-input-number,
+.workbench-theme .ant-select,
+.workbench-theme .ant-input-number {
+  height: 26px !important;
+}
+
 .workbench-theme .ant-input:focus,
 .workbench-theme .ant-input-focused,
 .workbench-theme .ant-input-number-focused,
@@ -5852,20 +5968,70 @@ body {
   box-shadow: none !important;
 }
 
-.workbench-theme .ant-select-item,
-.workbench-theme .ant-dropdown-menu-item {
-  color: #cccccc !important;
+.app-workbench-theme .ant-input:focus,
+.app-workbench-theme .ant-input-focused,
+.app-workbench-theme .ant-input-number-focused,
+.app-workbench-theme .ant-select-focused .ant-select-selector {
+  border-color: #007acc !important;
+  box-shadow: none !important;
 }
 
+.app-workbench-theme .ant-input-number .ant-input-number-handler-wrap,
+.workbench-theme .ant-input-number .ant-input-number-handler-wrap {
+  width: 24px !important;
+  opacity: 1 !important;
+  background: #252526 !important;
+  border-left: 1px solid #3c3c3c !important;
+}
+
+.app-workbench-theme .ant-input-number .ant-input-number-handler,
+.workbench-theme .ant-input-number .ant-input-number-handler {
+  border-color: #3c3c3c !important;
+  background: #252526 !important;
+}
+
+.app-workbench-theme .ant-input-number .ant-input-number-handler-up-inner,
+.app-workbench-theme .ant-input-number .ant-input-number-handler-down-inner,
+.workbench-theme .ant-input-number .ant-input-number-handler-up-inner,
+.workbench-theme .ant-input-number .ant-input-number-handler-down-inner {
+  color: #9a9a9a !important;
+  font-size: 8px !important;
+}
+
+.app-workbench-theme .ant-input-number:hover .ant-input-number-handler-wrap,
+.workbench-theme .ant-input-number:hover .ant-input-number-handler-wrap {
+  opacity: 1 !important;
+}
+
+.workbench-theme .ant-select-item,
+.app-workbench-theme .ant-select-item,
+.app-workbench-theme .ant-dropdown-menu-item,
+.workbench-theme .ant-dropdown-menu-item {
+  color: #cccccc !important;
+  min-height: 24px !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+}
+
+.app-workbench-theme .ant-select-item-option-active,
+.app-workbench-theme .ant-dropdown-menu-item:hover,
 .workbench-theme .ant-select-item-option-active,
 .workbench-theme .ant-dropdown-menu-item:hover {
   background: #2a2d2e !important;
   color: #ffffff !important;
 }
 
+.app-workbench-theme .ant-select-item-option-selected,
 .workbench-theme .ant-select-item-option-selected {
   background: #37373d !important;
   color: #ffffff !important;
+}
+
+.app-workbench-theme .ant-select-selector,
+.app-workbench-theme .ant-select-selection-item,
+.app-workbench-theme .ant-select-selection-placeholder,
+.app-workbench-theme .ant-select-arrow {
+  color: #cccccc !important;
 }
 
 .workbench-theme .ant-btn-default {
@@ -6642,6 +6808,16 @@ body {
 .object-property-tabs--numeric .ant-tabs-ink-bar {
   background: #4d89ff;
   height: 2px !important;
+}
+
+.object-property-panel--workbench .ant-tabs-content-holder:focus,
+.object-property-panel--workbench .ant-tabs-content:focus,
+.object-property-panel--workbench .ant-tabs-tabpane:focus,
+.project-manager-window .ant-tabs-content-holder:focus,
+.project-manager-window .ant-tabs-content:focus,
+.project-manager-window .ant-tabs-tabpane:focus {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .object-property-panel__runtime-switch-row {

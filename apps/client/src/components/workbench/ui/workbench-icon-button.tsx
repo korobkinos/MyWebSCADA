@@ -1,9 +1,11 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ReactNode } from "react";
+import { AppIconButton, type AppIconButtonProps } from "../../../ui";
 
-type WorkbenchIconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+type WorkbenchIconButtonProps = Omit<AppIconButtonProps, "icon" | "active" | "title" | "type"> & {
   icon: ReactNode;
   active?: boolean;
   title: string;
+  type?: "button" | "submit" | "reset";
 };
 
 export function WorkbenchIconButton({
@@ -15,18 +17,13 @@ export function WorkbenchIconButton({
   ...props
 }: WorkbenchIconButtonProps) {
   return (
-    <button
+    <AppIconButton
       type={type}
       title={title}
-      aria-label={title}
-      className={[
-        "workbench-icon-button",
-        active ? "workbench-icon-button--active" : "",
-        className ?? "",
-      ].filter(Boolean).join(" ")}
+      icon={icon}
+      active={active}
+      className={className}
       {...props}
-    >
-      {icon}
-    </button>
+    />
   );
 }

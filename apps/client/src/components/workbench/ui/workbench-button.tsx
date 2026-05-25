@@ -1,32 +1,21 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-
-type WorkbenchButtonVariant = "default" | "primary" | "danger" | "ghost";
+import { AppButton, type AppButtonVariant } from "../../../ui";
 
 type WorkbenchButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: WorkbenchButtonVariant;
+  variant?: AppButtonVariant;
   icon?: ReactNode;
 };
 
-export function WorkbenchButton({
-  variant = "default",
-  icon,
-  className,
-  children,
-  type = "button",
-  ...props
-}: WorkbenchButtonProps) {
+export function WorkbenchButton({ variant = "default", icon, className, children, type = "button", ...props }: WorkbenchButtonProps) {
   return (
-    <button
+    <AppButton
       type={type}
-      className={[
-        "workbench-button",
-        `workbench-button--${variant}`,
-        className ?? "",
-      ].filter(Boolean).join(" ")}
+      variant={variant}
+      icon={icon}
+      className={className}
       {...props}
     >
-      {icon ? <span className="workbench-button__icon">{icon}</span> : null}
-      {children ? <span className="workbench-button__label">{children}</span> : null}
-    </button>
+      {children}
+    </AppButton>
   );
 }

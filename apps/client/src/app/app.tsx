@@ -222,20 +222,22 @@ export function App() {
   if (isEditorRoute) {
     return (
       <ConfigProvider theme={themeConfig}>
-        <Suspense fallback={<CenteredSpinner />}>
-          <Routes>
-            <Route
-              path="/editor"
-              element={
-                <RequirePermission permission="editor.view">
-                  <EditorPage />
-                </RequirePermission>
-              }
-            />
-            <Route path="/macros" element={<Navigate to="/editor" replace />} />
-            <Route path="*" element={<Navigate to="/editor" replace />} />
-          </Routes>
-        </Suspense>
+        <div className="app-theme-dark" style={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
+          <Suspense fallback={<CenteredSpinner />}>
+            <Routes>
+              <Route
+                path="/editor"
+                element={
+                  <RequirePermission permission="editor.view">
+                    <EditorPage />
+                  </RequirePermission>
+                }
+              />
+              <Route path="/macros" element={<Navigate to="/editor" replace />} />
+              <Route path="*" element={<Navigate to="/editor" replace />} />
+            </Routes>
+          </Suspense>
+        </div>
       </ConfigProvider>
     );
   }
@@ -307,7 +309,7 @@ export function App() {
       <ConfigProvider theme={themeConfig}>
       <div
         className={`app-theme-${uiTheme}`}
-        style={{ width: "100vw", height: "100vh", background: uiTheme === "dark" ? "#191A1B" : "#0b1016", overflow: "hidden", position: "relative" }}
+        style={{ width: "100vw", height: "100vh", background: "var(--app-bg)", overflow: "hidden", position: "relative" }}
       >
         <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 1200 }}>
           <div style={{ position: "fixed", top: 12, right: 16, pointerEvents: "auto" }}>

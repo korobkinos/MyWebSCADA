@@ -23,6 +23,7 @@ import { MacroCodeEditor, type MacroCodeEditorHandle, buildApiSnippet } from "..
 import { macroApiDocumentation, macroExamples, macroTemplates } from "../../../hmi/editor/macro-api-doc";
 import { showProjectCleanupHint } from "../../../services/cleanup-hint";
 import { useScadaStore } from "../../../store/scada-store";
+import { appToast } from "../../../ui";
 
 type MacroWithExtras = MacroDefinition & {
   options?: Record<string, unknown>;
@@ -903,7 +904,7 @@ export function ScreenEditorMacrosWindow() {
 
     const name = draftMacro.name.trim();
     if (!name) {
-      void message.error("Macro name is required");
+      appToast.error("Save failed", { details: "Macro name is required" });
       appendConsole("error", "Save failed: macro name is empty");
       return;
     }
@@ -943,7 +944,7 @@ export function ScreenEditorMacrosWindow() {
         const ts = formatTimestamp();
         setLastSaveAt(ts);
         appendConsole("success", `Macro saved locally: ${localUpdated.name}`);
-        void message.success("Macro saved locally. Click Save Project to persist");
+        appToast.success("Saved", { details: "Macro saved locally. Click Save Project to persist" });
         return;
       }
       const updated = await updateMacro(selectedMacro.id, payload);
@@ -961,13 +962,13 @@ export function ScreenEditorMacrosWindow() {
       if ((updated as MacroDefinition).validation?.status === "error") {
         const details = macroValidationErrors(updated as MacroDefinition).join("; ");
         appendConsole("warn", `Validation error: ${details || "Macro is invalid"}`);
-        void message.warning(`Macro saved with validation errors: ${details || "Unknown error"}`);
+        appToast.warning("Saved", { details: `Macro validation warnings: ${details || "Unknown error"}` });
       }
-      void message.success("Macro saved");
+      appToast.success("Saved");
     } catch (error) {
       const text = parseErrorText(error);
       appendConsole("error", `Save failed: ${text}`);
-      void message.error(text || "Failed to save macro");
+      appToast.error("Save failed", { details: text || "Failed to save macro" });
     } finally {
       setSaving(false);
     }
@@ -1774,3 +1775,4 @@ const cmdTag = resolveTag(".StartCmd", prefix);`}</pre>
     </div>
   );
 }
+

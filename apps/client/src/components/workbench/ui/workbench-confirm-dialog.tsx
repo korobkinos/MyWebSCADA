@@ -1,4 +1,4 @@
-import { WorkbenchButton } from "./workbench-button";
+import { AppButton, AppDialog } from "../../../ui";
 
 type WorkbenchConfirmDialogProps = {
   open: boolean;
@@ -21,22 +21,25 @@ export function WorkbenchConfirmDialog({
   onCancel,
   onConfirm,
 }: WorkbenchConfirmDialogProps) {
-  if (!open) {
-    return null;
-  }
-
   return (
-    <div className="workbench-confirm-backdrop">
-      <div className="workbench-confirm-dialog">
-        <div className="workbench-confirm-dialog__header">{title}</div>
-        <div className="workbench-confirm-dialog__body">{message}</div>
+    <AppDialog
+      isOpen={open}
+      onClose={onCancel}
+      title={title}
+      canEscapeKeyClose={!busy}
+      canOutsideClickClose={!busy}
+      className="workbench-confirm-dialog"
+      bodyClassName="workbench-confirm-dialog__body"
+      footer={(
         <div className="workbench-confirm-dialog__actions">
-          <WorkbenchButton onClick={onCancel} disabled={busy}>Cancel</WorkbenchButton>
-          <WorkbenchButton variant={confirmVariant} onClick={onConfirm} disabled={busy}>
+          <AppButton onClick={onCancel} disabled={busy}>Cancel</AppButton>
+          <AppButton variant={confirmVariant} onClick={onConfirm} disabled={busy}>
             {busy ? "Working..." : confirmLabel}
-          </WorkbenchButton>
+          </AppButton>
         </div>
-      </div>
-    </div>
+      )}
+    >
+      {message}
+    </AppDialog>
   );
 }

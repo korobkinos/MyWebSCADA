@@ -81,6 +81,7 @@ export function ScreenEditorScreenSettingsWindow(props: ScreenEditorScreenSettin
                 onChangeComplete={(color) => onUpdateScreen({ background: color.toHexString() })}
               />
               <Input
+                className="workbench-input"
                 value={screen.background ?? "#1e1e1e"}
                 onChange={(event) => onUpdateScreen({ background: event.target.value })}
                 placeholder="#1e1e1e"

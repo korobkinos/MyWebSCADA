@@ -2,8 +2,12 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import "@ant-design/v5-patch-for-react-19";
+import "@blueprintjs/core/lib/css/blueprint.css";
+import "@blueprintjs/icons/lib/css/blueprint-icons.css";
 import { App } from "./app/app";
+import { AppUiProvider } from "./ui";
 import "antd/dist/reset.css";
+import "./ui/theme.css";
 import "./app/styles.css";
 
 const STYLE_GUARD_KEY = "__scadaInvalidStyleGuardInstalled__";
@@ -51,7 +55,9 @@ installInvalidStyleGuard();
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <AppUiProvider>
+        <App />
+      </AppUiProvider>
     </BrowserRouter>
   </StrictMode>,
 );

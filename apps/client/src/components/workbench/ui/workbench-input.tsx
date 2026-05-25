@@ -1,4 +1,5 @@
 import { forwardRef, type InputHTMLAttributes } from "react";
+import { AppInput } from "../../../ui";
 
 type WorkbenchInputProps = InputHTMLAttributes<HTMLInputElement> & {
   label?: string;
@@ -15,24 +16,5 @@ export const WorkbenchInput = forwardRef<HTMLInputElement, WorkbenchInputProps>(
   },
   ref,
 ) {
-  const input = (
-    <input
-      ref={ref}
-      id={id}
-      className={["workbench-input", errorText ? "workbench-input--error" : "", className ?? ""].filter(Boolean).join(" ")}
-      {...props}
-    />
-  );
-
-  if (!label) {
-    return input;
-  }
-
-  return (
-    <label className={["workbench-field", errorText ? "workbench-field--error" : ""].filter(Boolean).join(" ")}>
-      <span className="workbench-field__label">{label}</span>
-      {input}
-      {errorText ? <span className="workbench-field__error">{errorText}</span> : null}
-    </label>
-  );
+  return <AppInput ref={ref} id={id} label={label} errorText={errorText} className={className} {...(props as any)} />;
 });

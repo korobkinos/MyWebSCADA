@@ -34,6 +34,7 @@ import {
 import { api } from "../services/api";
 import { createObjectByType } from "../hmi/editor/default-object-factory";
 import { useScadaStore } from "../store/scada-store";
+import { appToast } from "../ui";
 import { isTextEditingTarget } from "../utils/keyboard";
 import {
   ScadaWorkbenchLayout,
@@ -490,12 +491,12 @@ export function EditorPage() {
       setSaveStatusText("Saved");
       setSavedProjectSignature(buildProjectSaveSignature(latestProject));
       appendEditorLog("success", "action=save-project status=OK");
-      void message.success("Project saved");
+      appToast.success("Saved");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setSaveStatusText("Save failed");
       appendEditorLog("error", `action=save-project status=ERROR error=${errorMessage || "unknown error"}`);
-      void message.error(errorMessage || "Failed to save project");
+      appToast.error("Save failed", errorMessage ? { details: errorMessage } : undefined);
     } finally {
       setIsSavingProject(false);
     }
@@ -898,7 +899,7 @@ export function EditorPage() {
       setSaveStatusText("Saved");
       setSavedProjectSignature(buildProjectSaveSignature(latestProject));
       appendEditorLog("success", `action=save-object status=OK object=${objectName} id=${object.id}`);
-      void message.success(`Object saved: ${objectName}`);
+      appToast.success("Saved");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setSaveStatusText("Save failed");
@@ -906,7 +907,7 @@ export function EditorPage() {
         "error",
         `action=save-object status=ERROR object=${objectName} id=${object.id} error=${errorMessage || "unknown error"}`,
       );
-      void message.error(errorMessage || "Failed to save object");
+      appToast.error("Save failed", errorMessage ? { details: errorMessage } : undefined);
     } finally {
       setIsSavingProject(false);
     }
@@ -1962,3 +1963,4 @@ function resolveBindingRefsInObject(object: HmiObject, resolvedBindings: Record<
     }
   }
 }
+

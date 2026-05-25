@@ -46,6 +46,17 @@ function normalizeGridOpacity(value: number | undefined): number {
   return Math.min(1, Math.max(0, value ?? 0.08));
 }
 
+function toInputNumberValue(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 type ScreenEditorProjectSettingsWindowProps = {
   project: ScadaProject;
   onUpdateProject: (next: ScadaProject) => void;
@@ -179,6 +190,7 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
                 onChangeComplete={(color) => updateEditorSettings({ editorGridColor: color.toHexString() })}
               />
               <Input
+                className="workbench-input"
                 value={project.editorSettings?.editorGridColor ?? "#bfc7d5"}
                 onChange={(event) => updateEditorSettings({ editorGridColor: event.target.value })}
                 placeholder="#bfc7d5"
@@ -210,6 +222,7 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
           <label className="screen-editor-settings-field">
             <span>Editor grid line style</span>
             <Select
+              className="workbench-select"
               value={project.editorSettings?.editorGridLineStyle ?? "solid"}
               options={[
                 { label: "Solid", value: "solid" },
@@ -222,14 +235,13 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
           </label>
           <label className="screen-editor-settings-field">
             <span>Arrow key move step (px)</span>
-            <input
-              className="workbench-input"
-              type="number"
+            <InputNumber
+              className="screen-editor-settings-input-number"
               min={0.1}
               step={0.1}
-              value={project.editorSettings?.keyboardNudgeStepPx ?? 1}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
+              value={toInputNumberValue(project.editorSettings?.keyboardNudgeStepPx) ?? 1}
+              onChange={(value) => {
+                const parsed = Number(value);
                 updateEditorSettings({
                   keyboardNudgeStepPx: Number.isFinite(parsed) && parsed > 0 ? parsed : 1,
                 });

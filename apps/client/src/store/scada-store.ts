@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { message } from "antd";
+import { appToast } from "../ui";
 import type {
   Asset,
   AppPermission,
@@ -278,12 +278,12 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
       const saved = await api.saveProject(project);
       set({ project: saved });
       if (shouldNotify) {
-        void message.success("Saved");
+        appToast.success("Saved");
       }
     } catch (error) {
       if (shouldNotify) {
         const details = error instanceof Error ? error.message.trim() : "";
-        void message.error(details ? `Save failed: ${details}` : "Save failed");
+        appToast.error("Save failed", details ? { details } : undefined);
       }
       throw error;
     }
@@ -780,3 +780,4 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     });
   },
 }));
+

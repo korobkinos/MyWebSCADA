@@ -17,6 +17,7 @@ import { useSnapshotHistory } from "../hooks/use-snapshot-history";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { api } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
+import { appToast } from "../ui";
 import { isTextEditingTarget } from "../utils/keyboard";
 import {
   ScadaWorkbenchLayout,
@@ -1531,9 +1532,9 @@ export function ElementEditorPage() {
       setDraftElement(normalized);
       setDraftIsNew(false);
       setDirty(false);
-      void message.success("Element saved");
+      appToast.success("Saved");
     } catch (error) {
-      void message.error(toActionErrorMessage(error) || "Failed to save element");
+      appToast.error("Save failed", { details: toActionErrorMessage(error) || "Failed to save element" });
       return;
     }
   }
@@ -2617,3 +2618,4 @@ export function ElementEditorPage() {
     </div>
   );
 }
+

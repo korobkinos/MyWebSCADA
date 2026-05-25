@@ -43,6 +43,7 @@ import {
 import { eventSoundPlayer } from "../features/events/event-sound-player";
 import { api } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
+import { appToast } from "../ui";
 
 type EventColumnId =
   | "enabled"
@@ -2543,7 +2544,7 @@ export function EventsPage() {
     );
     setDraftErrors(errors);
     if (Object.keys(errors).length > 0) {
-      void message.error("Save failed: check highlighted fields");
+      appToast.error("Save failed", { details: "Check highlighted fields" });
       return;
     }
 
@@ -2563,7 +2564,7 @@ export function EventsPage() {
         ? " Source/security tag is missing, event was disabled."
         : "";
       setStatusText(`Updated event ${nextEvent.id}.${autoDisabledText}`);
-      void message.success("Saved");
+      appToast.success("Saved");
     } else {
       const nextEvents = [...events, nextEvent];
       const reconciled = reconcileEventsWithProjectTags(nextEvents, project);
@@ -2572,7 +2573,7 @@ export function EventsPage() {
         ? " Source/security tag is missing, event was disabled."
         : "";
       setStatusText(`Added event ${nextEvent.id}.${autoDisabledText}`);
-      void message.success("Saved");
+      appToast.success("Saved");
     }
 
     setEditorMode("view");
@@ -4212,3 +4213,4 @@ export function EventsPage() {
     </div>
   );
 }
+

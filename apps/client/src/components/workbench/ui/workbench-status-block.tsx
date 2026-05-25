@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AppStatusBadge } from "../../../ui";
 
 export type WorkbenchStatusVariant = "info" | "success" | "warning" | "error";
 
@@ -26,7 +27,9 @@ export function WorkbenchStatusBlock({
 }: WorkbenchStatusBlockProps) {
   return (
     <div className={["workbench-status-block", `workbench-status-block--${variant}`, className ?? ""].filter(Boolean).join(" ")}>
-      <div className="workbench-status-block__title">{title}</div>
+      <div className="workbench-status-block__title">
+        <AppStatusBadge variant={variant}>{title}</AppStatusBadge>
+      </div>
       {description ? <div className="workbench-status-block__description">{description}</div> : null}
       {rows && rows.length > 0 ? (
         <div className="workbench-status-block__grid">

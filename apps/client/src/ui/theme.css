@@ -1,0 +1,257 @@
+:root {
+  --app-bg: #1e1e1e;
+  --app-panel: #252526;
+  --app-panel-alt: #2d2d30;
+  --app-sidebar: #252526;
+  --app-toolbar: #2d2d30;
+  --app-border: #3c3c3c;
+  --app-border-strong: #4a4a4a;
+  --app-text: #cccccc;
+  --app-text-muted: #8c8c8c;
+  --app-text-disabled: #6f6f6f;
+  --app-accent: #007acc;
+  --app-accent-hover: #0e639c;
+  --app-error: #f14c4c;
+  --app-warning: #cca700;
+  --app-success: #89d185;
+  --app-info: #4fc1ff;
+  --app-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --app-radius-sm: 4px;
+  --app-radius-md: 6px;
+  --app-font-family: "Segoe UI", "Tahoma", sans-serif;
+  --app-font-size: 12px;
+  --app-control-height: 26px;
+
+  --scada-bg: var(--app-bg);
+  --scada-panel-bg: var(--app-panel);
+  --scada-border: var(--app-border);
+  --scada-text: var(--app-text);
+  --scada-text-secondary: var(--app-text-muted);
+  --scada-header-bg: var(--app-panel);
+  --scada-ribbon-bg: linear-gradient(180deg, var(--app-panel-alt) 0%, var(--app-panel) 100%);
+  --scada-ribbon-border: var(--app-border);
+  --scada-canvas-bg: #131619;
+  --scada-canvas-border: var(--app-border);
+  --scada-selected-row-bg: #37373d;
+  --scada-selected-row-text: var(--app-text);
+}
+
+.app-theme-light {
+  --app-bg: #1e1e1e;
+  --app-panel: #252526;
+  --app-panel-alt: #2d2d30;
+  --app-sidebar: #252526;
+  --app-toolbar: #2d2d30;
+  --app-border: #3c3c3c;
+  --app-border-strong: #4a4a4a;
+  --app-text: #cccccc;
+  --app-text-muted: #8c8c8c;
+  --app-text-disabled: #6f6f6f;
+  --app-accent: #007acc;
+  --app-accent-hover: #0e639c;
+}
+
+html,
+body,
+#root {
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: var(--app-font-family);
+  font-size: var(--app-font-size);
+}
+
+.app-ui-root {
+  width: 100%;
+  height: 100%;
+}
+
+.bp6-dark,
+.bp6-dark .bp6-input,
+.bp6-dark .bp6-button,
+.bp6-dark .bp6-dialog {
+  font-family: var(--app-font-family);
+  font-size: var(--app-font-size);
+}
+
+.bp6-button,
+.bp6-input,
+.bp6-html-select select,
+.bp6-control-indicator {
+  border-radius: var(--app-radius-sm);
+}
+
+.bp6-button {
+  min-height: var(--app-control-height);
+}
+
+.bp6-dark .workbench-button.bp6-button {
+  min-height: var(--app-control-height);
+  border: 1px solid var(--app-border) !important;
+  background: var(--app-panel-alt) !important;
+  color: var(--app-text) !important;
+  box-shadow: none !important;
+}
+
+.bp6-dark .workbench-button.bp6-button:hover:not(:disabled),
+.bp6-dark .workbench-button.bp6-button:active:not(:disabled) {
+  background: #37373d !important;
+  color: #ffffff !important;
+}
+
+.bp6-dark .workbench-button--primary.bp6-button {
+  border-color: var(--app-accent) !important;
+  background: var(--app-accent-hover) !important;
+  color: #ffffff !important;
+}
+
+.bp6-dark .workbench-button--primary.bp6-button:hover:not(:disabled) {
+  background: #1177bb !important;
+}
+
+.bp6-dark .workbench-button--danger.bp6-button {
+  border-color: #5a1d1d !important;
+  background: #3a1d1d !important;
+  color: #f2c5c5 !important;
+}
+
+.bp6-dark .workbench-button--danger.bp6-button:hover:not(:disabled) {
+  background: #5a2525 !important;
+}
+
+.bp6-dark .workbench-button--ghost.bp6-button {
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+.bp6-dark .workbench-icon-button.bp6-button {
+  min-width: var(--app-control-height);
+  min-height: var(--app-control-height);
+  width: var(--app-control-height);
+  height: var(--app-control-height);
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--app-text) !important;
+  box-shadow: none !important;
+}
+
+.bp6-dark .workbench-icon-button.bp6-button:hover:not(:disabled) {
+  background: #2a2d2e !important;
+  color: #ffffff !important;
+}
+
+.bp6-dark .workbench-icon-button--active.bp6-button {
+  background: #37373d !important;
+  border-color: var(--app-border) !important;
+  color: #ffffff !important;
+}
+
+.bp6-dark .workbench-button .bp6-icon,
+.bp6-dark .workbench-icon-button .bp6-icon,
+.bp6-dark .workbench-button .anticon,
+.bp6-dark .workbench-icon-button .anticon {
+  color: currentColor !important;
+}
+
+.bp6-dark .workbench-input.bp6-input,
+.bp6-dark .workbench-input.bp6-input:focus {
+  background: var(--app-bg) !important;
+  border-color: var(--app-border) !important;
+  color: var(--app-text) !important;
+  box-shadow: none !important;
+}
+
+.bp6-dark .workbench-select.bp6-html-select select {
+  height: var(--app-control-height);
+  background: var(--app-bg) !important;
+  border-color: var(--app-border) !important;
+  color: var(--app-text) !important;
+}
+
+.bp6-dark .workbench-select.bp6-html-select::after {
+  border-top-color: var(--app-text-muted) !important;
+}
+
+.bp6-dialog {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow);
+}
+
+.bp6-dialog-header,
+.bp6-dialog-footer {
+  background: var(--app-panel-alt);
+  border-color: var(--app-border);
+}
+
+.bp6-dialog-body {
+  color: var(--app-text);
+}
+
+.app-dialog__body {
+  padding: 10px;
+}
+
+.app-dialog__footer {
+  padding: 8px 10px;
+  border-top: 1px solid var(--app-border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.app-toast-container .bp6-toast {
+  background: var(--app-panel-alt);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow);
+}
+
+.app-toast-container .bp6-toast.bp6-intent-success {
+  border-left: 3px solid var(--app-success);
+}
+
+.app-toast-container .bp6-toast.bp6-intent-danger {
+  border-left: 3px solid var(--app-error);
+}
+
+.app-toast-container .bp6-toast.bp6-intent-warning {
+  border-left: 3px solid var(--app-warning);
+}
+
+.app-toast-container .bp6-toast.bp6-intent-primary {
+  border-left: 3px solid var(--app-info);
+}
+
+.app-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border-radius: var(--app-radius-sm);
+  border: 1px solid var(--app-border);
+  background: var(--app-panel-alt);
+  color: var(--app-text);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.app-status-badge--success {
+  border-color: color-mix(in srgb, var(--app-success) 55%, var(--app-border));
+  color: var(--app-success);
+}
+
+.app-status-badge--warning {
+  border-color: color-mix(in srgb, var(--app-warning) 55%, var(--app-border));
+  color: var(--app-warning);
+}
+
+.app-status-badge--error {
+  border-color: color-mix(in srgb, var(--app-error) 55%, var(--app-border));
+  color: var(--app-error);
+}
+
+.app-status-badge--info {
+  border-color: color-mix(in srgb, var(--app-info) 55%, var(--app-border));
+  color: var(--app-info);
+}
