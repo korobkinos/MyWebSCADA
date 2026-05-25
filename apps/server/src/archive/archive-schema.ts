@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS archive_policies (
 CREATE TABLE IF NOT EXISTS archive_runtime_settings (
     id SMALLINT PRIMARY KEY CHECK (id = 1),
     auto_cleanup_enabled BOOLEAN NOT NULL DEFAULT true,
+    archive_new_tags_by_default BOOLEAN NOT NULL DEFAULT false,
     max_db_size_mb INTEGER,
     max_data_age_months INTEGER,
     delete_batch_size INTEGER NOT NULL DEFAULT 500,
@@ -61,6 +62,9 @@ ADD COLUMN IF NOT EXISTS max_maintenance_tick_ms INTEGER NOT NULL DEFAULT 200;
 
 ALTER TABLE archive_runtime_settings
 ADD COLUMN IF NOT EXISTS max_delete_transaction_ms INTEGER NOT NULL DEFAULT 150;
+
+ALTER TABLE archive_runtime_settings
+ADD COLUMN IF NOT EXISTS archive_new_tags_by_default BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS tags (
     id BIGSERIAL PRIMARY KEY,
