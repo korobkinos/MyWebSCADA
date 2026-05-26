@@ -7,6 +7,26 @@ import { MacroService } from "./macro-service.js";
 import { MacroRuntimeRegistry } from "./macro-runtime-registry.js";
 import { logPerf } from "./perf-logger.js";
 
+export function collectAlwaysActiveEventTags(project: Pick<ScadaProject, "events">): string[] {
+  const refs = new Set<string>();
+  for (const event of project.events ?? []) {
+    if (event.enabled === false) {
+      continue;
+    }
+    const sourceTag = event.sourceTagName?.trim();
+    if (sourceTag) {
+      refs.add(sourceTag);
+    }
+    if (event.securityEnabled === true) {
+      const securityTag = event.securityTagName?.trim();
+      if (securityTag) {
+        refs.add(securityTag);
+      }
+    }
+  }
+  return [...refs];
+}
+
 export class RuntimeService {
   private readonly rateTimers = new Map<number, NodeJS.Timeout>();
   private readonly pollGroups = new Map<number, TagDefinition[]>();
@@ -196,6 +216,9 @@ export class RuntimeService {
   private configurePersistentActiveTags(project: ScadaProject): void {
     this.persistentActiveTagNames.clear();
     for (const tag of collectAlwaysActiveMacroTags(project.macros)) {
+      this.persistentActiveTagNames.add(tag);
+    }
+    for (const tag of collectAlwaysActiveEventTags(project)) {
       this.persistentActiveTagNames.add(tag);
     }
     for (const tag of project.runtimeSettings?.alwaysActiveTags ?? []) {
