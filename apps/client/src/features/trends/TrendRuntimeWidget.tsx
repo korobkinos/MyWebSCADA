@@ -1100,12 +1100,16 @@ export function TrendRuntimeWidget({ object, userRoleLevel = 0 }: TrendRuntimeWi
     const liveBootstrapPendingPointCount = liveBootstrapBufferRef.current.length;
     const echartsBufferedPointCount = chartApiRef.current?.getPointCount() ?? 0;
     const echartsRenderedPointCount = chartApiRef.current?.getRenderedPointCount?.() ?? echartsBufferedPointCount;
+    const expectedQueryCountPerMinute = liveMode && liveDataSource === "archivePolling"
+      ? Math.ceil(60_000 / Math.max(250, livePollingIntervalMs)) + 2
+      : 60_000 / MIN_TRENDS_QUERY_INTERVAL_MS + 2;
     return {
       objectId: object.id,
       activeLoopCount: runtimeDiagnostics.activePollingLoopIds
         .filter((loopId) => loopId.endsWith(`:${object.id}`)).length,
       lastQueryTime: trendQueryLastStartedAtRef.current,
       queryCountPerMinute: trendQueryStartedAtRef.current.length,
+      expectedQueryCountPerMinute,
       inFlightQueryCount: trendQueryInFlightCountRef.current,
       pointsInState: offlineBufferedPointCount + liveBufferedPointCount + livePendingPointCount + liveBootstrapPendingPointCount,
       pointsInChart: echartsBufferedPointCount,

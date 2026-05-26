@@ -29,6 +29,7 @@ export type TrendWidgetDiagnostics = {
   activeLoopCount: number;
   lastQueryTime: number | null;
   queryCountPerMinute: number;
+  expectedQueryCountPerMinute?: number;
   inFlightQueryCount: number;
   pointsInState: number;
   pointsInChart: number;
@@ -203,7 +204,9 @@ export function registerPollingLoop(loopId: string): () => void {
 
 export function setTrendWidgetDiagnostics(objectId: string, diagnostics: TrendWidgetDiagnostics): void {
   TREND_WIDGETS.set(objectId, { ...diagnostics });
-  const expectedPerMinute = 60_000 / 2000 + 2;
+  const expectedPerMinute = Number.isFinite(diagnostics.expectedQueryCountPerMinute)
+    ? Math.max(1, Number(diagnostics.expectedQueryCountPerMinute))
+    : 60_000 / 2000 + 2;
   if (diagnostics.queryCountPerMinute > expectedPerMinute) {
     // eslint-disable-next-line no-console
     console.warn("[RuntimeDiagnostics] excessive trend query rate", diagnostics);
