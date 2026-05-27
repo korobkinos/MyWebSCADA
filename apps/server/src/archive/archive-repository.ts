@@ -1223,13 +1223,16 @@ export class ArchiveRepository {
                 WHERE COALESCE(o.compression_after_days, p.compression_after_days) IS NOT NULL
                   AND COALESCE(o.compression_after_days, p.compression_after_days) > 0;
 
-                IF after_days IS NOT NULL THEN
-                    ALTER TABLE archive_samples SET (
-                        timescaledb.compress,
-                        timescaledb.compress_segmentby = 'tag_id'
-                    );
-                    PERFORM add_compression_policy('archive_samples', make_interval(days => after_days), if_not_exists => TRUE);
+                -- Если ни у одного тэга не задан compression_after_days, используем значение по умолчанию 7 дней
+                IF after_days IS NULL THEN
+                    after_days := 7;
                 END IF;
+
+                ALTER TABLE archive_samples SET (
+                    timescaledb.compress,
+                    timescaledb.compress_segmentby = 'tag_id'
+                );
+                PERFORM add_compression_policy('archive_samples', make_interval(days => after_days), if_not_exists => TRUE);
             END IF;
         END $$;
         `,

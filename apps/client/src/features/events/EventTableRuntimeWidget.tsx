@@ -51,6 +51,11 @@ import {
   sortEventRows,
 } from "./event-table-filters";
 import { eventSoundPlayer } from "./event-sound-player";
+import {
+  pickLatestUnacknowledgedActiveOccurrence,
+  shouldCommitOncePlayback,
+  type OncePlaybackOutcome,
+} from "./event-sound-replay";
 import { eventRuntimeStore } from "./event-runtime-store";
 import { api } from "../../services/api";
 
@@ -1272,13 +1277,13 @@ export function EventTableRuntimeWidget({
     });
   }, []);
 
-  const playSoundForOccurrence = useCallback(async (occurrence: EventOccurrence) => {
+  const playSoundForOccurrence = useCallback(async (occurrence: EventOccurrence): Promise<OncePlaybackOutcome> => {
     if (soundPlaybackDisabled) {
-      return;
+      return "skipped";
     }
     const soundId = resolveEventOccurrenceSoundId(occurrence, object, projectEventSounds);
     if (!soundId) {
-      return;
+      return "skipped";
     }
 
     const result = await eventSoundPlayer.playSound(soundId, projectEventSounds);
@@ -1287,11 +1292,11 @@ export function EventTableRuntimeWidget({
         const autoplayText = "Sound playback was blocked by the browser. Click Enable sounds.";
         setSoundStatusText(autoplayText);
         eventRuntimeStore.setSoundStatusMessage(autoplayText);
-        return;
+        return "autoplay_blocked";
       }
       setSoundStatusText(result.message);
       eventRuntimeStore.setSoundStatusMessage(result.message);
-      return;
+      return "error";
     }
 
     if (runtimeEvents.soundStatusMessage) {
@@ -1300,6 +1305,7 @@ export function EventTableRuntimeWidget({
     if (soundStatusText) {
       setSoundStatusText("");
     }
+    return "played";
   }, [object, projectEventSounds, runtimeEvents.soundStatusMessage, soundPlaybackDisabled, soundStatusText]);
 
   const startLoopSoundForOccurrence = useCallback(async (occurrence: EventOccurrence) => {
@@ -1350,21 +1356,25 @@ export function EventTableRuntimeWidget({
       return;
     }
 
-    for (const item of newActive) {
-      const id = normalizeOccurrenceId(item);
-      if (id) {
-        oncePlayedIdsRef.current.add(id);
-      }
-    }
-
-    if (oncePlayedIdsRef.current.size > 20000) {
-      const trimmed = [...oncePlayedIdsRef.current].slice(-10000);
-      oncePlayedIdsRef.current = new Set(trimmed);
-    }
-
     const newest = newActive[newActive.length - 1];
     if (newest) {
-      void playSoundForOccurrence(newest);
+      void playSoundForOccurrence(newest).then((result) => {
+        // Only seal this occurrence after a successful playback (or explicit skip without sound).
+        // If autoplay is blocked, keep it pending so it can be replayed after user enables sounds.
+        if (!shouldCommitOncePlayback(result)) {
+          return;
+        }
+        for (const item of newActive) {
+          const id = normalizeOccurrenceId(item);
+          if (id) {
+            oncePlayedIdsRef.current.add(id);
+          }
+        }
+        if (oncePlayedIdsRef.current.size > 20000) {
+          const trimmed = [...oncePlayedIdsRef.current].slice(-10000);
+          oncePlayedIdsRef.current = new Set(trimmed);
+        }
+      });
     }
   }, [config.soundPlaybackMode, mode, playSoundForOccurrence, runtimeEvents.activeEvents]);
 
@@ -1962,10 +1972,9 @@ export function EventTableRuntimeWidget({
             : (russianUi ? "Звук включён" : "Sounds enabled")}
           active={!soundMuteActive}
           onClick={() => {
-            if (!soundMuteActive) {
-              return;
+            if (soundMuteActive) {
+              unsilenceSounds();
             }
-            unsilenceSounds();
             void eventSoundPlayer.enableSoundsWithUserGesture().then((result) => {
               if (!result.ok) {
                 setSoundStatusText(result.message);
@@ -1974,6 +1983,23 @@ export function EventTableRuntimeWidget({
               }
               setSoundStatusText("");
               eventRuntimeStore.setSoundStatusMessage(null);
+              // Re-play current alarm sound after gesture unlock, including alarms that were active before page reload.
+              const latest = pickLatestUnacknowledgedActiveOccurrence(runtimeEvents.activeEvents);
+              if (!latest) {
+                return;
+              }
+              if (config.soundPlaybackMode === "loopUntilAcknowledged") {
+                void startLoopSoundForOccurrence(latest);
+                return;
+              }
+              void playSoundForOccurrence(latest).then((playResult) => {
+                if (shouldCommitOncePlayback(playResult)) {
+                  const id = normalizeOccurrenceId(latest);
+                  if (id) {
+                    oncePlayedIdsRef.current.add(id);
+                  }
+                }
+              });
             });
           }}
           icon={<SoundOutlined />}
