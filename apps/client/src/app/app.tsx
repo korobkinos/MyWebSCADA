@@ -21,6 +21,25 @@ import { isAbortError } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 const RuntimePage = lazy(() => import("../pages/runtime-page").then((m) => ({ default: m.RuntimePage })));
 const EditorPage = lazy(() => import("../pages/editor-page").then((m) => ({ default: m.EditorPage })));
+const RUNTIME_FULLSCREEN_PREF_KEY = "scada.runtime.fullscreenPreferred";
+
+function readRuntimeFullscreenPreferred(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(RUNTIME_FULLSCREEN_PREF_KEY) === "1";
+}
+
+function setRuntimeFullscreenPreferred(enabled: boolean): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (enabled) {
+    window.localStorage.setItem(RUNTIME_FULLSCREEN_PREF_KEY, "1");
+    return;
+  }
+  window.localStorage.removeItem(RUNTIME_FULLSCREEN_PREF_KEY);
+}
 
 function isBootstrapCancellation(error: unknown): boolean {
   return isAbortError(error);
@@ -132,6 +151,38 @@ export function App() {
       tagBatcher.close();
     };
   }, [isRuntimeRoute, setTagValues]);
+
+  useEffect(() => {
+    if (!isRuntimeRoute || typeof document === "undefined") {
+      return;
+    }
+    if (!readRuntimeFullscreenPreferred()) {
+      return;
+    }
+    if (document.fullscreenElement) {
+      return;
+    }
+
+    let released = false;
+    const requestFullscreen = () => {
+      if (released || document.fullscreenElement) {
+        return;
+      }
+      void document.documentElement.requestFullscreen().catch(() => undefined);
+    };
+
+    requestFullscreen();
+    const onFirstInteraction = () => {
+      requestFullscreen();
+    };
+    window.addEventListener("pointerdown", onFirstInteraction, { once: true });
+    window.addEventListener("keydown", onFirstInteraction, { once: true });
+    return () => {
+      released = true;
+      window.removeEventListener("pointerdown", onFirstInteraction);
+      window.removeEventListener("keydown", onFirstInteraction);
+    };
+  }, [isRuntimeRoute]);
 
   useEffect(() => {
     const onInvalidAuth = () => {
@@ -277,10 +328,14 @@ export function App() {
         icon: <MenuOutlined />,
         onClick: () => {
           if (document.fullscreenElement) {
+            setRuntimeFullscreenPreferred(false);
             void document.exitFullscreen();
             return;
           }
-          void document.documentElement.requestFullscreen();
+          setRuntimeFullscreenPreferred(true);
+          void document.documentElement.requestFullscreen().catch(() => {
+            setRuntimeFullscreenPreferred(false);
+          });
         },
       },
       {
