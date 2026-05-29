@@ -3959,17 +3959,32 @@ body {
 }
 
 .screen-editor-library-interface__row-delete {
+  flex: 0 0 auto;
+  min-width: 24px;
   width: 24px;
   height: 24px;
   border: 1px solid #5e2a2a;
   background: #2e1a1a;
   color: #ff9c9c;
   border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.screen-editor-library-interface__row-delete:hover {
+.screen-editor-library-interface__row-delete:hover:not(:disabled) {
   background: #452020;
   color: #ffd0d0;
+}
+
+.screen-editor-library-interface__row-delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .screen-editor-library-interface__color-swatch {

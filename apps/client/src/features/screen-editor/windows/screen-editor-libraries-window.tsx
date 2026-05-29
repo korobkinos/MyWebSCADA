@@ -15,7 +15,7 @@ import type {
 } from "@web-scada/shared";
 import { api } from "../../../services/api";
 import { showProjectCleanupHint } from "../../../services/cleanup-hint";
-import { WorkbenchButton, WorkbenchIconButton, WorkbenchSection, WorkbenchTabs, type WorkbenchTabItem } from "../../../components/workbench";
+import { WorkbenchButton, WorkbenchSection, WorkbenchTabs, type WorkbenchTabItem } from "../../../components/workbench";
 import {
   createObjectIoAction,
   getObjectIoActionMode,
@@ -3856,17 +3856,20 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                     />
                   ) : null}
                 </div>
-                <WorkbenchIconButton
+                <button
+                  type="button"
                   className="screen-editor-library-interface__row-delete"
-                  icon={"\u00d7"}
                   title="Delete condition"
+                  aria-label="Delete condition"
                   disabled={visualRuleDialog.clauses.length <= 1}
                   onClick={() => setVisualRuleDialog((prev) => ({
                     ...prev,
                     clauses: prev.clauses.filter((item) => item.id !== clause.id),
                     validationError: undefined,
                   }))}
-                />
+                >
+                  {"\u00d7"}
+                </button>
                     </>
                   );
                 })()}
@@ -3980,17 +3983,20 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
                 ) : null}
               </div>
 
-              <WorkbenchIconButton
+              <button
+                type="button"
                 className="screen-editor-library-interface__row-delete"
-                icon={"\u00d7"}
                 title="Delete action"
+                aria-label="Delete action"
                 onClick={() => {
                   setVisualRuleDialog((prev) => ({
                     ...prev,
                     actions: prev.actions.filter((_, actionIndex) => actionIndex !== index),
                   }));
                 }}
-              />
+              >
+                {"\u00d7"}
+              </button>
             </div>
           ))}
         </div>
