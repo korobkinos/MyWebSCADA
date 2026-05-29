@@ -28,7 +28,9 @@ export class WebSocketGateway {
       this.clients.add(socket);
       this.subscriptions.set(socket, new Set<string>());
       this.syncRuntimeSubscriptions();
-      this.sendDriverStatusesToClient(socket);
+      const statuses = this.commandService.getDriverStatuses();
+      this.sendDriverStatusesToClient(socket, statuses);
+      this.lastDriverStatusSignature = this.buildDriverStatusSignature(statuses);
 
       socket.on("message", (payload: unknown) => {
         this.handleClientMessage(socket, String(payload));
@@ -216,11 +218,10 @@ export class WebSocketGateway {
     this.broadcastDriverStatuses(statuses);
   }
 
-  private sendDriverStatusesToClient(client: WebSocket): void {
+  private sendDriverStatusesToClient(client: WebSocket, statuses: DriverStatus[]): void {
     if (client.readyState !== client.OPEN) {
       return;
     }
-    const statuses = this.commandService.getDriverStatuses();
     const message: RuntimeWsServerMessage = {
       type: "driver-statuses",
       payload: {

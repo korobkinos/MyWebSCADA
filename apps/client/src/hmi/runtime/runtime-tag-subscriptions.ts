@@ -451,6 +451,15 @@ function collectObjectTags(
         runtimeTagValues,
         dependencyOut,
       });
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "errorTag",
+        rawTagName: resolvedObject.errorTag,
+        context,
+        runtimeTagValues,
+        dependencyOut,
+      });
       return;
     }
     case "frame": {

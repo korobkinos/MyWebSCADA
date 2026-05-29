@@ -211,4 +211,57 @@ describe("runtime OPC UA communication diagnostics", () => {
     expect(result.bad).toBe(true);
     expect(result.affectedDrivers).toEqual(["__missing_driver_id__"]);
   });
+
+  it("uses numeric-input errorTag in resolved tags for OPC UA diagnostics", () => {
+    const object: HmiObject = {
+      id: "num-input-1",
+      type: "numeric-input",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 36,
+      tag: "Pump.Setpoint",
+      writeTag: "Pump.SetpointCmd",
+      errorTag: "Pump.Error",
+    };
+
+    const project = makeProject([object], [
+      {
+        name: "Pump.Setpoint",
+        dataType: "REAL",
+        sourceType: "simulated",
+      },
+      {
+        name: "Pump.SetpointCmd",
+        dataType: "REAL",
+        sourceType: "simulated",
+      },
+      {
+        name: "Pump.Error",
+        dataType: "BOOL",
+        sourceType: "opcua",
+        driverId: "D1",
+      },
+    ]);
+
+    const resolvedTags = collectRuntimeObjectResolvedTags({
+      project,
+      libraries: [],
+      object,
+      renderContext: {},
+      tags: {},
+    });
+
+    expect(resolvedTags).toContain("Pump.Error");
+
+    const result = diagnoseOpcUaCommunication({
+      resolvedTags,
+      tagDefinitionsByName: new Map(project.tags.map((tag) => [tag.name, tag] as const)),
+      driverStatusesById: new Map<string, DriverStatus>(),
+    });
+
+    expect(result.bad).toBe(true);
+    expect(result.affectedTags).toContain("Pump.Error");
+    expect(result.affectedDrivers).toEqual(["D1"]);
+  });
 });

@@ -337,4 +337,49 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).toContain("Pipe_1.FlowRun");
     expect(subscriptions).toContain("Pipe_1.FlowSpeed");
   });
+
+  it("collects numeric-input errorTag along with tag/writeTag", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "num-1",
+          type: "numeric-input",
+          x: 32,
+          y: 24,
+          width: 140,
+          height: 36,
+          tag: "Pump.Setpoint",
+          writeTag: "Pump.SetpointCmd",
+          errorTag: "Pump.Error",
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Pump.Setpoint");
+    expect(subscriptions).toContain("Pump.SetpointCmd");
+    expect(subscriptions).toContain("Pump.Error");
+  });
 });
