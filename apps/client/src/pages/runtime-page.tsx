@@ -75,6 +75,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const navigate = useNavigate();
   const project = useScadaStore((s) => s.project);
   const tags = useScadaStore((s) => s.tags);
+  const drivers = useScadaStore((s) => s.drivers);
   const libraries = useScadaStore((s) => s.libraries);
   const currentScreenId = useScadaStore((s) => s.currentScreenId);
   const setCurrentScreen = useScadaStore((s) => s.setCurrentScreen);
@@ -1811,6 +1812,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       mode="runtime"
       screen={screen}
       tags={tags}
+      drivers={drivers}
       libraries={activeLibraries}
       fullscreenRuntime={fullscreen}
       currentUserRoleLevel={userRoleLevel}
@@ -1897,6 +1899,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             mode="runtime"
             screen={popupScreen}
             tags={tags}
+            drivers={drivers}
             libraries={activeLibraries}
             fullscreenRuntime={false}
             currentUserRoleLevel={userRoleLevel}

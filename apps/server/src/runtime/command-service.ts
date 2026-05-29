@@ -79,6 +79,10 @@ export class CommandService {
     return this.driverManager.getTagDriverStatus(tag);
   }
 
+  public getDriverStatuses(): DriverStatus[] {
+    return this.driverManager.getStatuses();
+  }
+
   private async writeTagInternal(name: string, value: TagScalarValue, commandKey?: string, manual = false): Promise<void> {
     const startedAt = Date.now();
     const tag = this.tagStore.getDefinition(name);

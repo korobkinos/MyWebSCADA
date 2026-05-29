@@ -34,6 +34,14 @@ type RuntimeTagSubscriptionInput = {
   popups: PopupSubscriptionContext[];
 };
 
+export type RuntimeObjectTagCollectionInput = {
+  project: ScadaProject;
+  libraries: ElementLibrary[];
+  object: HmiObject;
+  renderContext: RenderContext;
+  tags?: TagMap;
+};
+
 export type RuntimeTagSubscriptionPlan = {
   subscriptionTags: string[];
   dependencyTags: string[];
@@ -54,6 +62,25 @@ const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
 
 export function collectRuntimeTagSubscriptions(input: RuntimeTagSubscriptionInput): string[] {
   return collectRuntimeTagSubscriptionPlan(input).subscriptionTags;
+}
+
+export function collectRuntimeObjectResolvedTags(input: RuntimeObjectTagCollectionInput): string[] {
+  const tags = new Set<string>();
+  const frameGuard = new Set<string>();
+  const runtimeResolveContext: RuntimeResolveContext = {
+    tagValues: input.tags,
+  };
+  collectObjectTags(
+    input.project,
+    input.libraries,
+    input.object,
+    input.renderContext,
+    runtimeResolveContext,
+    tags,
+    new Set<string>(),
+    frameGuard,
+  );
+  return [...tags];
 }
 
 export function collectRuntimeTagSubscriptionPlan(input: RuntimeTagSubscriptionInput): RuntimeTagSubscriptionPlan {

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
 import { runtimeWsClientMessageSchema, type EventOccurrence, type RuntimeAction, type RuntimeWsServerMessage, type TagValue } from "@web-scada/shared";
+import type { DriverStatus } from "../drivers/driver.js";
 import { CommandService } from "../runtime/command-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
 import { logPerf } from "../runtime/perf-logger.js";
@@ -12,6 +13,8 @@ export class WebSocketGateway {
   private readonly subscriptions = new Map<WebSocket, Set<string>>();
   private readonly queue = new Map<string, TagValue>();
   private flushTimer: NodeJS.Timeout | undefined;
+  private driverStatusTimer: NodeJS.Timeout | undefined;
+  private lastDriverStatusSignature = "";
   private unsubscribeTagListener: (() => void) | undefined;
 
   public constructor(
@@ -25,6 +28,7 @@ export class WebSocketGateway {
       this.clients.add(socket);
       this.subscriptions.set(socket, new Set<string>());
       this.syncRuntimeSubscriptions();
+      this.sendDriverStatusesToClient(socket);
 
       socket.on("message", (payload: unknown) => {
         this.handleClientMessage(socket, String(payload));
@@ -41,12 +45,20 @@ export class WebSocketGateway {
       this.queue.set(value.name, value);
       this.ensureFlusher();
     });
+
+    this.driverStatusTimer = setInterval(() => {
+      this.broadcastDriverStatusesIfChanged();
+    }, 1000);
   }
 
   public async close(): Promise<void> {
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = undefined;
+    }
+    if (this.driverStatusTimer) {
+      clearInterval(this.driverStatusTimer);
+      this.driverStatusTimer = undefined;
     }
 
     if (this.unsubscribeTagListener) {
@@ -55,6 +67,7 @@ export class WebSocketGateway {
     }
 
     this.queue.clear();
+    this.lastDriverStatusSignature = "";
     this.subscriptions.clear();
     this.runtimeService.clearActiveTags();
     for (const client of this.clients) {
@@ -191,6 +204,51 @@ export class WebSocketGateway {
       }
     }
     this.runtimeService.setActiveTags(union);
+  }
+
+  private broadcastDriverStatusesIfChanged(): void {
+    const statuses = this.commandService.getDriverStatuses();
+    const signature = this.buildDriverStatusSignature(statuses);
+    if (signature === this.lastDriverStatusSignature) {
+      return;
+    }
+    this.lastDriverStatusSignature = signature;
+    this.broadcastDriverStatuses(statuses);
+  }
+
+  private sendDriverStatusesToClient(client: WebSocket): void {
+    if (client.readyState !== client.OPEN) {
+      return;
+    }
+    const statuses = this.commandService.getDriverStatuses();
+    const message: RuntimeWsServerMessage = {
+      type: "driver-statuses",
+      payload: {
+        statuses,
+      },
+    };
+    client.send(JSON.stringify(message));
+  }
+
+  private broadcastDriverStatuses(statuses: DriverStatus[]): void {
+    const message: RuntimeWsServerMessage = {
+      type: "driver-statuses",
+      payload: {
+        statuses,
+      },
+    };
+    this.broadcastSerialized(JSON.stringify(message));
+  }
+
+  private buildDriverStatusSignature(statuses: DriverStatus[]): string {
+    if (statuses.length === 0) {
+      return "";
+    }
+    return statuses
+      .slice()
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((status) => `${status.id}|${status.type}|${String(status.health).toLowerCase()}`)
+      .join(";");
   }
 
   private broadcastSerialized(serialized: string): void {

@@ -1,6 +1,7 @@
 import type { ManualCommandMeta } from "./runtime-command-types";
 import type { EventOccurrence } from "./event-types";
 import type { RuntimeAction } from "./hmi-object-types";
+import type { DriverStatus } from "./project-types";
 
 export type TagUpdateMessage = {
   type: "tag-update";
@@ -30,6 +31,13 @@ export type EventUpdateMessage = {
   };
 };
 
+export type DriverStatusesMessage = {
+  type: "driver-statuses";
+  payload: {
+    statuses: DriverStatus[];
+  };
+};
+
 export type WriteTagMessage = {
   type: "write-tag";
   payload: {
@@ -46,5 +54,5 @@ export type SubscribeTagsMessage = {
   };
 };
 
-export type RuntimeWsServerMessage = TagUpdateMessage | TagBatchUpdateMessage | EventUpdateMessage;
+export type RuntimeWsServerMessage = TagUpdateMessage | TagBatchUpdateMessage | EventUpdateMessage | DriverStatusesMessage;
 export type RuntimeWsClientMessage = WriteTagMessage | SubscribeTagsMessage;

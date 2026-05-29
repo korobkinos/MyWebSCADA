@@ -1,5 +1,6 @@
 import {
   COMMAND_TIMEOUT_MS,
+  type DriverStatus,
   type EventOccurrence,
   type ManualCommandMeta,
   type RuntimeAction,
@@ -18,6 +19,7 @@ import { incrementRuntimeDiagnosticMetric, recordWebSocketTagPacket } from "./ru
 
 type WsCallbacks = {
   onTagValues: (values: TagValue[]) => void;
+  onDriverStatuses?: (statuses: DriverStatus[]) => void;
   onEventUpdate?: (payload: {
     kind: "active" | "cleared" | "acknowledged";
     occurrence: EventOccurrence;
@@ -234,6 +236,11 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
 
     if (parsed.type === "event-update") {
       callbacks.onEventUpdate?.(parsed.payload);
+      return;
+    }
+
+    if (parsed.type === "driver-statuses") {
+      callbacks.onDriverStatuses?.(parsed.payload.statuses);
     }
   };
 

@@ -90,6 +90,7 @@ type ScadaState = {
   hasPermission: (permission: AppPermission) => boolean;
   setTagValue: (value: TagValue) => void;
   setTagValues: (values: TagValue[]) => void;
+  setDrivers: (drivers: DriverStatus[]) => void;
   setCurrentScreen: (screenId: string) => void;
   setSelectedObjects: (objectIds: string[], activeObjectId?: string) => void;
   toggleSelectedObject: (objectId: string) => void;
@@ -115,6 +116,26 @@ function toTagMap(items: TagSnapshot[]): TagMap {
     acc[item.definition.name] = item.value;
     return acc;
   }, {});
+}
+
+function areDriverStatusListsEqual(left: DriverStatus[], right: DriverStatus[]): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (!a || !b) {
+      return false;
+    }
+    if (a.id !== b.id || a.type !== b.type || a.health !== b.health || a.message !== b.message || a.updatedAt !== b.updatedAt) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function mutateScreen(project: ScadaProject, screenId: string, updater: (screen: HmiScreen) => HmiScreen): ScadaProject {
@@ -299,7 +320,7 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
 
   async loadDrivers() {
     const drivers = await api.getDrivers();
-    set({ drivers });
+    get().setDrivers(drivers);
   },
 
   async loadMacros() {
@@ -474,6 +495,15 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
         tags: nextTags ?? state.tags,
         tagSnapshots: nextSnapshots,
       };
+    });
+  },
+
+  setDrivers(drivers) {
+    set((state) => {
+      if (areDriverStatusListsEqual(state.drivers, drivers)) {
+        return state;
+      }
+      return { drivers };
     });
   },
 

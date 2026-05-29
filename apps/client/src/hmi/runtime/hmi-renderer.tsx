@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type Konva from "konva";
@@ -21,6 +21,7 @@ import {
   type GroupObject,
   type HmiObject,
   type HmiScreen,
+  type DriverStatus,
   type LibraryElement,
   type LibraryElementInstanceObject,
   type RenderContext,
@@ -28,6 +29,7 @@ import {
   type RuntimeResolveContext,
   type ScadaProject,
   type StateImageCondition,
+  type TagDefinition,
   type TagValue,
   type TextStyle,
 } from "@web-scada/shared";
@@ -36,6 +38,8 @@ import { getObjectIndexedConfigForField, resolveObjectTagField } from "../tags/i
 import { sortObjectsByZIndex } from "../editor/z-order";
 import { TrendRuntimeWidget } from "../../features/trends/TrendRuntimeWidget";
 import { EventTableRuntimeWidget } from "../../features/events/EventTableRuntimeWidget";
+import { collectRuntimeObjectResolvedTags } from "./runtime-tag-subscriptions";
+import { diagnoseOpcUaCommunication } from "./runtime-opcua-communication";
 
 const HMI_CONTROL_COLORS = {
   text: "#cccccc",
@@ -763,6 +767,7 @@ type HmiRendererProps = {
   screen: HmiScreen;
   mode: "editor" | "runtime";
   tags: TagMap;
+  drivers?: DriverStatus[];
   libraries?: ElementLibrary[];
   renderContext: RenderContext;
   frameStack?: string[];
@@ -795,6 +800,9 @@ type BaseNodeProps = {
   project: ScadaProject;
   mode: "editor" | "runtime";
   tags: TagMap;
+  drivers: DriverStatus[];
+  tagDefinitionsByName: ReadonlyMap<string, TagDefinition>;
+  driverStatusesById: ReadonlyMap<string, DriverStatus>;
   libraries: ElementLibrary[];
   renderContext: RenderContext;
   frameStack: string[];
@@ -827,6 +835,7 @@ export function HmiRenderer({
   screen,
   mode,
   tags,
+  drivers = [],
   libraries = [],
   renderContext,
   frameStack = [],
@@ -855,6 +864,20 @@ export function HmiRenderer({
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
+  const tagDefinitionsByName = useMemo(() => {
+    const index = new Map<string, TagDefinition>();
+    for (const tag of project.tags) {
+      index.set(tag.name, tag);
+    }
+    return index;
+  }, [project.tags]);
+  const driverStatusesById = useMemo(() => {
+    const index = new Map<string, DriverStatus>();
+    for (const status of drivers) {
+      index.set(status.id, status);
+    }
+    return index;
+  }, [drivers]);
   const debugPerformance =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -876,47 +899,156 @@ export function HmiRenderer({
   return (
     <>
       {sortedObjects.map((object) => (
-        <MemoObjectNode
-          key={object.id}
-          object={object}
-          project={project}
-          mode={mode}
-          tags={tags}
-          libraries={libraries}
-          renderContext={renderContext}
-          frameStack={frameStack}
-          instanceStack={instanceStack}
-          interactive={interactive}
-          inheritedDisabled={inheritedDisabled}
-          selected={selectedSet.has(object.id)}
-          onSelectObject={onSelectObject}
+        <Fragment key={object.id}>
+          <MemoObjectNode
+            object={object}
+            project={project}
+            mode={mode}
+            tags={tags}
+            drivers={drivers}
+            tagDefinitionsByName={tagDefinitionsByName}
+            driverStatusesById={driverStatusesById}
+            libraries={libraries}
+            renderContext={renderContext}
+            frameStack={frameStack}
+            instanceStack={instanceStack}
+            interactive={interactive}
+            inheritedDisabled={inheritedDisabled}
+            selected={selectedSet.has(object.id)}
+            onSelectObject={onSelectObject}
             onMoveObject={onMoveObject}
             onCommitObjectMove={onCommitObjectMove}
             onResizeObject={onResizeObject}
-          onAction={onAction}
-          onDoubleClickObject={onDoubleClickObject}
-          onContextMenuObject={onContextMenuObject}
-          showObjectFrames={showObjectFrames}
-          scopedAssets={scopedAssets}
-          overlayState={overlayState}
-          onShowOverlay={onShowOverlay}
-          onHideOverlay={onHideOverlay}
-          onUpsertWidgetOverlay={onUpsertWidgetOverlay}
-          onRemoveWidgetOverlay={onRemoveWidgetOverlay}
-          onRequestNumericInput={onRequestNumericInput}
-          shadowDisabled={shadowDisabled}
-          nodeIdPrefix={nodeIdPrefix}
-          renderFlowMode={renderFlowMode}
-        />
+            onAction={onAction}
+            onDoubleClickObject={onDoubleClickObject}
+            onContextMenuObject={onContextMenuObject}
+            showObjectFrames={showObjectFrames}
+            scopedAssets={scopedAssets}
+            overlayState={overlayState}
+            onShowOverlay={onShowOverlay}
+            onHideOverlay={onHideOverlay}
+            onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+            onRemoveWidgetOverlay={onRemoveWidgetOverlay}
+            onRequestNumericInput={onRequestNumericInput}
+            shadowDisabled={shadowDisabled}
+            nodeIdPrefix={nodeIdPrefix}
+            renderFlowMode={renderFlowMode}
+          />
+          <MemoObjectCommunicationOverlayNode
+            object={object}
+            project={project}
+            mode={mode}
+            tags={tags}
+            drivers={drivers}
+            tagDefinitionsByName={tagDefinitionsByName}
+            driverStatusesById={driverStatusesById}
+            libraries={libraries}
+            renderContext={renderContext}
+            frameStack={frameStack}
+            instanceStack={instanceStack}
+            interactive={interactive}
+            inheritedDisabled={inheritedDisabled}
+            selected={selectedSet.has(object.id)}
+            onSelectObject={onSelectObject}
+            onMoveObject={onMoveObject}
+            onCommitObjectMove={onCommitObjectMove}
+            onResizeObject={onResizeObject}
+            onAction={onAction}
+            onDoubleClickObject={onDoubleClickObject}
+            onContextMenuObject={onContextMenuObject}
+            showObjectFrames={showObjectFrames}
+            scopedAssets={scopedAssets}
+            overlayState={overlayState}
+            onShowOverlay={onShowOverlay}
+            onHideOverlay={onHideOverlay}
+            onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+            onRemoveWidgetOverlay={onRemoveWidgetOverlay}
+            onRequestNumericInput={onRequestNumericInput}
+            shadowDisabled={shadowDisabled}
+            nodeIdPrefix={nodeIdPrefix}
+            renderFlowMode={renderFlowMode}
+          />
+        </Fragment>
       ))}
     </>
   );
 }
 
 const MemoObjectNode = memo(ObjectNode, areObjectNodePropsEqual);
+const MemoObjectCommunicationOverlayNode = memo(ObjectCommunicationOverlayNode, areObjectNodePropsEqual);
+
+function ObjectCommunicationOverlayNode({
+  object,
+  project,
+  mode,
+  tags,
+  tagDefinitionsByName,
+  driverStatusesById,
+  libraries,
+  renderContext,
+  renderFlowMode,
+}: BaseNodeProps) {
+  if (mode !== "runtime" || renderFlowMode === "only") {
+    return null;
+  }
+
+  const resolvedObject = resolveObjectParameters(object, renderContext.parameters ?? {});
+  const visibleByRole = isObjectVisibleByRole(resolvedObject, mode, renderContext);
+  const visibleByRuntimeState = resolveObjectVisible(resolvedObject, tags, renderContext, project);
+  if (!(resolvedObject.visible ?? true) || !visibleByRole || !visibleByRuntimeState) {
+    return null;
+  }
+
+  const resolvedTags = collectRuntimeObjectResolvedTags({
+    project,
+    libraries,
+    object,
+    renderContext,
+    tags,
+  });
+
+  const diagnostics = diagnoseOpcUaCommunication({
+    resolvedTags,
+    tagDefinitionsByName,
+    driverStatusesById,
+  });
+
+  if (!diagnostics.bad) {
+    return null;
+  }
+
+  const overlayWidth = Math.max(1, Number(resolvedObject.width) || 1);
+  const overlayHeight = Math.max(1, Number(resolvedObject.height) || 1);
+  const rotation = Number.isFinite(resolvedObject.rotation) ? resolvedObject.rotation : 0;
+
+  return (
+    <Group
+      x={resolvedObject.x}
+      y={resolvedObject.y}
+      rotation={rotation}
+      listening={false}
+      visible={resolvedObject.visible ?? true}
+      name={diagnostics.affectedDrivers.length > 0 ? `opcua-comm-bad:${diagnostics.affectedDrivers.join(",")}` : "opcua-comm-bad"}
+    >
+      <Rect
+        x={0}
+        y={0}
+        width={overlayWidth}
+        height={overlayHeight}
+        fill="rgba(255, 105, 180, 0.34)"
+        stroke="#ff4fa3"
+        strokeWidth={1.5}
+        listening={false}
+      />
+    </Group>
+  );
+}
 
 function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): boolean {
   if (prev.object !== next.object) return false;
+  if (prev.drivers !== next.drivers) return false;
+  if (prev.tagDefinitionsByName !== next.tagDefinitionsByName) return false;
+  if (prev.driverStatusesById !== next.driverStatusesById) return false;
   if (prev.libraries !== next.libraries) return false;
   if (prev.selected !== next.selected) return false;
   if (prev.interactive !== next.interactive) return false;
@@ -1072,6 +1204,7 @@ function ObjectNode({
   project,
   mode,
   tags,
+  drivers,
   libraries,
   renderContext,
   frameStack,
@@ -1799,6 +1932,7 @@ function ObjectNode({
         project={project}
         mode={mode}
         tags={tags}
+        drivers={drivers}
         libraries={libraries}
         renderContext={renderContext}
         frameStack={frameStack}
@@ -2527,6 +2661,7 @@ function ObjectNode({
         project={project}
         mode={mode}
         tags={tags}
+        drivers={drivers}
         libraries={libraries}
         renderContext={renderContext}
         frameStack={frameStack}
@@ -2659,6 +2794,7 @@ function ObjectNode({
         project={project}
         mode={mode}
         tags={tags}
+        drivers={drivers}
         libraries={libraries}
         renderContext={renderContext}
         frameStack={frameStack}
@@ -4206,6 +4342,7 @@ function GroupNode({
   project,
   mode,
   tags,
+  drivers,
   libraries,
   renderContext,
   frameStack,
@@ -4236,6 +4373,7 @@ function GroupNode({
   project: ScadaProject;
   mode: "editor" | "runtime";
   tags: TagMap;
+  drivers: DriverStatus[];
   libraries: ElementLibrary[];
   renderContext: RenderContext;
   frameStack: string[];
@@ -4296,6 +4434,7 @@ function GroupNode({
         screen={virtualScreen}
         mode={mode}
         tags={tags}
+        drivers={drivers}
         libraries={libraries}
         renderContext={scopedContext}
         frameStack={frameStack}
@@ -4331,6 +4470,7 @@ function FrameNode({
   project,
   mode,
   tags,
+  drivers,
   libraries,
   renderContext,
   frameStack,
@@ -4354,6 +4494,7 @@ function FrameNode({
   project: ScadaProject;
   mode: "editor" | "runtime";
   tags: TagMap;
+  drivers: DriverStatus[];
   libraries: ElementLibrary[];
   renderContext: RenderContext;
   frameStack: string[];
@@ -4419,6 +4560,7 @@ function FrameNode({
           screen={screen}
           mode={mode}
           tags={tags}
+          drivers={drivers}
           libraries={libraries}
           renderContext={context}
           frameStack={[...frameStack, screen.id]}
@@ -4449,6 +4591,7 @@ function LibraryInstanceNode({
   project,
   mode,
   tags,
+  drivers,
   libraries,
   renderContext,
   frameStack,
@@ -4473,6 +4616,7 @@ function LibraryInstanceNode({
   project: ScadaProject;
   mode: "editor" | "runtime";
   tags: TagMap;
+  drivers: DriverStatus[];
   libraries: ElementLibrary[];
   renderContext: RenderContext;
   frameStack: string[];
@@ -4514,6 +4658,7 @@ function LibraryInstanceNode({
       project={project}
       mode={mode}
       tags={tags}
+      drivers={drivers}
       libraries={libraries}
       renderContext={renderContext}
       frameStack={frameStack}
@@ -4545,6 +4690,7 @@ function LibraryInstanceNodeResolved({
   project,
   mode,
   tags,
+  drivers,
   libraries,
   renderContext,
   frameStack,
@@ -4572,6 +4718,7 @@ function LibraryInstanceNodeResolved({
   project: ScadaProject;
   mode: "editor" | "runtime";
   tags: TagMap;
+  drivers: DriverStatus[];
   libraries: ElementLibrary[];
   renderContext: RenderContext;
   frameStack: string[];
@@ -4711,6 +4858,7 @@ function LibraryInstanceNodeResolved({
           screen={virtualScreen}
           mode={mode}
           tags={tags}
+          drivers={drivers}
           libraries={libraries}
           renderContext={context}
           frameStack={frameStack}

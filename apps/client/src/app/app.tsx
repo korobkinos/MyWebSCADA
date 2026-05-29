@@ -57,6 +57,7 @@ export function App() {
   const loadRuntimeStatus = useScadaStore((s) => s.loadRuntimeStatus);
   const initializeAuth = useScadaStore((s) => s.initializeAuth);
   const setTagValues = useScadaStore((s) => s.setTagValues);
+  const setDrivers = useScadaStore((s) => s.setDrivers);
   const project = useScadaStore((s) => s.project);
   const authUser = useScadaStore((s) => s.authUser);
   const authResolved = useScadaStore((s) => s.authResolved);
@@ -145,12 +146,13 @@ export function App() {
     const tagBatcher = createTagValueBatcher((values) => setTagValues(values));
     const socket = createRuntimeSocket({
       onTagValues: (values) => tagBatcher.push(values),
+      onDriverStatuses: (statuses) => setDrivers(statuses),
     });
     return () => {
       socket.close();
       tagBatcher.close();
     };
-  }, [isRuntimeRoute, setTagValues]);
+  }, [isRuntimeRoute, setDrivers, setTagValues]);
 
   useEffect(() => {
     if (!isRuntimeRoute || typeof document === "undefined") {

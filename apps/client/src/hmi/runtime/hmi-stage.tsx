@@ -9,6 +9,7 @@ import type {
   RenderContext,
   RuntimeAction,
   ScadaProject,
+  DriverStatus,
   TagValue,
 } from "@web-scada/shared";
 import { HmiRenderer, type NumericInputOpenPayload, type ObjectSelectPayload, type RuntimeOverlayState, type RuntimeWidgetOverlayState } from "./hmi-renderer";
@@ -28,6 +29,7 @@ type HmiStageProps = {
   mode: "editor" | "runtime";
   screen: HmiScreen;
   tags: TagMap;
+  drivers?: DriverStatus[];
   libraries?: ElementLibrary[];
   renderContext?: RenderContext;
   selectedObjectIds?: string[];
@@ -59,6 +61,7 @@ export function HmiStage({
   mode,
   screen,
   tags,
+  drivers = [],
   libraries = [],
   renderContext = {},
   selectedObjectIds = [],
@@ -404,6 +407,7 @@ export function HmiStage({
             screen={screen}
             mode={mode}
             tags={tags}
+            drivers={drivers}
             libraries={libraries}
             renderContext={effectiveRenderContext}
             selectedObjectIds={selectedObjectIds}
