@@ -273,14 +273,14 @@ export function App() {
       },
       {
         key: "fullscreen",
-        label: "Fullscreen (browser)",
+        label: "Fullscreen",
         icon: <MenuOutlined />,
         onClick: () => {
           if (document.fullscreenElement) {
             void document.exitFullscreen();
             return;
           }
-          void message.info("Browser fullscreen prompt is controlled by the browser and cannot be disabled by the app.");
+          void document.documentElement.requestFullscreen();
         },
       },
       {
