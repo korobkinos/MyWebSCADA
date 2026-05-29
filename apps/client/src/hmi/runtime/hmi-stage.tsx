@@ -190,7 +190,7 @@ export function HmiStage({
     return Math.min(1, Math.min(viewport.width / screen.width, viewport.height / screen.height));
   }, [mode, screen.height, screen.width, viewport.height, viewport.width]);
 
-  const effectiveEditorZoom = mode === "editor" ? Math.min(3, Math.max(0.1, editorZoom)) : 1;
+  const effectiveEditorZoom = mode === "editor" ? editorZoom : 1;
   const effectiveRenderContext = useMemo(
     () => ({
       ...renderContext,

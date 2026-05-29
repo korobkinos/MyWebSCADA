@@ -62,10 +62,10 @@ type PrimitiveShapeKind = "square" | "circle" | "triangle";
 type DropPosition = { x: number; y: number };
 type EditorTool = "select" | "pan";
 type ToolbarTab = "main" | "insert" | "arrange" | "align" | "edit" | "view";
-const MIN_EDITOR_ZOOM = 0.1;
-const MAX_EDITOR_ZOOM = 3;
+const MIN_EDITOR_ZOOM = 0.02;
+const MAX_EDITOR_ZOOM = 20;
 const ZOOM_STEP = 1.1;
-const ZOOM_OPTIONS = [0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3];
+const ZOOM_OPTIONS = [0.02, 0.05, 0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 20];
 const ACTIVE_TOOL_STORAGE_KEY = "screenEditor.activeTool";
 const EMPTY_STAGE_TAGS: Record<string, any> = Object.freeze({});
 
@@ -263,6 +263,7 @@ export function ScreenEditorCenter({
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
   const pendingWheelZoomAnchorRef = useRef<{ worldX: number; worldY: number; targetZoom: number } | null>(null);
+  const isManualZoomRef = useRef(false);
   const [editorZoom, setEditorZoom] = useState<number>(() => {
     if (typeof window === "undefined") {
       return 1;
@@ -342,6 +343,7 @@ export function ScreenEditorCenter({
   }, [previewMode, screen.height, screen.width]);
 
   useEffect(() => {
+    isManualZoomRef.current = false;
     applyAutoFitZoom();
   }, [applyAutoFitZoom, screen.id]);
 
@@ -354,6 +356,9 @@ export function ScreenEditorCenter({
       return;
     }
     const observer = new ResizeObserver(() => {
+      if (isManualZoomRef.current) {
+        return;
+      }
       applyAutoFitZoom();
     });
     observer.observe(viewport);
@@ -457,6 +462,7 @@ export function ScreenEditorCenter({
       event.preventDefault();
       if (!event.deltaY) return;
       const delta = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+      isManualZoomRef.current = true;
       setEditorZoom((prev) => {
         const next = clampZoom(prev * delta);
         if (next === prev) {
@@ -793,23 +799,35 @@ export function ScreenEditorCenter({
         >
           <WorkbenchButton
             className="screen-editor-zoom-button"
-            onClick={() => setEditorZoom((prev) => clampZoom(prev / ZOOM_STEP))}
+            onClick={() => {
+              isManualZoomRef.current = true;
+              setEditorZoom((prev) => clampZoom(prev / ZOOM_STEP));
+            }}
           >
             -
           </WorkbenchButton>
-          <WorkbenchButton className="screen-editor-zoom-button" onClick={() => setEditorZoom(1)}>
+          <WorkbenchButton className="screen-editor-zoom-button" onClick={() => {
+            isManualZoomRef.current = true;
+            setEditorZoom(1);
+          }}>
             100%
           </WorkbenchButton>
           <WorkbenchButton
             className="screen-editor-zoom-button"
-            onClick={() => setEditorZoom((prev) => clampZoom(prev * ZOOM_STEP))}
+            onClick={() => {
+              isManualZoomRef.current = true;
+              setEditorZoom((prev) => clampZoom(prev * ZOOM_STEP));
+            }}
           >
             +
           </WorkbenchButton>
           <select
             className="workbench-select screen-editor-zoom-select"
             value={String(editorZoom)}
-            onChange={(event) => setEditorZoom(clampZoom(Number(event.target.value)))}
+            onChange={(event) => {
+              isManualZoomRef.current = true;
+              setEditorZoom(clampZoom(Number(event.target.value)));
+            }}
           >
             {zoomSelectOptions.map((value) => (
               <option key={value} value={value}>
@@ -817,6 +835,16 @@ export function ScreenEditorCenter({
               </option>
             ))}
           </select>
+          <WorkbenchButton
+            className="screen-editor-zoom-button"
+            onClick={() => {
+              isManualZoomRef.current = false;
+              applyAutoFitZoom();
+            }}
+            title="Fit screen to viewport"
+          >
+            Fit
+          </WorkbenchButton>
         </div>
       </div>
     </div>
