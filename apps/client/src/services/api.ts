@@ -1121,6 +1121,7 @@ export const api = {
     replaceInFlight?: boolean;
     skipConnectivityGate?: boolean;
     handleAuthInvalid?: boolean;
+    inFlightKey?: string | null;
   }) =>
     request<RuntimeState>("/api/runtime/status", {
       signal: options?.signal,
@@ -1128,6 +1129,7 @@ export const api = {
       replaceInFlight: options?.replaceInFlight,
       skipConnectivityGate: options?.skipConnectivityGate,
       handleAuthInvalid: options?.handleAuthInvalid,
+      inFlightKey: options?.inFlightKey,
     }),
 
   listAssets: () => request<Asset[]>("/api/assets"),

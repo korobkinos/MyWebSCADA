@@ -58,6 +58,7 @@ import {
 } from "./event-sound-replay";
 import { eventRuntimeStore } from "./event-runtime-store";
 import { api } from "../../services/api";
+import { getConnectionSnapshot, subscribeConnectionState, type ConnectionState } from "../../services/connection-state";
 
 type EventTableRuntimeWidgetProps = {
   object: EventTableObject;
@@ -637,6 +638,7 @@ export function EventTableRuntimeWidget({
   const [soundSilenced, setSoundSilenced] = useState(false);
   const [soundDisabledUntilEnabled, setSoundDisabledUntilEnabled] = useState(false);
   const [showOperatorActions, setShowOperatorActions] = useState(object.showOperatorActions === true);
+  const [connectionState, setConnectionState] = useState<ConnectionState>(() => getConnectionSnapshot().state);
   const [operatorActionHistory, setOperatorActionHistory] = useState<{
     items: OperatorActionRecord[];
     total: number;
@@ -663,6 +665,10 @@ export function EventTableRuntimeWidget({
   const persistenceWarningShownRef = useRef(false);
   const operatorActionRequestSeqRef = useRef(0);
   const debugLogAtRef = useRef(0);
+
+  useEffect(() => subscribeConnectionState((snapshot) => {
+    setConnectionState(snapshot.state);
+  }), []);
 
   const config = useMemo(() => resolveEventTableConfig(object), [object]);
   const russianUi = useMemo(() => isRussianUi(), []);
@@ -1562,9 +1568,13 @@ export function EventTableRuntimeWidget({
     if (mode === "history") {
       return `Mode: history | Period: ${historyPreset.label} | Rows: ${historyTotalRowsForMode}`;
     }
-    const onlineStatusLabel = runtimeEvents.onlineStatus === "open" ? "online" : runtimeEvents.onlineStatus;
+    const onlineStatusLabel = connectionState === "offline"
+      ? "offline"
+      : runtimeEvents.onlineStatus === "open"
+        ? "online"
+        : runtimeEvents.onlineStatus;
     return `Mode: online (${onlineStatusLabel}) | Active: ${runtimeEvents.activeCount} | Unacked: ${runtimeEvents.unacknowledgedCount} | Rows: ${visibleRows.length}`;
-  }, [historyPreset.label, historyTotalRowsForMode, mode, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount, visibleRows.length]);
+  }, [connectionState, historyPreset.label, historyTotalRowsForMode, mode, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount, visibleRows.length]);
 
   const handleExport = useCallback(async (options: EventTableExportOptions) => {
     if (object.enableCsvExport === false) {
@@ -1724,7 +1734,11 @@ export function EventTableRuntimeWidget({
       : "";
     const modeErrorNote = modeError ? `Error: ${modeError}` : "";
 
-    const onlineStatusLabel = runtimeEvents.onlineStatus === "open" ? "online" : runtimeEvents.onlineStatus;
+    const onlineStatusLabel = connectionState === "offline"
+      ? "offline"
+      : runtimeEvents.onlineStatus === "open"
+        ? "online"
+        : runtimeEvents.onlineStatus;
     const onlineSegments = [
       `Event status: ${onlineStatusLabel}`,
       `active ${runtimeEvents.activeCount}`,

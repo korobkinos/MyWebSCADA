@@ -243,6 +243,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         skipConnectivityGate: true,
         replaceInFlight: true,
         handleAuthInvalid: false,
+        inFlightKey: "runtimeHeartbeat",
       }).catch((error) => {
         if (disposed) {
           return;
@@ -1279,6 +1280,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         }),
       );
       const level: "warning" | "error" = parsed.reason === "busy" ? "warning" : "error";
+      if (parsed.reason === "timeout") {
+        markEndpointFailure("runtimeStatus", "Runtime command timeout");
+      }
       logRuntimeCommand({
         level,
         reason: parsed.reason,
