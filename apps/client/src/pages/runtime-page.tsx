@@ -231,6 +231,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         signal: controller.signal,
         skipConnectivityGate: true,
         replaceInFlight: true,
+        handleAuthInvalid: false,
       }).catch((error) => {
         if (isAbortError(error) || disposed) {
           return;

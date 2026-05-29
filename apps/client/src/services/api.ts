@@ -1116,12 +1116,18 @@ export const api = {
     }),
   startRuntime: () => request<RuntimeState>("/api/runtime/start", { method: "POST" }),
   stopRuntime: () => request<RuntimeState>("/api/runtime/stop", { method: "POST" }),
-  getRuntimeStatus: (options?: { signal?: AbortSignal; replaceInFlight?: boolean; skipConnectivityGate?: boolean }) =>
+  getRuntimeStatus: (options?: {
+    signal?: AbortSignal;
+    replaceInFlight?: boolean;
+    skipConnectivityGate?: boolean;
+    handleAuthInvalid?: boolean;
+  }) =>
     request<RuntimeState>("/api/runtime/status", {
       signal: options?.signal,
     }, {
       replaceInFlight: options?.replaceInFlight,
       skipConnectivityGate: options?.skipConnectivityGate,
+      handleAuthInvalid: options?.handleAuthInvalid,
     }),
 
   listAssets: () => request<Asset[]>("/api/assets"),
