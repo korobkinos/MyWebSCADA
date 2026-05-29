@@ -104,6 +104,7 @@ const MAX_MIXED_SOURCE_ROWS = 1000;
 const MAX_OPERATOR_ACTION_QUERY_LIMIT = 1000;
 const ARCHIVE_STATUS_REFRESH_INTERVAL_MS = 30_000;
 const DEBUG_LOG_INTERVAL_MS = 5000;
+const CONNECTION_RECOVERY_STABILIZATION_MS = 10_000;
 const DEFAULT_COLUMN_WIDTH_PX: Record<EventTableColumnId, number> = {
   timestamp: 180,
   priority: 110,
@@ -639,6 +640,7 @@ export function EventTableRuntimeWidget({
   const [soundDisabledUntilEnabled, setSoundDisabledUntilEnabled] = useState(false);
   const [showOperatorActions, setShowOperatorActions] = useState(object.showOperatorActions === true);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => getConnectionSnapshot().state);
+  const [displayConnectionState, setDisplayConnectionState] = useState<ConnectionState>(() => getConnectionSnapshot().state);
   const [operatorActionHistory, setOperatorActionHistory] = useState<{
     items: OperatorActionRecord[];
     total: number;
@@ -665,10 +667,38 @@ export function EventTableRuntimeWidget({
   const persistenceWarningShownRef = useRef(false);
   const operatorActionRequestSeqRef = useRef(0);
   const debugLogAtRef = useRef(0);
+  const connectionRecoveryTimerRef = useRef<number | null>(null);
 
   useEffect(() => subscribeConnectionState((snapshot) => {
     setConnectionState(snapshot.state);
   }), []);
+
+  useEffect(() => {
+    if (connectionRecoveryTimerRef.current !== null) {
+      window.clearTimeout(connectionRecoveryTimerRef.current);
+      connectionRecoveryTimerRef.current = null;
+    }
+    if (connectionState !== "online") {
+      setDisplayConnectionState((prev) => {
+        if (prev === "offline" && connectionState === "degraded") {
+          return prev;
+        }
+        return connectionState;
+      });
+      return;
+    }
+    connectionRecoveryTimerRef.current = window.setTimeout(() => {
+      connectionRecoveryTimerRef.current = null;
+      setDisplayConnectionState("online");
+    }, CONNECTION_RECOVERY_STABILIZATION_MS);
+  }, [connectionState]);
+
+  useEffect(() => () => {
+    if (connectionRecoveryTimerRef.current !== null) {
+      window.clearTimeout(connectionRecoveryTimerRef.current);
+      connectionRecoveryTimerRef.current = null;
+    }
+  }, []);
 
   const config = useMemo(() => resolveEventTableConfig(object), [object]);
   const russianUi = useMemo(() => isRussianUi(), []);
@@ -1568,13 +1598,13 @@ export function EventTableRuntimeWidget({
     if (mode === "history") {
       return `Mode: history | Period: ${historyPreset.label} | Rows: ${historyTotalRowsForMode}`;
     }
-    const onlineStatusLabel = connectionState !== "online"
-      ? connectionState
+    const onlineStatusLabel = displayConnectionState !== "online"
+      ? displayConnectionState
       : runtimeEvents.onlineStatus === "open"
         ? "online"
         : runtimeEvents.onlineStatus;
     return `Mode: online (${onlineStatusLabel}) | Active: ${runtimeEvents.activeCount} | Unacked: ${runtimeEvents.unacknowledgedCount} | Rows: ${visibleRows.length}`;
-  }, [connectionState, historyPreset.label, historyTotalRowsForMode, mode, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount, visibleRows.length]);
+  }, [displayConnectionState, historyPreset.label, historyTotalRowsForMode, mode, runtimeEvents.activeCount, runtimeEvents.onlineStatus, runtimeEvents.unacknowledgedCount, visibleRows.length]);
 
   const handleExport = useCallback(async (options: EventTableExportOptions) => {
     if (object.enableCsvExport === false) {
@@ -1734,8 +1764,8 @@ export function EventTableRuntimeWidget({
       : "";
     const modeErrorNote = modeError ? `Error: ${modeError}` : "";
 
-    const onlineStatusLabel = connectionState !== "online"
-      ? connectionState
+    const onlineStatusLabel = displayConnectionState !== "online"
+      ? displayConnectionState
       : runtimeEvents.onlineStatus === "open"
         ? "online"
         : runtimeEvents.onlineStatus;
