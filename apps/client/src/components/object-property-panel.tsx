@@ -3904,20 +3904,22 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ scaleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
-        <Space>
-          <span>Template Background</span>
-          <Switch
-            checked={object.showTemplateBackground ?? true}
-            onChange={(checked) => onPatch({ showTemplateBackground: checked } as Partial<HmiObject>)}
-          />
-        </Space>
-        <Space>
-          <span>Clip</span>
-          <Switch checked={object.clipContent ?? true} onChange={(checked) => onPatch({ clipContent: checked } as Partial<HmiObject>)} />
-        </Space>
-        <Space style={{ marginLeft: 12 }}>
-          <span>Border</span>
-          <Switch checked={object.showBorder ?? true} onChange={(checked) => onPatch({ showBorder: checked } as Partial<HmiObject>)} />
+        <Space size={16} style={{ display: "flex", marginBottom: 8 }}>
+          <Space>
+            <span>Template Background</span>
+            <Switch
+              checked={object.showTemplateBackground ?? true}
+              onChange={(checked) => onPatch({ showTemplateBackground: checked } as Partial<HmiObject>)}
+            />
+          </Space>
+          <Space>
+            <span>Clip</span>
+            <Switch checked={object.clipContent ?? true} onChange={(checked) => onPatch({ clipContent: checked } as Partial<HmiObject>)} />
+          </Space>
+          <Space>
+            <span>Border</span>
+            <Switch checked={object.showBorder ?? true} onChange={(checked) => onPatch({ showBorder: checked } as Partial<HmiObject>)} />
+          </Space>
         </Space>
         <ColorField label="Border Color" value={object.borderColor ?? "#888"} fallback="#888888" onChange={(next) => onPatch({ borderColor: next } as Partial<HmiObject>)} />
         <Form.Item label="Border Width">
