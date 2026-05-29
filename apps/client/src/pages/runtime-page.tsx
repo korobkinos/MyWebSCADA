@@ -30,7 +30,7 @@ import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
 import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
 import { api, isAbortError } from "../services/api";
-import { getConnectionSnapshot, subscribeConnectionState } from "../services/connection-state";
+import { getConnectionSnapshot, markEndpointFailure, subscribeConnectionState } from "../services/connection-state";
 import { useScadaStore } from "../store/scada-store";
 import {
   AUTH_INTENT_REDIRECT_EDITOR,
@@ -68,6 +68,7 @@ const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
 const COMMAND_WARNING_RETENTION_MS = 30_000;
 const FAST_INTERNAL_MACRO_TIMEOUT_MS = 1000;
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 2000;
+const RUNTIME_HEARTBEAT_TIMEOUT_MS = 1600;
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const location = useLocation();
@@ -221,21 +222,44 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
     let timerId: ReturnType<typeof setInterval> | undefined;
     let inFlightController: AbortController | null = null;
+    let heartbeatInFlight = false;
     let disposed = false;
 
     const runHeartbeat = () => {
-      inFlightController?.abort();
+      if (heartbeatInFlight) {
+        return;
+      }
+      heartbeatInFlight = true;
       const controller = new AbortController();
       inFlightController = controller;
+      let timedOut = false;
+      const timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, RUNTIME_HEARTBEAT_TIMEOUT_MS);
+
       void api.getRuntimeStatus({
         signal: controller.signal,
         skipConnectivityGate: true,
         replaceInFlight: true,
         handleAuthInvalid: false,
       }).catch((error) => {
-        if (isAbortError(error) || disposed) {
+        if (disposed) {
           return;
         }
+        if (timedOut) {
+          markEndpointFailure("runtimeStatus", "Runtime heartbeat timeout");
+          return;
+        }
+        if (isAbortError(error)) {
+          return;
+        }
+      }).finally(() => {
+        window.clearTimeout(timeoutId);
+        if (inFlightController === controller) {
+          inFlightController = null;
+        }
+        heartbeatInFlight = false;
       });
     };
 
