@@ -368,7 +368,7 @@ export function HmiStage({
       style={{
         width: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
         height: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
-        overflow: mode === "editor" ? "visible" : "auto",
+        overflow: mode === "editor" ? "visible" : (fullscreenRuntime ? "hidden" : "auto"),
         display: mode === "editor" ? "inline-block" : "block",
         border: mode === "runtime" ? "none" : undefined,
         maxWidth: mode === "runtime" ? "100%" : undefined,
