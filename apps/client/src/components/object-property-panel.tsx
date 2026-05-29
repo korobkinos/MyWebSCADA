@@ -3868,12 +3868,25 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "frame") {
-    const options = project.screens.map((screen) => ({ label: `${screen.name} (${screen.kind})`, value: screen.id }));
+    const templateOptions = project.screens
+      .filter((screen) => screen.kind === "template")
+      .map((screen) => ({ label: `${screen.name} (${screen.kind})`, value: screen.id }));
+    const selectedScreen = project.screens.find((screen) => screen.id === object.screenId);
+    const isLegacySelection = Boolean(selectedScreen && selectedScreen.kind !== "template");
+    const options = isLegacySelection && selectedScreen
+      ? [{ label: `${selectedScreen.name} (${selectedScreen.kind}) [legacy]`, value: selectedScreen.id }, ...templateOptions]
+      : templateOptions;
+
     return (
       <>
         <Form.Item label="Frame Screen">
           <Select value={object.screenId} options={options} onChange={(value) => onPatch({ screenId: value } as Partial<HmiObject>)} />
         </Form.Item>
+        {isLegacySelection ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Legacy frame target is preserved. New assignments are limited to template screens.
+          </Typography.Text>
+        ) : null}
         <Form.Item label="Tag Prefix">
           <Input value={object.tagPrefix ?? ""} onChange={(e) => onPatch({ tagPrefix: e.target.value } as Partial<HmiObject>)} />
         </Form.Item>
@@ -3891,6 +3904,13 @@ function SpecificPropertyFields({
             onChange={(value) => onPatch({ scaleMode: value } as Partial<HmiObject>)}
           />
         </Form.Item>
+        <Space>
+          <span>Template Background</span>
+          <Switch
+            checked={object.showTemplateBackground ?? true}
+            onChange={(checked) => onPatch({ showTemplateBackground: checked } as Partial<HmiObject>)}
+          />
+        </Space>
         <Space>
           <span>Clip</span>
           <Switch checked={object.clipContent ?? true} onChange={(checked) => onPatch({ clipContent: checked } as Partial<HmiObject>)} />

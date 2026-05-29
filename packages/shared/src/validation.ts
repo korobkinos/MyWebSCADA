@@ -579,6 +579,7 @@ const frameObjectSchema = hmiBaseSchema.extend({
   type: z.literal("frame"),
   screenId: z.string().min(1),
   tagPrefix: z.string().optional(),
+  showTemplateBackground: z.boolean().optional(),
   clipContent: z.boolean().optional(),
   showBorder: z.boolean().optional(),
   borderColor: z.string().optional(),

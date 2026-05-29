@@ -470,6 +470,7 @@ export type FrameObject = HmiObjectBase & {
   type: "frame";
   screenId: string;
   tagPrefix?: string;
+  showTemplateBackground?: boolean;
   clipContent?: boolean;
   showBorder?: boolean;
   borderColor?: string;

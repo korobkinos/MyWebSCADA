@@ -276,6 +276,7 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         minWidth: 80,
         minHeight: 50,
         screenId: "",
+        showTemplateBackground: true,
         showBorder: true,
         borderColor: "#888",
         borderWidth: 1,

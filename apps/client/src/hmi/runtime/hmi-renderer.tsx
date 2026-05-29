@@ -4392,22 +4392,28 @@ function FrameNode({
     return <MissingNode commonGroupProps={commonGroupProps} message="Frame recursion blocked" />;
   }
 
+  // Frame always renders child screen inside its own bounds; parent screen rendering remains unchanged by z-order.
   const childScale = computeFrameScale(object.scaleMode ?? "fit", object.width, object.height, screen.width, screen.height);
+  const showTemplateBackground = screen.kind !== "template" || object.showTemplateBackground !== false;
+  const frameBackgroundColor = showTemplateBackground ? resolveFrameBackgroundColor(screen.background) : "transparent";
 
   return (
     <Group {...commonGroupProps}>
+      <SelectionHitArea object={object} enabled={mode === "editor"} />
+      <Rect x={0} y={0} width={object.width} height={object.height} fill={frameBackgroundColor} />
       {object.showBorder ? (
         <Rect width={object.width} height={object.height} stroke={object.borderColor ?? "#888"} strokeWidth={object.borderWidth ?? 1} />
       ) : null}
 
       <Group
+        // Clip defaults to true so child screen is contained within frame area for combined screen composition.
         clip={object.clipContent ?? true ? { x: 0, y: 0, width: object.width, height: object.height } : undefined}
         x={childScale.offsetX}
         y={childScale.offsetY}
         scaleX={childScale.scaleX}
         scaleY={childScale.scaleY}
       >
-        <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "transparent"} />
+        <Rect x={0} y={0} width={screen.width} height={screen.height} fill={frameBackgroundColor} />
         <HmiRenderer
           project={project}
           screen={screen}
@@ -5338,6 +5344,14 @@ function computeFrameScale(
     offsetX: (targetWidth - scaledWidth) / 2,
     offsetY: (targetHeight - scaledHeight) / 2,
   };
+}
+
+function resolveFrameBackgroundColor(background: string | undefined): string {
+  const normalized = (background ?? "").trim().toLowerCase();
+  if (!normalized || normalized === "transparent" || normalized === "rgba(0,0,0,0)" || normalized === "rgba(0, 0, 0, 0)") {
+    return "#1e1e1e";
+  }
+  return background as string;
 }
 
 function computeImagePlacement(
