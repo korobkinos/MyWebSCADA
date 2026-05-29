@@ -1568,8 +1568,8 @@ export function EventTableRuntimeWidget({
     if (mode === "history") {
       return `Mode: history | Period: ${historyPreset.label} | Rows: ${historyTotalRowsForMode}`;
     }
-    const onlineStatusLabel = connectionState === "offline"
-      ? "offline"
+    const onlineStatusLabel = connectionState !== "online"
+      ? connectionState
       : runtimeEvents.onlineStatus === "open"
         ? "online"
         : runtimeEvents.onlineStatus;
@@ -1734,8 +1734,8 @@ export function EventTableRuntimeWidget({
       : "";
     const modeErrorNote = modeError ? `Error: ${modeError}` : "";
 
-    const onlineStatusLabel = connectionState === "offline"
-      ? "offline"
+    const onlineStatusLabel = connectionState !== "online"
+      ? connectionState
       : runtimeEvents.onlineStatus === "open"
         ? "online"
         : runtimeEvents.onlineStatus;
