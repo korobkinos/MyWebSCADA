@@ -29,7 +29,8 @@ import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime
 import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
 import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
-import { isAbortError } from "../services/api";
+import { api, isAbortError } from "../services/api";
+import { getConnectionSnapshot, subscribeConnectionState } from "../services/connection-state";
 import { useScadaStore } from "../store/scada-store";
 import {
   AUTH_INTENT_REDIRECT_EDITOR,
@@ -66,6 +67,7 @@ const RUNTIME_PERF_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimePerf";
 const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
 const COMMAND_WARNING_RETENTION_MS = 30_000;
 const FAST_INTERNAL_MACRO_TIMEOUT_MS = 1000;
+const RUNTIME_HEARTBEAT_INTERVAL_MS = 2000;
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const location = useLocation();
@@ -127,6 +129,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const [numericDialogState, setNumericDialogState] = useState<NumericInputDialogState | null>(null);
   const numericDialogId = "runtimeNumericInput";
   const [runtimeActionPending, setRuntimeActionPending] = useState<"start" | "stop" | "refresh" | null>(null);
+  const [connectionSnapshot, setConnectionSnapshot] = useState(() => getConnectionSnapshot());
   const [accessState, setAccessState] = useState<RuntimeAccessState>({
     requiredRole: 1,
     currentRole: 0,
@@ -207,6 +210,45 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   useEffect(() => {
     runtimeEventIsAuthenticatedRef.current = Boolean(authUser);
   }, [authUser]);
+
+  useEffect(() => subscribeConnectionState((snapshot) => {
+    setConnectionSnapshot(snapshot);
+  }), []);
+
+  useEffect(() => {
+    if (!fullscreen) {
+      return;
+    }
+    let timerId: ReturnType<typeof setInterval> | undefined;
+    let inFlightController: AbortController | null = null;
+    let disposed = false;
+
+    const runHeartbeat = () => {
+      inFlightController?.abort();
+      const controller = new AbortController();
+      inFlightController = controller;
+      void api.getRuntimeStatus({
+        signal: controller.signal,
+        skipConnectivityGate: true,
+        replaceInFlight: true,
+      }).catch((error) => {
+        if (isAbortError(error) || disposed) {
+          return;
+        }
+      });
+    };
+
+    runHeartbeat();
+    timerId = setInterval(runHeartbeat, RUNTIME_HEARTBEAT_INTERVAL_MS);
+
+    return () => {
+      disposed = true;
+      if (timerId) {
+        clearInterval(timerId);
+      }
+      inFlightController?.abort();
+    };
+  }, [fullscreen]);
 
   useEffect(() => {
     if (!import.meta.env.DEV || fullscreen !== true || !screen || typeof window === "undefined") {
@@ -2003,6 +2045,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const runtimeState = runtime.state ?? (runtime.running ? "running" : "stopped");
   const runtimeStartedAtText = runtime.startedAt ? new Date(runtime.startedAt).toLocaleString() : "-";
   const runtimeStoppedAtText = runtime.stoppedAt ? new Date(runtime.stoppedAt).toLocaleString() : "-";
+  const isRuntimeConnectionOffline = fullscreen && connectionSnapshot.state === "offline";
 
   const refreshRuntime = async () => {
     setRuntimeActionPending("refresh");
@@ -2056,6 +2099,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         <RuntimeDialogs
           confirmState={confirmState}
           numberPrompt={numberPrompt}
+          isOffline={isRuntimeConnectionOffline}
+          lastError={connectionSnapshot.lastError}
           onConfirm={async () => {
             const nextAction = confirmState.action;
             const nextContext = confirmState.context;
@@ -2136,6 +2181,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         <RuntimeDialogs
           confirmState={confirmState}
           numberPrompt={numberPrompt}
+          isOffline={isRuntimeConnectionOffline}
+          lastError={connectionSnapshot.lastError}
           onConfirm={async () => {
             const nextAction = confirmState.action;
             const nextContext = confirmState.context;
@@ -2327,6 +2374,8 @@ function getPopupKey(action: Extract<RuntimeAction, { type: "openPopup" }>): str
 function RuntimeDialogs({
   confirmState,
   numberPrompt,
+  isOffline,
+  lastError,
   onConfirm,
   onCancelConfirm,
   onCloseNumberPrompt,
@@ -2335,6 +2384,8 @@ function RuntimeDialogs({
 }: {
   confirmState: { open: boolean; text: string };
   numberPrompt: { open: boolean; action?: Extract<RuntimeAction, { type: "writeNumberPrompt" }>; context?: RenderContext; value?: number };
+  isOffline: boolean;
+  lastError: string | null;
   onConfirm: () => Promise<void>;
   onCancelConfirm: () => void;
   onCloseNumberPrompt: () => void;
@@ -2357,6 +2408,24 @@ function RuntimeDialogs({
             <InputNumber style={{ width: "100%" }} value={numberPrompt.value} onChange={onChangeNumberValue} />
           </Form.Item>
         </Form>
+      </Modal>
+      <Modal
+        title="Connection Lost"
+        open={isOffline}
+        footer={null}
+        closable={false}
+        maskClosable={false}
+        keyboard={false}
+        zIndex={2200}
+      >
+        <Typography.Text>
+          Backend connection is unavailable. Runtime updates are paused. Reconnecting...
+        </Typography.Text>
+        {lastError ? (
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 8 }}>
+            {lastError}
+          </Typography.Paragraph>
+        ) : null}
       </Modal>
     </>
   );
