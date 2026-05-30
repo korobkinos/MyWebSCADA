@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Layer, Rect, Stage, Transformer } from "react-konva";
+import { Group, Layer, Rect, Stage, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type {
@@ -55,6 +55,8 @@ type HmiStageProps = {
   currentUserRoleLevel?: number;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
 };
+
+export const OFFSCREEN_PAD = 2000;
 
 export function HmiStage({
   project,
@@ -199,8 +201,12 @@ export function HmiStage({
     [currentUserRoleLevel, renderContext],
   );
   const stageScale = mode === "runtime" ? runtimeScale : effectiveEditorZoom;
-  const stageWidth = mode === "editor" ? screen.width * effectiveEditorZoom : screen.width;
-  const stageHeight = mode === "editor" ? screen.height * effectiveEditorZoom : screen.height;
+  const stageWidth = mode === "editor"
+    ? (screen.width + 2 * OFFSCREEN_PAD) * effectiveEditorZoom
+    : screen.width;
+  const stageHeight = mode === "editor"
+    ? (screen.height + 2 * OFFSCREEN_PAD) * effectiveEditorZoom
+    : screen.height;
   const gridPatternImage = useMemo(() => {
     if (mode !== "editor" || !showEditorGrid) {
       return null;
@@ -244,8 +250,8 @@ export function HmiStage({
       return pointer;
     }
     return {
-      x: pointer.x / effectiveEditorZoom,
-      y: pointer.y / effectiveEditorZoom,
+      x: pointer.x / effectiveEditorZoom - OFFSCREEN_PAD,
+      y: pointer.y / effectiveEditorZoom - OFFSCREEN_PAD,
     };
   };
 
@@ -390,83 +396,112 @@ export function HmiStage({
         onMouseUp={onStageMouseUp}
       >
         <Layer>
-          <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
-          {mode === "editor" && showEditorGrid && gridPatternImage ? (
-            <Rect
-              x={0}
-              y={0}
-              width={screen.width}
-              height={screen.height}
-              fillPatternImage={gridPatternImage as unknown as HTMLImageElement}
-              fillPatternRepeat="repeat"
-              listening={false}
-            />
-          ) : null}
-          <HmiRenderer
-            project={project}
-            screen={screen}
-            mode={mode}
-            tags={tags}
-            drivers={drivers}
-            libraries={libraries}
-            renderContext={effectiveRenderContext}
-            selectedObjectIds={selectedObjectIds}
-            onSelectObject={onSelectObject}
-            onMoveObject={onMoveObject}
-            onCommitObjectMove={onMoveObjectEnd}
-            onResizeObject={onResizeObject}
-            onAction={onAction}
-            onDoubleClickObject={onDoubleClickObject}
-            onContextMenuObject={onContextMenuObject}
-            showObjectFrames={showObjectFrames}
-            overlayState={runtimeOverlay}
-            onShowOverlay={handleShowOverlay}
-            onHideOverlay={handleHideOverlay}
-            onUpsertWidgetOverlay={handleUpsertWidgetOverlay}
-            onRemoveWidgetOverlay={handleRemoveWidgetOverlay}
-            onRequestNumericInput={onRequestNumericInput}
-            renderFlowMode="all"
-          />
-
-          {mode === "editor" && selectionRect ? (
-            <Rect
-              x={selectionRect.x}
-              y={selectionRect.y}
-              width={selectionRect.width}
-              height={selectionRect.height}
-              stroke="#69c0ff"
-              dash={[4, 3]}
-              fill="rgba(105,192,255,0.12)"
-              listening={false}
-            />
-          ) : null}
-
           {mode === "editor" ? (
-            <Transformer
-              ref={transformerRef}
-              rotateEnabled
-              enabledAnchors={[
-                "top-left",
-                "top-center",
-                "top-right",
-                "middle-left",
-                "middle-right",
-                "bottom-left",
-                "bottom-center",
-                "bottom-right",
-              ]}
-              boundBoxFunc={(_, newBox) => {
-                if (newBox.width < minWidth || newBox.height < minHeight) {
-                  return {
-                    ...newBox,
-                    width: Math.max(newBox.width, minWidth),
-                    height: Math.max(newBox.height, minHeight),
-                  };
-                }
-                return newBox;
-              }}
-            />
-          ) : null}
+            <Group x={OFFSCREEN_PAD} y={OFFSCREEN_PAD}>
+              <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
+              {showEditorGrid && gridPatternImage ? (
+                <Rect
+                  x={0}
+                  y={0}
+                  width={screen.width}
+                  height={screen.height}
+                  fillPatternImage={gridPatternImage as unknown as HTMLImageElement}
+                  fillPatternRepeat="repeat"
+                  listening={false}
+                />
+              ) : null}
+              <HmiRenderer
+                project={project}
+                screen={screen}
+                mode={mode}
+                tags={tags}
+                drivers={drivers}
+                libraries={libraries}
+                renderContext={effectiveRenderContext}
+                selectedObjectIds={selectedObjectIds}
+                onSelectObject={onSelectObject}
+                onMoveObject={onMoveObject}
+                onCommitObjectMove={onMoveObjectEnd}
+                onResizeObject={onResizeObject}
+                onAction={onAction}
+                onDoubleClickObject={onDoubleClickObject}
+                onContextMenuObject={onContextMenuObject}
+                showObjectFrames={showObjectFrames}
+                overlayState={runtimeOverlay}
+                onShowOverlay={handleShowOverlay}
+                onHideOverlay={handleHideOverlay}
+                onUpsertWidgetOverlay={handleUpsertWidgetOverlay}
+                onRemoveWidgetOverlay={handleRemoveWidgetOverlay}
+                onRequestNumericInput={onRequestNumericInput}
+                renderFlowMode="all"
+              />
+              {selectionRect ? (
+                <Rect
+                  x={selectionRect.x}
+                  y={selectionRect.y}
+                  width={selectionRect.width}
+                  height={selectionRect.height}
+                  stroke="#69c0ff"
+                  dash={[4, 3]}
+                  fill="rgba(105,192,255,0.12)"
+                  listening={false}
+                />
+              ) : null}
+              <Transformer
+                ref={transformerRef}
+                rotateEnabled
+                enabledAnchors={[
+                  "top-left",
+                  "top-center",
+                  "top-right",
+                  "middle-left",
+                  "middle-right",
+                  "bottom-left",
+                  "bottom-center",
+                  "bottom-right",
+                ]}
+                boundBoxFunc={(_, newBox) => {
+                  if (newBox.width < minWidth || newBox.height < minHeight) {
+                    return {
+                      ...newBox,
+                      width: Math.max(newBox.width, minWidth),
+                      height: Math.max(newBox.height, minHeight),
+                    };
+                  }
+                  return newBox;
+                }}
+              />
+            </Group>
+          ) : (
+            <>
+              <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
+              <HmiRenderer
+                project={project}
+                screen={screen}
+                mode={mode}
+                tags={tags}
+                drivers={drivers}
+                libraries={libraries}
+                renderContext={effectiveRenderContext}
+                selectedObjectIds={selectedObjectIds}
+                onSelectObject={onSelectObject}
+                onMoveObject={onMoveObject}
+                onCommitObjectMove={onMoveObjectEnd}
+                onResizeObject={onResizeObject}
+                onAction={onAction}
+                onDoubleClickObject={onDoubleClickObject}
+                onContextMenuObject={onContextMenuObject}
+                showObjectFrames={showObjectFrames}
+                overlayState={runtimeOverlay}
+                onShowOverlay={handleShowOverlay}
+                onHideOverlay={handleHideOverlay}
+                onUpsertWidgetOverlay={handleUpsertWidgetOverlay}
+                onRemoveWidgetOverlay={handleRemoveWidgetOverlay}
+                onRequestNumericInput={onRequestNumericInput}
+                renderFlowMode="all"
+              />
+            </>
+          )}
         </Layer>
       </Stage>
       {runtimeOverlay ? (

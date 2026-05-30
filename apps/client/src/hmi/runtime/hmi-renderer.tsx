@@ -40,6 +40,7 @@ import { TrendRuntimeWidget } from "../../features/trends/TrendRuntimeWidget";
 import { EventTableRuntimeWidget } from "../../features/events/EventTableRuntimeWidget";
 import { collectRuntimeObjectResolvedTags } from "./runtime-tag-subscriptions";
 import { diagnoseOpcUaCommunication } from "./runtime-opcua-communication";
+import { intersectsScreenBounds } from "./offscreen-filter";
 
 const HMI_CONTROL_COLORS = {
   text: "#cccccc",
@@ -898,7 +899,9 @@ export function HmiRenderer({
 
   return (
     <>
-      {sortedObjects.map((object) => (
+      {sortedObjects
+        .filter((object) => mode !== "runtime" || intersectsScreenBounds(object, screen))
+        .map((object) => (
         <Fragment key={object.id}>
           <MemoObjectNode
             object={object}

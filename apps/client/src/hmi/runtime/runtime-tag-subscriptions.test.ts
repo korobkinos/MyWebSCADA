@@ -382,4 +382,208 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).toContain("Pump.SetpointCmd");
     expect(subscriptions).toContain("Pump.Error");
   });
+
+  it("excludes tags from objects fully offscreen to the right", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "btn-offscreen",
+          type: "button",
+          x: 900,
+          y: 10,
+          width: 120,
+          height: 40,
+          text: "Offscreen",
+          showText: true,
+          disabledTag: "Tag.Offscreen",
+          action: { type: "write", tag: "", value: "" },
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).not.toContain("Tag.Offscreen");
+  });
+
+  it("includes tags from partially on-screen objects", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "btn-partial",
+          type: "button",
+          x: 750,
+          y: 10,
+          width: 120,
+          height: 40,
+          text: "Partial",
+          showText: true,
+          disabledTag: "Tag.Partial",
+          action: { type: "write", tag: "", value: "" },
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Tag.Partial");
+  });
+
+  it("excludes tags from objects fully above screen", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "btn-above",
+          type: "button",
+          x: 100,
+          y: -100,
+          width: 120,
+          height: 40,
+          text: "Above",
+          showText: true,
+          disabledTag: "Tag.Above",
+          action: { type: "write", tag: "", value: "" },
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).not.toContain("Tag.Above");
+  });
+
+  it("includes tags from fully on-screen objects", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "btn-on",
+          type: "button",
+          x: 100,
+          y: 100,
+          width: 120,
+          height: 40,
+          text: "On Screen",
+          showText: true,
+          disabledTag: "Tag.OnScreen",
+          action: { type: "write", tag: "", value: "" },
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Tag.OnScreen");
+  });
 });

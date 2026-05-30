@@ -17,6 +17,7 @@ import {
   type TagValue,
 } from "@web-scada/shared";
 import { resolveObjectTagField } from "../tags/indexed-address";
+import { intersectsScreenBounds } from "./offscreen-filter";
 
 type TagMap = Record<string, TagValue>;
 
@@ -137,6 +138,7 @@ function collectScreenTags(
   frameGuard: Set<string>,
 ): void {
   for (const object of screen.objects) {
+    if (!intersectsScreenBounds(object, screen)) continue;
     collectObjectTags(project, libraries, object, context, runtimeResolveContext, out, dependencyOut, frameGuard);
   }
 }

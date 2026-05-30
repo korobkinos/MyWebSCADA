@@ -49,7 +49,7 @@ import {
   InputIcon,
 } from "@radix-ui/react-icons";
 import { Tabs } from "antd";
-import { HmiStage } from "../../../hmi/runtime/hmi-stage";
+import { HmiStage, OFFSCREEN_PAD } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
   WorkbenchButton,
@@ -339,7 +339,13 @@ export function ScreenEditorCenter({
     if (!Number.isFinite(fitZoom) || fitZoom <= 0) {
       return;
     }
-    setEditorZoom(clampZoom(fitZoom));
+    const next = clampZoom(fitZoom);
+    setEditorZoom(next);
+    pendingWheelZoomAnchorRef.current = {
+      worldX: screen.width / 2 + OFFSCREEN_PAD,
+      worldY: screen.height / 2 + OFFSCREEN_PAD,
+      targetZoom: next,
+    };
   }, [previewMode, screen.height, screen.width]);
 
   useEffect(() => {
@@ -403,8 +409,8 @@ export function ScreenEditorCenter({
       return { x: 100, y: 100 };
     }
     return {
-      x: (el.scrollLeft + el.clientWidth / 2) / editorZoom,
-      y: (el.scrollTop + el.clientHeight / 2) / editorZoom,
+      x: (el.scrollLeft + el.clientWidth / 2) / editorZoom - OFFSCREEN_PAD,
+      y: (el.scrollTop + el.clientHeight / 2) / editorZoom - OFFSCREEN_PAD,
     };
   }, [editorZoom]);
 
@@ -447,8 +453,8 @@ export function ScreenEditorCenter({
     }
     const centerX = el.clientWidth / 2;
     const centerY = el.clientHeight / 2;
-    el.scrollLeft = Math.max(0, Math.round(anchor.worldX * editorZoom - centerX));
-    el.scrollTop = Math.max(0, Math.round(anchor.worldY * editorZoom - centerY));
+    el.scrollLeft = Math.round(anchor.worldX * editorZoom - centerX);
+    el.scrollTop = Math.round(anchor.worldY * editorZoom - centerY);
     pendingWheelZoomAnchorRef.current = null;
   }, [editorZoom]);
 
@@ -656,7 +662,10 @@ export function ScreenEditorCenter({
       </div>
       <div
         className={`screen-editor-canvas-host${isCanvasDragOver ? " screen-editor-canvas-host--drag-over" : ""}${!previewMode && activeTool === "select" ? " screen-editor-canvas-host--select" : ""}${!previewMode && activeTool === "pan" ? " screen-editor-canvas-host--pan" : ""}${!previewMode && isPanning ? " screen-editor-canvas-host--panning" : ""}`}
-        style={{ ["--screen-editor-viewport-bg" as string]: viewportBackground } as Record<string, string>}
+        style={{
+          ["--screen-editor-viewport-bg" as string]: viewportBackground,
+          overflow: previewMode ? undefined : "visible",
+        } as Record<string, string>}
         onWheel={(event) => {
           // Task 4: zoom is handled by the native non-passive listener (useEffect above).
           // React's onWheel is passive by default and cannot preventDefault reliably.
