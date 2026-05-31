@@ -89,21 +89,6 @@ export function ScreenEditorScreenSettingsWindow(props: ScreenEditorScreenSettin
             </Space.Compact>
           </label>
 
-          <label className="screen-editor-settings-field">
-            <span>Background Fill Mode</span>
-            <select
-              className="workbench-select"
-              value={screen.backgroundFillMode ?? "screen"}
-              onChange={(event) =>
-                onUpdateScreen({
-                  backgroundFillMode: event.target.value === "viewport" ? "viewport" : "screen",
-                })
-              }
-            >
-              <option value="screen">Screen bounds only</option>
-              <option value="viewport">Fill editor viewport</option>
-            </select>
-          </label>
         </div>
       </WorkbenchSection>
     </div>
