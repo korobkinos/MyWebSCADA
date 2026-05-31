@@ -105,7 +105,13 @@ type FormatNumericOptions = {
 };
 
 type GradientDirection = "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
-type CompoundPatternStyle = "solid" | "diagonal" | "cross" | "dots" | "beveledHatch";
+type CompoundPatternStyle =
+  | "solid"
+  | "beveledHatch"
+  | "beveledHatchDense"
+  | "beveledHatchWide"
+  | "beveledCrosshatch"
+  | "beveledZigzag";
 
 const compoundPatternCanvasCache = new Map<string, HTMLCanvasElement>();
 type ShadowDirection = "right" | "left" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -630,7 +636,7 @@ function getCompoundPatternCanvas(style: CompoundPatternStyle, color: string): H
   if (cached) {
     return cached;
   }
-  const size = 12;
+  const size = 16;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -642,27 +648,48 @@ function getCompoundPatternCanvas(style: CompoundPatternStyle, color: string): H
   ctx.strokeStyle = safeColor;
   ctx.fillStyle = safeColor;
   ctx.lineWidth = 1;
-  if (style === "diagonal" || style === "beveledHatch") {
+  const drawDiagonalHatch = (spacing: number, reverse = false): void => {
     ctx.beginPath();
-    ctx.moveTo(-4, size);
-    ctx.lineTo(size, -4);
-    ctx.moveTo(2, size + 4);
-    ctx.lineTo(size + 4, 2);
+    for (let offset = -size; offset <= size * 2; offset += spacing) {
+      if (reverse) {
+        ctx.moveTo(offset, 0);
+        ctx.lineTo(offset - size, size);
+      } else {
+        ctx.moveTo(offset, size);
+        ctx.lineTo(offset - size, 0);
+      }
+    }
     ctx.stroke();
-  } else if (style === "cross") {
+  };
+  if (style === "beveledHatch") {
+    drawDiagonalHatch(8);
+  } else if (style === "beveledHatchDense") {
+    drawDiagonalHatch(5);
+  } else if (style === "beveledHatchWide") {
+    ctx.lineWidth = 1.2;
+    drawDiagonalHatch(11);
+  } else if (style === "beveledCrosshatch") {
+    drawDiagonalHatch(8);
+    drawDiagonalHatch(8, true);
+  } else if (style === "beveledZigzag") {
+    const step = 6;
+    const amplitude = 2.5;
     ctx.beginPath();
-    ctx.moveTo(0, size / 2);
-    ctx.lineTo(size, size / 2);
-    ctx.moveTo(size / 2, 0);
-    ctx.lineTo(size / 2, size);
+    for (let row = -step; row <= size + step; row += step) {
+      ctx.moveTo(-step, row + amplitude);
+      for (let x = -step; x <= size + step; x += step) {
+        ctx.lineTo(x + step / 2, row - amplitude);
+        ctx.lineTo(x + step, row + amplitude);
+      }
+    }
     ctx.stroke();
-  } else if (style === "dots") {
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, 1.2, 0, Math.PI * 2);
-    ctx.fill();
   }
   compoundPatternCanvasCache.set(cacheKey, canvas);
   return canvas;
+}
+
+function isBeveledPatternStyle(style: CompoundPatternStyle): boolean {
+  return style !== "solid";
 }
 
 function resolveShadowOffset(direction: ShadowDirection, distance: number): { x: number; y: number } {
@@ -2371,7 +2398,7 @@ function ObjectNode({
             listening={false}
             perfectDrawEnabled={false}
           />
-        ) : strokePatternStyle === "beveledHatch" ? (
+        ) : isBeveledPatternStyle(strokePatternStyle) ? (
           <Shape
             sceneFunc={(context) => {
               drawStroke(context, strokeOuterBandColor, compoundStrokeWidth);

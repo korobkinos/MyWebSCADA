@@ -2273,10 +2273,11 @@ function SpecificPropertyFields({
   if (object.type === "compoundShape") {
     const patternStyleOptions = [
       { label: "solid", value: "solid" },
-      { label: "diagonal", value: "diagonal" },
-      { label: "cross", value: "cross" },
-      { label: "dots", value: "dots" },
       { label: "beveledHatch", value: "beveledHatch" },
+      { label: "beveledHatchDense", value: "beveledHatchDense" },
+      { label: "beveledHatchWide", value: "beveledHatchWide" },
+      { label: "beveledCrosshatch", value: "beveledCrosshatch" },
+      { label: "beveledZigzag", value: "beveledZigzag" },
     ];
     return (
       <>
