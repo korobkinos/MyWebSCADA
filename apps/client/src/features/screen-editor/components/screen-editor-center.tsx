@@ -270,9 +270,6 @@ export function ScreenEditorCenter({
   const isManualZoomRef = useRef(false);
   const latestEditorZoomRef = useRef(1);
   const zoomPersistTimeoutRef = useRef<number | null>(null);
-  const wheelZoomFrameIdRef = useRef<number | null>(null);
-  const wheelZoomFactorRef = useRef(1);
-  const wheelZoomSnapshotRef = useRef<{ scrollLeft: number; scrollTop: number; clientWidth: number; clientHeight: number } | null>(null);
   const [editorZoom, setEditorZoom] = useState<number>(() => {
     if (typeof window === "undefined") {
       return 1;
@@ -355,6 +352,30 @@ export function ScreenEditorCenter({
   const stageTags = previewMode ? tags : EMPTY_STAGE_TAGS;
   const editorOffscreenPad = getEditorOffscreenPad(editorZoom);
   const viewportBackground = "#111111";
+  const setEditorZoomKeepingViewportCenter = useCallback((nextZoomOrUpdater: number | ((prev: number) => number)) => {
+    const el = canvasScrollRef.current;
+    setEditorZoom((prev) => {
+      const rawNext = typeof nextZoomOrUpdater === "function"
+        ? (nextZoomOrUpdater as (value: number) => number)(prev)
+        : nextZoomOrUpdater;
+      const next = clampZoom(rawNext);
+      if (next === prev) {
+        return prev;
+      }
+      if (el) {
+        const previousPad = getEditorOffscreenPad(prev);
+        const centerScreenX = (el.scrollLeft + el.clientWidth / 2) / prev - previousPad;
+        const centerScreenY = (el.scrollTop + el.clientHeight / 2) / prev - previousPad;
+        pendingWheelZoomAnchorRef.current = {
+          screenX: centerScreenX,
+          screenY: centerScreenY,
+          targetZoom: next,
+        };
+      }
+      return next;
+    });
+  }, []);
+
   const applyAutoFitZoom = useCallback(() => {
     if (previewMode) {
       return;
@@ -492,29 +513,6 @@ export function ScreenEditorCenter({
   useEffect(() => {
     const el = canvasScrollRef.current;
     if (!el) return;
-    const flushWheelZoom = () => {
-      wheelZoomFrameIdRef.current = null;
-      const deltaFactor = wheelZoomFactorRef.current;
-      const snapshot = wheelZoomSnapshotRef.current;
-      wheelZoomFactorRef.current = 1;
-      wheelZoomSnapshotRef.current = null;
-      if (!snapshot || Math.abs(deltaFactor - 1) < 1e-9) {
-        return;
-      }
-      setEditorZoom((prev) => {
-        const next = clampZoom(prev * deltaFactor);
-        if (next === prev) {
-          return prev;
-        }
-        const centerX = snapshot.clientWidth / 2;
-        const centerY = snapshot.clientHeight / 2;
-        const previousPad = getEditorOffscreenPad(prev);
-        const screenX = (snapshot.scrollLeft + centerX) / prev - previousPad;
-        const screenY = (snapshot.scrollTop + centerY) / prev - previousPad;
-        pendingWheelZoomAnchorRef.current = { screenX, screenY, targetZoom: next };
-        return next;
-      });
-    };
     const handler = (event: WheelEvent) => {
       if (previewMode) return;
       if (!wheelZoomEnabled) return;
@@ -522,30 +520,13 @@ export function ScreenEditorCenter({
       event.preventDefault();
       if (!event.deltaY) return;
       isManualZoomRef.current = true;
-      wheelZoomFactorRef.current *= event.deltaY < 0 ? ZOOM_STEP : (1 / ZOOM_STEP);
-      if (!wheelZoomSnapshotRef.current) {
-        wheelZoomSnapshotRef.current = {
-          scrollLeft: el.scrollLeft,
-          scrollTop: el.scrollTop,
-          clientWidth: el.clientWidth,
-          clientHeight: el.clientHeight,
-        };
-      }
-      if (wheelZoomFrameIdRef.current === null) {
-        wheelZoomFrameIdRef.current = window.requestAnimationFrame(flushWheelZoom);
-      }
+      setEditorZoomKeepingViewportCenter((prev) => (event.deltaY < 0 ? prev * ZOOM_STEP : prev / ZOOM_STEP));
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => {
       el.removeEventListener("wheel", handler);
-      if (wheelZoomFrameIdRef.current !== null) {
-        window.cancelAnimationFrame(wheelZoomFrameIdRef.current);
-        wheelZoomFrameIdRef.current = null;
-      }
-      wheelZoomFactorRef.current = 1;
-      wheelZoomSnapshotRef.current = null;
     };
-  }, [previewMode, wheelZoomEnabled]);
+  }, [previewMode, setEditorZoomKeepingViewportCenter, wheelZoomEnabled]);
 
   const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
     if (activeTool !== "pan" || event.button !== 0) {
@@ -871,14 +852,14 @@ export function ScreenEditorCenter({
             className="screen-editor-zoom-button"
             onClick={() => {
               isManualZoomRef.current = true;
-              setEditorZoom((prev) => clampZoom(prev / ZOOM_STEP));
+              setEditorZoomKeepingViewportCenter((prev) => prev / ZOOM_STEP);
             }}
           >
             -
           </WorkbenchButton>
           <WorkbenchButton className="screen-editor-zoom-button" onClick={() => {
             isManualZoomRef.current = true;
-            setEditorZoom(1);
+            setEditorZoomKeepingViewportCenter(1);
           }}>
             100%
           </WorkbenchButton>
@@ -886,7 +867,7 @@ export function ScreenEditorCenter({
             className="screen-editor-zoom-button"
             onClick={() => {
               isManualZoomRef.current = true;
-              setEditorZoom((prev) => clampZoom(prev * ZOOM_STEP));
+              setEditorZoomKeepingViewportCenter((prev) => prev * ZOOM_STEP);
             }}
           >
             +
@@ -896,7 +877,7 @@ export function ScreenEditorCenter({
             value={String(editorZoom)}
             onChange={(event) => {
               isManualZoomRef.current = true;
-              setEditorZoom(clampZoom(Number(event.target.value)));
+              setEditorZoomKeepingViewportCenter(Number(event.target.value));
             }}
           >
             {zoomSelectOptions.map((value) => (
