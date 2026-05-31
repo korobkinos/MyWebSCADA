@@ -13,9 +13,14 @@ export function sortObjectsByZIndex(objects: HmiObject[]): HmiObject[] {
 
 export function getMaxZIndex(objects: HmiObject[]): number {
   let max = -1;
-  for (const obj of objects) {
-    if (typeof obj.zIndex === "number" && obj.zIndex > max) {
-      max = obj.zIndex;
+  for (let index = 0; index < objects.length; index += 1) {
+    const obj = objects[index];
+    if (!obj) {
+      continue;
+    }
+    const candidate = typeof obj.zIndex === "number" ? obj.zIndex : index;
+    if (candidate > max) {
+      max = candidate;
     }
   }
   return max;
