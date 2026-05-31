@@ -69,7 +69,6 @@ const ZOOM_OPTIONS = [0.02, 0.05, 0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 20];
 const ACTIVE_TOOL_STORAGE_KEY = "screenEditor.activeTool";
 const EDITOR_ZOOM_STORAGE_KEY = "screenEditor.canvas.zoom";
 const EDITOR_ZOOM_PERSIST_DELAY_MS = 250;
-const WHEEL_ZOOM_COMMIT_MS = 40;
 const EMPTY_STAGE_TAGS: Record<string, any> = Object.freeze({});
 
 function parseEditorTool(raw: string | null): EditorTool {
@@ -268,16 +267,9 @@ export function ScreenEditorCenter({
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
   const pendingWheelZoomAnchorRef = useRef<{ screenX: number; screenY: number; targetZoom: number } | null>(null);
-  const wheelZoomTimerIdRef = useRef<number | null>(null);
+  const wheelZoomFrameIdRef = useRef<number | null>(null);
   const wheelZoomFactorRef = useRef(1);
-  const wheelZoomSnapshotRef = useRef<{
-    scrollLeft: number;
-    scrollTop: number;
-    clientWidth: number;
-    clientHeight: number;
-    zoom: number;
-    pad: number;
-  } | null>(null);
+  const wheelZoomSnapshotRef = useRef<{ scrollLeft: number; scrollTop: number; clientWidth: number; clientHeight: number } | null>(null);
   const isManualZoomRef = useRef(false);
   const latestEditorZoomRef = useRef(1);
   const zoomPersistTimeoutRef = useRef<number | null>(null);
@@ -385,34 +377,6 @@ export function ScreenEditorCenter({
       }
       return next;
     });
-  }, []);
-
-  const flushWheelZoom = useCallback(() => {
-    const snapshot = wheelZoomSnapshotRef.current;
-    const deltaFactor = wheelZoomFactorRef.current;
-
-    wheelZoomTimerIdRef.current = null;
-    wheelZoomSnapshotRef.current = null;
-    wheelZoomFactorRef.current = 1;
-
-    if (!snapshot || Math.abs(deltaFactor - 1) < 1e-9) {
-      return;
-    }
-
-    const next = clampZoom(snapshot.zoom * deltaFactor);
-    if (next === latestEditorZoomRef.current) {
-      return;
-    }
-
-    const centerScreenX = (snapshot.scrollLeft + snapshot.clientWidth / 2) / snapshot.zoom - snapshot.pad;
-    const centerScreenY = (snapshot.scrollTop + snapshot.clientHeight / 2) / snapshot.zoom - snapshot.pad;
-
-    pendingWheelZoomAnchorRef.current = {
-      screenX: centerScreenX,
-      screenY: centerScreenY,
-      targetZoom: next,
-    };
-    setEditorZoom(next);
   }, []);
 
   const applyAutoFitZoom = useCallback(() => {
@@ -552,6 +516,29 @@ export function ScreenEditorCenter({
   useEffect(() => {
     const el = canvasScrollRef.current;
     if (!el) return;
+    const flushWheelZoom = () => {
+      wheelZoomFrameIdRef.current = null;
+      const deltaFactor = wheelZoomFactorRef.current;
+      const snapshot = wheelZoomSnapshotRef.current;
+      wheelZoomFactorRef.current = 1;
+      wheelZoomSnapshotRef.current = null;
+      if (!snapshot || Math.abs(deltaFactor - 1) < 1e-9) {
+        return;
+      }
+      setEditorZoom((prev) => {
+        const next = clampZoom(prev * deltaFactor);
+        if (next === prev) {
+          return prev;
+        }
+        const centerX = snapshot.clientWidth / 2;
+        const centerY = snapshot.clientHeight / 2;
+        const previousPad = getEditorOffscreenPad(prev);
+        const screenX = (snapshot.scrollLeft + centerX) / prev - previousPad;
+        const screenY = (snapshot.scrollTop + centerY) / prev - previousPad;
+        pendingWheelZoomAnchorRef.current = { screenX, screenY, targetZoom: next };
+        return next;
+      });
+    };
     const handler = (event: WheelEvent) => {
       if (previewMode) return;
       if (!wheelZoomEnabled) return;
@@ -562,32 +549,30 @@ export function ScreenEditorCenter({
       wheelZoomFactorRef.current *= event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
 
       if (!wheelZoomSnapshotRef.current) {
-        const zoom = latestEditorZoomRef.current;
         wheelZoomSnapshotRef.current = {
           scrollLeft: el.scrollLeft,
           scrollTop: el.scrollTop,
           clientWidth: el.clientWidth,
           clientHeight: el.clientHeight,
-          zoom,
-          pad: getEditorOffscreenPad(zoom),
         };
       }
 
-      if (wheelZoomTimerIdRef.current === null) {
-        wheelZoomTimerIdRef.current = window.setTimeout(flushWheelZoom, WHEEL_ZOOM_COMMIT_MS);
+      if (wheelZoomFrameIdRef.current === null) {
+        wheelZoomFrameIdRef.current = window.requestAnimationFrame(flushWheelZoom);
       }
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => {
       el.removeEventListener("wheel", handler);
-      if (wheelZoomTimerIdRef.current !== null) {
-        window.clearTimeout(wheelZoomTimerIdRef.current);
+      if (wheelZoomFrameIdRef.current !== null) {
+        window.cancelAnimationFrame(wheelZoomFrameIdRef.current);
+        wheelZoomFrameIdRef.current = null;
       }
       wheelZoomFactorRef.current = 1;
       wheelZoomSnapshotRef.current = null;
-      wheelZoomTimerIdRef.current = null;
+      pendingWheelZoomAnchorRef.current = null;
     };
-  }, [flushWheelZoom, previewMode, wheelZoomEnabled]);
+  }, [previewMode, wheelZoomEnabled]);
 
   const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
     if (activeTool !== "pan" || event.button !== 0) {
