@@ -16,15 +16,15 @@ Web SCADA Lite - это расширяемая web-SCADA/HMI система на
   - element libraries
   - library element instances
   - сохранение выбранных объектов в библиотечный элемент
-- Новый раздел `Element Editor` (`/element-editor`) для создания библиотечных шаблонов элементов
+- Управление assets/libraries/macros/users/settings через окна внутри `/editor`
 
-## Что добавлено в этой доработке (Element Editor)
+## Что добавлено в этой доработке (Editor / Workbench)
 
-- В главном меню добавлен отдельный раздел **Element Editor**.
-- Реализована отдельная страница редактирования библиотечных элементов:
-  - левый dock: выбор библиотеки и списка элементов;
-  - центр: canvas шаблона элемента (на базе `HmiStage`);
-  - правый dock: свойства элемента/объекта, assets, preview, state rules.
+- Основной режим редактирования: `/editor`.
+- Редактирование библиотечных элементов выполняется через окна Workbench внутри `/editor`:
+  - окно библиотек и элементов;
+  - canvas/экран редактора (на базе `HmiStage`);
+  - окно свойств объекта, assets и вспомогательные окна.
 - Реализованы операции:
   - `New / Save / Duplicate / Delete element`;
   - добавление примитивов (`Image`, `Text`, `Line`, `Rectangle`, `StateImage`);
@@ -204,17 +204,16 @@ LIBRARIES_DIR=../../libraries
 - `POST /api/project/libraries/attach`
 - `POST /api/project/libraries/detach`
 
-## Element Editor: быстрый сценарий
+## Editor: быстрый сценарий
 
-1. Откройте `Element Editor`.
-2. Выберите библиотеку слева.
-3. Нажмите `New`, задайте имя/размеры элемента.
+1. Откройте `/editor`.
+2. В Workbench откройте окно `Libraries`.
+3. Создайте или выберите библиотеку/элемент.
 4. Добавьте объекты на canvas (`Add Image`, `Add Text`, ...).
-5. Во вкладке `Assets` перетащите изображения на canvas или нажмите `Add`.
-6. В `Element` задайте параметры (`tagPrefix`, `index`, `label` и т.д.).
-7. В `State Rules` задайте JSON-правила состояний.
-8. Нажмите `Save`.
-9. В обычном `Editor` добавьте `LibraryElementInstance`, выберите библиотеку/элемент и задайте `parameterValues`/`tagPrefix`.
+5. В окнах `Assets` и `Object Properties` настройте элемент.
+6. Задайте параметры (`tagPrefix`, `index`, `label`) и при необходимости `stateRules`.
+7. Сохраните проект.
+8. Добавьте `LibraryElementInstance` на экран и задайте `parameterValues`/`tagPrefix`.
 
 ## Ограничения текущего MVP
 
