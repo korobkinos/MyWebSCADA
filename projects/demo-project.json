@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "name": "Max Web SCADA Lite",
+  "name": "Котёл K-11",
   "projectInfo": {
-    "title": "Maxim Web SCADA Lite",
-    "subtitle": "Maxim Web SCADA Lite"
+    "title": "Котёл K-11",
+    "subtitle": "Котёл K-11"
   },
   "uiSettings": {
     "theme": "dark",
@@ -9292,6 +9292,50 @@
       },
       "createdAt": "2026-05-19T07:46:13.528Z",
       "updatedAt": "2026-05-19T07:46:13.528Z"
+    },
+    {
+      "id": "tag_k5q1cy",
+      "name": "xxx_real",
+      "sourceType": "internal",
+      "dataType": "REAL",
+      "internalVariableName": "xxx_real",
+      "writable": false,
+      "scanRateMs": 500,
+      "createdAt": "2026-05-31T17:38:23.423Z",
+      "updatedAt": "2026-05-31T17:38:23.423Z"
+    },
+    {
+      "id": "tag_nk508e",
+      "name": "System.TimeText",
+      "sourceType": "internal",
+      "dataType": "STRING",
+      "internalVariableName": "System.TimeText",
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-05-31T19:05:07.589Z",
+      "updatedAt": "2026-05-31T19:43:52.312Z"
+    },
+    {
+      "id": "tag_12y0oy",
+      "name": "System.DateText",
+      "sourceType": "internal",
+      "dataType": "STRING",
+      "internalVariableName": "System.DateText",
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-05-31T19:05:23.566Z",
+      "updatedAt": "2026-05-31T19:44:01.129Z"
+    },
+    {
+      "id": "tag_g6qizk",
+      "name": "System.DateTimeText",
+      "sourceType": "internal",
+      "dataType": "STRING",
+      "internalVariableName": "System.DateTimeText",
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-05-31T19:05:38.806Z",
+      "updatedAt": "2026-05-31T19:44:08.477Z"
     }
   ],
   "events": [
@@ -9345,6 +9389,7 @@
       "kind": "notification",
       "fileName": "TODO_notification_placeholder.mp3",
       "mimeType": "audio/mpeg",
+      "url": "/sounds/alarm-info.wav",
       "createdAt": "2026-05-23T19:53:06.805Z",
       "updatedAt": "2026-05-23T19:53:06.805Z"
     },
@@ -9354,6 +9399,7 @@
       "kind": "warning",
       "fileName": "TODO_warning_placeholder.mp3",
       "mimeType": "audio/mpeg",
+      "url": "/sounds/alarm-warning.wav",
       "createdAt": "2026-05-23T19:53:06.805Z",
       "updatedAt": "2026-05-23T19:53:06.805Z"
     },
@@ -9363,6 +9409,7 @@
       "kind": "alarm",
       "fileName": "TODO_alarm_placeholder.mp3",
       "mimeType": "audio/mpeg",
+      "url": "/sounds/alarm-critical.wav",
       "createdAt": "2026-05-23T19:53:06.805Z",
       "updatedAt": "2026-05-23T19:53:06.805Z"
     },
@@ -9389,6 +9436,36 @@
       "sizeBytes": 224044,
       "createdAt": "2026-05-23T20:07:22.196Z",
       "updatedAt": "2026-05-23T20:07:22.196Z"
+    },
+    {
+      "id": "default_beep_short",
+      "name": "Beep short",
+      "kind": "notification",
+      "fileName": "beep-short.wav",
+      "mimeType": "audio/wav",
+      "url": "/sounds/beep-short.wav",
+      "createdAt": "2026-05-29T07:30:16.503Z",
+      "updatedAt": "2026-05-29T07:30:16.503Z"
+    },
+    {
+      "id": "default_beep_double",
+      "name": "Beep double",
+      "kind": "notification",
+      "fileName": "beep-double.wav",
+      "mimeType": "audio/wav",
+      "url": "/sounds/beep-double.wav",
+      "createdAt": "2026-05-29T07:30:16.503Z",
+      "updatedAt": "2026-05-29T07:30:16.503Z"
+    },
+    {
+      "id": "default_siren_attention",
+      "name": "Siren attention",
+      "kind": "alarm",
+      "fileName": "siren-attention.wav",
+      "mimeType": "audio/wav",
+      "url": "/sounds/siren-attention.wav",
+      "createdAt": "2026-05-29T07:30:16.503Z",
+      "updatedAt": "2026-05-29T07:30:16.503Z"
     }
   ],
   "operatorActionSettings": {
@@ -9456,6 +9533,19 @@
       "description": "",
       "language": "javascript-lite",
       "code": "const current = Number(api.readVariable('Counter') ?? 0); \nif (current > 500) {\n  api.writeVariable(\"Counter\", 0);\n}else{\napi.writeVariable('Counter', current + 1);\n}",
+      "enabled": true,
+      "triggers": [
+        {
+          "type": "interval",
+          "intervalMs": 1000
+        }
+      ]
+    },
+    {
+      "id": "macro_1780252728526_9878o",
+      "name": "UpdateTime",
+      "language": "javascript-lite",
+      "code": "function pad2(value) {\n  return String(value).padStart(2, \"0\");\n}\n\nconst now = new Date();\n\nconst timeText =\n  pad2(now.getHours()) + \":\" +\n  pad2(now.getMinutes()) + \":\" +\n  pad2(now.getSeconds());\n\nconst dateText =\n  pad2(now.getDate()) + \".\" +\n  pad2(now.getMonth() + 1) + \".\" +\n  String(now.getFullYear());\n\nsetVar(\"System.TimeText\", timeText);\nsetVar(\"System.DateText\", dateText);\nsetVar(\"System.DateTimeText\", timeText + \"\\n\" + dateText);",
       "enabled": true,
       "triggers": [
         {
@@ -9616,7 +9706,7 @@
   "screens": [
     {
       "id": "main",
-      "name": "Главный экран",
+      "name": "Main",
       "kind": "screen",
       "width": 1920,
       "height": 1080,
@@ -9624,189 +9714,10 @@
       "backgroundFillMode": "screen",
       "objects": [
         {
-          "id": "line_k522rs",
-          "type": "line",
-          "name": "Merged Line",
-          "x": 108.3433578113063,
-          "y": 331.1654154136328,
-          "width": 1587.183564258073,
-          "height": 158.15577835076897,
-          "rotation": 0,
-          "locked": false,
-          "minWidth": 20,
-          "minHeight": 10,
-          "points": [
-            1587.183564258073,
-            0,
-            1447.2733025107957,
-            0.025975428849278615,
-            1499.20653788777,
-            130.16764823259814,
-            1224.918131222873,
-            130.32679611372998,
-            1027.3222524531257,
-            48.143339614207434,
-            752.3346835635728,
-            47.434165149672026,
-            747.5735731759715,
-            158.15577835076897,
-            0,
-            157.94696535086382
-          ],
-          "stroke": "#634d4d",
-          "strokeWidth": 6.7,
-          "lineCap": "round",
-          "lineJoin": "round",
-          "cornerRadius": 0,
-          "closed": false,
-          "activeValue": 1,
-          "inactiveStroke": "#d9d9d9",
-          "activeStroke": "#0e639c",
-          "gradientEnabled": false,
-          "gradientDirection": "horizontal",
-          "flowAnimation": {
-            "enabled": true,
-            "triggerTag": "speed",
-            "speedSource": "tag",
-            "fixedSpeedPxPerSec": 140,
-            "speedTag": "speed",
-            "direction": "reverse",
-            "effectType": "gradientShift",
-            "opacity": 0.85,
-            "gradientMidColor": "rgba(4,255,0,0.49)",
-            "gradientSpanPx": 72,
-            "dashLength": 31,
-            "gapLength": 48
-          }
-        },
-        {
-          "id": "title",
-          "type": "text",
-          "x": 40,
-          "y": 24,
-          "width": 360,
-          "height": 52,
-          "locked": true,
-          "wrap": "none",
-          "ellipsis": false,
-          "text": "Котел К-11",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 34,
-            "fontStyle": "bold",
-            "color": "#ffd666",
-            "horizontalAlign": "left",
-            "verticalAlign": "middle",
-            "padding": 0
-          }
-        },
-        {
-          "id": "counter",
-          "type": "value-display",
-          "x": 26.726311495986522,
-          "y": 110.3131773077139,
-          "width": 220,
-          "height": 36,
-          "tag": "Counter",
-          "suffix": " cnt",
-          "textStyle": {
-            "fontFamily": "Consolas",
-            "fontSize": 16,
-            "fontStyle": "bold",
-            "color": "#ffec3d",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 2
-          }
-        },
-        {
-          "id": "value-display_cn8v8o",
-          "type": "value-display",
-          "x": 37.20692052078346,
-          "y": 152.33631530265845,
-          "width": 220,
-          "height": 36,
-          "tag": "Counter2",
-          "suffix": " cnt",
-          "textStyle": {
-            "fontFamily": "Consolas",
-            "fontSize": 16,
-            "fontStyle": "bold",
-            "color": "#ffec3d",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 2
-          }
-        },
-        {
-          "id": "button_ma4yhh",
-          "type": "button",
-          "x": 927.8240947295227,
-          "y": 122.38119604550864,
-          "width": 305.09363741814803,
-          "height": 103.26246189537316,
-          "rotation": 0,
-          "requiredActionRole": 0,
-          "minWidth": 60,
-          "minHeight": 24,
-          "disabledTag": "",
-          "text": "На второй экран",
-          "showText": true,
-          "backgroundColor": "#0958d9",
-          "pressedBackgroundColor": "#969ba4",
-          "disabledBackgroundColor": "#434343",
-          "borderColor": "#0958d9",
-          "borderWidth": 1,
-          "gradientEnabled": true,
-          "gradientEndColor": "#1c335c",
-          "gradientDirection": "center-outward",
-          "textStyle": {
-            "fontFamily": "Arial",
-            "fontSize": 16,
-            "fontStyle": "normal",
-            "color": "#ffffff",
-            "horizontalAlign": "center",
-            "verticalAlign": "middle",
-            "padding": 4
-          },
-          "action": {
-            "type": "openScreen",
-            "screenId": "screen_4"
-          }
-        },
-        {
-          "id": "sel_88zyo1",
-          "type": "select",
-          "x": 1498.926435743365,
-          "y": 30.154805752589557,
-          "width": 315.61680484995225,
-          "height": 56.1096541955471,
-          "rotation": 0,
-          "shadowEnabled": true,
-          "minWidth": 80,
-          "minHeight": 24,
-          "tag": "Counter2",
-          "writeTag": "Counter2",
-          "options": [
-            {
-              "label": "Горелка№1",
-              "value": 1
-            },
-            {
-              "label": "Горелка№2",
-              "value": 2
-            }
-          ],
-          "placeholder": "Горелка",
-          "fontSize": 35,
-          "padding": 12,
-          "arrowAreaWidth": 42
-        },
-        {
           "id": "rgrp_3gd6at",
           "type": "radio-group",
-          "x": -3.2552601431791715,
-          "y": 1026.723548481622,
+          "x": -1.6428861892851752,
+          "y": 1.294728647737425,
           "width": 1920.7258758318198,
           "height": 52.204454076677784,
           "rotation": 0,
@@ -9817,19 +9728,19 @@
           "writeTag": "Counter2",
           "options": [
             {
-              "label": "Экран №1",
+              "label": "Главный экран",
               "value": 0
             },
             {
-              "label": "Экран №2",
+              "label": "Горелки",
               "value": 1
             },
             {
-              "label": "Экран №3",
+              "label": "Графики",
               "value": 2
             },
             {
-              "label": "Экран №4",
+              "label": "Сообщения",
               "value": 3
             }
           ],
@@ -9854,362 +9765,12 @@
           "transparentBackground": false
         },
         {
-          "id": "numeric-input_eu4qep",
-          "type": "numeric-input",
-          "description": "давление газа на входе в котёл",
-          "x": 1075.2793829981001,
-          "y": 40.402990857264875,
-          "width": 154.8253814876562,
-          "height": 56.20142123557006,
-          "rotation": 0,
-          "shadowEnabled": true,
-          "minWidth": 80,
-          "minHeight": 24,
-          "tag": "Counter2",
-          "writeTag": "Counter2",
-          "min": 0,
-          "max": 100,
-          "step": 1,
-          "decimals": 2,
-          "formatMode": "decimals",
-          "showUnit": true,
-          "placeholder": "0",
-          "textColor": "#130101",
-          "fontSize": 40,
-          "fontFamily": "Consolas",
-          "backgroundColor": "#fffafa",
-          "borderColor": "#3c3c3c",
-          "borderWidth": 1,
-          "cornerRadius": 4,
-          "textAlign": "center",
-          "dialogTitle": "Давление газа (кПа)",
-          "dialogBackgroundColor": "#0c0c23",
-          "dialogTextColor": "#1f2a9f"
-        },
-        {
-          "id": "sldr_epccdm",
-          "type": "slider",
-          "x": 1512.2141517775501,
-          "y": 194.5580840775463,
-          "width": 234.85932000226802,
-          "height": 67.7106070012352,
-          "rotation": 0,
-          "shadowEnabled": false,
-          "shadowOpacity": 0.5,
-          "shadowBlur": 13,
-          "shadowDistance": 18,
-          "minWidth": 100,
-          "minHeight": 32,
-          "tag": "speed",
-          "writeTag": "speed",
-          "min": 0,
-          "max": 1000,
-          "step": 10,
-          "orientation": "horizontal",
-          "showValue": true,
-          "fillColor": "#0e639c",
-          "trackColor": "#2d2d2d",
-          "thumbColor": "#cccccc",
-          "borderColor": "#994343",
-          "borderWidth": 0,
-          "cornerRadius": 5,
-          "trackThickness": 24,
-          "thumbRadius": 17,
-          "decimals": 0,
-          "valuePosition": "center",
-          "showMinMax": true,
-          "minMaxFontSize": 19,
-          "minLabelOffset": 20,
-          "maxLabelOffset": 20,
-          "writeOnRelease": true,
-          "dragWriteIntervalMs": 500,
-          "releaseSyncHoldMs": 1000,
-          "transparentBackground": true
-        },
-        {
-          "id": "lib_3lrfc7",
-          "type": "libraryElementInstance",
-          "x": 492.0110962264094,
-          "y": 405.62577871530095,
-          "width": 154.82538148765616,
-          "height": 163.21902324907887,
-          "minWidth": 60,
-          "minHeight": 40,
-          "libraryId": "amaks-basic-equipment",
-          "elementId": "element_q7dp70",
-          "bindingAssignments": {
-            "open": {
-              "baseTag": "Counter2",
-              "prefixMode": {
-                "type": "none"
-              },
-              "indexMode": {
-                "type": "none"
-              }
-            },
-            "chkbox": {
-              "baseTag": "Counter2",
-              "prefixMode": {
-                "type": "none"
-              },
-              "indexMode": {
-                "type": "none"
-              }
-            }
-          },
-          "scaleMode": "fit"
-        },
-        {
-          "id": "nmin_8x7e1y",
-          "type": "numeric-input",
-          "x": 907.3627132248675,
-          "y": 42.05780962806115,
-          "width": 154.8253814876562,
-          "height": 56.20142123557006,
-          "rotation": 0,
-          "minWidth": 80,
-          "minHeight": 24,
-          "tag": "Counter2",
-          "writeTag": "Counter2",
-          "min": 0,
-          "max": 100,
-          "step": 1,
-          "decimals": 0,
-          "formatMode": "decimals",
-          "showUnit": true,
-          "placeholder": "0",
-          "textColor": "#e6e6e6",
-          "fontSize": 40,
-          "fontFamily": "Consolas",
-          "backgroundColor": "#2b1212",
-          "borderColor": "#3c3c3c",
-          "borderWidth": 1,
-          "cornerRadius": 4,
-          "textAlign": "center",
-          "dialogTitle": "ЗАЛУПА",
-          "dialogPlacement": "top",
-          "dialogOffset": 20
-        },
-        {
-          "id": "slider_ypm3wv",
-          "type": "slider",
-          "description": "Изменение скорости",
-          "x": 1513.5309064895973,
-          "y": 146.13886873793373,
-          "width": 234.85932000226802,
-          "height": 67.7106070012352,
-          "rotation": 0,
-          "shadowEnabled": false,
-          "shadowOpacity": 0.5,
-          "shadowBlur": 13,
-          "shadowDistance": 18,
-          "minWidth": 100,
-          "minHeight": 32,
-          "tag": "Counter2",
-          "writeTag": "Counter2",
-          "min": 0,
-          "max": 100,
-          "step": 10,
-          "orientation": "horizontal",
-          "showValue": true,
-          "fillColor": "#0e639c",
-          "trackColor": "#2d2d2d",
-          "thumbColor": "#cccccc",
-          "borderColor": "#994343",
-          "borderWidth": 0,
-          "cornerRadius": 5,
-          "trackThickness": 24,
-          "thumbRadius": 17,
-          "decimals": 0,
-          "valuePosition": "center",
-          "showMinMax": true,
-          "minMaxFontSize": 19,
-          "minLabelOffset": 20,
-          "maxLabelOffset": 20,
-          "writeOnRelease": true,
-          "dragWriteIntervalMs": 500,
-          "releaseSyncHoldMs": 1000,
-          "transparentBackground": true
-        },
-        {
-          "id": "group_ywdwx8",
-          "type": "group",
-          "x": 71.15891461077106,
-          "y": 410.78747592479624,
-          "width": 154.31626376575923,
-          "height": 154.31626376575946,
-          "visible": true,
-          "locked": false,
-          "minWidth": 8,
-          "minHeight": 8,
-          "objects": [
-            {
-              "id": "circle_lv5diz",
-              "type": "rectangle",
-              "x": 0,
-              "y": 0,
-              "width": 154.31626376575923,
-              "height": 154.3162637657595,
-              "rotation": 0,
-              "opacity": 1,
-              "minWidth": 20,
-              "minHeight": 20,
-              "fill": "#262626",
-              "stroke": "#8c8c8c",
-              "strokeWidth": 2,
-              "cornerRadius": 100
-            },
-            {
-              "id": "group_3x7acj",
-              "type": "group",
-              "x": 7.158131882879616,
-              "y": 7.158131882879729,
-              "width": 140,
-              "height": 140,
-              "rotationAnimation": {
-                "enabled": true,
-                "triggerTag": "speed",
-                "speedSource": "tag",
-                "speedTag": "speed",
-                "maxSpeedDegPerSec": 10000
-              },
-              "visible": true,
-              "locked": false,
-              "minWidth": 8,
-              "minHeight": 8,
-              "objects": [
-                {
-                  "id": "line_nen8jb",
-                  "type": "line",
-                  "x": 0,
-                  "y": 60,
-                  "width": 140,
-                  "height": 20,
-                  "minWidth": 20,
-                  "minHeight": 10,
-                  "points": [
-                    0,
-                    10,
-                    140,
-                    10
-                  ],
-                  "stroke": "#d9d9d9",
-                  "strokeWidth": 3,
-                  "closed": false,
-                  "activeValue": 1,
-                  "inactiveStroke": "#d9d9d9",
-                  "activeStroke": "#0e639c",
-                  "gradientEnabled": false,
-                  "gradientDirection": "horizontal"
-                },
-                {
-                  "id": "line_iomj3r",
-                  "type": "line",
-                  "x": 80,
-                  "y": 0,
-                  "width": 140,
-                  "height": 20,
-                  "rotation": 90,
-                  "minWidth": 20,
-                  "minHeight": 10,
-                  "points": [
-                    0,
-                    10,
-                    140,
-                    10
-                  ],
-                  "stroke": "#d9d9d9",
-                  "strokeWidth": 3,
-                  "closed": false,
-                  "activeValue": 1,
-                  "inactiveStroke": "#d9d9d9",
-                  "activeStroke": "#0e639c",
-                  "gradientEnabled": false,
-                  "gradientDirection": "horizontal"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "img_yfhtyh",
-          "type": "image",
-          "x": 1684.0479694114795,
-          "y": 261.3025627042757,
-          "width": 149.36478488642067,
-          "height": 149.36478488642075,
-          "rotation": 0,
-          "rotationAnimation": {
-            "enabled": true,
-            "triggerTag": "speed",
-            "speedSource": "tag",
-            "speedTag": "speed",
-            "maxSpeedDegPerSec": 10000
-          },
-          "opacity": 1,
-          "minWidth": 40,
-          "minHeight": 40,
-          "assetId": "74833278-14a0-4c31-9873-99766385d846",
-          "fit": "contain",
-          "preserveAspectRatio": true
-        },
-        {
-          "id": "group_d8k0vv",
-          "type": "group",
-          "x": 947.4936171839818,
-          "y": 332.67831782780365,
-          "width": 90,
-          "height": 90,
-          "visible": true,
-          "locked": false,
-          "minWidth": 8,
-          "minHeight": 8,
-          "objects": [
-            {
-              "id": "circle_cbddtu",
-              "type": "rectangle",
-              "x": 0,
-              "y": 0,
-              "width": 90,
-              "height": 90,
-              "opacity": 1,
-              "minWidth": 20,
-              "minHeight": 20,
-              "fill": "#262626",
-              "stroke": "#8c8c8c",
-              "strokeWidth": 2,
-              "cornerRadius": 45
-            },
-            {
-              "id": "img_c0eot1",
-              "type": "image",
-              "x": 5,
-              "y": 5,
-              "width": 80,
-              "height": 80,
-              "rotationAnimation": {
-                "enabled": true,
-                "triggerTag": "speed",
-                "speedSource": "tag",
-                "speedTag": "speed",
-                "maxSpeedDegPerSec": 10000
-              },
-              "opacity": 1,
-              "minWidth": 40,
-              "minHeight": 40,
-              "assetId": "2d07b91d-8bd2-4c63-b127-a2b7615b78c0",
-              "fit": "contain",
-              "preserveAspectRatio": true
-            }
-          ]
-        },
-        {
           "id": "event_table_h6snjl",
           "type": "eventTable",
-          "x": 34.44053819638263,
-          "y": 616.8610544902217,
-          "width": 1859.3131421255487,
-          "height": 387.6828397079581,
+          "x": -0.5624910206674137,
+          "y": 860.2038259650941,
+          "width": 1922.22180775188,
+          "height": 221.88068983209794,
           "rotation": 0,
           "minWidth": 220,
           "minHeight": 140,
@@ -10264,43 +9825,49 @@
           "enableSilenceButton": true
         },
         {
-          "id": "btn_yn6fu0",
-          "type": "button",
-          "x": 637.6774367709206,
-          "y": 182.51211980442383,
-          "width": 130,
-          "height": 44,
+          "id": "frame_8gc62r",
+          "type": "frame",
+          "x": -1.4544462532680313,
+          "y": 60.657456703818184,
+          "width": 1908.3017298838251,
+          "height": 793.7053994189314,
+          "rotation": 0,
+          "minWidth": 80,
+          "minHeight": 50,
+          "screenId": "template_3",
+          "showTemplateBackground": false,
+          "showBorder": true,
+          "borderColor": "#888",
+          "borderWidth": 1,
+          "scaleMode": "fit"
+        },
+        {
+          "id": "text_txgypi",
+          "type": "text",
+          "name": "System.TimeText",
+          "x": -214.76056729118704,
+          "y": 301.55338518936605,
+          "width": 180,
+          "height": 40,
           "minWidth": 60,
           "minHeight": 24,
-          "text": "Start",
-          "showText": true,
-          "backgroundColor": "#0958d9",
-          "pressedBackgroundColor": "#0747b3",
-          "disabledBackgroundColor": "#434343",
-          "borderColor": "#0958d9",
-          "borderWidth": 1,
-          "gradientEnabled": false,
-          "gradientDirection": "horizontal",
+          "text": "Text",
+          "tag": "System.TimeText",
           "textStyle": {
             "fontFamily": "Arial",
             "fontSize": 16,
             "fontStyle": "normal",
             "color": "#ffffff",
-            "horizontalAlign": "center",
+            "horizontalAlign": "left",
             "verticalAlign": "middle",
             "padding": 4
-          },
-          "action": {
-            "type": "write",
-            "tag": "Counter",
-            "value": true
           }
         }
       ]
     },
     {
       "id": "screen_4",
-      "name": "screen2",
+      "name": "Trends",
       "kind": "screen",
       "width": 1920,
       "height": 1000,
@@ -10635,6 +10202,325 @@
           "dragWriteIntervalMs": 500,
           "releaseSyncHoldMs": 1000,
           "transparentBackground": true
+        }
+      ]
+    },
+    {
+      "id": "template_3",
+      "name": "Burner",
+      "kind": "template",
+      "width": 1920,
+      "height": 793,
+      "background": "#767676",
+      "objects": [
+        {
+          "id": "group_d0lxzq",
+          "type": "group",
+          "x": 920.5254389971133,
+          "y": -150.25752012944213,
+          "width": 100.42991527851089,
+          "height": 109.87152830991016,
+          "rotation": 0,
+          "visible": true,
+          "locked": false,
+          "minWidth": 8,
+          "minHeight": 8,
+          "objects": [
+            {
+              "id": "line_q5tqg5",
+              "type": "line",
+              "name": "stick",
+              "x": 44.58933400059967,
+              "y": 80.94974031895352,
+              "width": 53.33326456775586,
+              "height": 12.102853609794844,
+              "rotation": -90.00000000000001,
+              "minWidth": 12.102853609794897,
+              "minHeight": 6.051426804897446,
+              "points": [
+                0,
+                6.051426804897422,
+                53.33326456775586,
+                6.051426804897422
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 3.0257134024487238,
+              "lineCap": "round",
+              "lineJoin": "round",
+              "cornerRadius": 0,
+              "closed": false,
+              "activeValue": 1,
+              "inactiveStroke": "#d9d9d9",
+              "activeStroke": "#0e639c",
+              "gradientEnabled": false,
+              "gradientDirection": "horizontal"
+            },
+            {
+              "id": "circle_0t1zhr",
+              "type": "rectangle",
+              "name": "move",
+              "x": 25.642094271695758,
+              "y": 0,
+              "width": 51.741263496823684,
+              "height": 51.74126349682377,
+              "rotation": 0,
+              "opacity": 1,
+              "minWidth": 12.102853609794897,
+              "minHeight": 12.102853609794892,
+              "fill": "#262626",
+              "stroke": "#262626",
+              "strokeWidth": 1.2102853609794895,
+              "cornerRadius": 100
+            },
+            {
+              "id": "tri_3krjbo",
+              "type": "line",
+              "name": "right",
+              "x": 50.10381584158807,
+              "y": 109.5689569696653,
+              "width": 56.27646910876276,
+              "height": 50.02352809667791,
+              "rotation": -90.00000000000001,
+              "opacity": 1,
+              "minWidth": 12.102853609794897,
+              "minHeight": 12.102853609794892,
+              "points": [
+                28.13823455438138,
+                0,
+                56.27646910876276,
+                50.02352809667791,
+                0,
+                50.02352809667791
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 0.6051426804897447,
+              "closed": true,
+              "fill": "#262626"
+            },
+            {
+              "id": "line_yw3865",
+              "type": "line",
+              "name": "left",
+              "x": 50.32609943692281,
+              "y": 53.29248786090256,
+              "width": 56.27646910876276,
+              "height": 50.02352809667791,
+              "rotation": 90,
+              "opacity": 1,
+              "minWidth": 12.102853609794897,
+              "minHeight": 12.102853609794892,
+              "points": [
+                28.13823455438138,
+                0,
+                56.27646910876276,
+                50.02352809667791,
+                0,
+                50.02352809667791
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 0.6051426804897447,
+              "closed": true,
+              "fill": "#262626"
+            }
+          ]
+        },
+        {
+          "id": "lib_7tkqgb",
+          "type": "libraryElementInstance",
+          "x": 464.33368344333036,
+          "y": 213.76821657224835,
+          "width": 60,
+          "height": 63.24838952070066,
+          "rotation": 0,
+          "minWidth": 60,
+          "minHeight": 40,
+          "libraryId": "amaks-basic-equipment",
+          "elementId": "element_2fgm3j",
+          "bindingAssignments": {
+            "left": {
+              "baseTag": "Counter",
+              "prefixMode": {
+                "type": "none"
+              },
+              "indexMode": {
+                "type": "none"
+              }
+            },
+            "right": {
+              "baseTag": "",
+              "prefixMode": {
+                "type": "none"
+              },
+              "indexMode": {
+                "type": "none"
+              }
+            },
+            "move": {
+              "baseTag": "",
+              "prefixMode": {
+                "type": "none"
+              },
+              "indexMode": {
+                "type": "none"
+              }
+            },
+            "error": {
+              "baseTag": "",
+              "prefixMode": {
+                "type": "none"
+              },
+              "indexMode": {
+                "type": "none"
+              }
+            }
+          },
+          "scaleMode": "fit"
+        },
+        {
+          "id": "compound_q36c79",
+          "type": "compoundShape",
+          "name": "Merged Shape",
+          "x": 1187.3649257456862,
+          "y": -2.7546171269266893,
+          "width": 426.9535091282231,
+          "height": 387.006769224661,
+          "rotation": 0,
+          "visible": true,
+          "locked": false,
+          "opacity": 0.94,
+          "minWidth": 8,
+          "minHeight": 8,
+          "parts": [
+            {
+              "points": [
+                0,
+                0,
+                284.4501735960347,
+                0,
+                284.4501735960347,
+                102.55659562862638,
+                426.9535091282231,
+                102.55659562862638,
+                426.9535091282231,
+                387.006769224661,
+                142.50333553218832,
+                387.006769224661,
+                142.50333553218832,
+                284.45017359603463,
+                0,
+                284.45017359603463
+              ],
+              "closed": true
+            }
+          ],
+          "fill": "#1f242a",
+          "fillPatternStyle": "beveledHatchWide",
+          "fillPatternColor": "#4f5a66",
+          "stroke": "#a7b2bc",
+          "strokeWidth": 7,
+          "strokePatternStyle": "beveledCrosshatch",
+          "strokePatternColor": "#f0c000",
+          "lineCap": "round",
+          "lineJoin": "round",
+          "fillRule": "nonzero"
+        },
+        {
+          "id": "nmin_mo9h9c",
+          "type": "numeric-input",
+          "x": 1217.2735707602028,
+          "y": 147.26048885643664,
+          "width": 172.74108851828498,
+          "height": 49.268895935803876,
+          "rotation": 0,
+          "minWidth": 80,
+          "minHeight": 24,
+          "tag": "xxx_real",
+          "writeTag": "xxx_real",
+          "min": 0,
+          "max": 100,
+          "step": 0.1,
+          "decimals": 0,
+          "formatMode": "pattern",
+          "formatPattern": "###.##",
+          "unit": "kPa",
+          "showUnit": true,
+          "placeholder": "0",
+          "textColor": "#9b5000",
+          "fontSize": 30,
+          "fontFamily": "Consolas",
+          "backgroundColor": "#1e1e1e",
+          "borderColor": "#3c3c3c",
+          "borderWidth": 1,
+          "cornerRadius": 4,
+          "textAlign": "right",
+          "showMeta": true,
+          "stepButtonUseTextColor": true,
+          "stepButtonTextColor": "#cccccc",
+          "stepButtonBackgroundColor": "#2d2d2d",
+          "badTextColor": "#f14c4c",
+          "badBackgroundColor": "#2b1a1a",
+          "badBorderColor": "#a03030",
+          "dialogTitle": "Set Value",
+          "dialogWidth": 300,
+          "dialogHeight": 150,
+          "dialogPlacement": "top",
+          "dialogOffset": 12,
+          "dialogX": 200,
+          "dialogY": 150,
+          "dialogBackgroundColor": "#252526",
+          "dialogTextColor": "#cccccc",
+          "dialogBorderColor": "#3c3c3c",
+          "dialogCloseButtonTextColor": "#cccccc",
+          "dialogCloseButtonBackgroundColor": "#2d2d2d",
+          "dialogSetButtonTextColor": "#ffffff",
+          "dialogSetButtonBackgroundColor": "#0e639c",
+          "dialogSetButtonBorderColor": "#007acc"
+        },
+        {
+          "id": "text_znkqsa",
+          "type": "text",
+          "name": "",
+          "x": 745.3418002106882,
+          "y": 281.8568754629562,
+          "width": 180,
+          "height": 82.64380443425725,
+          "rotation": 0,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "Text",
+          "tag": "System.DateTimeText",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "val_hzndqo",
+          "type": "value-display",
+          "x": 536.8508344274211,
+          "y": 384.74314554367976,
+          "width": 246.2983414074791,
+          "height": 39.99999999999999,
+          "rotation": 0,
+          "minWidth": 80,
+          "minHeight": 28,
+          "tag": "System.TimeText",
+          "suffix": " ",
+          "badQualityText": "BAD",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffd666",
+            "horizontalAlign": "right",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
         }
       ]
     }

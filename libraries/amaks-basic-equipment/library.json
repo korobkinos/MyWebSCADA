@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-16T21:54:07.211Z",
+  "updatedAt": "2026-05-29T11:51:12.133Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -85,67 +85,52 @@
   ],
   "elements": [
     {
-      "id": "element_q7dp70",
+      "id": "element_2fgm3j",
       "libraryId": "amaks-basic-equipment",
-      "elementKey": "zazazaza",
-      "name": "zazazaza",
-      "description": "",
+      "elementKey": "Valve",
+      "name": "Valve",
+      "description": "Клапан",
       "category": "General",
-      "width": 153.7934325235717,
-      "height": 147.71367362611613,
+      "width": 100.42991527851086,
+      "height": 109.87152830991019,
       "objects": [
         {
-          "id": "checkbox_l8q0qu",
-          "type": "checkbox",
-          "name": "чекбокс_пзк",
-          "x": 0,
-          "y": 98.05603190411739,
-          "width": 153.79343252357168,
-          "height": 49.65764172199869,
-          "rotation": 0,
-          "shadowEnabled": false,
-          "minWidth": 60,
-          "minHeight": 24,
-          "visibleTag": "$binding.open",
-          "label": "Checkbox",
-          "tag": "$binding.chkbox",
-          "writeTag": "$binding.chkbox",
-          "checkedText": "On",
-          "uncheckedText": "Off",
-          "checkedColor": "#0e639c",
-          "uncheckedColor": "#2d2d2d"
-        },
-        {
-          "id": "group_5607t4",
+          "id": "group_9svr1x",
           "type": "group",
-          "x": 34.34766059232447,
+          "x": 0,
           "y": 0,
-          "width": 85.09811133892268,
-          "height": 93.24937025527166,
+          "width": 100.42991527851089,
+          "height": 109.87152830991016,
           "rotation": 0,
           "visible": true,
           "locked": false,
           "minWidth": 8,
           "minHeight": 8,
+          "visibleTag": "",
+          "disabledTag": "",
           "objects": [
             {
-              "id": "line_uk6yyz",
+              "id": "line_q5tqg5",
               "type": "line",
-              "x": 47.77784391695389,
-              "y": 29.400444807338307,
-              "width": 45.82224889391107,
-              "height": 10.848772736122429,
-              "rotation": 90,
-              "minWidth": 10.848772736122363,
-              "minHeight": 5.424386368061187,
+              "name": "stick",
+              "x": 44.58933400059967,
+              "y": 80.94974031895352,
+              "width": 53.33326456775586,
+              "height": 12.102853609794844,
+              "rotation": -90.00000000000001,
+              "minWidth": 12.102853609794897,
+              "minHeight": 6.051426804897446,
               "points": [
                 0,
-                5.4243863680612145,
-                45.82224889391107,
-                5.4243863680612145
+                6.051426804897422,
+                53.33326456775586,
+                6.051426804897422
               ],
               "stroke": "#262626",
-              "strokeWidth": 4.339509094448948,
+              "strokeWidth": 3.0257134024487238,
+              "lineCap": "round",
+              "lineJoin": "round",
+              "cornerRadius": 0,
               "closed": false,
               "activeValue": 1,
               "inactiveStroke": "#d9d9d9",
@@ -154,110 +139,109 @@
               "gradientDirection": "horizontal"
             },
             {
-              "id": "circle_yiqmmm",
+              "id": "circle_0t1zhr",
               "type": "rectangle",
-              "x": 18.63326328275656,
+              "name": "move",
+              "x": 25.642094271695758,
               "y": 0,
-              "width": 48.81947731255063,
-              "height": 48.81947731255068,
+              "width": 51.741263496823684,
+              "height": 51.74126349682377,
+              "rotation": 0,
               "opacity": 1,
-              "minWidth": 10.848772736122363,
-              "minHeight": 10.848772736122374,
+              "minWidth": 12.102853609794897,
+              "minHeight": 12.102853609794892,
               "fill": "#262626",
-              "stroke": "#8c8c8c",
-              "strokeWidth": 1.084877273612237,
-              "cornerRadius": 45
+              "stroke": "#262626",
+              "strokeWidth": 1.2102853609794895,
+              "cornerRadius": 100
             },
             {
-              "id": "group_1enwuq",
-              "type": "group",
-              "x": 0,
-              "y": 52.02403385800664,
-              "width": 85.09811133892268,
-              "height": 41.225336397265025,
-              "visible": true,
-              "locked": false,
-              "minWidth": 4.339509094448945,
-              "minHeight": 4.33950909444895,
-              "objects": [
-                {
-                  "id": "tri_mmzejl",
-                  "type": "line",
-                  "x": 43.39509094448975,
-                  "y": 0,
-                  "width": 48.81947731255064,
-                  "height": 43.395090944489795,
-                  "rotation": 90,
-                  "opacity": 1,
-                  "minWidth": 10.848772736122363,
-                  "minHeight": 10.848772736122374,
-                  "points": [
-                    24.40973865627532,
-                    0,
-                    48.81947731255064,
-                    43.395090944489795,
-                    0,
-                    43.395090944489795
-                  ],
-                  "stroke": "#8c8c8c",
-                  "strokeWidth": 1.084877273612237,
-                  "closed": true,
-                  "fill": "#262626"
-                },
-                {
-                  "id": "line_mjhned",
-                  "type": "line",
-                  "x": 41.703020394432926,
-                  "y": 48.81947731255068,
-                  "width": 48.81947731255064,
-                  "height": 43.395090944489795,
-                  "rotation": 270,
-                  "opacity": 1,
-                  "minWidth": 10.848772736122363,
-                  "minHeight": 10.848772736122374,
-                  "points": [
-                    24.40973865627532,
-                    0,
-                    48.81947731255064,
-                    43.395090944489795,
-                    0,
-                    43.395090944489795
-                  ],
-                  "stroke": "#8c8c8c",
-                  "strokeWidth": 1.084877273612237,
-                  "closed": true,
-                  "fill": "#262626"
-                }
-              ]
+              "id": "tri_3krjbo",
+              "type": "line",
+              "name": "right",
+              "x": 50.10381584158807,
+              "y": 109.5689569696653,
+              "width": 56.27646910876276,
+              "height": 50.02352809667791,
+              "rotation": -90.00000000000001,
+              "opacity": 1,
+              "minWidth": 12.102853609794897,
+              "minHeight": 12.102853609794892,
+              "points": [
+                28.13823455438138,
+                0,
+                56.27646910876276,
+                50.02352809667791,
+                0,
+                50.02352809667791
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 0.6051426804897447,
+              "closed": true,
+              "fill": "#262626"
+            },
+            {
+              "id": "line_yw3865",
+              "type": "line",
+              "name": "left",
+              "x": 50.32609943692281,
+              "y": 53.29248786090256,
+              "width": 56.27646910876276,
+              "height": 50.02352809667791,
+              "rotation": 90,
+              "opacity": 1,
+              "minWidth": 12.102853609794897,
+              "minHeight": 12.102853609794892,
+              "points": [
+                28.13823455438138,
+                0,
+                56.27646910876276,
+                50.02352809667791,
+                0,
+                50.02352809667791
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 0.6051426804897447,
+              "closed": true,
+              "fill": "#262626"
             }
           ]
         }
       ],
       "bindings": [
         {
-          "id": "binding_p4k6nc",
-          "key": "open",
-          "displayName": "open",
-          "description": "",
-          "kind": "state",
-          "dataType": "INT",
-          "required": false
-        },
-        {
-          "id": "binding_qsuw13",
-          "key": "open_bool",
-          "displayName": "open_bool",
+          "id": "binding_zqpvzy",
+          "key": "left",
+          "displayName": "left",
           "description": "",
           "kind": "state",
           "dataType": "BOOL",
           "required": false
         },
         {
-          "id": "binding_lyemei",
-          "key": "chkbox",
-          "displayName": "chk_box_write",
+          "id": "binding_no9x0c",
+          "key": "right",
+          "displayName": "right",
           "description": "",
-          "kind": "writeTag",
+          "kind": "state",
+          "dataType": "BOOL",
+          "required": false
+        },
+        {
+          "id": "binding_pecnr9",
+          "key": "move",
+          "displayName": "move",
+          "description": "",
+          "kind": "state",
+          "dataType": "BOOL",
+          "required": false
+        },
+        {
+          "id": "binding_hc3slv",
+          "key": "error",
+          "displayName": "error",
+          "description": "",
+          "kind": "state",
           "dataType": "BOOL",
           "required": false
         }
@@ -265,65 +249,15 @@
       "parameters": [],
       "stateRules": [
         {
-          "id": "rule_v9xogr",
-          "name": "закрыто",
-          "source": {
-            "type": "expression",
-            "value": "or(eq(tag(\"$binding.open\"), 0), eq(tag(\"$binding.open_bool\"), false))"
-          },
-          "cases": [
-            {
-              "id": "case_ll8nwr",
-              "name": "when",
-              "condition": {
-                "type": "true"
-              },
-              "actions": [
-                {
-                  "type": "setProperty",
-                  "objectId": "circle_yiqmmm",
-                  "property": "fill",
-                  "value": "#1d1c1b"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "rule_ghrosw",
-          "name": "открыто",
-          "source": {
-            "type": "expression",
-            "value": "or(gt(num(tag(\"$binding.open\")), 0), eq(tag(\"$binding.open_bool\"), true))"
-          },
-          "cases": [
-            {
-              "id": "case_fsccam",
-              "name": "when",
-              "condition": {
-                "type": "true"
-              },
-              "actions": [
-                {
-                  "type": "setProperty",
-                  "objectId": "circle_yiqmmm",
-                  "property": "fill",
-                  "value": "#a0ac1e"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "rule_axeaso",
-          "name": "Visual Rule 3",
+          "id": "rule_ky4zxo",
+          "name": "left_color",
           "source": {
             "type": "tag",
-            "value": "$binding.open_bool"
+            "value": "$binding.left"
           },
           "cases": [
             {
-              "id": "case_sqzrwk",
+              "id": "case_86gmoq",
               "name": "when",
               "condition": {
                 "type": "equals",
@@ -332,8 +266,66 @@
               "actions": [
                 {
                   "type": "setProperty",
-                  "objectId": "checkbox_l8q0qu",
-                  "property": "checkedColor",
+                  "objectId": "line_yw3865",
+                  "property": "fill",
+                  "value": "#66ff00"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "rule_sk9md7",
+          "name": "right_color",
+          "source": {
+            "type": "tag",
+            "value": "$binding.right"
+          },
+          "cases": [
+            {
+              "id": "case_t3nj4c",
+              "name": "when",
+              "condition": {
+                "type": "equals",
+                "value": true
+              },
+              "actions": [
+                {
+                  "type": "setProperty",
+                  "objectId": "tri_3krjbo",
+                  "property": "fill",
+                  "value": "#66ff00"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "rule_n36wf2",
+          "name": "error_color",
+          "source": {
+            "type": "tag",
+            "value": "$binding.error"
+          },
+          "cases": [
+            {
+              "id": "case_i1slaj",
+              "name": "when",
+              "condition": {
+                "type": "equals",
+                "value": true
+              },
+              "actions": [
+                {
+                  "type": "setProperty",
+                  "objectId": "tri_3krjbo",
+                  "property": "fill",
+                  "value": "#ffffff"
+                },
+                {
+                  "type": "setProperty",
+                  "objectId": "line_yw3865",
+                  "property": "fill",
                   "value": "#ffffff"
                 }
               ]
@@ -341,142 +333,8 @@
           ]
         }
       ],
-      "createdAt": "2026-05-16T16:47:26.069Z",
-      "updatedAt": "2026-05-16T21:54:07.210Z"
-    },
-    {
-      "id": "element_4lz46k",
-      "libraryId": "amaks-basic-equipment",
-      "elementKey": "zazazaza-copy",
-      "name": "zazazaza copy",
-      "description": "",
-      "category": "General",
-      "width": 85.09811133892265,
-      "height": 93.24937025527163,
-      "objects": [
-        {
-          "id": "group_vu4fie",
-          "type": "group",
-          "x": 0,
-          "y": 0,
-          "width": 85.09811133892268,
-          "height": 93.24937025527166,
-          "rotation": 0,
-          "visible": true,
-          "locked": false,
-          "minWidth": 8,
-          "minHeight": 8,
-          "objects": [
-            {
-              "id": "line_uk6yyz",
-              "type": "line",
-              "x": 47.77784391695389,
-              "y": 29.400444807338307,
-              "width": 45.82224889391107,
-              "height": 10.848772736122429,
-              "rotation": 90,
-              "minWidth": 10.848772736122363,
-              "minHeight": 5.424386368061187,
-              "points": [
-                0,
-                5.4243863680612145,
-                45.82224889391107,
-                5.4243863680612145
-              ],
-              "stroke": "#262626",
-              "strokeWidth": 4.339509094448948,
-              "closed": false,
-              "activeValue": 1,
-              "inactiveStroke": "#d9d9d9",
-              "activeStroke": "#0e639c",
-              "gradientEnabled": false,
-              "gradientDirection": "horizontal"
-            },
-            {
-              "id": "circle_yiqmmm",
-              "type": "rectangle",
-              "x": 18.63326328275656,
-              "y": 0,
-              "width": 48.81947731255063,
-              "height": 48.81947731255068,
-              "opacity": 1,
-              "minWidth": 10.848772736122363,
-              "minHeight": 10.848772736122374,
-              "fill": "#262626",
-              "stroke": "#8c8c8c",
-              "strokeWidth": 1.084877273612237,
-              "cornerRadius": 45
-            },
-            {
-              "id": "group_1enwuq",
-              "type": "group",
-              "x": 0,
-              "y": 52.02403385800664,
-              "width": 85.09811133892268,
-              "height": 41.225336397265025,
-              "visible": true,
-              "locked": false,
-              "minWidth": 4.339509094448945,
-              "minHeight": 4.33950909444895,
-              "objects": [
-                {
-                  "id": "tri_mmzejl",
-                  "type": "line",
-                  "x": 43.39509094448975,
-                  "y": 0,
-                  "width": 48.81947731255064,
-                  "height": 43.395090944489795,
-                  "rotation": 90,
-                  "opacity": 1,
-                  "minWidth": 10.848772736122363,
-                  "minHeight": 10.848772736122374,
-                  "points": [
-                    24.40973865627532,
-                    0,
-                    48.81947731255064,
-                    43.395090944489795,
-                    0,
-                    43.395090944489795
-                  ],
-                  "stroke": "#8c8c8c",
-                  "strokeWidth": 1.084877273612237,
-                  "closed": true,
-                  "fill": "#262626"
-                },
-                {
-                  "id": "line_mjhned",
-                  "type": "line",
-                  "x": 41.703020394432926,
-                  "y": 48.81947731255068,
-                  "width": 48.81947731255064,
-                  "height": 43.395090944489795,
-                  "rotation": 270,
-                  "opacity": 1,
-                  "minWidth": 10.848772736122363,
-                  "minHeight": 10.848772736122374,
-                  "points": [
-                    24.40973865627532,
-                    0,
-                    48.81947731255064,
-                    43.395090944489795,
-                    0,
-                    43.395090944489795
-                  ],
-                  "stroke": "#8c8c8c",
-                  "strokeWidth": 1.084877273612237,
-                  "closed": true,
-                  "fill": "#262626"
-                }
-              ]
-            }
-          ]
-        }
-      ],
-      "bindings": [],
-      "parameters": [],
-      "stateRules": [],
-      "createdAt": "2026-05-16T16:50:36.964Z",
-      "updatedAt": "2026-05-16T16:50:38.988Z"
+      "createdAt": "2026-05-29T11:38:19.997Z",
+      "updatedAt": "2026-05-29T11:51:12.133Z"
     }
   ],
   "macros": []

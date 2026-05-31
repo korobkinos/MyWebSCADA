@@ -24,6 +24,7 @@
     "modbus-serial": "^8.0.22",
     "node-opcua": "^2.156.0",
     "pg": "^8.13.1",
+    "polygon-clipping": "^0.15.7",
     "typescript": "^5.8.3",
     "ws": "^8.18.0",
     "zod": "^3.24.1"

@@ -2875,6 +2875,7 @@ function ObjectNode({
         onCommitObjectMove={onCommitObjectMove}
         onResizeObject={onResizeObject}
         onAction={onAction}
+        onRequestNumericInput={onRequestNumericInput}
         commonGroupProps={commonGroupProps}
         runtimeDisabled={runtimeDisabled}
         shadowDisabled={effectiveShadowDisabled}
@@ -3006,6 +3007,7 @@ function ObjectNode({
         onCommitObjectMove={onCommitObjectMove}
         onResizeObject={onResizeObject}
         onAction={onAction}
+        onRequestNumericInput={onRequestNumericInput}
         commonGroupProps={commonGroupProps}
         scopedAssets={scopedAssets}
         inheritedDisabled={runtimeDisabled}
@@ -4687,6 +4689,7 @@ function FrameNode({
   onCommitObjectMove,
   onResizeObject,
   onAction,
+  onRequestNumericInput,
   commonGroupProps,
   scopedAssets,
   inheritedDisabled,
@@ -4711,6 +4714,7 @@ function FrameNode({
   onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
   onRemoveWidgetOverlay?: (objectId: string) => void;
   commonGroupProps: Record<string, unknown>;
@@ -4779,6 +4783,7 @@ function FrameNode({
           onCommitObjectMove={onCommitObjectMove}
           onResizeObject={onResizeObject}
           onAction={onAction}
+          onRequestNumericInput={onRequestNumericInput}
           scopedAssets={scopedAssets}
           onUpsertWidgetOverlay={onUpsertWidgetOverlay}
           onRemoveWidgetOverlay={onRemoveWidgetOverlay}
@@ -4810,6 +4815,7 @@ function LibraryInstanceNode({
   onCommitObjectMove,
   onResizeObject,
   onAction,
+  onRequestNumericInput,
   commonGroupProps,
   runtimeDisabled,
   shadowDisabled,
@@ -4835,6 +4841,7 @@ function LibraryInstanceNode({
   onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
   onRemoveWidgetOverlay?: (objectId: string) => void;
   commonGroupProps: Record<string, unknown>;
@@ -4877,6 +4884,7 @@ function LibraryInstanceNode({
       onCommitObjectMove={onCommitObjectMove}
       onResizeObject={onResizeObject}
       onAction={onAction}
+      onRequestNumericInput={onRequestNumericInput}
       commonGroupProps={commonGroupProps}
       runtimeDisabled={runtimeDisabled}
       shadowDisabled={shadowDisabled}
@@ -4909,6 +4917,7 @@ function LibraryInstanceNodeResolved({
   onCommitObjectMove,
   onResizeObject,
   onAction,
+  onRequestNumericInput,
   commonGroupProps,
   runtimeDisabled,
   shadowDisabled,
@@ -4937,6 +4946,7 @@ function LibraryInstanceNodeResolved({
   onCommitObjectMove?: () => void;
   onResizeObject?: (objectId: string, patch: Partial<HmiObject>) => void;
   onAction?: (action: RuntimeAction, context: RenderContext) => void;
+  onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
   onUpsertWidgetOverlay?: (overlay: RuntimeWidgetOverlayState) => void;
   onRemoveWidgetOverlay?: (objectId: string) => void;
   commonGroupProps: Record<string, unknown>;
@@ -5077,6 +5087,7 @@ function LibraryInstanceNodeResolved({
           onCommitObjectMove={onCommitObjectMove}
           onResizeObject={onResizeObject}
           onAction={onAction}
+          onRequestNumericInput={onRequestNumericInput}
           scopedAssets={scopedAssets}
           onUpsertWidgetOverlay={onUpsertWidgetOverlay}
           onRemoveWidgetOverlay={onRemoveWidgetOverlay}
