@@ -267,6 +267,16 @@ export function ScreenEditorCenter({
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
   const pendingWheelZoomAnchorRef = useRef<{ screenX: number; screenY: number; targetZoom: number } | null>(null);
+  const wheelZoomFrameIdRef = useRef<number | null>(null);
+  const wheelZoomFactorRef = useRef(1);
+  const wheelZoomSnapshotRef = useRef<{
+    scrollLeft: number;
+    scrollTop: number;
+    clientWidth: number;
+    clientHeight: number;
+    zoom: number;
+    pad: number;
+  } | null>(null);
   const isManualZoomRef = useRef(false);
   const latestEditorZoomRef = useRef(1);
   const zoomPersistTimeoutRef = useRef<number | null>(null);
@@ -374,6 +384,34 @@ export function ScreenEditorCenter({
       }
       return next;
     });
+  }, []);
+
+  const flushWheelZoom = useCallback(() => {
+    const snapshot = wheelZoomSnapshotRef.current;
+    const deltaFactor = wheelZoomFactorRef.current;
+
+    wheelZoomFrameIdRef.current = null;
+    wheelZoomSnapshotRef.current = null;
+    wheelZoomFactorRef.current = 1;
+
+    if (!snapshot || Math.abs(deltaFactor - 1) < 1e-9) {
+      return;
+    }
+
+    const next = clampZoom(snapshot.zoom * deltaFactor);
+    if (next === latestEditorZoomRef.current) {
+      return;
+    }
+
+    const centerScreenX = (snapshot.scrollLeft + snapshot.clientWidth / 2) / snapshot.zoom - snapshot.pad;
+    const centerScreenY = (snapshot.scrollTop + snapshot.clientHeight / 2) / snapshot.zoom - snapshot.pad;
+
+    pendingWheelZoomAnchorRef.current = {
+      screenX: centerScreenX,
+      screenY: centerScreenY,
+      targetZoom: next,
+    };
+    setEditorZoom(next);
   }, []);
 
   const applyAutoFitZoom = useCallback(() => {
@@ -520,13 +558,35 @@ export function ScreenEditorCenter({
       event.preventDefault();
       if (!event.deltaY) return;
       isManualZoomRef.current = true;
-      setEditorZoomKeepingViewportCenter((prev) => (event.deltaY < 0 ? prev * ZOOM_STEP : prev / ZOOM_STEP));
+      wheelZoomFactorRef.current *= event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+
+      if (!wheelZoomSnapshotRef.current) {
+        const zoom = latestEditorZoomRef.current;
+        wheelZoomSnapshotRef.current = {
+          scrollLeft: el.scrollLeft,
+          scrollTop: el.scrollTop,
+          clientWidth: el.clientWidth,
+          clientHeight: el.clientHeight,
+          zoom,
+          pad: getEditorOffscreenPad(zoom),
+        };
+      }
+
+      if (wheelZoomFrameIdRef.current === null) {
+        wheelZoomFrameIdRef.current = window.requestAnimationFrame(flushWheelZoom);
+      }
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => {
       el.removeEventListener("wheel", handler);
+      if (wheelZoomFrameIdRef.current !== null) {
+        window.cancelAnimationFrame(wheelZoomFrameIdRef.current);
+      }
+      wheelZoomFactorRef.current = 1;
+      wheelZoomSnapshotRef.current = null;
+      wheelZoomFrameIdRef.current = null;
     };
-  }, [previewMode, setEditorZoomKeepingViewportCenter, wheelZoomEnabled]);
+  }, [flushWheelZoom, previewMode, wheelZoomEnabled]);
 
   const startPan = (event: React.MouseEvent<HTMLDivElement>) => {
     if (activeTool !== "pan" || event.button !== 0) {
