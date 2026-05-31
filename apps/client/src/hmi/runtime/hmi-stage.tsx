@@ -393,6 +393,10 @@ export function HmiStage({
         height: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
         overflow: mode === "editor" ? "visible" : (fullscreenRuntime ? "hidden" : "auto"),
         display: mode === "editor" ? "inline-block" : "block",
+        background:
+          mode === "editor" && screen.backgroundFillMode === "viewport"
+            ? (screen.background ?? "#111111")
+            : undefined,
         border: mode === "runtime" ? "none" : undefined,
         maxWidth: mode === "runtime" ? "100%" : undefined,
         maxHeight: mode === "runtime" ? "100%" : undefined,
