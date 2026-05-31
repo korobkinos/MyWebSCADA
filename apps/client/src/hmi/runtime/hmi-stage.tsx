@@ -59,6 +59,8 @@ type HmiStageProps = {
 export const OFFSCREEN_PAD = 2000;
 const MIN_EDITOR_OFFSCREEN_PAD = 600;
 const TARGET_VISIBLE_EDITOR_OFFSCREEN_PAD = 300;
+const EDITOR_HIGH_ZOOM_PIXEL_RATIO = 1;
+const EDITOR_HIGH_ZOOM_PIXEL_RATIO_THRESHOLD = 2;
 
 export function getEditorOffscreenPad(editorZoom: number): number {
   if (!Number.isFinite(editorZoom) || editorZoom <= 0) {
@@ -222,6 +224,36 @@ export function HmiStage({
   const stageHeight = mode === "editor"
     ? (screen.height + 2 * editorOffscreenPad) * effectiveEditorZoom
     : screen.height;
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) {
+      return;
+    }
+    const devicePixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+    const targetPixelRatio = mode === "editor" && effectiveEditorZoom >= EDITOR_HIGH_ZOOM_PIXEL_RATIO_THRESHOLD
+      ? EDITOR_HIGH_ZOOM_PIXEL_RATIO
+      : devicePixelRatio;
+    let ratioChanged = false;
+    for (const layer of stage.getLayers()) {
+      const sceneCanvas = layer.getCanvas();
+      if (sceneCanvas.getPixelRatio() !== targetPixelRatio) {
+        sceneCanvas.setPixelRatio(targetPixelRatio);
+        ratioChanged = true;
+      }
+      const hitCanvas = layer.getHitCanvas();
+      if (hitCanvas.getPixelRatio() !== targetPixelRatio) {
+        hitCanvas.setPixelRatio(targetPixelRatio);
+        ratioChanged = true;
+      }
+    }
+    if (ratioChanged) {
+      stage.batchDraw();
+    }
+  }, [effectiveEditorZoom, mode, stageHeight, stageWidth]);
+
   const gridPatternImage = useMemo(() => {
     if (mode !== "editor" || !showEditorGrid) {
       return null;
