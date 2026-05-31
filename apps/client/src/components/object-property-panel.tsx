@@ -2279,32 +2279,38 @@ function SpecificPropertyFields({
       { label: "beveledCrosshatch", value: "beveledCrosshatch" },
       { label: "beveledZigzag", value: "beveledZigzag" },
     ];
-    const applyCompoundPreset = (preset: "metal" | "warning" | "glass") => {
-      if (preset === "metal") {
-        onPatch({
-          fill: "#1f242a",
-          fillPatternStyle: "beveledHatchWide",
-          fillPatternColor: "#4f5a66",
-          stroke: "#a7b2bc",
-          strokeWidth: 7,
-          strokePatternStyle: "beveledCrosshatch",
-          strokePatternColor: "#f0c000",
-        } as Partial<HmiObject>);
-        return;
-      }
-      if (preset === "warning") {
-        onPatch({
-          fill: "#202020",
-          fillPatternStyle: "beveledHatchDense",
-          fillPatternColor: "#4a4a4a",
-          stroke: "#a8a8a8",
-          strokeWidth: 7,
-          strokePatternStyle: "beveledZigzag",
-          strokePatternColor: "#f2b400",
-        } as Partial<HmiObject>);
-        return;
-      }
-      onPatch({
+    type CompoundPresetPatch = {
+      fill: string;
+      fillPatternStyle: "beveledHatch" | "beveledHatchDense" | "beveledHatchWide" | "beveledCrosshatch" | "beveledZigzag";
+      fillPatternColor: string;
+      stroke: string;
+      strokeWidth: number;
+      strokePatternStyle: "beveledHatch" | "beveledHatchDense" | "beveledHatchWide" | "beveledCrosshatch" | "beveledZigzag";
+      strokePatternColor: string;
+      opacity: number;
+    };
+    const presetStyles: Record<string, CompoundPresetPatch> = {
+      metal: {
+        fill: "#1f242a",
+        fillPatternStyle: "beveledHatchWide",
+        fillPatternColor: "#4f5a66",
+        stroke: "#a7b2bc",
+        strokeWidth: 7,
+        strokePatternStyle: "beveledCrosshatch",
+        strokePatternColor: "#f0c000",
+        opacity: 0.94,
+      },
+      warning: {
+        fill: "#202020",
+        fillPatternStyle: "beveledHatchDense",
+        fillPatternColor: "#4a4a4a",
+        stroke: "#a8a8a8",
+        strokeWidth: 7,
+        strokePatternStyle: "beveledZigzag",
+        strokePatternColor: "#f2b400",
+        opacity: 0.96,
+      },
+      glass: {
         fill: "#131c25",
         fillPatternStyle: "beveledHatch",
         fillPatternColor: "#3a6f93",
@@ -2312,16 +2318,106 @@ function SpecificPropertyFields({
         strokeWidth: 6,
         strokePatternStyle: "beveledHatchWide",
         strokePatternColor: "#90bddb",
-      } as Partial<HmiObject>);
+        opacity: 0.62,
+      },
+      steelDim: {
+        fill: "#1d2024",
+        fillPatternStyle: "beveledHatchDense",
+        fillPatternColor: "#5b646d",
+        stroke: "#919ca6",
+        strokeWidth: 6,
+        strokePatternStyle: "beveledHatch",
+        strokePatternColor: "#6f7881",
+        opacity: 0.88,
+      },
+      steelBright: {
+        fill: "#2d333a",
+        fillPatternStyle: "beveledCrosshatch",
+        fillPatternColor: "#6f7c89",
+        stroke: "#d4dde6",
+        strokeWidth: 6,
+        strokePatternStyle: "beveledHatchWide",
+        strokePatternColor: "#c5d6e4",
+        opacity: 0.92,
+      },
+      carbon: {
+        fill: "#141414",
+        fillPatternStyle: "beveledZigzag",
+        fillPatternColor: "#383838",
+        stroke: "#8d8d8d",
+        strokeWidth: 5,
+        strokePatternStyle: "beveledCrosshatch",
+        strokePatternColor: "#b0b0b0",
+        opacity: 0.86,
+      },
+      copper: {
+        fill: "#2a1a14",
+        fillPatternStyle: "beveledHatchWide",
+        fillPatternColor: "#7a4f3f",
+        stroke: "#d39c6f",
+        strokeWidth: 6,
+        strokePatternStyle: "beveledHatchDense",
+        strokePatternColor: "#b06e4f",
+        opacity: 0.9,
+      },
+      neon: {
+        fill: "#0f1820",
+        fillPatternStyle: "beveledHatch",
+        fillPatternColor: "#204f6c",
+        stroke: "#7ef3ff",
+        strokeWidth: 6,
+        strokePatternStyle: "beveledZigzag",
+        strokePatternColor: "#21d8ff",
+        opacity: 0.78,
+      },
+    };
+    const presetOptions = [
+      { label: "Metal", value: "metal" },
+      { label: "Warning", value: "warning" },
+      { label: "Glass", value: "glass" },
+      { label: "Steel Dim", value: "steelDim" },
+      { label: "Steel Bright", value: "steelBright" },
+      { label: "Carbon", value: "carbon" },
+      { label: "Copper", value: "copper" },
+      { label: "Neon", value: "neon" },
+      { label: "Custom Style", value: "customStyle" },
+    ];
+    const resolvePresetValue = (): string => {
+      const entries = Object.entries(presetStyles);
+      for (const [key, patch] of entries) {
+        if (
+          object.fill === patch.fill
+          && object.fillPatternStyle === patch.fillPatternStyle
+          && object.fillPatternColor === patch.fillPatternColor
+          && object.stroke === patch.stroke
+          && object.strokeWidth === patch.strokeWidth
+          && object.strokePatternStyle === patch.strokePatternStyle
+          && object.strokePatternColor === patch.strokePatternColor
+          && object.opacity === patch.opacity
+        ) {
+          return key;
+        }
+      }
+      return "customStyle";
+    };
+    const applyCompoundPreset = (preset: string) => {
+      if (preset === "customStyle") {
+        return;
+      }
+      const patch = presetStyles[preset];
+      if (!patch) {
+        return;
+      }
+      onPatch(patch as Partial<HmiObject>);
     };
     return (
       <>
         <Form.Item label="Quick Preset">
-          <Space size={8} wrap>
-            <WorkbenchButton onClick={() => applyCompoundPreset("metal")}>Metal</WorkbenchButton>
-            <WorkbenchButton onClick={() => applyCompoundPreset("warning")}>Warning</WorkbenchButton>
-            <WorkbenchButton onClick={() => applyCompoundPreset("glass")}>Glass</WorkbenchButton>
-          </Space>
+          <Select
+            value={resolvePresetValue()}
+            options={presetOptions}
+            onChange={(value) => applyCompoundPreset(String(value))}
+          />
         </Form.Item>
         <ColorField label="Fill Color" value={object.fill ?? ""} fallback="#262626" onChange={(next) => onPatch({ fill: next } as Partial<HmiObject>)} />
         <Form.Item label="Fill Style">
