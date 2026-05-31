@@ -20,7 +20,7 @@ type PickerTag = TagDefinition & {
   sourceType: TagSourceType;
 };
 
-const DEFAULT_ALLOWED_SOURCES: TagSourceType[] = ["opcua", "modbus", "simulated", "internal", "lw", "computed"];
+const DEFAULT_ALLOWED_SOURCES: TagSourceType[] = ["opcua", "simulated", "internal", "lw"];
 const DEFAULT_RECT: WorkbenchWindowRect = { x: 140, y: 100, width: 900, height: 620 };
 const MIN_WIDTH = 620;
 const MIN_HEIGHT = 420;

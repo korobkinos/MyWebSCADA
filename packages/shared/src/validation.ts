@@ -284,6 +284,7 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
 const textObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   type: z.literal("text"),
   text: z.string(),
+  tag: z.string().optional(),
   textStyle: textStyleSchema,
 });
 

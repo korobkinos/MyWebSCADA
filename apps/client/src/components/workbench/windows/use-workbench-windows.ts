@@ -16,12 +16,20 @@ export function useWorkbenchWindows() {
   }, []);
 
   const focusWindow = useCallback((id: WorkbenchWindowId) => {
-    const next = nextZ();
-    setWindows((prev) =>
-      prev.map((window) =>
+    setWindows((prev) => {
+      const target = prev.find((window) => window.id === id);
+      if (!target) {
+        return prev;
+      }
+      const topZ = prev.reduce((max, window) => Math.max(max, window.zIndex), Number.NEGATIVE_INFINITY);
+      if (target.zIndex >= topZ) {
+        return prev;
+      }
+      const next = nextZ();
+      return prev.map((window) =>
         window.id === id ? { ...window, zIndex: next } : window,
-      ),
-    );
+      );
+    });
   }, [nextZ]);
 
   const openWindow = useCallback((definition: WorkbenchWindowDefinition) => {

@@ -50,8 +50,6 @@ const SOURCE_OPTIONS: Array<{ value: SourceFilter; label: string }> = [
   { value: "simulated", label: "Simulated" },
   { value: "lw", label: "LW" },
   { value: "internal", label: "Internal" },
-  { value: "computed", label: "Computed" },
-  { value: "modbus", label: "Modbus" },
 ];
 
 const SOURCE_LABELS: Record<TagSourceType, string> = {

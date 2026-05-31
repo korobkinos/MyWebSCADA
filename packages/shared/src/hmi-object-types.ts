@@ -161,6 +161,7 @@ export type HmiObjectBase = {
 export type TextObject = HmiObjectBase & {
   type: "text";
   text: string;
+  tag?: string;
   textStyle: TextStyle;
 } & TextLayout;
 

@@ -1592,6 +1592,10 @@ function remapTagFields(object: HmiObject, map: (tag: string) => string): HmiObj
     };
   }
 
+  if (cloned.type === "text" && typeof cloned.tag === "string" && cloned.tag.trim()) {
+    cloned.tag = map(cloned.tag);
+  }
+
   if (cloned.type === "frame" && cloned.tagPrefix) {
     cloned.tagPrefix = map(cloned.tagPrefix);
   }

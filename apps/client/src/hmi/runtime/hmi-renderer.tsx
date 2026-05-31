@@ -2055,6 +2055,14 @@ function ObjectNode({
   }
 
   if (resolvedObject.type === "text") {
+    const textTag = runtimeMode
+      ? tagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" })
+      : undefined;
+    const rawTextValue = textTag?.value?.value;
+    const hasTextTag = Boolean(resolvedObject.tag?.trim());
+    const renderedText = hasTextTag
+      ? (rawTextValue == null ? (resolvedObject.text ?? "") : String(rawTextValue))
+      : resolvedObject.text;
     const textShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     const textShadowSettings = resolveShadowSettings(resolvedObject);
     const shadowTextStyle: TextStyle = {
@@ -2065,7 +2073,7 @@ function ObjectNode({
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
         {!effectiveShadowDisabled && textShadowSettings.enabled && textShadowSettings.opacity > 0 ? (
-          renderBoxText(resolvedObject.text, shadowTextStyle, {
+          renderBoxText(renderedText, shadowTextStyle, {
             width: resolvedObject.width,
             height: resolvedObject.height,
             wrap: resolvedObject.wrap,
@@ -2082,7 +2090,7 @@ function ObjectNode({
             },
           })
         ) : null}
-        {renderBoxText(resolvedObject.text, resolvedObject.textStyle, {
+        {renderBoxText(renderedText, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
           wrap: resolvedObject.wrap,

@@ -227,6 +227,17 @@ function collectObjectTags(
       });
       return;
     }
+    case "text":
+      addResolvedFieldTag(out, {
+        project,
+        object: resolvedObject,
+        fieldName: "tag",
+        rawTagName: resolvedObject.tag,
+        context,
+        runtimeTagValues,
+        dependencyOut,
+      });
+      return;
     case "image":
       addResolvedFieldTag(out, {
         project,

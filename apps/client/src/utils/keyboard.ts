@@ -1,30 +1,37 @@
 export function isTextEditingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
+  let element: HTMLElement | null = null;
+  if (target instanceof HTMLElement) {
+    element = target;
+  } else if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+    element = document.activeElement;
+  }
+
+  if (!element) {
     return false;
   }
 
-  const tagName = target.tagName.toLowerCase();
+  const tagName = element.tagName.toLowerCase();
   if (tagName === "input" || tagName === "textarea" || tagName === "select") {
     return true;
   }
 
-  if (target.isContentEditable) {
+  if (element.isContentEditable) {
     return true;
   }
 
-  if (target.closest(".monaco-editor")) {
+  if (element.closest(".monaco-editor")) {
     return true;
   }
 
-  if (target.closest(".cm-editor")) {
+  if (element.closest(".cm-editor")) {
     return true;
   }
 
-  if (target.closest("[contenteditable=\"true\"]")) {
+  if (element.closest("[contenteditable=\"true\"]")) {
     return true;
   }
 
-  if (target.closest("[data-code-editor='true']")) {
+  if (element.closest("[data-code-editor='true']")) {
     return true;
   }
 

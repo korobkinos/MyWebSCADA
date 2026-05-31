@@ -2064,13 +2064,25 @@ function SpecificPropertyFields({
   }, [object.id, object.type]);
   if (object.type === "text") {
     return (
-      <Form.Item label="Text">
-        <Input.TextArea
-          rows={3}
-          value={object.text ?? ""}
-          onChange={(e) => onPatch({ text: e.target.value } as Partial<HmiObject>)}
+      <>
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={object.tag}
+          bindingLabel="Text Binding"
+          tagLabel="Text Tag"
+          indexControl={buildIndexControl("tag", "Text Tag", object.tag)}
+          allowClear
+          onChange={(nextValue) => onPatch({ tag: nextValue } as Partial<HmiObject>)}
         />
-      </Form.Item>
+        <Form.Item label="Fallback Text">
+          <Input.TextArea
+            rows={3}
+            value={object.text ?? ""}
+            onChange={(e) => onPatch({ text: e.target.value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+      </>
     );
   }
 
