@@ -49,7 +49,7 @@ function getStep(state: NumericInputDialogState): number {
   if (typeof state.decimals === "number" && state.decimals > 0) {
     return 1 / Math.pow(10, state.decimals);
   }
-  if (state.formatMode === "pattern" && state.formatPattern) {
+  if (state.formatMode === "pattern" && typeof state.formatPattern === "string" && state.formatPattern.trim() !== "") {
     const normalizedPattern = state.formatPattern.replace(",", ".");
     const dotIndex = normalizedPattern.indexOf(".");
     if (dotIndex >= 0) {
@@ -89,7 +89,7 @@ function roundByStep(value: number, step: number): number {
 }
 
 function formatDisplay(value: number, state: NumericInputDialogState): string {
-  if (state.formatMode === "pattern" && state.formatPattern) {
+  if (state.formatMode === "pattern" && typeof state.formatPattern === "string" && state.formatPattern.trim() !== "") {
     const normalizedPattern = state.formatPattern.replace(",", ".");
     const dotIndex = normalizedPattern.indexOf(".");
     if (dotIndex >= 0) {

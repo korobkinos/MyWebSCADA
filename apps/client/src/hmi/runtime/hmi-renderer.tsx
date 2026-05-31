@@ -146,7 +146,7 @@ function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   const showUnit = opts.showUnit ?? false;
 
   let formatted: string;
-  if (formatMode === "pattern" && pattern) {
+  if (formatMode === "pattern" && typeof pattern === "string" && pattern.trim() !== "") {
     const normalizedPattern = pattern.trim();
     const dotIndex = normalizedPattern.lastIndexOf(".");
     const commaIndex = normalizedPattern.lastIndexOf(",");
