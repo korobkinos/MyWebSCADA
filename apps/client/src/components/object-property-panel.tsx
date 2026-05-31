@@ -2271,10 +2271,42 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "compoundShape") {
+    const patternStyleOptions = [
+      { label: "solid", value: "solid" },
+      { label: "diagonal", value: "diagonal" },
+      { label: "cross", value: "cross" },
+      { label: "dots", value: "dots" },
+    ];
     return (
       <>
         <ColorField label="Fill Color" value={object.fill ?? ""} fallback="#262626" onChange={(next) => onPatch({ fill: next } as Partial<HmiObject>)} />
+        <Form.Item label="Fill Style">
+          <Select
+            value={object.fillPatternStyle ?? "solid"}
+            options={patternStyleOptions}
+            onChange={(value) => onPatch({ fillPatternStyle: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <ColorField
+          label="Fill Style Color"
+          value={object.fillPatternColor ?? ""}
+          fallback={object.stroke ?? "#8c8c8c"}
+          onChange={(next) => onPatch({ fillPatternColor: next } as Partial<HmiObject>)}
+        />
         <ColorField label="Stroke Color" value={object.stroke ?? ""} fallback="#8c8c8c" onChange={(next) => onPatch({ stroke: next } as Partial<HmiObject>)} />
+        <Form.Item label="Stroke Style">
+          <Select
+            value={object.strokePatternStyle ?? "solid"}
+            options={patternStyleOptions}
+            onChange={(value) => onPatch({ strokePatternStyle: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <ColorField
+          label="Stroke Style Color"
+          value={object.strokePatternColor ?? ""}
+          fallback={object.stroke ?? "#8c8c8c"}
+          onChange={(next) => onPatch({ strokePatternColor: next } as Partial<HmiObject>)}
+        />
         <Form.Item label="Stroke Width">
           <InputNumber
             style={{ width: "100%" }}

@@ -190,12 +190,18 @@ export type CompoundShapePart = {
   closed?: boolean;
 };
 
+export type CompoundPatternStyle = "solid" | "diagonal" | "cross" | "dots";
+
 export type CompoundShapeObject = HmiObjectBase & {
   type: "compoundShape";
   parts: CompoundShapePart[];
   fill?: string;
+  fillPatternStyle?: CompoundPatternStyle;
+  fillPatternColor?: string;
   stroke?: string;
   strokeWidth?: number;
+  strokePatternStyle?: CompoundPatternStyle;
+  strokePatternColor?: string;
   lineCap?: "butt" | "round" | "square";
   lineJoin?: "miter" | "round" | "bevel";
   fillRule?: "nonzero" | "evenodd";

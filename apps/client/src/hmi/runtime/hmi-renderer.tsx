@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Text } from "react-konva";
+import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Shape, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type Konva from "konva";
 import { message } from "antd";
@@ -105,6 +105,9 @@ type FormatNumericOptions = {
 };
 
 type GradientDirection = "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
+type CompoundPatternStyle = "solid" | "diagonal" | "cross" | "dots";
+
+const compoundPatternCanvasCache = new Map<string, HTMLCanvasElement>();
 type ShadowDirection = "right" | "left" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 const ROTATION_ANIMATION_SUPPORTED_TYPES = new Set<HmiObject["type"]>([
   "group",
@@ -615,6 +618,51 @@ function resolveLineGradientProps(args: {
     strokeLinearGradientEndPoint: endPoint,
     strokeLinearGradientColorStops: [0, startColor, 1, endColor],
   };
+}
+
+function getCompoundPatternCanvas(style: CompoundPatternStyle, color: string): HTMLCanvasElement | null {
+  if (style === "solid" || typeof document === "undefined") {
+    return null;
+  }
+  const safeColor = color?.trim() || "#8c8c8c";
+  const cacheKey = `${style}:${safeColor}`;
+  const cached = compoundPatternCanvasCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  const size = 12;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return null;
+  }
+  ctx.clearRect(0, 0, size, size);
+  ctx.strokeStyle = safeColor;
+  ctx.fillStyle = safeColor;
+  ctx.lineWidth = 1;
+  if (style === "diagonal") {
+    ctx.beginPath();
+    ctx.moveTo(-4, size);
+    ctx.lineTo(size, -4);
+    ctx.moveTo(2, size + 4);
+    ctx.lineTo(size + 4, 2);
+    ctx.stroke();
+  } else if (style === "cross") {
+    ctx.beginPath();
+    ctx.moveTo(0, size / 2);
+    ctx.lineTo(size, size / 2);
+    ctx.moveTo(size / 2, 0);
+    ctx.lineTo(size / 2, size);
+    ctx.stroke();
+  } else if (style === "dots") {
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  compoundPatternCanvasCache.set(cacheKey, canvas);
+  return canvas;
 }
 
 function resolveShadowOffset(direction: ShadowDirection, distance: number): { x: number; y: number } {
@@ -2257,28 +2305,84 @@ function ObjectNode({
     const compoundFill = resolvedObject.fill ?? "#262626";
     const compoundStroke = resolvedObject.stroke ?? "#8c8c8c";
     const compoundStrokeWidth = resolvedObject.strokeWidth ?? 2;
+    const fillPatternStyle = (resolvedObject.fillPatternStyle ?? "solid") as CompoundPatternStyle;
+    const fillPatternColor = resolvedObject.fillPatternColor ?? compoundStroke;
+    const strokePatternStyle = (resolvedObject.strokePatternStyle ?? "solid") as CompoundPatternStyle;
+    const strokePatternColor = resolvedObject.strokePatternColor ?? compoundStroke;
+    const fillPatternImage = getCompoundPatternCanvas(fillPatternStyle, fillPatternColor);
+    const strokePatternImage = getCompoundPatternCanvas(strokePatternStyle, strokePatternColor);
     const compoundLineCap = resolvedObject.lineCap ?? "round";
     const compoundLineJoin = resolvedObject.lineJoin ?? "round";
     const compoundFillRule = resolvedObject.fillRule ?? "nonzero";
     const compoundShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
+    const drawCompoundPath = (context: Konva.Context, includeClose = true): void => {
+      for (const part of resolvedObject.parts) {
+        const points = part.points ?? [];
+        if (points.length < 4) {
+          continue;
+        }
+        context.moveTo(points[0] ?? 0, points[1] ?? 0);
+        for (let index = 2; index + 1 < points.length; index += 2) {
+          context.lineTo(points[index] ?? 0, points[index + 1] ?? 0);
+        }
+        if (includeClose && (part.closed ?? true)) {
+          context.closePath();
+        }
+      }
+    };
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        {resolvedObject.parts.map((part, index) => (
-          <Line
-            key={`${resolvedObject.id}-part-${index}`}
-            points={part.points}
-            closed={part.closed ?? true}
-            fill={compoundFill}
-            stroke={compoundStroke}
-            strokeWidth={compoundStrokeWidth}
-            lineCap={compoundLineCap}
-            lineJoin={compoundLineJoin}
-            fillRule={compoundFillRule}
+        <Shape
+          sceneFunc={(context) => {
+            context.beginPath();
+            drawCompoundPath(context);
+            context._context.fillStyle = compoundFill;
+            context._context.fill(compoundFillRule);
+            if (fillPatternStyle !== "solid" && fillPatternImage) {
+              context.beginPath();
+              drawCompoundPath(context);
+              const pattern = context._context.createPattern(fillPatternImage, "repeat");
+              if (pattern) {
+                context._context.fillStyle = pattern;
+                context._context.fill(compoundFillRule);
+              }
+            }
+          }}
+          listening={false}
+          perfectDrawEnabled={false}
+          {...compoundShadowProps}
+        />
+        {strokePatternStyle === "solid" ? (
+          <Shape
+            sceneFunc={(context) => {
+              context.beginPath();
+              drawCompoundPath(context);
+              context._context.lineWidth = compoundStrokeWidth;
+              context._context.lineCap = compoundLineCap;
+              context._context.lineJoin = compoundLineJoin;
+              context._context.strokeStyle = compoundStroke;
+              context._context.stroke();
+            }}
+            listening={false}
             perfectDrawEnabled={false}
-            {...compoundShadowProps}
           />
-        ))}
+        ) : (
+          <Shape
+            sceneFunc={(context) => {
+              context.beginPath();
+              drawCompoundPath(context);
+              context._context.lineWidth = compoundStrokeWidth;
+              context._context.lineCap = compoundLineCap;
+              context._context.lineJoin = compoundLineJoin;
+              const pattern = strokePatternImage ? context._context.createPattern(strokePatternImage, "repeat") : null;
+              context._context.strokeStyle = pattern ?? strokePatternColor;
+              context._context.stroke();
+            }}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        )}
         <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
