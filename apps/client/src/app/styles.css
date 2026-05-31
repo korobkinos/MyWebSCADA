@@ -2393,9 +2393,13 @@ select.workbench-select:not(.ant-select) {
 
 /* Screen list grid/list modes */
 .screen-editor-screen-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  padding: 0 10px 6px;
+}
+
+.screen-editor-screen-list--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
 }
 
 .screen-editor-screen-list--grid .screen-editor-screen-card {
@@ -2413,6 +2417,22 @@ select.workbench-select:not(.ant-select) {
 .screen-editor-screen-list--grid .screen-editor-screen-card.active {
   border-color: #007acc;
   background: #2a2d2e;
+}
+
+.screen-editor-screen-list--grid .screen-editor-screen-card .ant-space {
+  width: 100%;
+  align-items: flex-start;
+}
+
+.screen-editor-screen-list--grid .screen-editor-screen-card .ant-space .ant-space {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.screen-editor-screen-list--list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .screen-editor-screen-list--list .screen-editor-screen-card {
