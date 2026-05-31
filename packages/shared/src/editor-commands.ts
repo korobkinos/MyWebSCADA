@@ -1,4 +1,4 @@
-import type { GroupObject, HmiObject, LineObject } from "./hmi-object-types";
+import type { CompoundShapeObject, GroupObject, HmiObject, LineObject, RectangleObject } from "./hmi-object-types";
 import type { HmiScreen } from "./project-types";
 
 export type Rect = {
@@ -27,6 +27,7 @@ export type EditorCommand =
   | { type: "groupSelected" }
   | { type: "ungroupSelected" }
   | { type: "mergeSelectedLinesToPolyline" }
+  | { type: "mergeSelectedShapes" }
   | { type: "lockSelected" }
   | { type: "unlockSelected" }
   | { type: "alignLeft" }
@@ -189,6 +190,8 @@ export function executeEditorCommand(
   switch (command.type) {
     case "mergeSelectedLinesToPolyline":
       return mergeSelectedLinesToPolyline(screen, selection);
+    case "mergeSelectedShapes":
+      return mergeSelectedShapes(screen, selection);
     case "groupSelected":
       return groupSelected(screen, selection);
     case "ungroupSelected":
@@ -338,6 +341,82 @@ export function mergeSelectedLinesToPolyline(screen: HmiScreen, selection: Edito
   };
 }
 
+export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectionState): EditorCommandResult {
+  const selectedObjects = selection.selectedObjectIds
+    .map((id) => screen.objects.find((obj) => obj.id === id))
+    .filter((obj): obj is HmiObject => Boolean(obj));
+  const warnings: string[] = [];
+
+  if (selectedObjects.length < 2) {
+    return { screen, selection, warnings: ["Select at least 2 shapes to merge."] };
+  }
+
+  const unlocked = selectedObjects.filter((obj) => !obj.locked);
+  if (unlocked.length !== selectedObjects.length) {
+    warnings.push("Locked objects were skipped while merging shapes.");
+  }
+
+  const supported = unlocked.filter(isSupportedShapeForMerge);
+  if (supported.length !== unlocked.length) {
+    warnings.push("Only rectangles and closed lines are supported for Merge Shapes. Unsupported objects were skipped.");
+  }
+  if (supported.length < 2) {
+    warnings.push("Select at least 2 supported shapes (rectangle or closed line).");
+    return { screen, selection, warnings };
+  }
+
+  const bounds = getObjectsBounds(supported);
+  if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || bounds.width <= 0 || bounds.height <= 0) {
+    warnings.push("Failed to merge selected shapes.");
+    return { screen, selection, warnings };
+  }
+
+  const parts = supported
+    .map((object) => toMergedShapePart(object, bounds.x, bounds.y))
+    .filter((part): part is { points: number[]; closed: true } => Boolean(part && part.points.length >= 6));
+  if (parts.length < 2) {
+    warnings.push("Failed to build merged shape from selected objects.");
+    return { screen, selection, warnings };
+  }
+
+  const sourceLine = supported.find((obj): obj is LineObject => obj.type === "line");
+  const sourceRectangle = supported.find((obj): obj is RectangleObject => obj.type === "rectangle");
+  const mergedShape: CompoundShapeObject = {
+    id: createId("compound"),
+    type: "compoundShape",
+    name: "Merged Shape",
+    x: bounds.x,
+    y: bounds.y,
+    width: Math.max(1, bounds.width),
+    height: Math.max(1, bounds.height),
+    minWidth: 8,
+    minHeight: 8,
+    parts,
+    fill: sourceLine?.fill ?? sourceRectangle?.fill ?? "#262626",
+    stroke: sourceLine?.stroke ?? sourceRectangle?.stroke ?? "#8c8c8c",
+    strokeWidth: sourceLine?.strokeWidth ?? sourceRectangle?.strokeWidth ?? 2,
+    lineCap: sourceLine?.lineCap ?? "round",
+    lineJoin: sourceLine?.lineJoin ?? "round",
+    fillRule: "nonzero",
+    rotation: 0,
+    locked: false,
+    visible: true,
+    opacity: sourceLine?.opacity ?? sourceRectangle?.opacity ?? 1,
+  };
+
+  const replacedIds = new Set(supported.map((obj) => obj.id));
+  const nextObjects = [...screen.objects.filter((obj) => !replacedIds.has(obj.id)), mergedShape];
+
+  return {
+    screen: { ...screen, objects: nextObjects },
+    selection: {
+      selectedObjectIds: [mergedShape.id],
+      activeObjectId: mergedShape.id,
+    },
+    warnings,
+  };
+}
+
 function getLinePolylineLength(line: LineObject): number {
   let total = 0;
   const points = line.points ?? [];
@@ -349,6 +428,95 @@ function getLinePolylineLength(line: LineObject): number {
     total += Math.hypot(x2 - x1, y2 - y1);
   }
   return total;
+}
+
+function isSupportedShapeForMerge(object: HmiObject): object is RectangleObject | LineObject {
+  if (object.type === "rectangle") {
+    return true;
+  }
+  return object.type === "line" && (object.closed ?? false) === true;
+}
+
+function toMergedShapePart(
+  object: RectangleObject | LineObject,
+  originX: number,
+  originY: number,
+): { points: number[]; closed: true } | null {
+  const absolutePoints = object.type === "rectangle"
+    ? toRectangleAbsolutePoints(object)
+    : getLineAbsolutePoints(object);
+  if (absolutePoints.length < 3) {
+    return null;
+  }
+  const points: number[] = [];
+  for (const point of absolutePoints) {
+    points.push(point.x - originX, point.y - originY);
+  }
+  return { points, closed: true };
+}
+
+function toRectangleAbsolutePoints(object: RectangleObject): Point[] {
+  const width = Math.max(1, object.width);
+  const height = Math.max(1, object.height);
+  const radius = Math.max(0, Math.min(object.cornerRadius ?? 0, width / 2, height / 2));
+  const localPoints: Point[] = [];
+  if (radius <= 0.01) {
+    localPoints.push(
+      { x: 0, y: 0 },
+      { x: width, y: 0 },
+      { x: width, y: height },
+      { x: 0, y: height },
+    );
+  } else {
+    const steps = Math.max(2, Math.min(10, Math.ceil(radius / 6)));
+    appendUniquePoint(localPoints, { x: radius, y: 0 });
+    appendUniquePoint(localPoints, { x: width - radius, y: 0 });
+    appendArcPoints(localPoints, { x: width - radius, y: radius }, radius, -Math.PI / 2, 0, steps);
+    appendUniquePoint(localPoints, { x: width, y: height - radius });
+    appendArcPoints(localPoints, { x: width - radius, y: height - radius }, radius, 0, Math.PI / 2, steps);
+    appendUniquePoint(localPoints, { x: radius, y: height });
+    appendArcPoints(localPoints, { x: radius, y: height - radius }, radius, Math.PI / 2, Math.PI, steps);
+    appendUniquePoint(localPoints, { x: 0, y: radius });
+    appendArcPoints(localPoints, { x: radius, y: radius }, radius, Math.PI, Math.PI * 1.5, steps);
+  }
+  const rotation = object.rotation ?? 0;
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return localPoints.map((point) => {
+    const rotatedX = point.x * cos - point.y * sin;
+    const rotatedY = point.x * sin + point.y * cos;
+    return {
+      x: object.x + rotatedX,
+      y: object.y + rotatedY,
+    };
+  });
+}
+
+function appendArcPoints(
+  output: Point[],
+  center: Point,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+  steps: number,
+): void {
+  for (let step = 1; step <= steps; step += 1) {
+    const t = step / steps;
+    const angle = startAngle + (endAngle - startAngle) * t;
+    appendUniquePoint(output, {
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y + Math.sin(angle) * radius,
+    });
+  }
+}
+
+function appendUniquePoint(output: Point[], point: Point): void {
+  const last = output[output.length - 1];
+  if (last && Math.hypot(last.x - point.x, last.y - point.y) < 1e-6) {
+    return;
+  }
+  output.push(point);
 }
 
 export function ungroupSelected(screen: HmiScreen, selection: EditorSelectionState): EditorCommandResult {

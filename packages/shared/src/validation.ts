@@ -308,6 +308,22 @@ const lineObjectSchema = hmiBaseSchema.extend({
   flowAnimation: flowAnimationSchema.optional(),
 });
 
+const compoundShapeObjectSchema = hmiBaseSchema.extend({
+  type: z.literal("compoundShape"),
+  parts: z.array(
+    z.object({
+      points: z.array(z.number()).min(6),
+      closed: z.boolean().optional(),
+    }),
+  ).min(1),
+  fill: z.string().optional(),
+  stroke: z.string().optional(),
+  strokeWidth: z.number().nonnegative().optional(),
+  lineCap: z.enum(["butt", "round", "square"]).optional(),
+  lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
+  fillRule: z.enum(["nonzero", "evenodd"]).optional(),
+});
+
 const rectangleObjectSchema = hmiBaseSchema.extend({
   type: z.literal("rectangle"),
   fill: z.string().optional(),
@@ -1003,6 +1019,7 @@ export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
     groupObjectSchema,
     textObjectSchema,
     lineObjectSchema,
+    compoundShapeObjectSchema,
     rectangleObjectSchema,
     valueDisplayObjectSchema,
     valueInputObjectSchema,

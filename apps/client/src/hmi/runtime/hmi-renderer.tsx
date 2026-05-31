@@ -1831,6 +1831,19 @@ function ObjectNode({
           rotation: node.rotation(),
           points: scaledPoints,
         } as Partial<HmiObject>);
+      } else if (resolvedObject.type === "compoundShape") {
+        const scaledParts = resolvedObject.parts.map((part) => ({
+          ...part,
+          points: part.points.map((point, index) => (index % 2 === 0 ? point * scaleX : point * scaleY)),
+        }));
+        onResizeObject?.(resolvedObject.id, {
+          x: node.x(),
+          y: node.y(),
+          width: nextWidth,
+          height: nextHeight,
+          rotation: node.rotation(),
+          parts: scaledParts,
+        } as Partial<HmiObject>);
       } else {
         onResizeObject?.(resolvedObject.id, {
           x: node.x(),
@@ -2236,6 +2249,37 @@ function ObjectNode({
           </Group>
         ) : null}
         {renderLineBase ? <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} /> : null}
+      </Group>
+    );
+  }
+
+  if (resolvedObject.type === "compoundShape") {
+    const compoundFill = resolvedObject.fill ?? "#262626";
+    const compoundStroke = resolvedObject.stroke ?? "#8c8c8c";
+    const compoundStrokeWidth = resolvedObject.strokeWidth ?? 2;
+    const compoundLineCap = resolvedObject.lineCap ?? "round";
+    const compoundLineJoin = resolvedObject.lineJoin ?? "round";
+    const compoundFillRule = resolvedObject.fillRule ?? "nonzero";
+    const compoundShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
+    return (
+      <Group {...commonGroupProps}>
+        <SelectionHitArea object={resolvedObject} enabled={interactive} />
+        {resolvedObject.parts.map((part, index) => (
+          <Line
+            key={`${resolvedObject.id}-part-${index}`}
+            points={part.points}
+            closed={part.closed ?? true}
+            fill={compoundFill}
+            stroke={compoundStroke}
+            strokeWidth={compoundStrokeWidth}
+            lineCap={compoundLineCap}
+            lineJoin={compoundLineJoin}
+            fillRule={compoundFillRule}
+            perfectDrawEnabled={false}
+            {...compoundShadowProps}
+          />
+        ))}
+        <SelectionOutline object={resolvedObject} selected={selected || showObjectFrames} />
       </Group>
     );
   }

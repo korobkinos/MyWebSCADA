@@ -201,12 +201,12 @@ export function HmiStage({
     }),
     [currentUserRoleLevel, renderContext],
   );
-  const stageScale = mode === "runtime" ? runtimeScale : effectiveEditorZoom;
+  const stageScale = mode === "runtime" ? runtimeScale : 1;
   const stageWidth = mode === "editor"
-    ? (screen.width + 2 * OFFSCREEN_PAD)
+    ? (screen.width + 2 * OFFSCREEN_PAD) * effectiveEditorZoom
     : screen.width;
   const stageHeight = mode === "editor"
-    ? (screen.height + 2 * OFFSCREEN_PAD)
+    ? (screen.height + 2 * OFFSCREEN_PAD) * effectiveEditorZoom
     : screen.height;
   const gridPatternImage = useMemo(() => {
     if (mode !== "editor" || !showEditorGrid) {
@@ -398,7 +398,12 @@ export function HmiStage({
       >
         <Layer>
           {mode === "editor" ? (
-            <Group x={OFFSCREEN_PAD} y={OFFSCREEN_PAD}>
+            <Group
+              x={OFFSCREEN_PAD * effectiveEditorZoom}
+              y={OFFSCREEN_PAD * effectiveEditorZoom}
+              scaleX={effectiveEditorZoom}
+              scaleY={effectiveEditorZoom}
+            >
               <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
               {showEditorGrid && gridPatternImage ? (
                 <Rect

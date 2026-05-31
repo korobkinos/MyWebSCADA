@@ -64,6 +64,24 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         gradientEnabled: false,
         gradientDirection: "horizontal",
       };
+    case "compoundShape":
+      return {
+        id: id("compound"),
+        type,
+        x: 100,
+        y: 100,
+        width: 140,
+        height: 80,
+        minWidth: 20,
+        minHeight: 20,
+        parts: [{ points: [0, 0, 140, 0, 140, 80, 0, 80], closed: true }],
+        fill: "#262626",
+        stroke: "#8c8c8c",
+        strokeWidth: 2,
+        lineCap: "round",
+        lineJoin: "round",
+        fillRule: "nonzero",
+      };
     case "rectangle":
       return {
         id: id("rect"),

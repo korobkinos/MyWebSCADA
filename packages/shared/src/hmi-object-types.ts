@@ -95,6 +95,7 @@ export type HmiObjectBase = {
     | "group"
     | "text"
     | "line"
+    | "compoundShape"
     | "rectangle"
     | "value-display"
     | "value-input"
@@ -182,6 +183,22 @@ export type LineObject = HmiObjectBase & {
   gradientEndColor?: string;
   gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
   flowAnimation?: FlowAnimationConfig;
+};
+
+export type CompoundShapePart = {
+  points: number[];
+  closed?: boolean;
+};
+
+export type CompoundShapeObject = HmiObjectBase & {
+  type: "compoundShape";
+  parts: CompoundShapePart[];
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  lineCap?: "butt" | "round" | "square";
+  lineJoin?: "miter" | "round" | "bevel";
+  fillRule?: "nonzero" | "evenodd";
 };
 
 export type GroupObject = HmiObjectBase & {
@@ -920,6 +937,7 @@ export type HmiObject =
   | GroupObject
   | TextObject
   | LineObject
+  | CompoundShapeObject
   | RectangleObject
   | ValueDisplayObject
   | ValueInputObject

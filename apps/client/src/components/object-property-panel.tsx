@@ -2270,6 +2270,34 @@ function SpecificPropertyFields({
     );
   }
 
+  if (object.type === "compoundShape") {
+    return (
+      <>
+        <ColorField label="Fill Color" value={object.fill ?? ""} fallback="#262626" onChange={(next) => onPatch({ fill: next } as Partial<HmiObject>)} />
+        <ColorField label="Stroke Color" value={object.stroke ?? ""} fallback="#8c8c8c" onChange={(next) => onPatch({ stroke: next } as Partial<HmiObject>)} />
+        <Form.Item label="Stroke Width">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0}
+            step={0.1}
+            value={roundToTenths(object.strokeWidth ?? 0)}
+            onChange={(v) => onPatch({ strokeWidth: roundToTenths(Math.max(0, Number(v ?? 0))) } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+        <Form.Item label="Fill Rule">
+          <Select
+            value={object.fillRule ?? "nonzero"}
+            options={[
+              { label: "nonzero", value: "nonzero" },
+              { label: "evenodd", value: "evenodd" },
+            ]}
+            onChange={(value) => onPatch({ fillRule: value } as Partial<HmiObject>)}
+          />
+        </Form.Item>
+      </>
+    );
+  }
+
   if (object.type === "value-display") {
     return (
       <>

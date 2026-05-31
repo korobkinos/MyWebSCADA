@@ -378,6 +378,7 @@ export function EditorPage() {
         groupSelected: "Group objects",
         ungroupSelected: "Ungroup objects",
         mergeSelectedLinesToPolyline: "Merge lines",
+        mergeSelectedShapes: "Merge shapes",
         lockSelected: "Lock objects",
         unlockSelected: "Unlock objects",
         alignLeft: "Align left",
@@ -981,6 +982,7 @@ export function EditorPage() {
   const canSameSize = selectedUnlocked.length >= 2;
   const canDistribute = selectedUnlocked.length >= 2;
   const canMergeLines = selectedUnlocked.filter((obj) => obj.type === "line").length >= 2;
+  const canMergeShapes = selectedUnlocked.filter((obj) => obj.type === "rectangle" || (obj.type === "line" && (obj.closed ?? false))).length >= 2;
 
   const { windowDefinitions, openDefinedWindow } = useEditorWindowDefinitions({
     project,
@@ -1279,6 +1281,7 @@ export function EditorPage() {
             canGroup={canGroup}
             canUngroup={canUngroup}
             canMergeLines={canMergeLines}
+            canMergeShapes={canMergeShapes}
             canLock={canLock}
             canUnlock={canUnlock}
             canAlign={canAlign}
