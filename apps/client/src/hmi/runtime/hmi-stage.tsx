@@ -207,6 +207,8 @@ export function HmiStage({
 
   const effectiveEditorZoom = mode === "editor" ? editorZoom : 1;
   const editorOffscreenPad = mode === "editor" ? getEditorOffscreenPad(effectiveEditorZoom) : 0;
+  const editorLogicalWidth = screen.width + 2 * editorOffscreenPad;
+  const editorLogicalHeight = screen.height + 2 * editorOffscreenPad;
   const effectiveRenderContext = useMemo(
     () => ({
       ...renderContext,
@@ -217,10 +219,10 @@ export function HmiStage({
   const stageScale = mode === "runtime" ? runtimeScale : 1;
   const screenBackground = screen.background ?? "#1e1e1e";
   const stageWidth = mode === "editor"
-    ? (screen.width + 2 * editorOffscreenPad) * effectiveEditorZoom
+    ? editorLogicalWidth
     : screen.width;
   const stageHeight = mode === "editor"
-    ? (screen.height + 2 * editorOffscreenPad) * effectiveEditorZoom
+    ? editorLogicalHeight
     : screen.height;
   const shouldRenderEditorGrid = mode === "editor" && showEditorGrid;
 
@@ -267,8 +269,8 @@ export function HmiStage({
       return pointer;
     }
     return {
-      x: pointer.x / effectiveEditorZoom - editorOffscreenPad,
-      y: pointer.y / effectiveEditorZoom - editorOffscreenPad,
+      x: pointer.x - editorOffscreenPad,
+      y: pointer.y - editorOffscreenPad,
     };
   };
 
@@ -392,8 +394,14 @@ export function HmiStage({
       ref={wrapRef}
       className="canvas-wrap"
       style={{
-        width: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
-        height: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
+        width: mode === "editor"
+          ? `${editorLogicalWidth * effectiveEditorZoom}px`
+          : (mode === "runtime" && fullscreenRuntime ? "100%" : undefined),
+        height: mode === "editor"
+          ? `${editorLogicalHeight * effectiveEditorZoom}px`
+          : (mode === "runtime" && fullscreenRuntime ? "100%" : undefined),
+        minWidth: mode === "editor" ? `${editorLogicalWidth * effectiveEditorZoom}px` : undefined,
+        minHeight: mode === "editor" ? `${editorLogicalHeight * effectiveEditorZoom}px` : undefined,
         overflow: mode === "editor" ? "visible" : (fullscreenRuntime ? "hidden" : "auto"),
         display: mode === "editor" ? "inline-block" : "block",
         border: mode === "runtime" ? "none" : undefined,
@@ -411,14 +419,13 @@ export function HmiStage({
         onMouseDown={onStageMouseDown}
         onMouseMove={onStageMouseMove}
         onMouseUp={onStageMouseUp}
+        style={mode === "editor" ? { transform: `scale(${effectiveEditorZoom})`, transformOrigin: "0 0" } : undefined}
       >
         <Layer>
           {mode === "editor" ? (
             <Group
-              x={editorOffscreenPad * effectiveEditorZoom}
-              y={editorOffscreenPad * effectiveEditorZoom}
-              scaleX={effectiveEditorZoom}
-              scaleY={effectiveEditorZoom}
+              x={editorOffscreenPad}
+              y={editorOffscreenPad}
             >
               <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screenBackground} listening={false} />
               {shouldRenderEditorGrid && gridPatternImage ? (
