@@ -420,13 +420,9 @@ export class MacroService {
   }
 
   private ensureFreshManualMeta(commandMeta: ManualCommandMeta | undefined): void {
-    if (!commandMeta) {
-      return;
-    }
-    const ttlMs = this.getManualTimeoutMs(commandMeta);
-    if (Date.now() - commandMeta.createdAt > ttlMs) {
-      throw new ManualCommandError("expired", "Command expired");
-    }
+    // Client/server clock skew must not block macro execution.
+    // Request lifetime is already bounded by server-side timeout/in-flight guards.
+    void commandMeta;
   }
 
   private async withManualInFlight<T>(commandKey: string, run: () => Promise<T>): Promise<T> {

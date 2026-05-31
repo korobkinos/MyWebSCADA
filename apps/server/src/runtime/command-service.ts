@@ -158,13 +158,9 @@ export class CommandService {
   }
 
   private ensureFreshManualMeta(meta: ManualCommandMeta | undefined): void {
-    if (!meta) {
-      return;
-    }
-    const ttlMs = meta.ttlMs > 0 ? meta.ttlMs : COMMAND_TIMEOUT_MS;
-    if (Date.now() - meta.createdAt > ttlMs) {
-      throw new ManualCommandError("expired", "Command expired");
-    }
+    // Client/server clock skew must not block command execution.
+    // Request lifetime is already bounded by server-side timeout/in-flight guards.
+    void meta;
   }
 
   private async withManualInFlight<T>(commandKey: string, run: () => Promise<T>): Promise<T> {
