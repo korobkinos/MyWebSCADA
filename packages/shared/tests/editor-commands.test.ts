@@ -392,6 +392,81 @@ describe("merge lines", () => {
 });
 
 describe("merge shapes", () => {
+  it("builds one outer contour for overlapping rectangles", () => {
+    const leftRect: HmiObject = {
+      id: "rect_left",
+      type: "rectangle",
+      x: 20,
+      y: 20,
+      width: 120,
+      height: 100,
+      fill: "#334455",
+      stroke: "#8899aa",
+      strokeWidth: 2,
+    };
+    const rightRect: HmiObject = {
+      id: "rect_right",
+      type: "rectangle",
+      x: 90,
+      y: 50,
+      width: 120,
+      height: 110,
+      fill: "#223344",
+      stroke: "#778899",
+      strokeWidth: 2,
+    };
+    const result = executeEditorCommand(screenWith([leftRect, rightRect]), selection(["rect_left", "rect_right"]), {
+      type: "mergeSelectedShapes",
+    });
+
+    expect(result.warnings ?? []).toHaveLength(0);
+    const merged = result.screen.objects.find((obj) => obj.type === "compoundShape");
+    expect(merged).toBeTruthy();
+    if (!merged || merged.type !== "compoundShape") {
+      return;
+    }
+    expect(merged.parts).toHaveLength(1);
+    expect(merged.parts[0]?.points.length ?? 0).toBeGreaterThanOrEqual(8);
+  });
+
+  it("builds one outer contour for overlapping rectangle and triangle", () => {
+    const rectangle: HmiObject = {
+      id: "rect_1",
+      type: "rectangle",
+      x: 20,
+      y: 20,
+      width: 120,
+      height: 100,
+      fill: "#334455",
+      stroke: "#8899aa",
+      strokeWidth: 2,
+    };
+    const triangle: HmiObject = {
+      id: "tri_1",
+      type: "line",
+      x: 95,
+      y: 35,
+      width: 90,
+      height: 100,
+      points: [0, 20, 90, 0, 90, 100],
+      closed: true,
+      fill: "#112233",
+      stroke: "#556677",
+      strokeWidth: 3,
+    };
+    const result = executeEditorCommand(screenWith([rectangle, triangle]), selection(["rect_1", "tri_1"]), {
+      type: "mergeSelectedShapes",
+    });
+
+    expect(result.warnings ?? []).toHaveLength(0);
+    const merged = result.screen.objects.find((obj) => obj.type === "compoundShape");
+    expect(merged).toBeTruthy();
+    if (!merged || merged.type !== "compoundShape") {
+      return;
+    }
+    expect(merged.parts).toHaveLength(1);
+  });
+
   it("merges rectangle and closed line into one compound shape", () => {
     const rectangle: HmiObject = {
       id: "rect_1",

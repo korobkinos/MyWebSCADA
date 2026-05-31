@@ -365,10 +365,8 @@ export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectio
     return { screen, selection, warnings: ["Failed to merge selected shapes."] };
   }
 
-  const parts = supported
-    .map((object) => toMergedShapePart(object, bounds.x, bounds.y))
-    .filter((part): part is { points: number[]; closed: true } => Boolean(part && part.points.length >= 6));
-  if (parts.length < 2) {
+  const parts = buildMergedShapeUnionParts(supported, bounds.x, bounds.y);
+  if (parts.length < 1) {
     return { screen, selection, warnings: ["Failed to build merged shape from selected objects."] };
   }
 
@@ -469,22 +467,505 @@ function isSupportedShapeForMerge(object: HmiObject): object is RectangleObject 
   return object.type === "line" && (object.closed ?? false) === true;
 }
 
-function toMergedShapePart(
-  object: RectangleObject | LineObject,
+const MERGE_SHAPE_EPSILON = 1e-5;
+
+type IndexedEdge = {
+  polygonIndex: number;
+  start: Point;
+  end: Point;
+};
+
+type OrientedBoundaryEdge = {
+  startNode: number;
+  endNode: number;
+};
+
+function buildMergedShapeUnionParts(
+  objects: Array<RectangleObject | LineObject>,
   originX: number,
   originY: number,
-): { points: number[]; closed: true } | null {
+): Array<{ points: number[]; closed: true }> {
+  const polygons = objects
+    .map((object) => toMergedShapePolygon(object))
+    .filter((polygon): polygon is Point[] => polygon.length >= 3);
+  if (polygons.length < 2) {
+    return [];
+  }
+
+  const edges = buildPolygonEdges(polygons);
+  if (!edges.length) {
+    return [];
+  }
+
+  const splitParams = edges.map(() => [0, 1]);
+  for (let i = 0; i < edges.length; i += 1) {
+    for (let j = i + 1; j < edges.length; j += 1) {
+      const left = edges[i];
+      const right = edges[j];
+      if (!left || !right) {
+        continue;
+      }
+      const intersections = intersectSegmentsDetailed(left.start, left.end, right.start, right.end);
+      if (!intersections.length) {
+        continue;
+      }
+      for (const hit of intersections) {
+        splitParams[i]?.push(hit.tA);
+        splitParams[j]?.push(hit.tB);
+      }
+    }
+  }
+
+  const nodeRegistry = createPointRegistry(MERGE_SHAPE_EPSILON * 2);
+  const boundaryCandidates: OrientedBoundaryEdge[] = [];
+  for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1) {
+    const edge = edges[edgeIndex];
+    if (!edge) {
+      continue;
+    }
+    const params = dedupeSortedScalars(splitParams[edgeIndex] ?? [], MERGE_SHAPE_EPSILON);
+    for (let index = 0; index + 1 < params.length; index += 1) {
+      const from = params[index]!;
+      const to = params[index + 1]!;
+      if (to - from <= MERGE_SHAPE_EPSILON) {
+        continue;
+      }
+      const start = lerpPoint(edge.start, edge.end, from);
+      const end = lerpPoint(edge.start, edge.end, to);
+      if (distance(start, end) <= MERGE_SHAPE_EPSILON) {
+        continue;
+      }
+      const boundary = orientUnionBoundaryEdge(start, end, polygons);
+      if (!boundary) {
+        continue;
+      }
+      const startNode = nodeRegistry.register(boundary.start);
+      const endNode = nodeRegistry.register(boundary.end);
+      if (startNode === endNode) {
+        continue;
+      }
+      boundaryCandidates.push({ startNode, endNode });
+    }
+  }
+
+  const boundaryEdges = cancelOppositeBoundaryEdges(boundaryCandidates);
+  if (!boundaryEdges.length) {
+    return [];
+  }
+
+  const contours = buildBoundaryContours(boundaryEdges, nodeRegistry.points);
+  return contours
+    .map((contour) => simplifyPolygon(contour, MERGE_SHAPE_EPSILON * 4))
+    .filter((contour) => contour.length >= 3 && Math.abs(polygonSignedArea(contour)) > MERGE_SHAPE_EPSILON)
+    .map((contour) => ({
+      points: contour.flatMap((point) => [point.x - originX, point.y - originY]),
+      closed: true as const,
+    }));
+}
+
+function toMergedShapePolygon(object: RectangleObject | LineObject): Point[] {
   const absolutePoints = object.type === "rectangle"
     ? toRectangleAbsolutePoints(object)
     : getLineAbsolutePoints(object);
-  if (absolutePoints.length < 3) {
+  return simplifyPolygon(absolutePoints, MERGE_SHAPE_EPSILON);
+}
+
+function buildPolygonEdges(polygons: Point[][]): IndexedEdge[] {
+  const output: IndexedEdge[] = [];
+  polygons.forEach((polygon, polygonIndex) => {
+    for (let index = 0; index < polygon.length; index += 1) {
+      const start = polygon[index];
+      const end = polygon[(index + 1) % polygon.length];
+      if (!start || !end || distance(start, end) <= MERGE_SHAPE_EPSILON) {
+        continue;
+      }
+      output.push({
+        polygonIndex,
+        start,
+        end,
+      });
+    }
+  });
+  return output;
+}
+
+function intersectSegmentsDetailed(
+  aStart: Point,
+  aEnd: Point,
+  bStart: Point,
+  bEnd: Point,
+): Array<{ tA: number; tB: number }> {
+  const r = { x: aEnd.x - aStart.x, y: aEnd.y - aStart.y };
+  const s = { x: bEnd.x - bStart.x, y: bEnd.y - bStart.y };
+  const qp = { x: bStart.x - aStart.x, y: bStart.y - aStart.y };
+  const rxs = cross(r, s);
+  const qpxr = cross(qp, r);
+  const result: Array<{ tA: number; tB: number }> = [];
+
+  if (Math.abs(rxs) <= MERGE_SHAPE_EPSILON && Math.abs(qpxr) <= MERGE_SHAPE_EPSILON) {
+    const rr = dot(r, r);
+    const ss = dot(s, s);
+    if (rr <= MERGE_SHAPE_EPSILON || ss <= MERGE_SHAPE_EPSILON) {
+      return result;
+    }
+    const t0 = dot({ x: bStart.x - aStart.x, y: bStart.y - aStart.y }, r) / rr;
+    const t1 = dot({ x: bEnd.x - aStart.x, y: bEnd.y - aStart.y }, r) / rr;
+    const tMin = Math.max(0, Math.min(t0, t1));
+    const tMax = Math.min(1, Math.max(t0, t1));
+    if (tMax + MERGE_SHAPE_EPSILON < tMin) {
+      return result;
+    }
+    const overlapTs = dedupeSortedScalars([tMin, tMax], MERGE_SHAPE_EPSILON);
+    for (const tA of overlapTs) {
+      const point = lerpPoint(aStart, aEnd, tA);
+      const tB = projectPointToSegmentParam(point, bStart, bEnd);
+      if (tB >= -MERGE_SHAPE_EPSILON && tB <= 1 + MERGE_SHAPE_EPSILON) {
+        result.push({ tA: clamp01(tA), tB: clamp01(tB) });
+      }
+    }
+    return dedupeIntersections(result);
+  }
+
+  if (Math.abs(rxs) <= MERGE_SHAPE_EPSILON) {
+    return result;
+  }
+
+  const t = cross(qp, s) / rxs;
+  const u = cross(qp, r) / rxs;
+  if (
+    t >= -MERGE_SHAPE_EPSILON
+    && t <= 1 + MERGE_SHAPE_EPSILON
+    && u >= -MERGE_SHAPE_EPSILON
+    && u <= 1 + MERGE_SHAPE_EPSILON
+  ) {
+    result.push({ tA: clamp01(t), tB: clamp01(u) });
+  }
+  return dedupeIntersections(result);
+}
+
+function dedupeIntersections(values: Array<{ tA: number; tB: number }>): Array<{ tA: number; tB: number }> {
+  const output: Array<{ tA: number; tB: number }> = [];
+  for (const value of values) {
+    const hasNear = output.some((existing) =>
+      Math.abs(existing.tA - value.tA) <= MERGE_SHAPE_EPSILON
+      && Math.abs(existing.tB - value.tB) <= MERGE_SHAPE_EPSILON);
+    if (!hasNear) {
+      output.push(value);
+    }
+  }
+  return output;
+}
+
+function dedupeSortedScalars(values: number[], epsilon: number): number[] {
+  const sorted = [...values].sort((left, right) => left - right);
+  const output: number[] = [];
+  for (const value of sorted) {
+    if (!output.length || Math.abs(output[output.length - 1]! - value) > epsilon) {
+      output.push(value);
+    }
+  }
+  return output;
+}
+
+function lerpPoint(start: Point, end: Point, t: number): Point {
+  return {
+    x: start.x + (end.x - start.x) * t,
+    y: start.y + (end.y - start.y) * t,
+  };
+}
+
+function orientUnionBoundaryEdge(start: Point, end: Point, polygons: Point[][]): { start: Point; end: Point } | null {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length <= MERGE_SHAPE_EPSILON) {
     return null;
   }
-  const points: number[] = [];
-  for (const point of absolutePoints) {
-    points.push(point.x - originX, point.y - originY);
+  const normalX = -dy / length;
+  const normalY = dx / length;
+  const offsetDistance = Math.max(MERGE_SHAPE_EPSILON * 16, length * 1e-5);
+  const middle = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+  const leftProbe = { x: middle.x + normalX * offsetDistance, y: middle.y + normalY * offsetDistance };
+  const rightProbe = { x: middle.x - normalX * offsetDistance, y: middle.y - normalY * offsetDistance };
+  const leftInside = isPointInsideUnion(leftProbe, polygons);
+  const rightInside = isPointInsideUnion(rightProbe, polygons);
+  if (leftInside === rightInside) {
+    return null;
   }
-  return { points, closed: true };
+  if (leftInside) {
+    return { start, end };
+  }
+  return { start: end, end: start };
+}
+
+function isPointInsideUnion(point: Point, polygons: Point[][]): boolean {
+  return polygons.some((polygon) => isPointInsidePolygonInclusive(point, polygon));
+}
+
+function isPointInsidePolygonInclusive(point: Point, polygon: Point[]): boolean {
+  if (polygon.length < 3) {
+    return false;
+  }
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    if (!start || !end) {
+      continue;
+    }
+    if (distancePointToSegment(point, start, end) <= MERGE_SHAPE_EPSILON) {
+      return true;
+    }
+  }
+
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const a = polygon[i]!;
+    const b = polygon[j]!;
+    const intersects = ((a.y > point.y) !== (b.y > point.y))
+      && (point.x < ((b.x - a.x) * (point.y - a.y)) / ((b.y - a.y) || Number.EPSILON) + a.x);
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function createPointRegistry(epsilon: number): {
+  points: Point[];
+  register: (point: Point) => number;
+} {
+  const points: Point[] = [];
+  const buckets = new Map<string, number[]>();
+  const keyOf = (x: number, y: number): [number, number] => [
+    Math.round(x / epsilon),
+    Math.round(y / epsilon),
+  ];
+  const register = (point: Point): number => {
+    const [kx, ky] = keyOf(point.x, point.y);
+    for (let ox = -1; ox <= 1; ox += 1) {
+      for (let oy = -1; oy <= 1; oy += 1) {
+        const bucket = buckets.get(`${kx + ox}:${ky + oy}`);
+        if (!bucket) {
+          continue;
+        }
+        for (const nodeIndex of bucket) {
+          const existing = points[nodeIndex];
+          if (existing && distance(existing, point) <= epsilon) {
+            return nodeIndex;
+          }
+        }
+      }
+    }
+    const nodeIndex = points.length;
+    points.push(point);
+    const bucketKey = `${kx}:${ky}`;
+    const bucket = buckets.get(bucketKey) ?? [];
+    bucket.push(nodeIndex);
+    buckets.set(bucketKey, bucket);
+    return nodeIndex;
+  };
+  return { points, register };
+}
+
+function cancelOppositeBoundaryEdges(edges: OrientedBoundaryEdge[]): OrientedBoundaryEdge[] {
+  const balance = new Map<string, number>();
+  for (const edge of edges) {
+    const a = edge.startNode;
+    const b = edge.endNode;
+    const forward = a < b;
+    const key = forward ? `${a}:${b}` : `${b}:${a}`;
+    const delta = forward ? 1 : -1;
+    balance.set(key, (balance.get(key) ?? 0) + delta);
+  }
+  const output: OrientedBoundaryEdge[] = [];
+  for (const [key, net] of balance.entries()) {
+    if (net === 0) {
+      continue;
+    }
+    const [leftRaw, rightRaw] = key.split(":");
+    const left = Number(leftRaw);
+    const right = Number(rightRaw);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) {
+      continue;
+    }
+    if (net > 0) {
+      output.push({ startNode: left, endNode: right });
+    } else {
+      output.push({ startNode: right, endNode: left });
+    }
+  }
+  return output;
+}
+
+function buildBoundaryContours(edges: OrientedBoundaryEdge[], nodes: Point[]): Point[][] {
+  const outgoing = new Map<number, number[]>();
+  edges.forEach((edge, index) => {
+    const list = outgoing.get(edge.startNode) ?? [];
+    list.push(index);
+    outgoing.set(edge.startNode, list);
+  });
+
+  const used = new Set<number>();
+  const contours: Point[][] = [];
+  for (let startIndex = 0; startIndex < edges.length; startIndex += 1) {
+    if (used.has(startIndex)) {
+      continue;
+    }
+    const startEdge = edges[startIndex];
+    if (!startEdge) {
+      continue;
+    }
+    const contourNodeIds: number[] = [startEdge.startNode];
+    used.add(startIndex);
+    let currentEdge = startEdge;
+    let guard = 0;
+    while (guard < edges.length * 2) {
+      guard += 1;
+      contourNodeIds.push(currentEdge.endNode);
+      if (currentEdge.endNode === contourNodeIds[0]) {
+        break;
+      }
+      const nextOptions = (outgoing.get(currentEdge.endNode) ?? []).filter((edgeIndex) => !used.has(edgeIndex));
+      if (!nextOptions.length) {
+        break;
+      }
+      const nextIndex = chooseNextBoundaryEdgeIndex(edges, nextOptions, currentEdge, nodes);
+      used.add(nextIndex);
+      currentEdge = edges[nextIndex]!;
+    }
+    if (contourNodeIds.length < 4 || contourNodeIds[0] !== contourNodeIds[contourNodeIds.length - 1]) {
+      continue;
+    }
+    const contour = contourNodeIds
+      .slice(0, -1)
+      .map((nodeId) => nodes[nodeId])
+      .filter((point): point is Point => Boolean(point));
+    if (contour.length >= 3) {
+      contours.push(contour);
+    }
+  }
+  return contours;
+}
+
+function chooseNextBoundaryEdgeIndex(
+  edges: OrientedBoundaryEdge[],
+  candidateIndexes: number[],
+  currentEdge: OrientedBoundaryEdge,
+  nodes: Point[],
+): number {
+  if (candidateIndexes.length === 1) {
+    return candidateIndexes[0]!;
+  }
+  const currentStart = nodes[currentEdge.startNode];
+  const currentEnd = nodes[currentEdge.endNode];
+  if (!currentStart || !currentEnd) {
+    return candidateIndexes[0]!;
+  }
+  const currentDx = currentEnd.x - currentStart.x;
+  const currentDy = currentEnd.y - currentStart.y;
+  let bestIndex = candidateIndexes[0]!;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (const edgeIndex of candidateIndexes) {
+    const candidate = edges[edgeIndex];
+    if (!candidate) {
+      continue;
+    }
+    const nextEnd = nodes[candidate.endNode];
+    if (!nextEnd) {
+      continue;
+    }
+    const nextDx = nextEnd.x - currentEnd.x;
+    const nextDy = nextEnd.y - currentEnd.y;
+    const turn = Math.atan2(cross({ x: currentDx, y: currentDy }, { x: nextDx, y: nextDy }), dot({ x: currentDx, y: currentDy }, { x: nextDx, y: nextDy }));
+    const score = turn < 0 ? turn + Math.PI * 2 : turn;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = edgeIndex;
+    }
+  }
+  return bestIndex;
+}
+
+function simplifyPolygon(points: Point[], epsilon: number): Point[] {
+  if (points.length < 3) {
+    return points;
+  }
+  const deduped: Point[] = [];
+  for (const point of points) {
+    const last = deduped[deduped.length - 1];
+    if (!last || distance(last, point) > epsilon) {
+      deduped.push(point);
+    }
+  }
+  if (deduped.length >= 2 && distance(deduped[0]!, deduped[deduped.length - 1]!) <= epsilon) {
+    deduped.pop();
+  }
+  if (deduped.length < 3) {
+    return deduped;
+  }
+
+  const simplified: Point[] = [];
+  for (let index = 0; index < deduped.length; index += 1) {
+    const prev = deduped[(index - 1 + deduped.length) % deduped.length]!;
+    const curr = deduped[index]!;
+    const next = deduped[(index + 1) % deduped.length]!;
+    const prevDx = curr.x - prev.x;
+    const prevDy = curr.y - prev.y;
+    const nextDx = next.x - curr.x;
+    const nextDy = next.y - curr.y;
+    if (Math.abs(cross({ x: prevDx, y: prevDy }, { x: nextDx, y: nextDy })) <= epsilon) {
+      continue;
+    }
+    simplified.push(curr);
+  }
+  return simplified.length >= 3 ? simplified : deduped;
+}
+
+function polygonSignedArea(points: Point[]): number {
+  if (points.length < 3) {
+    return 0;
+  }
+  let area = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const curr = points[index]!;
+    const next = points[(index + 1) % points.length]!;
+    area += curr.x * next.y - next.x * curr.y;
+  }
+  return area / 2;
+}
+
+function dot(a: Point, b: Point): number {
+  return a.x * b.x + a.y * b.y;
+}
+
+function cross(a: Point, b: Point): number {
+  return a.x * b.y - a.y * b.x;
+}
+
+function projectPointToSegmentParam(point: Point, start: Point, end: Point): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared <= MERGE_SHAPE_EPSILON) {
+    return 0;
+  }
+  return ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared;
+}
+
+function distancePointToSegment(point: Point, start: Point, end: Point): number {
+  const t = clamp01(projectPointToSegmentParam(point, start, end));
+  const projection = lerpPoint(start, end, t);
+  return distance(point, projection);
+}
+
+function clamp01(value: number): number {
+  if (value <= 0) {
+    return 0;
+  }
+  if (value >= 1) {
+    return 1;
+  }
+  return value;
 }
 
 function toRectangleAbsolutePoints(object: RectangleObject): Point[] {
