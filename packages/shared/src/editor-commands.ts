@@ -864,7 +864,7 @@ function chooseNextBoundaryEdgeIndex(
   const currentDx = currentEnd.x - currentStart.x;
   const currentDy = currentEnd.y - currentStart.y;
   let bestIndex = candidateIndexes[0]!;
-  let bestScore = Number.NEGATIVE_INFINITY;
+  let bestScore = Number.POSITIVE_INFINITY;
   for (const edgeIndex of candidateIndexes) {
     const candidate = edges[edgeIndex];
     if (!candidate) {
@@ -876,9 +876,13 @@ function chooseNextBoundaryEdgeIndex(
     }
     const nextDx = nextEnd.x - currentEnd.x;
     const nextDy = nextEnd.y - currentEnd.y;
-    const turn = Math.atan2(cross({ x: currentDx, y: currentDy }, { x: nextDx, y: nextDy }), dot({ x: currentDx, y: currentDy }, { x: nextDx, y: nextDy }));
+    const turn = Math.atan2(
+      cross({ x: currentDx, y: currentDy }, { x: nextDx, y: nextDy }),
+      dot({ x: currentDx, y: currentDy }, { x: nextDx, y: nextDy }),
+    );
+    // Follow boundary with minimal positive turn to avoid crossing into inner branches.
     const score = turn < 0 ? turn + Math.PI * 2 : turn;
-    if (score > bestScore) {
+    if (score < bestScore) {
       bestScore = score;
       bestIndex = edgeIndex;
     }

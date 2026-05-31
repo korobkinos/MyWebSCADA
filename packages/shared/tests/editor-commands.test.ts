@@ -426,7 +426,15 @@ describe("merge shapes", () => {
       return;
     }
     expect(merged.parts).toHaveLength(1);
-    expect(merged.parts[0]?.points.length ?? 0).toBeGreaterThanOrEqual(8);
+    const points = merged.parts[0]?.points ?? [];
+    expect(points.length).toBeGreaterThanOrEqual(8);
+    for (let i = 0; i < points.length; i += 2) {
+      const x1 = points[i]!;
+      const y1 = points[i + 1]!;
+      const x2 = points[(i + 2) % points.length]!;
+      const y2 = points[(i + 3) % points.length]!;
+      expect(Math.abs(x1 - x2) < 1e-6 || Math.abs(y1 - y2) < 1e-6).toBe(true);
+    }
   });
 
   it("builds one outer contour for overlapping rectangle and triangle", () => {
