@@ -437,6 +437,53 @@ describe("merge shapes", () => {
     }
   });
 
+  it("produces expected L-shape contour for canonical overlapping rectangles", () => {
+    const leftRect: HmiObject = {
+      id: "a",
+      type: "rectangle",
+      x: 40,
+      y: 40,
+      width: 190,
+      height: 190,
+      strokeWidth: 6,
+    };
+    const rightRect: HmiObject = {
+      id: "b",
+      type: "rectangle",
+      x: 115,
+      y: 155,
+      width: 200,
+      height: 190,
+      strokeWidth: 6,
+    };
+    const result = executeEditorCommand(screenWith([leftRect, rightRect]), selection(["a", "b"]), {
+      type: "mergeSelectedShapes",
+    });
+    const merged = result.screen.objects.find((obj) => obj.type === "compoundShape");
+    expect(merged).toBeTruthy();
+    if (!merged || merged.type !== "compoundShape") {
+      return;
+    }
+    expect(merged.parts).toHaveLength(1);
+    const points = merged.parts[0]?.points ?? [];
+    expect(points.length).toBe(16);
+    const expectedVertices = new Set([
+      "0,0",
+      "190,0",
+      "190,115",
+      "275,115",
+      "275,305",
+      "75,305",
+      "75,190",
+      "0,190",
+    ]);
+    const actualVertices = new Set<string>();
+    for (let i = 0; i + 1 < points.length; i += 2) {
+      actualVertices.add(`${Math.round(points[i] ?? 0)},${Math.round(points[i + 1] ?? 0)}`);
+    }
+    expect(actualVertices).toEqual(expectedVertices);
+  });
+
   it("builds one outer contour for overlapping rectangle and triangle", () => {
     const rectangle: HmiObject = {
       id: "rect_1",
