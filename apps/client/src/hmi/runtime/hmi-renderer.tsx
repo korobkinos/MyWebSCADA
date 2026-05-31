@@ -105,7 +105,7 @@ type FormatNumericOptions = {
 };
 
 type GradientDirection = "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
-type CompoundPatternStyle = "solid" | "diagonal" | "cross" | "dots";
+type CompoundPatternStyle = "solid" | "diagonal" | "cross" | "dots" | "beveledHatch";
 
 const compoundPatternCanvasCache = new Map<string, HTMLCanvasElement>();
 type ShadowDirection = "right" | "left" | "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -642,7 +642,7 @@ function getCompoundPatternCanvas(style: CompoundPatternStyle, color: string): H
   ctx.strokeStyle = safeColor;
   ctx.fillStyle = safeColor;
   ctx.lineWidth = 1;
-  if (style === "diagonal") {
+  if (style === "diagonal" || style === "beveledHatch") {
     ctx.beginPath();
     ctx.moveTo(-4, size);
     ctx.lineTo(size, -4);
@@ -2314,6 +2314,7 @@ function ObjectNode({
     const compoundLineCap = resolvedObject.lineCap ?? "round";
     const compoundLineJoin = resolvedObject.lineJoin ?? "round";
     const compoundFillRule = resolvedObject.fillRule ?? "nonzero";
+    const strokeOuterBandColor = resolvedObject.stroke ?? "#8c8c8c";
     const compoundShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     const drawCompoundPath = (context: Konva.Context, includeClose = true): void => {
       for (const part of resolvedObject.parts) {
@@ -2329,6 +2330,15 @@ function ObjectNode({
           context.closePath();
         }
       }
+    };
+    const drawStroke = (context: Konva.Context, strokeStyle: string | CanvasPattern | null, lineWidth: number): void => {
+      context.beginPath();
+      drawCompoundPath(context);
+      context._context.lineWidth = lineWidth;
+      context._context.lineCap = compoundLineCap;
+      context._context.lineJoin = compoundLineJoin;
+      context._context.strokeStyle = strokeStyle ?? strokePatternColor;
+      context._context.stroke();
     };
     return (
       <Group {...commonGroupProps}>
@@ -2356,13 +2366,21 @@ function ObjectNode({
         {strokePatternStyle === "solid" ? (
           <Shape
             sceneFunc={(context) => {
-              context.beginPath();
-              drawCompoundPath(context);
-              context._context.lineWidth = compoundStrokeWidth;
-              context._context.lineCap = compoundLineCap;
-              context._context.lineJoin = compoundLineJoin;
-              context._context.strokeStyle = compoundStroke;
-              context._context.stroke();
+              drawStroke(context, compoundStroke, compoundStrokeWidth);
+            }}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        ) : strokePatternStyle === "beveledHatch" ? (
+          <Shape
+            sceneFunc={(context) => {
+              drawStroke(context, strokeOuterBandColor, compoundStrokeWidth);
+              const innerWidth = Math.max(0, compoundStrokeWidth - Math.max(1.4, compoundStrokeWidth * 0.32));
+              if (innerWidth <= 0) {
+                return;
+              }
+              const pattern = strokePatternImage ? context._context.createPattern(strokePatternImage, "repeat") : null;
+              drawStroke(context, pattern ?? strokePatternColor, innerWidth);
             }}
             listening={false}
             perfectDrawEnabled={false}
@@ -2370,14 +2388,8 @@ function ObjectNode({
         ) : (
           <Shape
             sceneFunc={(context) => {
-              context.beginPath();
-              drawCompoundPath(context);
-              context._context.lineWidth = compoundStrokeWidth;
-              context._context.lineCap = compoundLineCap;
-              context._context.lineJoin = compoundLineJoin;
               const pattern = strokePatternImage ? context._context.createPattern(strokePatternImage, "repeat") : null;
-              context._context.strokeStyle = pattern ?? strokePatternColor;
-              context._context.stroke();
+              drawStroke(context, pattern ?? strokePatternColor, compoundStrokeWidth);
             }}
             listening={false}
             perfectDrawEnabled={false}

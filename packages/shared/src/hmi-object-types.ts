@@ -190,7 +190,7 @@ export type CompoundShapePart = {
   closed?: boolean;
 };
 
-export type CompoundPatternStyle = "solid" | "diagonal" | "cross" | "dots";
+export type CompoundPatternStyle = "solid" | "diagonal" | "cross" | "dots" | "beveledHatch";
 
 export type CompoundShapeObject = HmiObjectBase & {
   type: "compoundShape";

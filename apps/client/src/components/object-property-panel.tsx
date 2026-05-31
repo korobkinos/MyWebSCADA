@@ -2276,6 +2276,7 @@ function SpecificPropertyFields({
       { label: "diagonal", value: "diagonal" },
       { label: "cross", value: "cross" },
       { label: "dots", value: "dots" },
+      { label: "beveledHatch", value: "beveledHatch" },
     ];
     return (
       <>
