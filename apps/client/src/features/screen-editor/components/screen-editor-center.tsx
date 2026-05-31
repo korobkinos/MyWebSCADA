@@ -49,7 +49,7 @@ import {
   InputIcon,
 } from "@radix-ui/react-icons";
 import { Tabs } from "antd";
-import { HmiStage, OFFSCREEN_PAD } from "../../../hmi/runtime/hmi-stage";
+import { getEditorOffscreenPad, HmiStage } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
   WorkbenchButton,
@@ -266,7 +266,7 @@ export function ScreenEditorCenter({
   const [toolbarTab, setToolbarTab] = useState<ToolbarTab>("main");
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
-  const pendingWheelZoomAnchorRef = useRef<{ worldX: number; worldY: number; targetZoom: number } | null>(null);
+  const pendingWheelZoomAnchorRef = useRef<{ screenX: number; screenY: number; targetZoom: number } | null>(null);
   const isManualZoomRef = useRef(false);
   const latestEditorZoomRef = useRef(1);
   const zoomPersistTimeoutRef = useRef<number | null>(null);
@@ -353,6 +353,7 @@ export function ScreenEditorCenter({
   const gridLineStyle = normalizeGridLineStyle(project?.editorSettings?.editorGridLineStyle);
   const stageMode = previewMode ? "runtime" : "editor";
   const stageTags = previewMode ? tags : EMPTY_STAGE_TAGS;
+  const editorOffscreenPad = getEditorOffscreenPad(editorZoom);
   const viewportBackground =
     screen?.backgroundFillMode === "viewport"
       ? screen.background ?? "#111111"
@@ -374,8 +375,8 @@ export function ScreenEditorCenter({
     const next = clampZoom(fitZoom);
     setEditorZoom(next);
     pendingWheelZoomAnchorRef.current = {
-      worldX: screen.width / 2 + OFFSCREEN_PAD,
-      worldY: screen.height / 2 + OFFSCREEN_PAD,
+      screenX: screen.width / 2,
+      screenY: screen.height / 2,
       targetZoom: next,
     };
   }, [previewMode, screen.height, screen.width]);
@@ -441,10 +442,10 @@ export function ScreenEditorCenter({
       return { x: 100, y: 100 };
     }
     return {
-      x: (el.scrollLeft + el.clientWidth / 2) / editorZoom - OFFSCREEN_PAD,
-      y: (el.scrollTop + el.clientHeight / 2) / editorZoom - OFFSCREEN_PAD,
+      x: (el.scrollLeft + el.clientWidth / 2) / editorZoom - editorOffscreenPad,
+      y: (el.scrollTop + el.clientHeight / 2) / editorZoom - editorOffscreenPad,
     };
-  }, [editorZoom]);
+  }, [editorOffscreenPad, editorZoom]);
 
   useEffect(() => {
     onViewportCenterChange?.(getViewportCenter());
@@ -485,8 +486,9 @@ export function ScreenEditorCenter({
     }
     const centerX = el.clientWidth / 2;
     const centerY = el.clientHeight / 2;
-    el.scrollLeft = Math.round(anchor.worldX * editorZoom - centerX);
-    el.scrollTop = Math.round(anchor.worldY * editorZoom - centerY);
+    const currentPad = getEditorOffscreenPad(editorZoom);
+    el.scrollLeft = Math.round((anchor.screenX + currentPad) * editorZoom - centerX);
+    el.scrollTop = Math.round((anchor.screenY + currentPad) * editorZoom - centerY);
     pendingWheelZoomAnchorRef.current = null;
   }, [editorZoom]);
 
@@ -509,9 +511,10 @@ export function ScreenEditorCenter({
         }
         const centerX = snapshot.clientWidth / 2;
         const centerY = snapshot.clientHeight / 2;
-        const worldX = (snapshot.scrollLeft + centerX) / prev;
-        const worldY = (snapshot.scrollTop + centerY) / prev;
-        pendingWheelZoomAnchorRef.current = { worldX, worldY, targetZoom: next };
+        const previousPad = getEditorOffscreenPad(prev);
+        const screenX = (snapshot.scrollLeft + centerX) / prev - previousPad;
+        const screenY = (snapshot.scrollTop + centerY) / prev - previousPad;
+        pendingWheelZoomAnchorRef.current = { screenX, screenY, targetZoom: next };
         return next;
       });
     };
@@ -777,8 +780,8 @@ export function ScreenEditorCenter({
           const stageSurface = host.querySelector(".canvas-wrap") as HTMLDivElement | null;
           const rect = (stageSurface ?? host).getBoundingClientRect();
           const position = {
-            x: (event.clientX - rect.left) / editorZoom,
-            y: (event.clientY - rect.top) / editorZoom,
+            x: (event.clientX - rect.left) / editorZoom - editorOffscreenPad,
+            y: (event.clientY - rect.top) / editorZoom - editorOffscreenPad,
           };
           setIsCanvasDragOver(false);
           handleDrop(event, position);

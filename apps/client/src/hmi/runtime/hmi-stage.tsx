@@ -57,6 +57,18 @@ type HmiStageProps = {
 };
 
 export const OFFSCREEN_PAD = 2000;
+const MIN_EDITOR_OFFSCREEN_PAD = 600;
+const TARGET_VISIBLE_EDITOR_OFFSCREEN_PAD = 300;
+
+export function getEditorOffscreenPad(editorZoom: number): number {
+  if (!Number.isFinite(editorZoom) || editorZoom <= 0) {
+    return OFFSCREEN_PAD;
+  }
+  return Math.min(
+    OFFSCREEN_PAD,
+    Math.max(MIN_EDITOR_OFFSCREEN_PAD, TARGET_VISIBLE_EDITOR_OFFSCREEN_PAD / editorZoom),
+  );
+}
 const EMPTY_DRIVERS: DriverStatus[] = [];
 
 export function HmiStage({
@@ -194,6 +206,7 @@ export function HmiStage({
   }, [mode, screen.height, screen.width, viewport.height, viewport.width]);
 
   const effectiveEditorZoom = mode === "editor" ? editorZoom : 1;
+  const editorOffscreenPad = mode === "editor" ? getEditorOffscreenPad(effectiveEditorZoom) : 0;
   const effectiveRenderContext = useMemo(
     () => ({
       ...renderContext,
@@ -203,10 +216,10 @@ export function HmiStage({
   );
   const stageScale = mode === "runtime" ? runtimeScale : 1;
   const stageWidth = mode === "editor"
-    ? (screen.width + 2 * OFFSCREEN_PAD) * effectiveEditorZoom
+    ? (screen.width + 2 * editorOffscreenPad) * effectiveEditorZoom
     : screen.width;
   const stageHeight = mode === "editor"
-    ? (screen.height + 2 * OFFSCREEN_PAD) * effectiveEditorZoom
+    ? (screen.height + 2 * editorOffscreenPad) * effectiveEditorZoom
     : screen.height;
   const gridPatternImage = useMemo(() => {
     if (mode !== "editor" || !showEditorGrid) {
@@ -251,8 +264,8 @@ export function HmiStage({
       return pointer;
     }
     return {
-      x: pointer.x / effectiveEditorZoom - OFFSCREEN_PAD,
-      y: pointer.y / effectiveEditorZoom - OFFSCREEN_PAD,
+      x: pointer.x / effectiveEditorZoom - editorOffscreenPad,
+      y: pointer.y / effectiveEditorZoom - editorOffscreenPad,
     };
   };
 
@@ -399,8 +412,8 @@ export function HmiStage({
         <Layer>
           {mode === "editor" ? (
             <Group
-              x={OFFSCREEN_PAD * effectiveEditorZoom}
-              y={OFFSCREEN_PAD * effectiveEditorZoom}
+              x={editorOffscreenPad * effectiveEditorZoom}
+              y={editorOffscreenPad * effectiveEditorZoom}
               scaleX={effectiveEditorZoom}
               scaleY={effectiveEditorZoom}
             >
