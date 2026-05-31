@@ -157,11 +157,8 @@ function parseStoredColumnVisibility(raw: string | null): TagColumnVisibility {
 
 const sourceTypeOptions: Array<{ label: string; value: TagSourceType }> = [
   { label: "OPC UA", value: "opcua" },
-  { label: "LW", value: "lw" },
   { label: "Internal", value: "internal" },
-  { label: "Computed", value: "computed" },
   { label: "Simulated", value: "simulated" },
-  { label: "Modbus", value: "modbus" },
 ];
 
 const dataTypeOptions: TagDefinition["dataType"][] = [
@@ -1059,6 +1056,8 @@ function normalizeDraft(draft: TagDefinition, isEditing: boolean): TagDefinition
   }
   if (sourceType !== "internal") {
     normalized.internalVariableName = undefined;
+  } else {
+    normalized.internalVariableName = normalized.internalVariableName?.trim() || normalized.name;
   }
   if (sourceType !== "simulated" && sourceType !== "modbus") {
     normalized.address = undefined;
@@ -1239,6 +1238,10 @@ export function ScreenEditorTagsWindow() {
 
   const tags = project.tags ?? [];
   const drivers = project.drivers ?? [];
+  const selectableDrivers = useMemo(
+    () => drivers.filter((driver) => driver.type === "opcua" || driver.type === "simulated"),
+    [drivers],
+  );
   const opcUaDrivers = useMemo(() => drivers.filter((driver) => driver.type === "opcua"), [drivers]);
 
   const groupOptions = useMemo(
@@ -2626,7 +2629,7 @@ export function ScreenEditorTagsWindow() {
           onChange={(event) => setDriverFilter(event.target.value)}
         >
           <option value="all">All drivers</option>
-          {drivers.map((driver) => (
+          {selectableDrivers.map((driver) => (
             <option key={driver.id} value={driver.id}>
               {(driver.name ?? driver.id)} ({driver.type})
             </option>
@@ -2798,6 +2801,10 @@ export function ScreenEditorTagsWindow() {
                           ? {
                             ...prev,
                             sourceType: event.target.value as TagSourceType,
+                            internalVariableName:
+                              event.target.value === "internal"
+                                ? (prev.internalVariableName?.trim() || prev.name.trim())
+                                : prev.internalVariableName,
                             simulation:
                               event.target.value === "simulated"
                                 ? {
