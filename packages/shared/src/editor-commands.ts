@@ -345,46 +345,45 @@ export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectio
   const selectedObjects = selection.selectedObjectIds
     .map((id) => screen.objects.find((obj) => obj.id === id))
     .filter((obj): obj is HmiObject => Boolean(obj));
-  const warnings: string[] = [];
 
   if (selectedObjects.length < 2) {
     return { screen, selection, warnings: ["Select at least 2 shapes to merge."] };
   }
 
-  const unlocked = selectedObjects.filter((obj) => !obj.locked);
-  if (unlocked.length !== selectedObjects.length) {
-    warnings.push("Locked objects were skipped while merging shapes.");
+  if (selectedObjects.some((obj) => obj.locked)) {
+    return { screen, selection, warnings: ["Locked objects cannot be merged."] };
   }
 
-  const supported = unlocked.filter(isSupportedShapeForMerge);
-  if (supported.length !== unlocked.length) {
-    warnings.push("Only rectangles and closed lines are supported for Merge Shapes. Unsupported objects were skipped.");
+  if (selectedObjects.some((obj) => !isSupportedShapeForMerge(obj))) {
+    return { screen, selection, warnings: ["Merge Shapes supports rectangle and closed line objects only."] };
   }
-  if (supported.length < 2) {
-    warnings.push("Select at least 2 supported shapes (rectangle or closed line).");
-    return { screen, selection, warnings };
-  }
+
+  const supported = selectedObjects.filter(isSupportedShapeForMerge);
 
   const bounds = getObjectsBounds(supported);
   if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || bounds.width <= 0 || bounds.height <= 0) {
-    warnings.push("Failed to merge selected shapes.");
-    return { screen, selection, warnings };
+    return { screen, selection, warnings: ["Failed to merge selected shapes."] };
   }
 
   const parts = supported
     .map((object) => toMergedShapePart(object, bounds.x, bounds.y))
     .filter((part): part is { points: number[]; closed: true } => Boolean(part && part.points.length >= 6));
   if (parts.length < 2) {
-    warnings.push("Failed to build merged shape from selected objects.");
-    return { screen, selection, warnings };
+    return { screen, selection, warnings: ["Failed to build merged shape from selected objects."] };
   }
 
-  const sourceLine = supported.find((obj): obj is LineObject => obj.type === "line");
-  const sourceRectangle = supported.find((obj): obj is RectangleObject => obj.type === "rectangle");
+  const styleSource = getShapeMergeStyleSource(screen, selection, supported);
+  if (!styleSource) {
+    return { screen, selection, warnings: ["Failed to resolve merged shape style source."] };
+  }
+  const sourceLine = styleSource.type === "line" ? styleSource : undefined;
+  const sourceRectangle = styleSource.type === "rectangle" ? styleSource : undefined;
+  const layerOrderById = getLayerOrderByObjectId(screen.objects);
+  const minLayerOrder = Math.min(...supported.map((obj) => layerOrderById.get(obj.id) ?? Number.MAX_SAFE_INTEGER));
   const mergedShape: CompoundShapeObject = {
     id: createId("compound"),
     type: "compoundShape",
-    name: "Merged Shape",
+    name: styleSource.name?.trim() || "Merged Shape",
     x: bounds.x,
     y: bounds.y,
     width: Math.max(1, bounds.width),
@@ -402,6 +401,7 @@ export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectio
     locked: false,
     visible: true,
     opacity: sourceLine?.opacity ?? sourceRectangle?.opacity ?? 1,
+    zIndex: Number.isFinite(minLayerOrder) ? minLayerOrder : undefined,
   };
 
   const replacedIds = new Set(supported.map((obj) => obj.id));
@@ -413,8 +413,40 @@ export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectio
       selectedObjectIds: [mergedShape.id],
       activeObjectId: mergedShape.id,
     },
-    warnings,
   };
+}
+
+function getShapeMergeStyleSource(
+  screen: HmiScreen,
+  selection: EditorSelectionState,
+  selectedShapes: Array<RectangleObject | LineObject>,
+): RectangleObject | LineObject | null {
+  const active = selection.activeObjectId
+    ? selectedShapes.find((obj) => obj.id === selection.activeObjectId)
+    : undefined;
+  if (active) {
+    return active;
+  }
+
+  // Style source fallback: first selected shape by layer order (zIndex/order).
+  const layerOrderById = getLayerOrderByObjectId(screen.objects);
+  return [...selectedShapes].sort((left, right) => {
+    const leftOrder = layerOrderById.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = layerOrderById.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return selectedShapes.indexOf(left) - selectedShapes.indexOf(right);
+  })[0] ?? null;
+}
+
+function getLayerOrderByObjectId(objects: HmiObject[]): Map<string, number> {
+  return new Map(
+    objects.map((obj, index) => [
+      obj.id,
+      typeof obj.zIndex === "number" ? obj.zIndex : index,
+    ]),
+  );
 }
 
 function getLinePolylineLength(line: LineObject): number {

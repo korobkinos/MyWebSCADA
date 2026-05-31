@@ -126,6 +126,10 @@ function createPrimitiveShape(kind: PrimitiveShapeKind): HmiObject {
   };
 }
 
+function isMergeShapeCandidate(object: HmiObject): boolean {
+  return object.type === "rectangle" || (object.type === "line" && (object.closed ?? false));
+}
+
 export function EditorPage() {
   useEffect(() => {
     document.body.classList.add("workbench-theme");
@@ -982,7 +986,10 @@ export function EditorPage() {
   const canSameSize = selectedUnlocked.length >= 2;
   const canDistribute = selectedUnlocked.length >= 2;
   const canMergeLines = selectedUnlocked.filter((obj) => obj.type === "line").length >= 2;
-  const canMergeShapes = selectedUnlocked.filter((obj) => obj.type === "rectangle" || (obj.type === "line" && (obj.closed ?? false))).length >= 2;
+  const canMergeShapes =
+    selectedObjects.length >= 2
+    && selectedUnlocked.length === selectedObjects.length
+    && selectedObjects.every(isMergeShapeCandidate);
 
   const { windowDefinitions, openDefinedWindow } = useEditorWindowDefinitions({
     project,

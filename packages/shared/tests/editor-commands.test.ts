@@ -433,7 +433,7 @@ describe("merge shapes", () => {
     expect(result.selection.selectedObjectIds).toEqual([merged.id]);
   });
 
-  it("skips unsupported and locked objects with warning", () => {
+  it("does not merge when unsupported objects are selected", () => {
     const rect: HmiObject = {
       id: "rect_1",
       type: "rectangle",
@@ -474,6 +474,42 @@ describe("merge shapes", () => {
         verticalAlign: "top",
       },
     };
+    const result = executeEditorCommand(
+      screenWith([rect, closedLine, unsupportedText]),
+      selection(["rect_1", "line_1", "txt_1"]),
+      { type: "mergeSelectedShapes" },
+    );
+
+    expect(result.screen.objects).toHaveLength(3);
+    expect(result.screen.objects.some((obj) => obj.type === "compoundShape")).toBe(false);
+    expect(result.warnings?.[0]).toContain("supports rectangle and closed line objects only");
+  });
+
+  it("does not merge when selection contains locked objects", () => {
+    const rect: HmiObject = {
+      id: "rect_1",
+      type: "rectangle",
+      x: 10,
+      y: 10,
+      width: 60,
+      height: 40,
+      fill: "#222",
+      stroke: "#777",
+      strokeWidth: 2,
+    };
+    const closedLine: HmiObject = {
+      id: "line_1",
+      type: "line",
+      x: 90,
+      y: 10,
+      width: 60,
+      height: 40,
+      points: [0, 0, 60, 0, 30, 40],
+      closed: true,
+      fill: "#444",
+      stroke: "#999",
+      strokeWidth: 2,
+    };
     const lockedRect: HmiObject = {
       id: "rect_locked",
       type: "rectangle",
@@ -484,15 +520,105 @@ describe("merge shapes", () => {
       locked: true,
     };
     const result = executeEditorCommand(
-      screenWith([rect, closedLine, unsupportedText, lockedRect]),
-      selection(["rect_1", "line_1", "txt_1", "rect_locked"]),
+      screenWith([rect, closedLine, lockedRect]),
+      selection(["rect_1", "line_1", "rect_locked"]),
       { type: "mergeSelectedShapes" },
     );
 
     expect(result.screen.objects).toHaveLength(3);
+    expect(result.screen.objects.some((obj) => obj.type === "compoundShape")).toBe(false);
+    expect(result.warnings?.[0]).toContain("Locked objects cannot be merged");
+  });
+
+  it("uses active selected shape style as merged style source", () => {
+    const backRect: HmiObject = {
+      id: "rect_1",
+      type: "rectangle",
+      x: 10,
+      y: 10,
+      width: 60,
+      height: 40,
+      fill: "#111111",
+      stroke: "#222222",
+      strokeWidth: 2,
+      zIndex: 1,
+    };
+    const activeTriangle: HmiObject = {
+      id: "line_1",
+      type: "line",
+      x: 90,
+      y: 10,
+      width: 60,
+      height: 40,
+      points: [0, 0, 60, 0, 30, 40],
+      closed: true,
+      fill: "#aa0000",
+      stroke: "#00aa00",
+      strokeWidth: 5,
+      opacity: 0.5,
+      name: "Active Triangle",
+      zIndex: 3,
+    };
+    const result = executeEditorCommand(
+      screenWith([backRect, activeTriangle]),
+      selection(["rect_1", "line_1"], "line_1"),
+      { type: "mergeSelectedShapes" },
+    );
+
     const merged = result.screen.objects.find((obj) => obj.type === "compoundShape");
     expect(merged).toBeTruthy();
-    expect(result.warnings?.some((warning) => warning.includes("Locked objects were skipped"))).toBe(true);
-    expect(result.warnings?.some((warning) => warning.includes("Only rectangles and closed lines are supported"))).toBe(true);
+    if (!merged || merged.type !== "compoundShape") {
+      return;
+    }
+    expect(merged.fill).toBe("#aa0000");
+    expect(merged.stroke).toBe("#00aa00");
+    expect(merged.strokeWidth).toBe(5);
+    expect(merged.opacity).toBe(0.5);
+    expect(merged.name).toBe("Active Triangle");
+    expect(merged.zIndex).toBe(1);
+  });
+
+  it("falls back to first selected shape by z-order when active shape is missing", () => {
+    const topRect: HmiObject = {
+      id: "rect_1",
+      type: "rectangle",
+      x: 10,
+      y: 10,
+      width: 60,
+      height: 40,
+      fill: "#eeeeee",
+      stroke: "#dddddd",
+      strokeWidth: 2,
+      zIndex: 10,
+    };
+    const lowerTriangle: HmiObject = {
+      id: "line_1",
+      type: "line",
+      x: 90,
+      y: 10,
+      width: 60,
+      height: 40,
+      points: [0, 0, 60, 0, 30, 40],
+      closed: true,
+      fill: "#123456",
+      stroke: "#654321",
+      strokeWidth: 4,
+      zIndex: 2,
+    };
+    const result = executeEditorCommand(
+      screenWith([topRect, lowerTriangle]),
+      selection(["rect_1", "line_1"], "missing"),
+      { type: "mergeSelectedShapes" },
+    );
+
+    const merged = result.screen.objects.find((obj) => obj.type === "compoundShape");
+    expect(merged).toBeTruthy();
+    if (!merged || merged.type !== "compoundShape") {
+      return;
+    }
+    expect(merged.fill).toBe("#123456");
+    expect(merged.stroke).toBe("#654321");
+    expect(merged.strokeWidth).toBe(4);
+    expect(merged.zIndex).toBe(2);
   });
 });
