@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { flushSync } from "react-dom";
 import {
   AppstoreOutlined,
   CopyOutlined,
@@ -269,7 +270,6 @@ export function ScreenEditorCenter({
   const pendingWheelZoomAnchorRef = useRef<{ screenX: number; screenY: number; targetZoom: number } | null>(null);
   const wheelZoomFrameIdRef = useRef<number | null>(null);
   const wheelZoomFactorRef = useRef(1);
-  const wheelZoomSnapshotRef = useRef<{ scrollLeft: number; scrollTop: number; clientWidth: number; clientHeight: number } | null>(null);
   const isManualZoomRef = useRef(false);
   const latestEditorZoomRef = useRef(1);
   const zoomPersistTimeoutRef = useRef<number | null>(null);
@@ -514,30 +514,31 @@ export function ScreenEditorCenter({
   }, [editorZoom]);
 
   useEffect(() => {
-    const el = canvasScrollRef.current;
-    if (!el) return;
     const flushWheelZoom = () => {
       wheelZoomFrameIdRef.current = null;
+      const el = canvasScrollRef.current;
       const deltaFactor = wheelZoomFactorRef.current;
-      const snapshot = wheelZoomSnapshotRef.current;
       wheelZoomFactorRef.current = 1;
-      wheelZoomSnapshotRef.current = null;
-      if (!snapshot || Math.abs(deltaFactor - 1) < 1e-9) {
+      if (!el || Math.abs(deltaFactor - 1) < 1e-9) {
         return;
       }
-      setEditorZoom((prev) => {
-        const next = clampZoom(prev * deltaFactor);
-        if (next === prev) {
-          return prev;
-        }
-        const centerX = snapshot.clientWidth / 2;
-        const centerY = snapshot.clientHeight / 2;
-        const previousPad = getEditorOffscreenPad(prev);
-        const screenX = (snapshot.scrollLeft + centerX) / prev - previousPad;
-        const screenY = (snapshot.scrollTop + centerY) / prev - previousPad;
-        pendingWheelZoomAnchorRef.current = { screenX, screenY, targetZoom: next };
-        return next;
+      const prev = latestEditorZoomRef.current;
+      const next = clampZoom(prev * deltaFactor);
+      if (next === prev) {
+        return;
+      }
+      const previousPad = getEditorOffscreenPad(prev);
+      const nextPad = getEditorOffscreenPad(next);
+      const centerX = el.clientWidth / 2;
+      const centerY = el.clientHeight / 2;
+      const screenX = (el.scrollLeft + centerX) / prev - previousPad;
+      const screenY = (el.scrollTop + centerY) / prev - previousPad;
+      flushSync(() => {
+        setEditorZoom(next);
       });
+      latestEditorZoomRef.current = next;
+      el.scrollLeft = Math.round((screenX + nextPad) * next - centerX);
+      el.scrollTop = Math.round((screenY + nextPad) * next - centerY);
     };
     const handler = (event: WheelEvent) => {
       if (previewMode) return;
@@ -548,19 +549,12 @@ export function ScreenEditorCenter({
       isManualZoomRef.current = true;
       wheelZoomFactorRef.current *= event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
 
-      if (!wheelZoomSnapshotRef.current) {
-        wheelZoomSnapshotRef.current = {
-          scrollLeft: el.scrollLeft,
-          scrollTop: el.scrollTop,
-          clientWidth: el.clientWidth,
-          clientHeight: el.clientHeight,
-        };
-      }
-
       if (wheelZoomFrameIdRef.current === null) {
         wheelZoomFrameIdRef.current = window.requestAnimationFrame(flushWheelZoom);
       }
     };
+    const el = canvasScrollRef.current;
+    if (!el) return;
     el.addEventListener("wheel", handler, { passive: false });
     return () => {
       el.removeEventListener("wheel", handler);
@@ -569,8 +563,6 @@ export function ScreenEditorCenter({
         wheelZoomFrameIdRef.current = null;
       }
       wheelZoomFactorRef.current = 1;
-      wheelZoomSnapshotRef.current = null;
-      pendingWheelZoomAnchorRef.current = null;
     };
   }, [previewMode, wheelZoomEnabled]);
 
