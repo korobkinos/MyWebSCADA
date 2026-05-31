@@ -4215,13 +4215,36 @@ function SpecificPropertyFields({
           onChange={(nextValue) => onPatch({ writeTag: nextValue } as Partial<HmiObject>)}
         />
         <Form.Item label="Min">
-          <InputNumber style={{ width: "100%" }} value={object.min ?? 0} onChange={(v) => onPatch({ min: Number(v ?? 0) } as Partial<HmiObject>)} />
+          <InputNumber
+            style={{ width: "100%" }}
+            value={object.min ?? 0}
+            onChange={(v) => {
+              const next = Number(v ?? 0);
+              onPatch({ min: Number.isFinite(next) ? next : 0 } as Partial<HmiObject>);
+            }}
+          />
         </Form.Item>
         <Form.Item label="Max">
-          <InputNumber style={{ width: "100%" }} value={object.max ?? 100} onChange={(v) => onPatch({ max: Number(v ?? 100) } as Partial<HmiObject>)} />
+          <InputNumber
+            style={{ width: "100%" }}
+            value={object.max ?? 100}
+            onChange={(v) => {
+              const next = Number(v ?? 100);
+              onPatch({ max: Number.isFinite(next) ? next : 100 } as Partial<HmiObject>);
+            }}
+          />
         </Form.Item>
         <Form.Item label="Step">
-          <InputNumber style={{ width: "100%" }} value={object.step ?? 1} onChange={(v) => onPatch({ step: Number(v ?? 1) } as Partial<HmiObject>)} />
+          <InputNumber
+            style={{ width: "100%" }}
+            min={0.0000001}
+            step={0.1}
+            value={object.step ?? 1}
+            onChange={(v) => {
+              const next = Number(v ?? 1);
+              onPatch({ step: Number.isFinite(next) && next > 0 ? next : 1 } as Partial<HmiObject>);
+            }}
+          />
         </Form.Item>
         <Form.Item label="Decimals">
           <InputNumber style={{ width: "100%" }} min={0} max={10} value={object.decimals ?? 1} onChange={(v) => onPatch({ decimals: Math.max(0, Number(v ?? 1)) } as Partial<HmiObject>)} />

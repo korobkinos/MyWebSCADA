@@ -157,6 +157,7 @@ function parseStoredColumnVisibility(raw: string | null): TagColumnVisibility {
 
 const sourceTypeOptions: Array<{ label: string; value: TagSourceType }> = [
   { label: "OPC UA", value: "opcua" },
+  { label: "LW", value: "lw" },
   { label: "Internal", value: "internal" },
   { label: "Simulated", value: "simulated" },
 ];

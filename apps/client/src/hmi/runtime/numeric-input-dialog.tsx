@@ -50,19 +50,58 @@ function getStep(state: NumericInputDialogState): number {
     return 1 / Math.pow(10, state.decimals);
   }
   if (state.formatMode === "pattern" && state.formatPattern) {
-    const dotIndex = state.formatPattern.indexOf(".");
+    const normalizedPattern = state.formatPattern.replace(",", ".");
+    const dotIndex = normalizedPattern.indexOf(".");
     if (dotIndex >= 0) {
-      const decimalCount = state.formatPattern.slice(dotIndex + 1).length;
+      const decimalCount = normalizedPattern.slice(dotIndex + 1).replace(/[^0#]/g, "").length;
       if (decimalCount > 0) return 1 / Math.pow(10, decimalCount);
     }
   }
   return 1;
 }
 
+function getStepPrecision(step: number): number {
+  const normalized = String(step).toLowerCase();
+  if (normalized.includes("e-")) {
+    const [, exponentPart] = normalized.split("e-");
+    const exponent = Number(exponentPart);
+    return Number.isFinite(exponent) ? Math.max(0, exponent) : 0;
+  }
+  const dotIndex = normalized.indexOf(".");
+  if (dotIndex >= 0) {
+    return Math.max(0, normalized.length - dotIndex - 1);
+  }
+  return 0;
+}
+
+function roundByStep(value: number, step: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) {
+    return value;
+  }
+  const precision = Math.max(0, getStepPrecision(step));
+  const factor = Math.pow(10, precision);
+  const roundedStep = Math.round(step * factor) / factor;
+  if (!(roundedStep > 0)) {
+    return value;
+  }
+  const snapped = Math.round((value + Number.EPSILON) / roundedStep) * roundedStep;
+  return Math.round(snapped * factor) / factor;
+}
+
 function formatDisplay(value: number, state: NumericInputDialogState): string {
   if (state.formatMode === "decimals" || typeof state.decimals === "number") {
     const dec = state.decimals ?? 0;
     return dec > 0 ? value.toFixed(dec) : String(Math.round(value));
+  }
+  if (state.formatMode === "pattern" && state.formatPattern) {
+    const normalizedPattern = state.formatPattern.replace(",", ".");
+    const dotIndex = normalizedPattern.indexOf(".");
+    if (dotIndex >= 0) {
+      const decimalCount = normalizedPattern.slice(dotIndex + 1).replace(/[^0#]/g, "").length;
+      if (decimalCount > 0) {
+        return value.toFixed(decimalCount);
+      }
+    }
   }
   return String(value);
 }
@@ -100,8 +139,8 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
     : inputEffectiveTextColor;
   const stepButtonBackground = state.stepButtonBackgroundColor ?? inputBg;
 
-  const minVal = state.min;
-  const maxVal = state.max;
+  const minVal = typeof state.min === "number" && Number.isFinite(state.min) ? state.min : undefined;
+  const maxVal = typeof state.max === "number" && Number.isFinite(state.max) ? state.max : undefined;
   const hasMin = typeof minVal === "number" && Number.isFinite(minVal);
   const hasMax = typeof maxVal === "number" && Number.isFinite(maxVal);
   const metaParts: string[] = [];
@@ -133,8 +172,8 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
       setError("Invalid value");
       return;
     }
-    const min = state.min ?? -Infinity;
-    const max = state.max ?? Infinity;
+    const min = typeof state.min === "number" && Number.isFinite(state.min) ? state.min : -Infinity;
+    const max = typeof state.max === "number" && Number.isFinite(state.max) ? state.max : Infinity;
     if (parsed < min) {
       setError(`Value must be >= ${min}`);
       return;
@@ -144,9 +183,7 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
       return;
     }
     const clamped = Math.min(max, Math.max(min, parsed));
-    const rounded = step < 1
-      ? Math.round(clamped * (1 / step)) / (1 / step)
-      : Math.round(clamped / step) * step;
+    const rounded = roundByStep(clamped, step);
     setError(null);
     setCommitting(true);
     try {
@@ -160,12 +197,10 @@ export function NumericInputDialog({ state, onCommit, onCancel }: NumericInputDi
   const adjust = useCallback((delta: number) => {
     const current = parseDraft();
     const base = Number.isFinite(current) ? current : 0;
-    const min = state.min ?? -Infinity;
-    const max = state.max ?? Infinity;
+    const min = typeof state.min === "number" && Number.isFinite(state.min) ? state.min : -Infinity;
+    const max = typeof state.max === "number" && Number.isFinite(state.max) ? state.max : Infinity;
     const next = Math.min(max, Math.max(min, base + delta));
-    const rounded = step < 1
-      ? Math.round(next * (1 / step)) / (1 / step)
-      : next;
+    const rounded = roundByStep(next, step);
     setDraft(formatDisplay(rounded, state));
     setError(null);
   }, [parseDraft, state, step]);

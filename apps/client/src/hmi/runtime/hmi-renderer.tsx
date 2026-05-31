@@ -3859,7 +3859,7 @@ function ObjectNode({
             decimals: resolvedObject.decimals ?? 0,
             formatPattern: resolvedObject.formatPattern,
             unit: resolvedObject.unit,
-            showUnit: resolvedObject.showUnit,
+            showUnit: resolvedObject.showUnit ?? Boolean(resolvedObject.unit),
           })
         : resolvedObject.placeholder ?? "---";
     const numericInputShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
