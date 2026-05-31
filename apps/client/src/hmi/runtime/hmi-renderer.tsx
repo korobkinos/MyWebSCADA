@@ -1217,6 +1217,7 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
         candidates.push(object.flowAnimation?.triggerTag, object.flowAnimation?.speedTag);
       }
       break;
+    case "text":
     case "value-display":
     case "value-input":
     case "state-indicator":
