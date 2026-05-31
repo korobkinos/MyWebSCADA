@@ -155,16 +155,7 @@ function formatNumericValue(value: number, opts: FormatNumericOptions): string {
     if (decimalIndex >= 0) {
       const decimalPart = normalizedPattern.slice(decimalIndex + 1).replace(/[^0#]/g, "");
       const totalDecimals = decimalPart.length;
-      const requiredDecimals = decimalPart.split("").filter((ch) => ch === "0").length;
       formatted = value.toFixed(totalDecimals);
-      if (requiredDecimals < totalDecimals) {
-        const [intPart = "", fracPartRaw = ""] = formatted.split(".");
-        let fracPart = fracPartRaw;
-        while (fracPart.length > requiredDecimals && fracPart.endsWith("0")) {
-          fracPart = fracPart.slice(0, -1);
-        }
-        formatted = fracPart.length > 0 ? `${intPart}.${fracPart}` : intPart;
-      }
       if (decimalSeparator === ",") {
         formatted = formatted.replace(".", ",");
       }
