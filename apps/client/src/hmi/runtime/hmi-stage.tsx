@@ -54,14 +54,12 @@ type HmiStageProps = {
   editorGridLineStyle?: "solid" | "dashed" | "dotted" | "dashDot";
   currentUserRoleLevel?: number;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
+  suspendEditorInteractions?: boolean;
 };
 
 export const OFFSCREEN_PAD = 2000;
 const MIN_EDITOR_OFFSCREEN_PAD = 600;
 const TARGET_VISIBLE_EDITOR_OFFSCREEN_PAD = 300;
-const EDITOR_HIGH_ZOOM_PIXEL_RATIO = 1;
-const EDITOR_HIGH_ZOOM_PIXEL_RATIO_THRESHOLD = 2;
-const EDITOR_GRID_RENDER_MAX_ZOOM = 2;
 
 export function getEditorOffscreenPad(editorZoom: number): number {
   if (!Number.isFinite(editorZoom) || editorZoom <= 0) {
@@ -104,6 +102,7 @@ export function HmiStage({
   editorGridLineStyle = "solid",
   currentUserRoleLevel,
   onRequestNumericInput,
+  suspendEditorInteractions = false,
 }: HmiStageProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -225,39 +224,9 @@ export function HmiStage({
   const stageHeight = mode === "editor"
     ? (screen.height + 2 * editorOffscreenPad) * effectiveEditorZoom
     : screen.height;
-  const shouldRenderEditorGrid = mode === "editor" && showEditorGrid && effectiveEditorZoom <= EDITOR_GRID_RENDER_MAX_ZOOM;
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) {
-      return;
-    }
-    const devicePixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
-      ? window.devicePixelRatio
-      : 1;
-    const targetPixelRatio = mode === "editor" && effectiveEditorZoom >= EDITOR_HIGH_ZOOM_PIXEL_RATIO_THRESHOLD
-      ? EDITOR_HIGH_ZOOM_PIXEL_RATIO
-      : devicePixelRatio;
-    let ratioChanged = false;
-    for (const layer of stage.getLayers()) {
-      const sceneCanvas = layer.getCanvas();
-      if (sceneCanvas.getPixelRatio() !== targetPixelRatio) {
-        sceneCanvas.setPixelRatio(targetPixelRatio);
-        ratioChanged = true;
-      }
-      const hitCanvas = layer.getHitCanvas();
-      if (hitCanvas.getPixelRatio() !== targetPixelRatio) {
-        hitCanvas.setPixelRatio(targetPixelRatio);
-        ratioChanged = true;
-      }
-    }
-    if (ratioChanged) {
-      stage.batchDraw();
-    }
-  }, [effectiveEditorZoom, mode, stageHeight, stageWidth]);
 
   const gridPatternImage = useMemo(() => {
-    if (!shouldRenderEditorGrid) {
+    if (mode !== "editor" || !showEditorGrid) {
       return null;
     }
     const dashByStyle: Record<NonNullable<HmiStageProps["editorGridLineStyle"]>, number[]> = {
@@ -288,7 +257,7 @@ export function HmiStage({
     ctx.lineTo(step, step - offset);
     ctx.stroke();
     return canvas;
-  }, [editorGridColor, editorGridLineStyle, editorGridLineWidth, shouldRenderEditorGrid]);
+  }, [editorGridColor, editorGridLineStyle, editorGridLineWidth, mode, showEditorGrid]);
 
   const selectedObjects = screen.objects.filter((item) => selectedObjectIds.includes(item.id));
   const minWidth = Math.min(...selectedObjects.map((item) => item.minWidth ?? 8), 8);
@@ -398,9 +367,6 @@ export function HmiStage({
     if (!import.meta.env.DEV || mode !== "editor") {
       return;
     }
-    if (window.localStorage.getItem("screenEditor.debugCanvas") !== "1") {
-      return;
-    }
     const viewportWidth = wrapRef.current?.clientWidth ?? 0;
     const viewportHeight = wrapRef.current?.clientHeight ?? 0;
     // eslint-disable-next-line no-console
@@ -447,7 +413,7 @@ export function HmiStage({
         onMouseMove={onStageMouseMove}
         onMouseUp={onStageMouseUp}
       >
-        <Layer>
+        <Layer listening={!(mode === "editor" && suspendEditorInteractions)} hitGraphEnabled={!(mode === "editor" && suspendEditorInteractions)}>
           {mode === "editor" ? (
             <Group
               x={editorOffscreenPad * effectiveEditorZoom}
@@ -456,7 +422,7 @@ export function HmiStage({
               scaleY={effectiveEditorZoom}
             >
               <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screenBackground} listening={false} />
-              {shouldRenderEditorGrid && gridPatternImage ? (
+              {showEditorGrid && gridPatternImage ? (
                 <Rect
                   x={0}
                   y={0}
