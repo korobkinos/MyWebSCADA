@@ -184,7 +184,7 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
           </label>
           <label className="screen-editor-settings-field">
             <span>Editor grid color</span>
-            <Space.Compact style={{ width: "100%" }}>
+            <Space.Compact className="workbench-color-input-group">
               <ColorPicker
                 value={normalizeGridColor(project.editorSettings?.editorGridColor)}
                 onChangeComplete={(color) => updateEditorSettings({ editorGridColor: color.toHexString() })}

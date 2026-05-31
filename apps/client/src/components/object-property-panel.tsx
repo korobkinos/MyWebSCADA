@@ -160,7 +160,7 @@ function ColorField({
   const pickerValue = normalizePickerColor(value, fallback);
   return (
     <Form.Item label={label}>
-      <Space.Compact style={{ width: "100%" }}>
+      <Space.Compact className="workbench-color-input-group">
         <ColorPicker
           value={pickerValue}
           disabled={disabled}

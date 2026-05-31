@@ -1340,6 +1340,11 @@ body {
   outline: none;
 }
 
+input.workbench-input:not(textarea),
+select.workbench-select:not(.ant-select) {
+  line-height: 24px;
+}
+
 .workbench-select:not(.ant-select) {
   appearance: none;
   -webkit-appearance: none;
@@ -1369,6 +1374,20 @@ body {
 .workbench-input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+.workbench-input[type="color"] {
+  padding: 2px;
+}
+
+.workbench-input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.workbench-input[type="color"]::-webkit-color-swatch,
+.workbench-input[type="color"]::-moz-color-swatch {
+  border: 0;
+  border-radius: 2px;
 }
 
 .workbench-select.ant-select .ant-select-selector {
@@ -3490,13 +3509,46 @@ body {
   color: #cccccc;
 }
 
-.screen-editor-settings-field .ant-space-compact {
+.screen-editor-settings-check > input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: #007acc;
+}
+
+.workbench-color-input-group {
   width: 100%;
 }
 
-.screen-editor-settings-field .ant-color-picker-trigger {
-  width: 40px;
-  min-width: 40px;
+.workbench-color-input-group.ant-space-compact {
+  display: flex;
+}
+
+.screen-editor-settings-field .ant-space-compact {
+  width: 100%;
+  align-items: stretch;
+}
+
+.screen-editor-settings-field .ant-color-picker-trigger,
+.workbench-color-input-group .ant-color-picker-trigger,
+.screen-editor-library-interface__color-field .ant-color-picker-trigger {
+  width: 34px;
+  min-width: 34px;
+  height: 26px;
+  padding: 3px;
+  border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen-editor-settings-field .ant-color-picker-color-block,
+.workbench-color-input-group .ant-color-picker-color-block,
+.screen-editor-library-interface__color-field .ant-color-picker-color-block {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
 }
 
 .screen-editor-settings-field .ant-input {
@@ -3519,6 +3571,17 @@ body {
 .screen-editor-settings-input-number .ant-input-number-input-wrap,
 .screen-editor-settings-input-number .ant-input-number-input {
   width: 100%;
+}
+
+.screen-editor-settings-input-number {
+  height: 26px;
+}
+
+.screen-editor-settings-input-number .ant-input-number-input {
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 24px;
 }
 
 .screen-editor-settings-actions {
@@ -5837,10 +5900,38 @@ body {
 /* Ant Design inputs/selects внутри workbench-window */
 .workbench-window .ant-input,
 .workbench-window .ant-input-number,
-.workbench-window .ant-select-selector {
+.workbench-window .ant-select-selector,
+.workbench-confirm-dialog .ant-input,
+.workbench-confirm-dialog .ant-input-number,
+.workbench-confirm-dialog .ant-select-selector,
+.screen-editor-window-content .ant-input,
+.screen-editor-window-content .ant-input-number,
+.screen-editor-window-content .ant-select-selector {
   background: #1e1e1e !important;
   border-color: #3c3c3c !important;
   color: #cccccc !important;
+  min-height: 26px;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.workbench-window .ant-input-number-input,
+.workbench-confirm-dialog .ant-input-number-input,
+.screen-editor-window-content .ant-input-number-input {
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.workbench-window input[type="checkbox"],
+.workbench-confirm-dialog input[type="checkbox"],
+.screen-editor-window-content input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  vertical-align: middle;
+  accent-color: #007acc;
 }
 
 .workbench-window .ant-select-dropdown,

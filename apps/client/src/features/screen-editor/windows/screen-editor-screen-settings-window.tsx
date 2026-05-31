@@ -75,7 +75,7 @@ export function ScreenEditorScreenSettingsWindow(props: ScreenEditorScreenSettin
 
           <label className="screen-editor-settings-field">
             <span>Background</span>
-            <Space.Compact style={{ width: "100%" }}>
+            <Space.Compact className="workbench-color-input-group">
               <ColorPicker
                 value={normalizeScreenBackgroundColor(screen.background)}
                 onChangeComplete={(color) => onUpdateScreen({ background: color.toHexString() })}
