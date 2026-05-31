@@ -354,10 +354,7 @@ export function ScreenEditorCenter({
   const stageMode = previewMode ? "runtime" : "editor";
   const stageTags = previewMode ? tags : EMPTY_STAGE_TAGS;
   const editorOffscreenPad = getEditorOffscreenPad(editorZoom);
-  const viewportBackground =
-    screen?.backgroundFillMode === "viewport"
-      ? screen.background ?? "#111111"
-      : "#111111";
+  const viewportBackground = "#111111";
   const applyAutoFitZoom = useCallback(() => {
     if (previewMode) {
       return;
