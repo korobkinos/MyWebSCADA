@@ -69,6 +69,7 @@ const ZOOM_OPTIONS = [0.02, 0.05, 0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 20];
 const ACTIVE_TOOL_STORAGE_KEY = "screenEditor.activeTool";
 const EDITOR_ZOOM_STORAGE_KEY = "screenEditor.canvas.zoom";
 const EDITOR_ZOOM_PERSIST_DELAY_MS = 250;
+const WHEEL_ZOOM_COMMIT_MS = 40;
 const EMPTY_STAGE_TAGS: Record<string, any> = Object.freeze({});
 
 function parseEditorTool(raw: string | null): EditorTool {
@@ -267,7 +268,7 @@ export function ScreenEditorCenter({
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
   const pendingWheelZoomAnchorRef = useRef<{ screenX: number; screenY: number; targetZoom: number } | null>(null);
-  const wheelZoomFrameIdRef = useRef<number | null>(null);
+  const wheelZoomTimerIdRef = useRef<number | null>(null);
   const wheelZoomFactorRef = useRef(1);
   const wheelZoomSnapshotRef = useRef<{
     scrollLeft: number;
@@ -390,7 +391,7 @@ export function ScreenEditorCenter({
     const snapshot = wheelZoomSnapshotRef.current;
     const deltaFactor = wheelZoomFactorRef.current;
 
-    wheelZoomFrameIdRef.current = null;
+    wheelZoomTimerIdRef.current = null;
     wheelZoomSnapshotRef.current = null;
     wheelZoomFactorRef.current = 1;
 
@@ -572,19 +573,19 @@ export function ScreenEditorCenter({
         };
       }
 
-      if (wheelZoomFrameIdRef.current === null) {
-        wheelZoomFrameIdRef.current = window.requestAnimationFrame(flushWheelZoom);
+      if (wheelZoomTimerIdRef.current === null) {
+        wheelZoomTimerIdRef.current = window.setTimeout(flushWheelZoom, WHEEL_ZOOM_COMMIT_MS);
       }
     };
     el.addEventListener("wheel", handler, { passive: false });
     return () => {
       el.removeEventListener("wheel", handler);
-      if (wheelZoomFrameIdRef.current !== null) {
-        window.cancelAnimationFrame(wheelZoomFrameIdRef.current);
+      if (wheelZoomTimerIdRef.current !== null) {
+        window.clearTimeout(wheelZoomTimerIdRef.current);
       }
       wheelZoomFactorRef.current = 1;
       wheelZoomSnapshotRef.current = null;
-      wheelZoomFrameIdRef.current = null;
+      wheelZoomTimerIdRef.current = null;
     };
   }, [flushWheelZoom, previewMode, wheelZoomEnabled]);
 
