@@ -6117,6 +6117,7 @@ select.workbench-select:not(.ant-select) {
 }
 
 /* Keep Ant ColorPicker popup controls aligned and fitting in one row */
+.ant-color-picker .ant-color-picker-inner .ant-color-picker-input-container,
 .ant-color-picker-dropdown .ant-color-picker-input-container {
   display: grid !important;
   grid-template-columns: 48px minmax(0, 1fr) 56px;
@@ -6124,22 +6125,28 @@ select.workbench-select:not(.ant-select) {
   align-items: stretch;
 }
 
+.ant-color-picker .ant-color-picker-inner .ant-color-picker-format-select.ant-select,
 .ant-color-picker-dropdown .ant-color-picker-format-select.ant-select {
   width: 48px !important;
   margin: 0 !important;
 }
 
+.ant-color-picker .ant-color-picker-inner .ant-color-picker-input,
 .ant-color-picker-dropdown .ant-color-picker-input {
   width: auto !important;
   min-width: 0 !important;
 }
 
+.ant-color-picker .ant-color-picker-inner .ant-color-picker-steppers.ant-color-picker-alpha-input,
 .ant-color-picker-dropdown .ant-color-picker-steppers.ant-color-picker-alpha-input {
   width: 56px !important;
   min-width: 56px !important;
   margin: 0 !important;
 }
 
+.ant-color-picker .ant-color-picker-inner .ant-input,
+.ant-color-picker .ant-color-picker-inner .ant-input-number,
+.ant-color-picker .ant-color-picker-inner .ant-select-selector,
 .ant-color-picker-dropdown .ant-input,
 .ant-color-picker-dropdown .ant-input-number,
 .ant-color-picker-dropdown .ant-select-selector {
@@ -6149,6 +6156,7 @@ select.workbench-select:not(.ant-select) {
   font-size: 12px !important;
 }
 
+.ant-color-picker .ant-color-picker-inner .ant-color-picker-steppers.ant-input-number .ant-input-number-input,
 .ant-color-picker-dropdown .ant-color-picker-steppers.ant-input-number .ant-input-number-input {
   height: 22px !important;
   line-height: 22px !important;
