@@ -58,6 +58,7 @@ import {
 } from "../../../components/workbench";
 import { isTextEditingTarget } from "../../../utils/keyboard";
 import type { EditorCommand, HmiObject, HmiScreen, ScadaProject } from "@web-scada/shared";
+import type { NumericInputOpenPayload } from "../../../hmi/runtime/hmi-renderer";
 
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
 type DropPosition = { x: number; y: number };
@@ -191,6 +192,7 @@ export type ScreenEditorCenterProps = {
   onMoveBackward: () => void;
   onRotateSelectedBy: (deltaDeg: number) => void;
   onViewportCenterChange?: (center: { x: number; y: number }) => void;
+  onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
 };
 
 export function ScreenEditorCenter({
@@ -255,6 +257,7 @@ export function ScreenEditorCenter({
   onMoveBackward,
   onRotateSelectedBy,
   onViewportCenterChange,
+  onRequestNumericInput,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
   const [activeTool, setActiveTool] = useState<EditorTool>(() => {
@@ -867,6 +870,7 @@ export function ScreenEditorCenter({
               editorGridColor={gridLineColor}
               editorGridLineWidth={gridLineWidth}
               editorGridLineStyle={gridLineStyle}
+              onRequestNumericInput={onRequestNumericInput}
             />
           ) : (
             <div className="screen-editor-empty-state">Select or create a screen</div>

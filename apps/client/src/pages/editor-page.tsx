@@ -8,6 +8,7 @@ import type {
   ElementLibrary,
   LibraryElement,
   RuntimeAction,
+  RenderContext,
   ScadaProject,
 } from "@web-scada/shared";
 import { findObjectDeep, isBindingReference, resolveLibraryElementInstanceBindingsDetailed } from "@web-scada/shared";
@@ -52,6 +53,8 @@ import { useEditorAssets } from "../features/screen-editor/hooks/use-editor-asse
 import { useEditorScreens } from "../features/screen-editor/hooks/use-editor-screens";
 import { useEditorRuntimePreview } from "../features/screen-editor/hooks/use-editor-runtime-preview";
 import { useEditorWindowDefinitions } from "../features/screen-editor/hooks/use-editor-window-definitions";
+import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime/numeric-input-dialog";
+import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 
 type CloneOptions = {
   count: number;
@@ -172,6 +175,7 @@ export function EditorPage() {
   const loadRuntimeStatus = useScadaStore((s) => s.loadRuntimeStatus);
   const startRuntime = useScadaStore((s) => s.startRuntime);
   const stopRuntime = useScadaStore((s) => s.stopRuntime);
+  const writeTag = useScadaStore((s) => s.writeTag);
   const updateProjectJson = useScadaStore((s) => s.updateProjectJson);
   const setTagValues = useScadaStore((s) => s.setTagValues);
   const hasPermission = useScadaStore((s) => s.hasPermission);
@@ -216,6 +220,8 @@ export function EditorPage() {
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("Loaded");
   const [savedProjectSignature, setSavedProjectSignature] = useState<string | null>(null);
+  const [previewNumericDialogState, setPreviewNumericDialogState] = useState<NumericInputDialogState | null>(null);
+  const previewNumericDialogWindowId = "editorPreviewNumericInputDialog";
 
   const {
     openWindows,
@@ -375,6 +381,98 @@ export function EditorPage() {
     tags,
     setTagValues,
   });
+
+  const handlePreviewRequestNumericInput = useCallback((payload: NumericInputOpenPayload) => {
+    const dialogWidth = Number.isFinite(payload.dialogWidth) ? Math.max(220, Math.round(payload.dialogWidth!)) : 300;
+    const dialogHeight = Number.isFinite(payload.dialogHeight) ? Math.max(120, Math.round(payload.dialogHeight!)) : 150;
+    const placement = payload.dialogPlacement ?? "custom";
+    const fallbackX = Number.isFinite(payload.dialogX) ? Math.round(payload.dialogX!) : 200;
+    const fallbackY = Number.isFinite(payload.dialogY) ? Math.round(payload.dialogY!) : 150;
+    let dialogX = fallbackX;
+    let dialogY = fallbackY;
+
+    if (placement !== "custom" && payload.sourceClientRect) {
+      const margin = Number.isFinite(payload.dialogOffset) ? Math.max(0, Math.round(payload.dialogOffset!)) : 12;
+      const { left, top, width, height } = payload.sourceClientRect;
+      const centerX = left + width / 2;
+      const centerY = top + height / 2;
+      if (placement === "top") {
+        dialogX = Math.round(centerX - dialogWidth / 2);
+        dialogY = Math.round(top - dialogHeight - margin);
+      } else if (placement === "bottom") {
+        dialogX = Math.round(centerX - dialogWidth / 2);
+        dialogY = Math.round(top + height + margin);
+      } else if (placement === "left") {
+        dialogX = Math.round(left - dialogWidth - margin);
+        dialogY = Math.round(centerY - dialogHeight / 2);
+      } else if (placement === "right") {
+        dialogX = Math.round(left + width + margin);
+        dialogY = Math.round(centerY - dialogHeight / 2);
+      }
+    }
+
+    const minOffset = 8;
+    const maxX = Math.max(minOffset, window.innerWidth - dialogWidth - minOffset);
+    const maxY = Math.max(minOffset, window.innerHeight - dialogHeight - minOffset);
+    dialogX = Math.min(maxX, Math.max(minOffset, dialogX));
+    dialogY = Math.min(maxY, Math.max(minOffset, dialogY));
+
+    const actionContext: RenderContext = payload.actionContext ?? {
+      screenId: screen?.id,
+      parameters: {
+        __runtimeObjectId: payload.objectId,
+        __runtimeObjectName: payload.objectName,
+      },
+    };
+
+    setPreviewNumericDialogState({
+      objectId: payload.objectId,
+      objectName: payload.objectName,
+      targetTag: payload.writeTag ?? "",
+      currentValue: payload.currentValue,
+      min: payload.min,
+      max: payload.max,
+      step: payload.step,
+      decimals: payload.decimals,
+      formatMode: payload.formatMode,
+      formatPattern: payload.formatPattern,
+      unit: payload.unit,
+      requiredActionRole: payload.requiredActionRole,
+      backgroundColor: payload.backgroundColor,
+      textColor: payload.textColor,
+      borderColor: payload.borderColor,
+      fontFamily: payload.fontFamily,
+      fontSize: payload.fontSize,
+      dialogBackgroundColor: payload.dialogBackgroundColor,
+      dialogTextColor: payload.dialogTextColor,
+      dialogBorderColor: payload.dialogBorderColor,
+      dialogCloseButtonTextColor: payload.dialogCloseButtonTextColor,
+      dialogCloseButtonBackgroundColor: payload.dialogCloseButtonBackgroundColor,
+      dialogSetButtonTextColor: payload.dialogSetButtonTextColor,
+      dialogSetButtonBackgroundColor: payload.dialogSetButtonBackgroundColor,
+      dialogSetButtonBorderColor: payload.dialogSetButtonBorderColor,
+      showMeta: payload.showMeta,
+      stepButtonUseTextColor: payload.stepButtonUseTextColor,
+      stepButtonTextColor: payload.stepButtonTextColor,
+      stepButtonBackgroundColor: payload.stepButtonBackgroundColor,
+      badTextColor: payload.badTextColor,
+      badBackgroundColor: payload.badBackgroundColor,
+      badBorderColor: payload.badBorderColor,
+      signalBad: payload.signalBad,
+      actionContext,
+    });
+
+    openWindow({
+      id: previewNumericDialogWindowId,
+      title: payload.dialogTitle?.trim() || payload.objectName || "Numeric Input",
+      defaultRect: { x: dialogX, y: dialogY, width: dialogWidth, height: dialogHeight },
+      minWidth: dialogWidth,
+      minHeight: dialogHeight,
+      resizable: false,
+      resetRectOnOpen: true,
+      render: () => null,
+    });
+  }, [openWindow, screen?.id]);
 
   const runCommand = useCallback(
     (command: EditorCommand) => {
@@ -1085,6 +1183,41 @@ export function EditorPage() {
     closeWindow,
   });
 
+  const allWindowDefinitions = useMemo(() => {
+    return [
+      ...windowDefinitions,
+      {
+        id: previewNumericDialogWindowId,
+        title: "Numeric Input",
+        defaultRect: { x: 200, y: 150, width: 270, height: 150 },
+        minWidth: 240,
+        minHeight: 135,
+        resizable: false,
+        render: () => {
+          if (!previewNumericDialogState) {
+            return null;
+          }
+          return (
+            <NumericInputDialog
+              state={previewNumericDialogState}
+              onCommit={async (value) => {
+                if (!previewNumericDialogState.targetTag.trim()) {
+                  return;
+                }
+                await writeTag(previewNumericDialogState.targetTag, value);
+                setPreviewNumericDialogState((prev) => (prev ? { ...prev, currentValue: value } : prev));
+              }}
+              onCancel={() => {
+                closeWindow(previewNumericDialogWindowId);
+                setPreviewNumericDialogState(null);
+              }}
+            />
+          );
+        },
+      },
+    ];
+  }, [closeWindow, previewNumericDialogState, previewNumericDialogWindowId, windowDefinitions, writeTag]);
+
   const activityItems = [
     { id: "screens", title: "Screens", icon: <AppstoreOutlined />, active: isWindowOpen("screens"), onClick: () => openDefinedWindow("screens") },
     { id: "search", title: "Search", icon: <SearchOutlined />, active: isWindowOpen("search"), onClick: () => openDefinedWindow("search") },
@@ -1306,6 +1439,7 @@ export function EditorPage() {
             onViewportCenterChange={(center) => {
               viewportCenterRef.current = center;
             }}
+            onRequestNumericInput={previewMode ? handlePreviewRequestNumericInput : undefined}
           />
         }
         bottom={
@@ -1322,8 +1456,13 @@ export function EditorPage() {
 
       <WorkbenchWindowManager
         windows={openWindows}
-        definitions={windowDefinitions}
-        onClose={closeWindow}
+        definitions={allWindowDefinitions}
+        onClose={(id) => {
+          closeWindow(id);
+          if (id === previewNumericDialogWindowId) {
+            setPreviewNumericDialogState(null);
+          }
+        }}
         onFocus={focusWindow}
         onMove={moveWindow}
         onResize={resizeWindow}
