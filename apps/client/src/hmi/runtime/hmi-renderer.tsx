@@ -3839,7 +3839,7 @@ function ObjectNode({
       || numErrorActive
       || numErrorStateBad
     );
-    const rawNumValue = runtimeMode ? Number(numInputTag?.value?.value ?? NaN) : NaN;
+    const rawNumValue = runtimeMode ? Number(numInputTag?.value?.value ?? 0) : NaN;
     const numMin = resolvedObject.min ?? 0;
     const numMax = resolvedObject.max ?? 100;
     const numValue = Number.isFinite(rawNumValue)
