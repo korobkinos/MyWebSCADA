@@ -57,6 +57,7 @@ const HMI_CONTROL_COLORS = {
   fieldDisabledBg: "#3d3d3d",
   overlayBg: "#252526",
 } as const;
+const EMPTY_DRIVERS: DriverStatus[] = [];
 
 type AnimationTickHandler = (time: number) => void;
 const globalAnimationTickHandlers = new Set<AnimationTickHandler>();
@@ -836,7 +837,7 @@ export function HmiRenderer({
   screen,
   mode,
   tags,
-  drivers = [],
+  drivers = EMPTY_DRIVERS,
   libraries = [],
   renderContext,
   frameStack = [],

@@ -67,6 +67,8 @@ const MAX_EDITOR_ZOOM = 20;
 const ZOOM_STEP = 1.1;
 const ZOOM_OPTIONS = [0.02, 0.05, 0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 20];
 const ACTIVE_TOOL_STORAGE_KEY = "screenEditor.activeTool";
+const EDITOR_ZOOM_STORAGE_KEY = "screenEditor.canvas.zoom";
+const EDITOR_ZOOM_PERSIST_DELAY_MS = 250;
 const EMPTY_STAGE_TAGS: Record<string, any> = Object.freeze({});
 
 function parseEditorTool(raw: string | null): EditorTool {
@@ -264,21 +266,49 @@ export function ScreenEditorCenter({
   const suppressNextContextMenuRef = useRef(false);
   const pendingWheelZoomAnchorRef = useRef<{ worldX: number; worldY: number; targetZoom: number } | null>(null);
   const isManualZoomRef = useRef(false);
+  const latestEditorZoomRef = useRef(1);
+  const zoomPersistTimeoutRef = useRef<number | null>(null);
+  const wheelZoomFrameIdRef = useRef<number | null>(null);
+  const wheelZoomFactorRef = useRef(1);
+  const wheelZoomSnapshotRef = useRef<{ scrollLeft: number; scrollTop: number; clientWidth: number; clientHeight: number } | null>(null);
   const [editorZoom, setEditorZoom] = useState<number>(() => {
     if (typeof window === "undefined") {
       return 1;
     }
-    const raw = window.localStorage.getItem("screenEditor.canvas.zoom");
+    const raw = window.localStorage.getItem(EDITOR_ZOOM_STORAGE_KEY);
     const parsed = raw ? Number(raw) : NaN;
     return clampZoom(Number.isFinite(parsed) ? parsed : 1);
   });
 
   useEffect(() => {
+    latestEditorZoomRef.current = editorZoom;
+  }, [editorZoom]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem("screenEditor.canvas.zoom", String(editorZoom));
+    if (zoomPersistTimeoutRef.current !== null) {
+      window.clearTimeout(zoomPersistTimeoutRef.current);
+    }
+    zoomPersistTimeoutRef.current = window.setTimeout(() => {
+      window.localStorage.setItem(EDITOR_ZOOM_STORAGE_KEY, String(editorZoom));
+      zoomPersistTimeoutRef.current = null;
+    }, EDITOR_ZOOM_PERSIST_DELAY_MS);
   }, [editorZoom]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      if (zoomPersistTimeoutRef.current !== null) {
+        window.clearTimeout(zoomPersistTimeoutRef.current);
+        zoomPersistTimeoutRef.current = null;
+      }
+      window.localStorage.setItem(EDITOR_ZOOM_STORAGE_KEY, String(latestEditorZoomRef.current));
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -461,30 +491,58 @@ export function ScreenEditorCenter({
   useEffect(() => {
     const el = canvasScrollRef.current;
     if (!el) return;
+    const flushWheelZoom = () => {
+      wheelZoomFrameIdRef.current = null;
+      const deltaFactor = wheelZoomFactorRef.current;
+      const snapshot = wheelZoomSnapshotRef.current;
+      wheelZoomFactorRef.current = 1;
+      wheelZoomSnapshotRef.current = null;
+      if (!snapshot || Math.abs(deltaFactor - 1) < 1e-9) {
+        return;
+      }
+      setEditorZoom((prev) => {
+        const next = clampZoom(prev * deltaFactor);
+        if (next === prev) {
+          return prev;
+        }
+        const centerX = snapshot.clientWidth / 2;
+        const centerY = snapshot.clientHeight / 2;
+        const worldX = (snapshot.scrollLeft + centerX) / prev;
+        const worldY = (snapshot.scrollTop + centerY) / prev;
+        pendingWheelZoomAnchorRef.current = { worldX, worldY, targetZoom: next };
+        return next;
+      });
+    };
     const handler = (event: WheelEvent) => {
       if (previewMode) return;
       if (!wheelZoomEnabled) return;
       if (isTextEditingTarget(event.target as EventTarget)) return;
       event.preventDefault();
       if (!event.deltaY) return;
-      const delta = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
       isManualZoomRef.current = true;
-      setEditorZoom((prev) => {
-        const next = clampZoom(prev * delta);
-        if (next === prev) {
-          return prev;
-        }
-        // Zoom around the visible viewport center to keep behavior stable.
-        const centerX = el.clientWidth / 2;
-        const centerY = el.clientHeight / 2;
-        const worldX = (el.scrollLeft + centerX) / prev;
-        const worldY = (el.scrollTop + centerY) / prev;
-        pendingWheelZoomAnchorRef.current = { worldX, worldY, targetZoom: next };
-        return next;
-      });
+      wheelZoomFactorRef.current *= event.deltaY < 0 ? ZOOM_STEP : (1 / ZOOM_STEP);
+      if (!wheelZoomSnapshotRef.current) {
+        wheelZoomSnapshotRef.current = {
+          scrollLeft: el.scrollLeft,
+          scrollTop: el.scrollTop,
+          clientWidth: el.clientWidth,
+          clientHeight: el.clientHeight,
+        };
+      }
+      if (wheelZoomFrameIdRef.current === null) {
+        wheelZoomFrameIdRef.current = window.requestAnimationFrame(flushWheelZoom);
+      }
     };
     el.addEventListener("wheel", handler, { passive: false });
-    return () => el.removeEventListener("wheel", handler);
+    return () => {
+      el.removeEventListener("wheel", handler);
+      if (wheelZoomFrameIdRef.current !== null) {
+        window.cancelAnimationFrame(wheelZoomFrameIdRef.current);
+        wheelZoomFrameIdRef.current = null;
+      }
+      wheelZoomFactorRef.current = 1;
+      wheelZoomSnapshotRef.current = null;
+    };
   }, [previewMode, wheelZoomEnabled]);
 
   const startPan = (event: React.MouseEvent<HTMLDivElement>) => {

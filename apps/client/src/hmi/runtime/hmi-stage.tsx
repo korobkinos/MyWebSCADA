@@ -57,13 +57,14 @@ type HmiStageProps = {
 };
 
 export const OFFSCREEN_PAD = 2000;
+const EMPTY_DRIVERS: DriverStatus[] = [];
 
 export function HmiStage({
   project,
   mode,
   screen,
   tags,
-  drivers = [],
+  drivers = EMPTY_DRIVERS,
   libraries = [],
   renderContext = {},
   selectedObjectIds = [],
@@ -202,10 +203,10 @@ export function HmiStage({
   );
   const stageScale = mode === "runtime" ? runtimeScale : effectiveEditorZoom;
   const stageWidth = mode === "editor"
-    ? (screen.width + 2 * OFFSCREEN_PAD) * effectiveEditorZoom
+    ? (screen.width + 2 * OFFSCREEN_PAD)
     : screen.width;
   const stageHeight = mode === "editor"
-    ? (screen.height + 2 * OFFSCREEN_PAD) * effectiveEditorZoom
+    ? (screen.height + 2 * OFFSCREEN_PAD)
     : screen.height;
   const gridPatternImage = useMemo(() => {
     if (mode !== "editor" || !showEditorGrid) {
