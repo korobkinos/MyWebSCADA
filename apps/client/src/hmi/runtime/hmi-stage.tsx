@@ -59,6 +59,8 @@ type HmiStageProps = {
 export const OFFSCREEN_PAD = 2000;
 const MIN_EDITOR_OFFSCREEN_PAD = 600;
 const TARGET_VISIBLE_EDITOR_OFFSCREEN_PAD = 300;
+const EDITOR_STAGE_PIXEL_RATIO_MULTIPLIER = 1.25;
+const MAX_EDITOR_STAGE_PIXEL_RATIO = 2;
 
 export function getEditorOffscreenPad(editorZoom: number): number {
   if (!Number.isFinite(editorZoom) || editorZoom <= 0) {
@@ -207,6 +209,12 @@ export function HmiStage({
 
   const effectiveEditorZoom = mode === "editor" ? editorZoom : 1;
   const editorOffscreenPad = mode === "editor" ? getEditorOffscreenPad(effectiveEditorZoom) : 0;
+  const stageBasePixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+    ? window.devicePixelRatio
+    : 1;
+  const stagePixelRatio = mode === "editor"
+    ? Math.min(MAX_EDITOR_STAGE_PIXEL_RATIO, stageBasePixelRatio * EDITOR_STAGE_PIXEL_RATIO_MULTIPLIER)
+    : stageBasePixelRatio;
   const editorLogicalWidth = screen.width + 2 * editorOffscreenPad;
   const editorLogicalHeight = screen.height + 2 * editorOffscreenPad;
   const effectiveRenderContext = useMemo(
@@ -363,6 +371,21 @@ export function HmiStage({
     onSelectObjects?.(hitIds, hitIds[hitIds.length - 1]);
     onSelectionRectChange?.(undefined);
   };
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) {
+      return;
+    }
+    stage.getLayers().forEach((layer) => {
+      const canvas = layer.getCanvas();
+      if (Math.abs(canvas.getPixelRatio() - stagePixelRatio) < 1e-3) {
+        return;
+      }
+      canvas.setPixelRatio(stagePixelRatio);
+      layer.batchDraw();
+    });
+  }, [stageHeight, stagePixelRatio, stageWidth]);
 
   useEffect(() => {
     if (!import.meta.env.DEV || mode !== "editor") {
