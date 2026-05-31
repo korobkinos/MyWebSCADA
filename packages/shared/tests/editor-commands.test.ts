@@ -563,6 +563,71 @@ describe("merge shapes", () => {
     expect(result.selection.selectedObjectIds).toEqual([merged.id]);
   });
 
+  it("merges compound shape with rectangle and keeps compound style", () => {
+    const compound: HmiObject = {
+      id: "compound_1",
+      type: "compoundShape",
+      x: 40,
+      y: 40,
+      width: 170,
+      height: 170,
+      parts: [
+        {
+          points: [0, 0, 120, 0, 120, 60, 170, 60, 170, 170, 0, 170],
+          closed: true,
+        },
+      ],
+      fill: "#101820",
+      fillPatternStyle: "beveledHatchWide",
+      fillPatternColor: "#4d5f70",
+      stroke: "#a3b1bf",
+      strokeWidth: 9,
+      strokePatternStyle: "beveledCrosshatch",
+      strokePatternColor: "#f0c000",
+      lineCap: "square",
+      lineJoin: "bevel",
+      fillRule: "evenodd",
+      opacity: 0.73,
+      zIndex: 5,
+    };
+    const extensionRect: HmiObject = {
+      id: "rect_1",
+      type: "rectangle",
+      x: 160,
+      y: 20,
+      width: 80,
+      height: 80,
+      fill: "#ff0000",
+      stroke: "#00ff00",
+      strokeWidth: 2,
+      zIndex: 8,
+    };
+    const result = executeEditorCommand(
+      screenWith([compound, extensionRect]),
+      selection(["compound_1", "rect_1"], "rect_1"),
+      { type: "mergeSelectedShapes" },
+    );
+
+    const merged = result.screen.objects.find((obj) => obj.type === "compoundShape");
+    expect(merged).toBeTruthy();
+    if (!merged || merged.type !== "compoundShape") {
+      return;
+    }
+    expect(merged.parts.length).toBeGreaterThanOrEqual(1);
+    expect(merged.fill).toBe("#101820");
+    expect(merged.fillPatternStyle).toBe("beveledHatchWide");
+    expect(merged.fillPatternColor).toBe("#4d5f70");
+    expect(merged.stroke).toBe("#a3b1bf");
+    expect(merged.strokeWidth).toBe(9);
+    expect(merged.strokePatternStyle).toBe("beveledCrosshatch");
+    expect(merged.strokePatternColor).toBe("#f0c000");
+    expect(merged.lineCap).toBe("square");
+    expect(merged.lineJoin).toBe("bevel");
+    expect(merged.fillRule).toBe("evenodd");
+    expect(merged.opacity).toBe(0.73);
+    expect(merged.zIndex).toBe(5);
+  });
+
   it("does not merge when unsupported objects are selected", () => {
     const rect: HmiObject = {
       id: "rect_1",
@@ -612,7 +677,7 @@ describe("merge shapes", () => {
 
     expect(result.screen.objects).toHaveLength(3);
     expect(result.screen.objects.some((obj) => obj.type === "compoundShape")).toBe(false);
-    expect(result.warnings?.[0]).toContain("supports rectangle and closed line objects only");
+    expect(result.warnings?.[0]).toContain("supports compound shape, rectangle and closed line objects only");
   });
 
   it("does not merge when selection contains locked objects", () => {

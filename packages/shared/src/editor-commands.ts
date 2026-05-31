@@ -343,6 +343,8 @@ export function mergeSelectedLinesToPolyline(screen: HmiScreen, selection: Edito
   };
 }
 
+type MergeShapeObject = RectangleObject | LineObject | CompoundShapeObject;
+
 export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectionState): EditorCommandResult {
   const selectedObjects = selection.selectedObjectIds
     .map((id) => screen.objects.find((obj) => obj.id === id))
@@ -357,7 +359,7 @@ export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectio
   }
 
   if (selectedObjects.some((obj) => !isSupportedShapeForMerge(obj))) {
-    return { screen, selection, warnings: ["Merge Shapes supports rectangle and closed line objects only."] };
+    return { screen, selection, warnings: ["Merge Shapes supports compound shape, rectangle and closed line objects only."] };
   }
 
   const supported = selectedObjects.filter(isSupportedShapeForMerge);
@@ -376,6 +378,7 @@ export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectio
   if (!styleSource) {
     return { screen, selection, warnings: ["Failed to resolve merged shape style source."] };
   }
+  const sourceCompound = styleSource.type === "compoundShape" ? styleSource : undefined;
   const sourceLine = styleSource.type === "line" ? styleSource : undefined;
   const sourceRectangle = styleSource.type === "rectangle" ? styleSource : undefined;
   const layerOrderById = getLayerOrderByObjectId(screen.objects);
@@ -391,16 +394,20 @@ export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectio
     minWidth: 8,
     minHeight: 8,
     parts,
-    fill: sourceLine?.fill ?? sourceRectangle?.fill ?? "#262626",
-    stroke: sourceLine?.stroke ?? sourceRectangle?.stroke ?? "#8c8c8c",
-    strokeWidth: sourceLine?.strokeWidth ?? sourceRectangle?.strokeWidth ?? 2,
-    lineCap: sourceLine?.lineCap ?? "round",
-    lineJoin: sourceLine?.lineJoin ?? "round",
-    fillRule: "nonzero",
+    fill: sourceCompound?.fill ?? sourceLine?.fill ?? sourceRectangle?.fill ?? "#262626",
+    fillPatternStyle: sourceCompound?.fillPatternStyle ?? "solid",
+    fillPatternColor: sourceCompound?.fillPatternColor ?? (sourceCompound?.stroke ?? sourceLine?.stroke ?? sourceRectangle?.stroke ?? "#8c8c8c"),
+    stroke: sourceCompound?.stroke ?? sourceLine?.stroke ?? sourceRectangle?.stroke ?? "#8c8c8c",
+    strokeWidth: sourceCompound?.strokeWidth ?? sourceLine?.strokeWidth ?? sourceRectangle?.strokeWidth ?? 2,
+    strokePatternStyle: sourceCompound?.strokePatternStyle ?? "solid",
+    strokePatternColor: sourceCompound?.strokePatternColor ?? (sourceCompound?.stroke ?? sourceLine?.stroke ?? sourceRectangle?.stroke ?? "#8c8c8c"),
+    lineCap: sourceCompound?.lineCap ?? sourceLine?.lineCap ?? "round",
+    lineJoin: sourceCompound?.lineJoin ?? sourceLine?.lineJoin ?? "round",
+    fillRule: sourceCompound?.fillRule ?? "nonzero",
     rotation: 0,
     locked: false,
     visible: true,
-    opacity: sourceLine?.opacity ?? sourceRectangle?.opacity ?? 1,
+    opacity: sourceCompound?.opacity ?? sourceLine?.opacity ?? sourceRectangle?.opacity ?? 1,
     zIndex: Number.isFinite(minLayerOrder) ? minLayerOrder : undefined,
   };
 
@@ -419,8 +426,27 @@ export function mergeSelectedShapes(screen: HmiScreen, selection: EditorSelectio
 function getShapeMergeStyleSource(
   screen: HmiScreen,
   selection: EditorSelectionState,
-  selectedShapes: Array<RectangleObject | LineObject>,
-): RectangleObject | LineObject | null {
+  selectedShapes: MergeShapeObject[],
+): MergeShapeObject | null {
+  const selectedCompoundShapes = selectedShapes.filter((obj): obj is CompoundShapeObject => obj.type === "compoundShape");
+  if (selectedCompoundShapes.length > 0) {
+    const activeCompound = selection.activeObjectId
+      ? selectedCompoundShapes.find((obj) => obj.id === selection.activeObjectId)
+      : undefined;
+    if (activeCompound) {
+      return activeCompound;
+    }
+    const layerOrderById = getLayerOrderByObjectId(screen.objects);
+    return [...selectedCompoundShapes].sort((left, right) => {
+      const leftOrder = layerOrderById.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = layerOrderById.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      return selectedShapes.indexOf(left) - selectedShapes.indexOf(right);
+    })[0] ?? null;
+  }
+
   const active = selection.activeObjectId
     ? selectedShapes.find((obj) => obj.id === selection.activeObjectId)
     : undefined;
@@ -462,7 +488,10 @@ function getLinePolylineLength(line: LineObject): number {
   return total;
 }
 
-function isSupportedShapeForMerge(object: HmiObject): object is RectangleObject | LineObject {
+function isSupportedShapeForMerge(object: HmiObject): object is MergeShapeObject {
+  if (object.type === "compoundShape") {
+    return object.parts.length > 0;
+  }
   if (object.type === "rectangle") {
     return true;
   }
@@ -475,12 +504,12 @@ const polygonClipping = polygonClippingModule as unknown as {
 };
 
 function buildMergedShapeUnionParts(
-  objects: Array<RectangleObject | LineObject>,
+  objects: MergeShapeObject[],
   originX: number,
   originY: number,
 ): Array<{ points: number[]; closed: true }> {
   const sourcePolygons = objects
-    .map((object) => toMergedShapePolygon(object))
+    .flatMap((object) => toMergedShapePolygons(object))
     .filter((polygon): polygon is Point[] => polygon.length >= 3);
   if (sourcePolygons.length < 2) {
     return [];
@@ -514,11 +543,35 @@ function buildMergedShapeUnionParts(
   return parts;
 }
 
-function toMergedShapePolygon(object: RectangleObject | LineObject): Point[] {
-  const absolutePoints = object.type === "rectangle"
-    ? toRectangleAbsolutePoints(object)
-    : getLineAbsolutePoints(object);
-  return simplifyPolygon(absolutePoints, MERGE_SHAPE_EPSILON);
+function toMergedShapePolygons(object: MergeShapeObject): Point[][] {
+  if (object.type === "rectangle") {
+    return [simplifyPolygon(toRectangleAbsolutePoints(object), MERGE_SHAPE_EPSILON)];
+  }
+  if (object.type === "line") {
+    return [simplifyPolygon(getLineAbsolutePoints(object), MERGE_SHAPE_EPSILON)];
+  }
+  const radians = ((object.rotation ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const polygons: Point[][] = [];
+  for (const part of object.parts) {
+    const absolutePoints: Point[] = [];
+    for (let index = 0; index + 1 < part.points.length; index += 2) {
+      const localX = part.points[index] ?? 0;
+      const localY = part.points[index + 1] ?? 0;
+      const rotatedX = localX * cos - localY * sin;
+      const rotatedY = localX * sin + localY * cos;
+      absolutePoints.push({
+        x: object.x + rotatedX,
+        y: object.y + rotatedY,
+      });
+    }
+    const normalized = simplifyPolygon(removeDuplicateNeighbors(absolutePoints, MERGE_SHAPE_EPSILON), MERGE_SHAPE_EPSILON);
+    if (!isRingDegenerate(normalized)) {
+      polygons.push(normalized);
+    }
+  }
+  return polygons;
 }
 
 function toPolygonClippingRing(polygon: Point[]): Ring {
