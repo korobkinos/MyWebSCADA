@@ -6120,27 +6120,27 @@ select.workbench-select:not(.ant-select) {
 .ant-color-picker .ant-color-picker-inner .ant-color-picker-input-container,
 .ant-color-picker-dropdown .ant-color-picker-input-container {
   display: grid !important;
-  grid-template-columns: 48px minmax(0, 1fr) 56px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   column-gap: 6px;
   align-items: stretch;
 }
 
 .ant-color-picker .ant-color-picker-inner .ant-color-picker-format-select.ant-select,
 .ant-color-picker-dropdown .ant-color-picker-format-select.ant-select {
-  width: 48px !important;
+  width: 100% !important;
   margin: 0 !important;
 }
 
 .ant-color-picker .ant-color-picker-inner .ant-color-picker-input,
 .ant-color-picker-dropdown .ant-color-picker-input {
-  width: auto !important;
+  width: 100% !important;
   min-width: 0 !important;
 }
 
 .ant-color-picker .ant-color-picker-inner .ant-color-picker-steppers.ant-color-picker-alpha-input,
 .ant-color-picker-dropdown .ant-color-picker-steppers.ant-color-picker-alpha-input {
-  width: 56px !important;
-  min-width: 56px !important;
+  width: 100% !important;
+  min-width: 0 !important;
   margin: 0 !important;
 }
 
