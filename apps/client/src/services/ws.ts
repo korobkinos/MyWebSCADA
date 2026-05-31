@@ -161,8 +161,10 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
       });
       window.clearTimeout(timeoutId);
       if (response.status >= 500) {
-        markEndpointFailure("runtimeStatus", `${response.status} ${response.statusText}`);
-        return false;
+        // Backend is reachable even if the health endpoint returns 5xx.
+        // Allow WS connection attempt to avoid freezing runtime updates.
+        markEndpointSuccess("runtimeStatus");
+        return true;
       }
       markEndpointSuccess("runtimeStatus");
       return true;
