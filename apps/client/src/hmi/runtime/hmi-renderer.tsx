@@ -151,18 +151,19 @@ function formatNumericValue(value: number, opts: FormatNumericOptions): string {
     const dotIndex = normalizedPattern.lastIndexOf(".");
     const commaIndex = normalizedPattern.lastIndexOf(",");
     const decimalIndex = Math.max(dotIndex, commaIndex);
-    const decimalSeparator = decimalIndex >= 0 ? normalizedPattern[decimalIndex] : ".";
+    const decimalSeparator = decimalIndex >= 0 ? (normalizedPattern[decimalIndex] ?? ".") : ".";
     if (decimalIndex >= 0) {
       const decimalPart = normalizedPattern.slice(decimalIndex + 1).replace(/[^0#]/g, "");
-      const hasZeros = decimalPart.includes("0");
-      if (hasZeros) {
-        formatted = value.toFixed(decimalPart.length);
-      } else {
-        const rounded = Math.round(value * Math.pow(10, decimalPart.length)) / Math.pow(10, decimalPart.length);
-        formatted = String(rounded);
-        if (decimalPart.length > 0 && !formatted.includes(".")) {
-          formatted += ".";
+      const totalDecimals = decimalPart.length;
+      const requiredDecimals = decimalPart.split("").filter((ch) => ch === "0").length;
+      formatted = value.toFixed(totalDecimals);
+      if (requiredDecimals < totalDecimals) {
+        const [intPart = "", fracPartRaw = ""] = formatted.split(".");
+        let fracPart = fracPartRaw;
+        while (fracPart.length > requiredDecimals && fracPart.endsWith("0")) {
+          fracPart = fracPart.slice(0, -1);
         }
+        formatted = fracPart.length > 0 ? `${intPart}.${fracPart}` : intPart;
       }
       if (decimalSeparator === ",") {
         formatted = formatted.replace(".", ",");
@@ -3859,6 +3860,7 @@ function ObjectNode({
     const displayBgColor = numInputBad ? badBackgroundColor : objBgColor;
     const displayBorderColor = numInputBad ? badBorderColor : objBorderColor;
 
+    const showUnit = resolvedObject.showUnit ?? Boolean(resolvedObject.unit);
     const displayNumText = numInputBad
       ? "BAD"
       : Number.isFinite(numValue)
@@ -3867,9 +3869,11 @@ function ObjectNode({
             decimals: resolvedObject.decimals ?? 0,
             formatPattern: resolvedObject.formatPattern,
             unit: resolvedObject.unit,
-            showUnit: resolvedObject.showUnit ?? Boolean(resolvedObject.unit),
+            showUnit,
           })
-        : resolvedObject.placeholder ?? "---";
+        : (showUnit && resolvedObject.unit
+          ? `${resolvedObject.placeholder ?? "---"} ${resolvedObject.unit}`
+          : (resolvedObject.placeholder ?? "---"));
     const numericInputShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
 
     return (
