@@ -127,6 +127,9 @@ function createPrimitiveShape(kind: PrimitiveShapeKind): HmiObject {
 }
 
 function isMergeShapeCandidate(object: HmiObject): boolean {
+  if (object.type === "compoundShape") {
+    return (object.parts?.length ?? 0) > 0;
+  }
   return object.type === "rectangle" || (object.type === "line" && (object.closed ?? false));
 }
 
