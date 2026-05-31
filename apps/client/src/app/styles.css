@@ -2081,6 +2081,13 @@ body {
   background: var(--screen-editor-viewport-bg, #111111);
 }
 
+.screen-editor-canvas-host .canvas-wrap {
+  border: none;
+  background: var(--screen-editor-viewport-bg, #111111);
+  max-width: none;
+  max-height: none;
+}
+
 .screen-editor-pan-overlay {
   position: absolute;
   inset: 0;

@@ -215,6 +215,7 @@ export function HmiStage({
     [currentUserRoleLevel, renderContext],
   );
   const stageScale = mode === "runtime" ? runtimeScale : 1;
+  const screenBackground = screen.background ?? "#1e1e1e";
   const stageWidth = mode === "editor"
     ? (screen.width + 2 * editorOffscreenPad) * effectiveEditorZoom
     : screen.width;
@@ -417,7 +418,7 @@ export function HmiStage({
               scaleX={effectiveEditorZoom}
               scaleY={effectiveEditorZoom}
             >
-              <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
+              <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screenBackground} listening={false} />
               {showEditorGrid && gridPatternImage ? (
                 <Rect
                   x={0}
@@ -493,7 +494,7 @@ export function HmiStage({
             </Group>
           ) : (
             <>
-              <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
+              <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screenBackground} listening={false} />
               <HmiRenderer
                 project={project}
                 screen={screen}
