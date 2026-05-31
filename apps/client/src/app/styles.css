@@ -6116,6 +6116,28 @@ select.workbench-select:not(.ant-select) {
   opacity: 1 !important;
 }
 
+/* Keep Ant ColorPicker popup controls compact and readable */
+.app-workbench-theme .ant-color-picker-dropdown .ant-input,
+.app-workbench-theme .ant-color-picker-dropdown .ant-input-number,
+.workbench-theme .ant-color-picker-dropdown .ant-input,
+.workbench-theme .ant-color-picker-dropdown .ant-input-number {
+  min-height: 22px !important;
+  height: 22px !important;
+  line-height: 20px !important;
+}
+
+.app-workbench-theme .ant-color-picker-dropdown .ant-input-number .ant-input-number-input,
+.workbench-theme .ant-color-picker-dropdown .ant-input-number .ant-input-number-input {
+  height: 20px !important;
+  line-height: 20px !important;
+  padding: 0 4px !important;
+}
+
+.app-workbench-theme .ant-color-picker-dropdown .ant-input-number .ant-input-number-handler-wrap,
+.workbench-theme .ant-color-picker-dropdown .ant-input-number .ant-input-number-handler-wrap {
+  display: none !important;
+}
+
 .workbench-theme .ant-select-item,
 .app-workbench-theme .ant-select-item,
 .app-workbench-theme .ant-dropdown-menu-item,
