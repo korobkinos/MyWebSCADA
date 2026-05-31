@@ -3829,7 +3829,9 @@ function ObjectNode({
     const rawNumValue = runtimeMode ? Number(numInputTag?.value?.value ?? NaN) : NaN;
     const numMin = resolvedObject.min ?? 0;
     const numMax = resolvedObject.max ?? 100;
-    const numValue = Number.isFinite(rawNumValue) ? Math.min(numMax, Math.max(numMin, rawNumValue)) : NaN;
+    const numValue = Number.isFinite(rawNumValue)
+      ? Math.min(numMax, Math.max(numMin, rawNumValue))
+      : (runtimeMode ? NaN : numMin);
 
     const objTextColor = resolvedObject.textColor ?? HMI_CONTROL_COLORS.text;
     const objFontSize = resolvedObject.fontSize ?? 12;
