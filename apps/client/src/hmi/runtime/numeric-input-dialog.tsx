@@ -89,10 +89,6 @@ function roundByStep(value: number, step: number): number {
 }
 
 function formatDisplay(value: number, state: NumericInputDialogState): string {
-  if (state.formatMode === "decimals" || typeof state.decimals === "number") {
-    const dec = state.decimals ?? 0;
-    return dec > 0 ? value.toFixed(dec) : String(Math.round(value));
-  }
   if (state.formatMode === "pattern" && state.formatPattern) {
     const normalizedPattern = state.formatPattern.replace(",", ".");
     const dotIndex = normalizedPattern.indexOf(".");
@@ -102,6 +98,10 @@ function formatDisplay(value: number, state: NumericInputDialogState): string {
         return value.toFixed(decimalCount);
       }
     }
+  }
+  if (state.formatMode === "decimals" || typeof state.decimals === "number") {
+    const dec = state.decimals ?? 0;
+    return dec > 0 ? value.toFixed(dec) : String(Math.round(value));
   }
   return String(value);
 }
