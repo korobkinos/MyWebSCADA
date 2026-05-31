@@ -147,17 +147,25 @@ function formatNumericValue(value: number, opts: FormatNumericOptions): string {
 
   let formatted: string;
   if (formatMode === "pattern" && pattern) {
-    const dotIndex = pattern.indexOf(".");
-    if (dotIndex >= 0) {
-      const decimalPart = pattern.slice(dotIndex + 1);
+    const normalizedPattern = pattern.trim();
+    const dotIndex = normalizedPattern.lastIndexOf(".");
+    const commaIndex = normalizedPattern.lastIndexOf(",");
+    const decimalIndex = Math.max(dotIndex, commaIndex);
+    const decimalSeparator = decimalIndex >= 0 ? normalizedPattern[decimalIndex] : ".";
+    if (decimalIndex >= 0) {
+      const decimalPart = normalizedPattern.slice(decimalIndex + 1).replace(/[^0#]/g, "");
       const hasZeros = decimalPart.includes("0");
       if (hasZeros) {
         formatted = value.toFixed(decimalPart.length);
       } else {
-        formatted = String(Math.round(value * Math.pow(10, decimalPart.length)) / Math.pow(10, decimalPart.length));
-        if (!formatted.includes(".")) {
+        const rounded = Math.round(value * Math.pow(10, decimalPart.length)) / Math.pow(10, decimalPart.length);
+        formatted = String(rounded);
+        if (decimalPart.length > 0 && !formatted.includes(".")) {
           formatted += ".";
         }
+      }
+      if (decimalSeparator === ",") {
+        formatted = formatted.replace(".", ",");
       }
     } else {
       formatted = String(Math.round(value));
