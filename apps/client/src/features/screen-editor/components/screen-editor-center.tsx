@@ -69,7 +69,6 @@ const ZOOM_OPTIONS = [0.02, 0.05, 0.1, 0.2, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 20];
 const ACTIVE_TOOL_STORAGE_KEY = "screenEditor.activeTool";
 const EDITOR_ZOOM_STORAGE_KEY = "screenEditor.canvas.zoom";
 const EDITOR_ZOOM_PERSIST_DELAY_MS = 250;
-const WHEEL_ZOOM_IDLE_MS = 120;
 const EMPTY_STAGE_TAGS: Record<string, any> = Object.freeze({});
 
 function parseEditorTool(raw: string | null): EditorTool {
@@ -278,12 +277,9 @@ export function ScreenEditorCenter({
     zoom: number;
     pad: number;
   } | null>(null);
-  const wheelZoomIdleTimeoutRef = useRef<number | null>(null);
-  const isWheelZoomActiveRef = useRef(false);
   const isManualZoomRef = useRef(false);
   const latestEditorZoomRef = useRef(1);
   const zoomPersistTimeoutRef = useRef<number | null>(null);
-  const [isWheelZoomActive, setIsWheelZoomActive] = useState(false);
   const [editorZoom, setEditorZoom] = useState<number>(() => {
     if (typeof window === "undefined") {
       return 1;
@@ -562,18 +558,6 @@ export function ScreenEditorCenter({
       event.preventDefault();
       if (!event.deltaY) return;
       isManualZoomRef.current = true;
-      if (!isWheelZoomActiveRef.current) {
-        isWheelZoomActiveRef.current = true;
-        setIsWheelZoomActive(true);
-      }
-      if (wheelZoomIdleTimeoutRef.current !== null) {
-        window.clearTimeout(wheelZoomIdleTimeoutRef.current);
-      }
-      wheelZoomIdleTimeoutRef.current = window.setTimeout(() => {
-        isWheelZoomActiveRef.current = false;
-        setIsWheelZoomActive(false);
-        wheelZoomIdleTimeoutRef.current = null;
-      }, WHEEL_ZOOM_IDLE_MS);
       wheelZoomFactorRef.current *= event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
 
       if (!wheelZoomSnapshotRef.current) {
@@ -598,12 +582,6 @@ export function ScreenEditorCenter({
       if (wheelZoomFrameIdRef.current !== null) {
         window.cancelAnimationFrame(wheelZoomFrameIdRef.current);
       }
-      if (wheelZoomIdleTimeoutRef.current !== null) {
-        window.clearTimeout(wheelZoomIdleTimeoutRef.current);
-        wheelZoomIdleTimeoutRef.current = null;
-      }
-      isWheelZoomActiveRef.current = false;
-      setIsWheelZoomActive(false);
       wheelZoomFactorRef.current = 1;
       wheelZoomSnapshotRef.current = null;
       wheelZoomFrameIdRef.current = null;
@@ -907,7 +885,6 @@ export function ScreenEditorCenter({
               onMoveObjectEnd={commitLiveMoveWithHistory}
               onResizeObject={resizeObjectWithHistory}
               editorZoom={editorZoom}
-              suspendEditorInteractions={isWheelZoomActive}
               showEditorGrid={!previewMode && showEditorGrid}
               editorGridColor={gridLineColor}
               editorGridLineWidth={gridLineWidth}
