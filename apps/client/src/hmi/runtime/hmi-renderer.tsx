@@ -1351,9 +1351,10 @@ function ObjectNode({
     const fieldName = options?.fieldName ?? "tag";
     const indexedConfig = getObjectIndexedConfigForField(resolvedObject, fieldName);
     if (!runtimeMode || !options?.useObjectIndexing || !indexedConfig?.enabled) {
+      const lookupName = resolveRuntimeTagLookupName(resolved, tags, project);
       return {
-        resolvedName: resolved,
-        value: resolved ? tags[resolved] : undefined,
+        resolvedName: lookupName ?? resolved,
+        value: lookupName ? tags[lookupName] : undefined,
         missingBindingReference,
       };
     }
@@ -1372,9 +1373,10 @@ function ObjectNode({
       indexedTagCache.set(cacheKey, indexed);
     }
 
+    const lookupName = resolveRuntimeTagLookupName(indexed.resolvedTagName, tags, project);
     return {
-      resolvedName: indexed.resolvedTagName,
-      value: indexed.resolvedTagName ? tags[indexed.resolvedTagName] : undefined,
+      resolvedName: lookupName ?? indexed.resolvedTagName,
+      value: lookupName ? tags[lookupName] : undefined,
       missingBindingReference,
       missingIndexedTag: indexed.usedIndexedAddress && !indexed.resolvedTagName,
       indexedAddress: indexed.resolvedAddress,
@@ -5817,11 +5819,48 @@ function toInternalRuntimeTag(name: string): string {
   if (!trimmed) {
     return trimmed;
   }
+  if (LW_ADDRESS_NAME.test(trimmed)) {
+    return trimmed.toUpperCase();
+  }
   return trimmed.startsWith("LW.") ? trimmed : `LW.${trimmed}`;
 }
 
 function toLwRuntimeTag(address: number): string {
   return `LW${Math.max(0, Math.floor(address))}`;
+}
+
+const LW_ADDRESS_NAME = /^LW\d+$/i;
+
+function resolveRuntimeTagLookupName(
+  resolvedName: string | undefined,
+  tags: TagMap,
+  project: ScadaProject,
+): string | undefined {
+  const trimmed = resolvedName?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (tags[trimmed]) {
+    return trimmed;
+  }
+  const internalAlias = resolveInternalTagAlias(project, trimmed);
+  if (internalAlias && tags[internalAlias]) {
+    return internalAlias;
+  }
+  return trimmed;
+}
+
+function resolveInternalTagAlias(project: ScadaProject, tagName: string): string | undefined {
+  const trimmed = tagName.trim();
+  if (!trimmed || trimmed.startsWith("LW.") || LW_ADDRESS_NAME.test(trimmed)) {
+    return undefined;
+  }
+  const normalized = toInternalRuntimeTag(trimmed);
+  const hasMatchingInternalVariable = (project.variables ?? []).some((variable) => {
+    const variableName = variable.name.trim();
+    return variableName === trimmed || toInternalRuntimeTag(variableName) === normalized;
+  });
+  return hasMatchingInternalVariable ? normalized : undefined;
 }
 
 function readValueSelectTargetValue(
