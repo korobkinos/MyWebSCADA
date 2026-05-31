@@ -6116,9 +6116,28 @@ select.workbench-select:not(.ant-select) {
   opacity: 1 !important;
 }
 
-/* Keep Ant ColorPicker popup controls aligned and readable */
+/* Keep Ant ColorPicker popup controls aligned and fitting in one row */
 .ant-color-picker-dropdown .ant-color-picker-input-container {
+  display: grid !important;
+  grid-template-columns: 48px minmax(0, 1fr) 56px;
+  column-gap: 6px;
   align-items: stretch;
+}
+
+.ant-color-picker-dropdown .ant-color-picker-format-select.ant-select {
+  width: 48px !important;
+  margin: 0 !important;
+}
+
+.ant-color-picker-dropdown .ant-color-picker-input {
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+.ant-color-picker-dropdown .ant-color-picker-steppers.ant-color-picker-alpha-input {
+  width: 56px !important;
+  min-width: 56px !important;
+  margin: 0 !important;
 }
 
 .ant-color-picker-dropdown .ant-input,
@@ -6130,15 +6149,10 @@ select.workbench-select:not(.ant-select) {
   font-size: 12px !important;
 }
 
-.ant-color-picker-dropdown .ant-color-picker-steppers.ant-color-picker-alpha-input {
-  flex: 0 0 64px !important;
-  min-width: 64px !important;
-}
-
 .ant-color-picker-dropdown .ant-color-picker-steppers.ant-input-number .ant-input-number-input {
   height: 22px !important;
   line-height: 22px !important;
-  padding: 0 4px !important;
+  padding: 0 3px !important;
 }
 
 .workbench-theme .ant-select-item,
