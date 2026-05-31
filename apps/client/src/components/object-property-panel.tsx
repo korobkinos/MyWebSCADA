@@ -2279,8 +2279,50 @@ function SpecificPropertyFields({
       { label: "beveledCrosshatch", value: "beveledCrosshatch" },
       { label: "beveledZigzag", value: "beveledZigzag" },
     ];
+    const applyCompoundPreset = (preset: "metal" | "warning" | "glass") => {
+      if (preset === "metal") {
+        onPatch({
+          fill: "#1f242a",
+          fillPatternStyle: "beveledHatchWide",
+          fillPatternColor: "#4f5a66",
+          stroke: "#a7b2bc",
+          strokeWidth: 7,
+          strokePatternStyle: "beveledCrosshatch",
+          strokePatternColor: "#f0c000",
+        } as Partial<HmiObject>);
+        return;
+      }
+      if (preset === "warning") {
+        onPatch({
+          fill: "#202020",
+          fillPatternStyle: "beveledHatchDense",
+          fillPatternColor: "#4a4a4a",
+          stroke: "#a8a8a8",
+          strokeWidth: 7,
+          strokePatternStyle: "beveledZigzag",
+          strokePatternColor: "#f2b400",
+        } as Partial<HmiObject>);
+        return;
+      }
+      onPatch({
+        fill: "#131c25",
+        fillPatternStyle: "beveledHatch",
+        fillPatternColor: "#3a6f93",
+        stroke: "#b8d8ea",
+        strokeWidth: 6,
+        strokePatternStyle: "beveledHatchWide",
+        strokePatternColor: "#90bddb",
+      } as Partial<HmiObject>);
+    };
     return (
       <>
+        <Form.Item label="Quick Preset">
+          <Space size={8} wrap>
+            <WorkbenchButton onClick={() => applyCompoundPreset("metal")}>Metal</WorkbenchButton>
+            <WorkbenchButton onClick={() => applyCompoundPreset("warning")}>Warning</WorkbenchButton>
+            <WorkbenchButton onClick={() => applyCompoundPreset("glass")}>Glass</WorkbenchButton>
+          </Space>
+        </Form.Item>
         <ColorField label="Fill Color" value={object.fill ?? ""} fallback="#262626" onChange={(next) => onPatch({ fill: next } as Partial<HmiObject>)} />
         <Form.Item label="Fill Style">
           <Select
