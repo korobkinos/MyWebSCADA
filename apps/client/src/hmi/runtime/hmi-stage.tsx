@@ -215,6 +215,9 @@ export function HmiStage({
     [currentUserRoleLevel, renderContext],
   );
   const stageScale = mode === "runtime" ? runtimeScale : 1;
+  const isEditorViewportBackground = mode === "editor" && screen.backgroundFillMode === "viewport";
+  const editorViewportBackground = screen.background ?? "#111111";
+  const screenRectFill = screen.background ?? "#1e1e1e";
   const stageWidth = mode === "editor"
     ? (screen.width + 2 * editorOffscreenPad) * effectiveEditorZoom
     : screen.width;
@@ -393,10 +396,7 @@ export function HmiStage({
         height: mode === "runtime" && fullscreenRuntime ? "100%" : undefined,
         overflow: mode === "editor" ? "visible" : (fullscreenRuntime ? "hidden" : "auto"),
         display: mode === "editor" ? "inline-block" : "block",
-        background:
-          mode === "editor" && screen.backgroundFillMode === "viewport"
-            ? (screen.background ?? "#111111")
-            : undefined,
+        background: isEditorViewportBackground ? editorViewportBackground : undefined,
         border: mode === "runtime" ? "none" : undefined,
         maxWidth: mode === "runtime" ? "100%" : undefined,
         maxHeight: mode === "runtime" ? "100%" : undefined,
@@ -421,7 +421,9 @@ export function HmiStage({
               scaleX={effectiveEditorZoom}
               scaleY={effectiveEditorZoom}
             >
-              <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screen.background ?? "#1e1e1e"} listening={false} />
+              {!isEditorViewportBackground ? (
+                <Rect x={0} y={0} width={screen.width} height={screen.height} fill={screenRectFill} listening={false} />
+              ) : null}
               {showEditorGrid && gridPatternImage ? (
                 <Rect
                   x={0}
