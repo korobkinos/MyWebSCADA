@@ -2672,41 +2672,56 @@ function ObjectNode({
       height: resolvedObject.height,
     });
     const switchShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
+    const handleSwitchClick = useCallback((evt: KonvaEventObject<MouseEvent>) => {
+      if (!isPrimaryPointerButton(evt.evt)) {
+        return;
+      }
+      if (interactive) {
+        onSelectObject?.({
+          objectId: resolvedObject.id,
+          additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+        });
+        return;
+      }
+      if (runtimeDisabled) {
+        return;
+      }
+      if (runtimeMode && runtimeSwitchTag?.missingIndexedTag) {
+        if (runtimeSwitchTag.indexedAddress) {
+          void message.warning(`Indexed tag not found: ${runtimeSwitchTag.indexedAddress}`);
+        }
+        return;
+      }
+      if (runtimeMode && !runtimeSwitchTag?.resolvedName) {
+        return;
+      }
+      onAction?.(
+        withActionRoleLevel({
+          type: "write",
+          tag: runtimeMode ? (runtimeSwitchTag?.resolvedName ?? resolvedObject.tag) : resolvedObject.tag,
+          value: !isOn,
+        }, resolvedObject.requiredActionRole),
+        withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
+      );
+    }, [
+      interactive,
+      onSelectObject,
+      resolvedObject.id,
+      resolvedObject.tag,
+      resolvedObject.requiredActionRole,
+      resolvedObject.name,
+      runtimeDisabled,
+      runtimeMode,
+      runtimeSwitchTag,
+      isOn,
+      onAction,
+      renderContext,
+    ]);
+
     return (
       <Group
         {...commonGroupProps}
-        onClick={(evt: KonvaEventObject<MouseEvent>) => {
-          if (!isPrimaryPointerButton(evt.evt)) {
-            return;
-          }
-          if (interactive) {
-            onSelectObject?.({
-              objectId: resolvedObject.id,
-              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
-            });
-            return;
-          }
-          if (runtimeDisabled) {
-            return;
-          }
-          if (runtimeMode && runtimeSwitchTag?.missingIndexedTag) {
-            if (runtimeSwitchTag.indexedAddress) {
-              void message.warning(`Indexed tag not found: ${runtimeSwitchTag.indexedAddress}`);
-            }
-            return;
-          }
-          if (runtimeMode && !runtimeSwitchTag?.resolvedName) {
-            return;
-          }
-          onAction?.(
-            withActionRoleLevel({
-              type: "write",
-              tag: runtimeMode ? (runtimeSwitchTag?.resolvedName ?? resolvedObject.tag) : resolvedObject.tag,
-              value: !isOn,
-            }, resolvedObject.requiredActionRole),
-            withRuntimeActionContext(renderContext, resolvedObject.id, performance.now(), resolvedObject.name),
-          );
-        }}
+        onClick={handleSwitchClick}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect
@@ -3885,97 +3900,121 @@ function ObjectNode({
           : (resolvedObject.placeholder ?? "---"));
     const numericInputShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
 
+    const handleNumericClick = useCallback((evt: KonvaEventObject<MouseEvent>) => {
+      if (!isPrimaryPointerButton(evt.evt)) {
+        return;
+      }
+      if (interactive) {
+        onSelectObject?.({
+          objectId: resolvedObject.id,
+          additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
+        });
+        return;
+      }
+      if (runtimeDisabled) {
+        return;
+      }
+      const targetTag = (numObjWriteTag?.trim() || numObjTag)?.trim();
+      if (!targetTag) {
+        return;
+      }
+      const sourceClientRect = (() => {
+        const stage = evt.currentTarget.getStage();
+        const containerRect = stage?.container().getBoundingClientRect();
+        const nodeRect = evt.currentTarget.getClientRect({ skipShadow: true, skipStroke: true });
+        if (!containerRect || !Number.isFinite(nodeRect.x) || !Number.isFinite(nodeRect.y)) {
+          return undefined;
+        }
+        return {
+          left: containerRect.left + nodeRect.x,
+          top: containerRect.top + nodeRect.y,
+          width: Math.max(1, nodeRect.width),
+          height: Math.max(1, nodeRect.height),
+        };
+      })();
+      onRequestNumericInput?.({
+        objectId: resolvedObject.id,
+        objectName: numObjName ?? "Numeric Input",
+        currentValue: Number.isFinite(rawNumValue) ? rawNumValue : 0,
+        min: resolvedObject.min,
+        max: resolvedObject.max,
+        step: resolvedObject.step,
+        decimals: resolvedObject.decimals,
+        formatMode: resolvedObject.formatMode,
+        formatPattern: resolvedObject.formatPattern,
+        unit: resolvedObject.unit,
+        backgroundColor: objBgColor,
+        textColor: objTextColor,
+        borderColor: objBorderColor,
+        fontFamily: objFontFamily,
+        fontSize: objFontSize,
+        writeTag: targetTag,
+        errorTag: numObjErrorTag,
+        requiredActionRole: numObjRequiredActionRole,
+        dialogTitle: resolvedObject.dialogTitle,
+        dialogWidth: resolvedObject.dialogWidth,
+        dialogHeight: resolvedObject.dialogHeight,
+        dialogPlacement: resolvedObject.dialogPlacement,
+        dialogOffset: resolvedObject.dialogOffset,
+        dialogX: resolvedObject.dialogX,
+        dialogY: resolvedObject.dialogY,
+        sourceClientRect,
+        dialogBackgroundColor: resolvedObject.dialogBackgroundColor,
+        dialogTextColor: resolvedObject.dialogTextColor,
+        dialogBorderColor: resolvedObject.dialogBorderColor,
+        dialogCloseButtonTextColor: resolvedObject.dialogCloseButtonTextColor,
+        dialogCloseButtonBackgroundColor: resolvedObject.dialogCloseButtonBackgroundColor,
+        dialogSetButtonTextColor: resolvedObject.dialogSetButtonTextColor,
+        dialogSetButtonBackgroundColor: resolvedObject.dialogSetButtonBackgroundColor,
+        dialogSetButtonBorderColor: resolvedObject.dialogSetButtonBorderColor,
+        showMeta: resolvedObject.showMeta,
+        stepButtonUseTextColor: resolvedObject.stepButtonUseTextColor,
+        stepButtonTextColor: resolvedObject.stepButtonTextColor,
+        stepButtonBackgroundColor: resolvedObject.stepButtonBackgroundColor,
+        badTextColor,
+        badBackgroundColor,
+        badBorderColor,
+        signalBad: numInputBad,
+        actionContext: withRuntimeActionContext(
+          renderContext,
+          resolvedObject.id,
+          performance.now(),
+          resolvedObject.name,
+          {
+            __operatorActionKind: "numericInput",
+            __operatorActionLogOnThisCommand: true,
+            __operatorActionClientOldValue: Number.isFinite(rawNumValue) ? rawNumValue : null,
+          },
+        ),
+      });
+    }, [
+      interactive,
+      onSelectObject,
+      resolvedObject,
+      runtimeDisabled,
+      numObjWriteTag,
+      numObjTag,
+      onRequestNumericInput,
+      numObjName,
+      numObjErrorTag,
+      numObjRequiredActionRole,
+      badTextColor,
+      badBackgroundColor,
+      badBorderColor,
+      numInputBad,
+      renderContext,
+      rawNumValue,
+      objBgColor,
+      objTextColor,
+      objBorderColor,
+      objFontFamily,
+      objFontSize,
+    ]);
+
     return (
       <Group
         {...commonGroupProps}
-        onClick={(evt: KonvaEventObject<MouseEvent>) => {
-          if (!isPrimaryPointerButton(evt.evt)) {
-            return;
-          }
-          if (interactive) {
-            onSelectObject?.({
-              objectId: resolvedObject.id,
-              additive: evt.evt.ctrlKey || evt.evt.metaKey || evt.evt.shiftKey,
-            });
-            return;
-          }
-          if (runtimeDisabled) {
-            return;
-          }
-          const targetTag = (numObjWriteTag?.trim() || numObjTag)?.trim();
-          if (!targetTag) {
-            return;
-          }
-          const sourceClientRect = (() => {
-            const stage = evt.currentTarget.getStage();
-            const containerRect = stage?.container().getBoundingClientRect();
-            const nodeRect = evt.currentTarget.getClientRect({ skipShadow: true, skipStroke: true });
-            if (!containerRect || !Number.isFinite(nodeRect.x) || !Number.isFinite(nodeRect.y)) {
-              return undefined;
-            }
-            return {
-              left: containerRect.left + nodeRect.x,
-              top: containerRect.top + nodeRect.y,
-              width: Math.max(1, nodeRect.width),
-              height: Math.max(1, nodeRect.height),
-            };
-          })();
-          onRequestNumericInput?.({
-            objectId: resolvedObject.id,
-            objectName: numObjName ?? "Numeric Input",
-            currentValue: Number.isFinite(rawNumValue) ? rawNumValue : 0,
-            min: resolvedObject.min,
-            max: resolvedObject.max,
-            step: resolvedObject.step,
-            decimals: resolvedObject.decimals,
-            formatMode: resolvedObject.formatMode,
-            formatPattern: resolvedObject.formatPattern,
-            unit: resolvedObject.unit,
-            backgroundColor: objBgColor,
-            textColor: objTextColor,
-            borderColor: objBorderColor,
-            fontFamily: objFontFamily,
-            fontSize: objFontSize,
-            writeTag: targetTag,
-            errorTag: numObjErrorTag,
-            requiredActionRole: numObjRequiredActionRole,
-            dialogTitle: resolvedObject.dialogTitle,
-            dialogWidth: resolvedObject.dialogWidth,
-            dialogHeight: resolvedObject.dialogHeight,
-            dialogPlacement: resolvedObject.dialogPlacement,
-            dialogOffset: resolvedObject.dialogOffset,
-            dialogX: resolvedObject.dialogX,
-            dialogY: resolvedObject.dialogY,
-            sourceClientRect,
-            dialogBackgroundColor: resolvedObject.dialogBackgroundColor,
-            dialogTextColor: resolvedObject.dialogTextColor,
-            dialogBorderColor: resolvedObject.dialogBorderColor,
-            dialogCloseButtonTextColor: resolvedObject.dialogCloseButtonTextColor,
-            dialogCloseButtonBackgroundColor: resolvedObject.dialogCloseButtonBackgroundColor,
-            dialogSetButtonTextColor: resolvedObject.dialogSetButtonTextColor,
-            dialogSetButtonBackgroundColor: resolvedObject.dialogSetButtonBackgroundColor,
-            dialogSetButtonBorderColor: resolvedObject.dialogSetButtonBorderColor,
-            showMeta: resolvedObject.showMeta,
-            stepButtonUseTextColor: resolvedObject.stepButtonUseTextColor,
-            stepButtonTextColor: resolvedObject.stepButtonTextColor,
-            stepButtonBackgroundColor: resolvedObject.stepButtonBackgroundColor,
-            badTextColor,
-            badBackgroundColor,
-            badBorderColor,
-            signalBad: numInputBad,
-            actionContext: withRuntimeActionContext(
-              renderContext,
-              resolvedObject.id,
-              performance.now(),
-              resolvedObject.name,
-              {
-                __operatorActionKind: "numericInput",
-                __operatorActionLogOnThisCommand: true,
-                __operatorActionClientOldValue: Number.isFinite(rawNumValue) ? rawNumValue : null,
-              },
-            ),
-          });
-        }}
+        onClick={handleNumericClick}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
         <Rect

@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-05-29T11:51:12.133Z",
+  "updatedAt": "2026-06-01T06:39:00.285Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -331,10 +331,36 @@
               ]
             }
           ]
+        },
+        {
+          "id": "rule_drb6q2",
+          "name": "move",
+          "source": {
+            "type": "tag",
+            "value": "$binding.move"
+          },
+          "cases": [
+            {
+              "id": "case_kira9o",
+              "name": "when",
+              "condition": {
+                "type": "equals",
+                "value": true
+              },
+              "actions": [
+                {
+                  "type": "setProperty",
+                  "objectId": "circle_0t1zhr",
+                  "property": "fill",
+                  "value": "#80ff00"
+                }
+              ]
+            }
+          ]
         }
       ],
       "createdAt": "2026-05-29T11:38:19.997Z",
-      "updatedAt": "2026-05-29T11:51:12.133Z"
+      "updatedAt": "2026-06-01T06:39:00.284Z"
     }
   ],
   "macros": []

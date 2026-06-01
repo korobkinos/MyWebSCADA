@@ -9336,6 +9336,50 @@
       "scanRateMs": 500,
       "createdAt": "2026-05-31T19:05:38.806Z",
       "updatedAt": "2026-05-31T19:44:08.477Z"
+    },
+    {
+      "id": "tag_srh2n1",
+      "name": "valve_status",
+      "sourceType": "internal",
+      "dataType": "BOOL",
+      "internalVariableName": "valve_status",
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-06-01T06:32:00.672Z",
+      "updatedAt": "2026-06-01T06:32:00.672Z"
+    },
+    {
+      "id": "tag_6chcv7",
+      "name": "valve_error",
+      "sourceType": "internal",
+      "dataType": "BOOL",
+      "internalVariableName": "valve_error",
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-06-01T06:32:16.512Z",
+      "updatedAt": "2026-06-01T06:32:16.512Z"
+    },
+    {
+      "id": "tag_ei670g",
+      "name": "valve_move",
+      "sourceType": "internal",
+      "dataType": "BOOL",
+      "internalVariableName": "valve_move",
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-06-01T06:36:07.568Z",
+      "updatedAt": "2026-06-01T06:36:07.568Z"
+    },
+    {
+      "id": "tag_vxjrp9",
+      "name": "xxxxxxxx",
+      "sourceType": "internal",
+      "dataType": "BOOL",
+      "internalVariableName": "xxxxxxxx",
+      "writable": true,
+      "scanRateMs": 500,
+      "createdAt": "2026-06-01T06:55:40.018Z",
+      "updatedAt": "2026-06-01T06:55:40.018Z"
     }
   ],
   "events": [
@@ -9828,7 +9872,7 @@
           "id": "frame_8gc62r",
           "type": "frame",
           "x": -1.4544462532680313,
-          "y": 60.657456703818184,
+          "y": 59.047150751239656,
           "width": 1908.3017298838251,
           "height": 793.7053994189314,
           "rotation": 0,
@@ -10214,6 +10258,72 @@
       "background": "#767676",
       "objects": [
         {
+          "id": "compound_qdf8el",
+          "type": "compoundShape",
+          "name": "Merged Shape",
+          "x": 970.5552068166594,
+          "y": 95.49846995092713,
+          "width": 778.1483011161881,
+          "height": 619.7558684444805,
+          "rotation": 0,
+          "visible": true,
+          "locked": false,
+          "opacity": 0.96,
+          "shadowEnabled": true,
+          "shadowDistance": 10,
+          "minWidth": 8,
+          "minHeight": 8,
+          "parts": [
+            {
+              "points": [
+                0,
+                0,
+                417.62820922122546,
+                0,
+                417.62820922122546,
+                69.64538998465923,
+                558.1955842156065,
+                69.64538998465923,
+                558.1955842156065,
+                132.4822692385966,
+                637.5809261218071,
+                132.4822692385966,
+                637.5809261218071,
+                202.12765922325582,
+                778.1483011161881,
+                202.12765922325582,
+                778.1483011161881,
+                619.7558684444805,
+                360.52009189496266,
+                619.7558684444805,
+                360.52009189496266,
+                550.1104784598213,
+                219.95271690058166,
+                550.1104784598213,
+                219.95271690058166,
+                487.27359920588384,
+                140.567374994381,
+                487.27359920588384,
+                140.567374994381,
+                417.6282092212246,
+                0,
+                417.6282092212246
+              ],
+              "closed": true
+            }
+          ],
+          "fill": "#202020",
+          "fillPatternStyle": "beveledHatchDense",
+          "fillPatternColor": "#4a4a4a",
+          "stroke": "#a8a8a8",
+          "strokeWidth": 7,
+          "strokePatternStyle": "beveledZigzag",
+          "strokePatternColor": "#f2b400",
+          "lineCap": "round",
+          "lineJoin": "round",
+          "fillRule": "nonzero"
+        },
+        {
           "id": "group_d0lxzq",
           "type": "group",
           "x": 920.5254389971133,
@@ -10327,8 +10437,8 @@
         {
           "id": "lib_7tkqgb",
           "type": "libraryElementInstance",
-          "x": 464.33368344333036,
-          "y": 213.76821657224835,
+          "x": 596.5777791549249,
+          "y": 294.5441605790794,
           "width": 60,
           "height": 63.24838952070066,
           "rotation": 0,
@@ -10338,7 +10448,7 @@
           "elementId": "element_2fgm3j",
           "bindingAssignments": {
             "left": {
-              "baseTag": "Counter",
+              "baseTag": "valve_status",
               "prefixMode": {
                 "type": "none"
               },
@@ -10347,7 +10457,7 @@
               }
             },
             "right": {
-              "baseTag": "",
+              "baseTag": "valve_status",
               "prefixMode": {
                 "type": "none"
               },
@@ -10356,7 +10466,7 @@
               }
             },
             "move": {
-              "baseTag": "",
+              "baseTag": "valve_move",
               "prefixMode": {
                 "type": "none"
               },
@@ -10365,7 +10475,7 @@
               }
             },
             "error": {
-              "baseTag": "",
+              "baseTag": "valve_error",
               "prefixMode": {
                 "type": "none"
               },
@@ -10377,58 +10487,10 @@
           "scaleMode": "fit"
         },
         {
-          "id": "compound_q36c79",
-          "type": "compoundShape",
-          "name": "Merged Shape",
-          "x": 1187.3649257456862,
-          "y": -2.7546171269266893,
-          "width": 426.9535091282231,
-          "height": 387.006769224661,
-          "rotation": 0,
-          "visible": true,
-          "locked": false,
-          "opacity": 0.94,
-          "minWidth": 8,
-          "minHeight": 8,
-          "parts": [
-            {
-              "points": [
-                0,
-                0,
-                284.4501735960347,
-                0,
-                284.4501735960347,
-                102.55659562862638,
-                426.9535091282231,
-                102.55659562862638,
-                426.9535091282231,
-                387.006769224661,
-                142.50333553218832,
-                387.006769224661,
-                142.50333553218832,
-                284.45017359603463,
-                0,
-                284.45017359603463
-              ],
-              "closed": true
-            }
-          ],
-          "fill": "#1f242a",
-          "fillPatternStyle": "beveledHatchWide",
-          "fillPatternColor": "#4f5a66",
-          "stroke": "#a7b2bc",
-          "strokeWidth": 7,
-          "strokePatternStyle": "beveledCrosshatch",
-          "strokePatternColor": "#f0c000",
-          "lineCap": "round",
-          "lineJoin": "round",
-          "fillRule": "nonzero"
-        },
-        {
           "id": "nmin_mo9h9c",
           "type": "numeric-input",
-          "x": 1217.2735707602028,
-          "y": 147.26048885643664,
+          "x": 182.9946186025229,
+          "y": 446.3148618592659,
           "width": 172.74108851828498,
           "height": 49.268895935803876,
           "rotation": 0,
@@ -10480,10 +10542,10 @@
           "id": "text_znkqsa",
           "type": "text",
           "name": "",
-          "x": 745.3418002106882,
-          "y": 281.8568754629562,
-          "width": 180,
-          "height": 82.64380443425725,
+          "x": 1604.9381368508975,
+          "y": 311.2608274083014,
+          "width": 113.90819564011227,
+          "height": 52.88960794502084,
           "rotation": 0,
           "minWidth": 60,
           "minHeight": 24,
@@ -10502,8 +10564,8 @@
         {
           "id": "val_hzndqo",
           "type": "value-display",
-          "x": 536.8508344274211,
-          "y": 384.74314554367976,
+          "x": 1093.9087762695397,
+          "y": 111.06382363219694,
           "width": 246.2983414074791,
           "height": 39.99999999999999,
           "rotation": 0,
@@ -10518,6 +10580,146 @@
             "fontStyle": "normal",
             "color": "#ffd666",
             "horizontalAlign": "right",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "switch_cqwhqi",
+          "type": "switch",
+          "x": 262.0709928006281,
+          "y": 51.69119169627339,
+          "width": 130,
+          "height": 44,
+          "minWidth": 70,
+          "minHeight": 28,
+          "tag": "valve_status",
+          "onText": "STA ON",
+          "offText": "STA OFF",
+          "onColor": "#389e0d",
+          "offColor": "#434343",
+          "borderColor": "#595959",
+          "borderWidth": 1,
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "switch_k2c5iq",
+          "type": "switch",
+          "x": 411.7742684678414,
+          "y": 51.69119169627339,
+          "width": 130,
+          "height": 44,
+          "minWidth": 70,
+          "minHeight": 28,
+          "tag": "valve_error",
+          "onText": "ERR ON",
+          "offText": "ERR OFF",
+          "onColor": "#389e0d",
+          "offColor": "#434343",
+          "borderColor": "#595959",
+          "borderWidth": 1,
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "switch_fh7c6j",
+          "type": "switch",
+          "x": 561.4775441350547,
+          "y": 51.69119169627339,
+          "width": 130,
+          "height": 44,
+          "minWidth": 70,
+          "minHeight": 28,
+          "tag": "valve_move",
+          "onText": "MOVE ON",
+          "offText": "MOVE OFF",
+          "onColor": "#389e0d",
+          "offColor": "#434343",
+          "borderColor": "#595959",
+          "borderWidth": 1,
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "switch_6dw3q7",
+          "type": "switch",
+          "x": 74.99293635687934,
+          "y": 207.58633283534306,
+          "width": 130,
+          "height": 44,
+          "minWidth": 70,
+          "minHeight": 28,
+          "tag": "valve_move",
+          "onText": "MOVE ON",
+          "offText": "MOVE OFF",
+          "onColor": "#389e0d",
+          "offColor": "#434343",
+          "borderColor": "#595959",
+          "borderWidth": 1,
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
+        },
+        {
+          "id": "switch_n1mwmi",
+          "type": "switch",
+          "x": 241.12581542228065,
+          "y": 334.821922345884,
+          "width": 130,
+          "height": 44,
+          "minWidth": 70,
+          "minHeight": 28,
+          "tag": "xxxxxxxx",
+          "onText": "ON",
+          "offText": "OFF",
+          "onColor": "#389e0d",
+          "offColor": "#434343",
+          "borderColor": "#595959",
+          "borderWidth": 1,
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
             "verticalAlign": "middle",
             "padding": 4
           }
