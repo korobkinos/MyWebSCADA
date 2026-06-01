@@ -773,7 +773,7 @@ function resolveShadowOffset(direction: ShadowDirection, distance: number): { x:
 }
 
 function resolveShapeShadowProps(object: HmiObject, options?: { disabled?: boolean }): Record<string, unknown> {
-  if (options?.disabled || !(object.shadowEnabled ?? false)) {
+  if (options?.disabled || object.type === "libraryElementInstance" || !(object.shadowEnabled ?? false)) {
     return {};
   }
   const shadowColor = object.shadowColor ?? "#000000";
@@ -5104,7 +5104,6 @@ function LibraryInstanceNodeResolved({
   element: LibraryElement;
   stackKey: string;
 }) {
-  const libraryInstanceShadowProps = resolveShapeShadowProps(object, { disabled: shadowDisabled });
   const instanceParams = toResolvedParameterMap(element, object.parameterValues);
   const mergedParameters = useMemo(
     () => ({
@@ -5192,7 +5191,6 @@ function LibraryInstanceNodeResolved({
   return (
     <Group
       {...commonGroupProps}
-      {...libraryInstanceShadowProps}
       onClick={(event) => {
         if (!isPrimaryPointerButton(event.evt)) {
           return;
