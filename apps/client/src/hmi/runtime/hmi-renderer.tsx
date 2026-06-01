@@ -2196,9 +2196,11 @@ function ObjectNode({
       : undefined;
     const rawTextValue = textTag?.value?.value;
     const hasTextTag = Boolean(resolvedObject.tag?.trim());
-    const renderedText = hasTextTag
-      ? (rawTextValue == null ? (resolvedObject.text ?? "") : String(rawTextValue))
-      : resolvedObject.text;
+    const renderedText = !runtimeMode
+      ? (hasTextTag ? (resolvedObject.tag?.trim() ?? "") : (resolvedObject.text ?? ""))
+      : hasTextTag
+        ? (rawTextValue == null ? (resolvedObject.text ?? "") : String(rawTextValue))
+        : (resolvedObject.text ?? "");
     const textShadowProps = resolveShapeShadowProps(resolvedObject, { disabled: effectiveShadowDisabled });
     const textShadowSettings = resolveShadowSettings(resolvedObject);
     const shadowTextStyle: TextStyle = {
