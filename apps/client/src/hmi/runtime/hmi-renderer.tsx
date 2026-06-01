@@ -1845,8 +1845,12 @@ function ObjectNode({
     opacity: resolvedObject.opacity ?? 1,
     visible: (resolvedObject.visible ?? true) && visibleByRole,
     draggable: interactive && !resolvedObject.locked,
-    onDragStart: () => {
+    onDragStart: (evt: KonvaEventObject<DragEvent>) => {
       if (mode === "editor" && interactive && !resolvedObject.locked) {
+        const node = evt.target as Konva.Node;
+        if (!node.isCached()) {
+          node.cache();
+        }
         setIsDragging(true);
       }
     },
@@ -1881,6 +1885,10 @@ function ObjectNode({
     onDragEnd: (evt: KonvaEventObject<DragEvent>) => {
       setIsDragging(false);
       if (interactive && !resolvedObject.locked) {
+        const node = evt.target as Konva.Node;
+        if (node.isCached()) {
+          node.clearCache();
+        }
         onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
         onCommitObjectMove?.();
       }
@@ -6161,7 +6169,6 @@ function renderBoxText(
   },
 ) {
   const padding = textStyle.padding ?? 0;
-  const hasShadowProps = Boolean(options.shadowProps && Object.keys(options.shadowProps).length > 0);
   return (
     <Text
       x={padding + (options.xOffset ?? 0)}
@@ -6179,7 +6186,7 @@ function renderBoxText(
       fontStyle={textStyle.fontStyle ?? "normal"}
       opacity={options.opacity ?? 1}
       listening={false}
-      perfectDrawEnabled={hasShadowProps ? false : undefined}
+      perfectDrawEnabled={false}
       {...(options.shadowProps ?? {})}
     />
   );
