@@ -1333,6 +1333,7 @@ function ObjectNode({
   const rotationLastFrameRef = useRef<number | null>(null);
   const flowAnimationLastFrameRef = useRef<number | null>(null);
   const effectiveShadowDisabled = shadowDisabled || (mode === "editor" && isDragging);
+  const editorVisualListening = interactive ? false : undefined;
   const debugPerformance =
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
@@ -2582,6 +2583,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? "#6f6f6f" : "#595959"}
           cornerRadius={4}
           opacity={runtimeDisabled ? 0.7 : 1}
+          listening={editorVisualListening}
           perfectDrawEnabled={false}
           {...valueInputShadowProps}
         />
@@ -2732,6 +2734,7 @@ function ObjectNode({
           strokeWidth={resolvedObject.borderWidth ?? 0}
           cornerRadius={8}
           opacity={runtimeDisabled ? 0.65 : 1}
+          listening={editorVisualListening}
           perfectDrawEnabled={false}
           {...switchShadowProps}
         />
@@ -2800,6 +2803,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? "#707070" : "#5b6b7c"}
           cornerRadius={6}
           opacity={runtimeDisabled ? 0.65 : 1}
+          listening={editorVisualListening}
           perfectDrawEnabled={false}
           {...valueSelectShadowProps}
         />
@@ -3154,6 +3158,7 @@ function ObjectNode({
           stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : isChecked ? fillColor : HMI_CONTROL_COLORS.border}
           strokeWidth={1.5}
           cornerRadius={3}
+          listening={editorVisualListening}
           perfectDrawEnabled={false}
           {...checkboxShadowProps}
         />
@@ -3169,6 +3174,7 @@ function ObjectNode({
               stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : HMI_CONTROL_COLORS.textStrong}
               strokeWidth={2}
               lineCap="round"
+              listening={editorVisualListening}
             />
             <Line
               points={[
@@ -3180,6 +3186,7 @@ function ObjectNode({
               stroke={runtimeDisabled ? HMI_CONTROL_COLORS.disabled : HMI_CONTROL_COLORS.textStrong}
               strokeWidth={2}
               lineCap="round"
+              listening={editorVisualListening}
             />
           </>
         ) : null}
@@ -3531,6 +3538,7 @@ function ObjectNode({
           strokeWidth={selectBorderWidth}
           cornerRadius={selectCornerRadius}
           opacity={runtimeDisabled ? 0.65 : 1}
+          listening={editorVisualListening}
           perfectDrawEnabled={false}
           {...selectShadowProps}
         />
@@ -3716,6 +3724,7 @@ function ObjectNode({
           strokeWidth={borderWidth}
           cornerRadius={cornerRadius}
           opacity={runtimeDisabled ? 0.7 : 1}
+          listening={editorVisualListening}
           perfectDrawEnabled={false}
           {...radioShadowProps}
         />
@@ -3749,6 +3758,7 @@ function ObjectNode({
                 stroke={styleMode === "card" ? renderBorder : "transparent"}
                 strokeWidth={styleMode === "card" ? borderWidth : 0}
                 cornerRadius={Math.max(0, cornerRadius - 1)}
+                listening={editorVisualListening}
               />
               {renderBoxText(opt.label, {
                 fontFamily,
@@ -4025,6 +4035,7 @@ function ObjectNode({
           strokeWidth={objBorderWidth}
           cornerRadius={objCornerRadius}
           opacity={runtimeDisabled ? 0.55 : 1}
+          listening={editorVisualListening}
           perfectDrawEnabled={false}
           {...numericInputShadowProps}
         />
@@ -4081,6 +4092,7 @@ function SliderObjectNode({
   triggerObjectMacroEvent,
 }: SliderObjectNodeProps) {
   const [sliderIsDragging, setSliderIsDragging] = useState(false);
+  const editorVisualListening = interactive ? false : undefined;
   const sliderTag = runtimeMode ? resolveTagValue(resolvedObject.tag, { useObjectIndexing: true, fieldName: "tag" }) : undefined;
   const sliderBad = runtimeMode && Boolean(
     sliderTag?.missingBindingReference
@@ -4435,6 +4447,7 @@ function SliderObjectNode({
         strokeWidth={sliderBorderWidth}
         cornerRadius={sliderCornerRadius}
         opacity={runtimeDisabled ? 0.7 : 1}
+        listening={editorVisualListening}
         perfectDrawEnabled={false}
         {...sliderShadowProps}
       />
@@ -4447,6 +4460,7 @@ function SliderObjectNode({
             height={Math.max(0, resolvedObject.height - sliderThumbRadius * 2)}
             fill={renderTrackColor}
             cornerRadius={sliderTrackThickness / 2}
+            listening={editorVisualListening}
           />
           <Rect
             x={resolvedObject.width * 0.5 - sliderTrackThickness / 2}
@@ -4455,6 +4469,7 @@ function SliderObjectNode({
             height={Math.max(0, (resolvedObject.height - sliderThumbRadius * 2) * sliderRenderRatio)}
             fill={renderFillColor}
             cornerRadius={sliderTrackThickness / 2}
+            listening={editorVisualListening}
           />
           <Circle
             x={thumbCenterX}
@@ -4463,6 +4478,7 @@ function SliderObjectNode({
             fill={renderThumbColor}
             stroke={sliderThumbBorderColor}
             strokeWidth={1}
+            listening={editorVisualListening}
             perfectDrawEnabled={false}
             {...sliderShadowProps}
           />
@@ -4476,6 +4492,7 @@ function SliderObjectNode({
             height={sliderTrackThickness}
             fill={renderTrackColor}
             cornerRadius={sliderTrackThickness / 2}
+            listening={editorVisualListening}
           />
           <Rect
             x={sliderThumbRadius}
@@ -4484,6 +4501,7 @@ function SliderObjectNode({
             height={sliderTrackThickness}
             fill={renderFillColor}
             cornerRadius={sliderTrackThickness / 2}
+            listening={editorVisualListening}
           />
           <Circle
             x={thumbCenterX}
@@ -4492,6 +4510,7 @@ function SliderObjectNode({
             fill={renderThumbColor}
             stroke={sliderThumbBorderColor}
             strokeWidth={1}
+            listening={editorVisualListening}
             perfectDrawEnabled={false}
             {...sliderShadowProps}
           />
@@ -4544,6 +4563,7 @@ function SliderObjectNode({
           fill={renderThumbColor}
           stroke={sliderThumbBorderColor}
           strokeWidth={1.5}
+          listening={editorVisualListening}
           perfectDrawEnabled={false}
         />
       ) : null}
