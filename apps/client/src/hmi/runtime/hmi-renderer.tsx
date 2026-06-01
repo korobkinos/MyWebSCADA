@@ -816,6 +816,51 @@ function resolveShadowSettings(object: HmiObject): {
   };
 }
 
+function applyLibraryInstanceShadowToObjects(
+  objects: HmiObject[],
+  instanceObject: LibraryElementInstanceObject,
+): HmiObject[] {
+  const shadowEnabled = instanceObject.shadowEnabled ?? false;
+  const shadowColor = instanceObject.shadowColor ?? "#000000";
+  const shadowOpacity = Math.max(0, Math.min(1, instanceObject.shadowOpacity ?? 0.35));
+  const shadowBlur = Math.max(0, instanceObject.shadowBlur ?? 8);
+  const shadowDistance = Math.max(0, instanceObject.shadowDistance ?? 4);
+  const shadowDirection = (instanceObject.shadowDirection ?? "bottom-right") as ShadowDirection;
+
+  const patchObject = (object: HmiObject): HmiObject => {
+    if (object.type === "group") {
+      const nextChildren = object.objects.map(patchObject);
+      const childrenChanged = nextChildren.some((child, index) => child !== object.objects[index]);
+      return childrenChanged ? { ...object, objects: nextChildren } : object;
+    }
+    if (object.type === "frame") {
+      return object;
+    }
+    if (
+      object.shadowEnabled === shadowEnabled
+      && object.shadowColor === shadowColor
+      && object.shadowOpacity === shadowOpacity
+      && object.shadowBlur === shadowBlur
+      && object.shadowDistance === shadowDistance
+      && (object.shadowDirection ?? "bottom-right") === shadowDirection
+    ) {
+      return object;
+    }
+    return {
+      ...object,
+      shadowEnabled,
+      shadowColor,
+      shadowOpacity,
+      shadowBlur,
+      shadowDistance,
+      shadowDirection,
+    };
+  };
+
+  const nextObjects = objects.map(patchObject);
+  return nextObjects.some((item, index) => item !== objects[index]) ? nextObjects : objects;
+}
+
 type TagMap = Record<string, TagValue>;
 type ResolvedTagValue = {
   resolvedName?: string;
@@ -5147,6 +5192,19 @@ function LibraryInstanceNodeResolved({
       : element.objects),
     [context, element.objects, element.stateRules, mode, tags],
   );
+  const resolvedObjectsWithInstanceShadow = useMemo(
+    () => applyLibraryInstanceShadowToObjects(resolvedObjects, object),
+    [
+      object,
+      object.shadowBlur,
+      object.shadowColor,
+      object.shadowDirection,
+      object.shadowDistance,
+      object.shadowEnabled,
+      object.shadowOpacity,
+      resolvedObjects,
+    ],
+  );
 
   const childScale = computeFrameScale(object.scaleMode ?? "fit", object.width, object.height, element.width, element.height);
   const scopedAssets = toAssetMap(library.assets);
@@ -5158,7 +5216,7 @@ function LibraryInstanceNodeResolved({
     width: element.width,
     height: element.height,
     background: "transparent",
-    objects: resolvedObjects,
+    objects: resolvedObjectsWithInstanceShadow,
   };
 
   useEffect(() => {

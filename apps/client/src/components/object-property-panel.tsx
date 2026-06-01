@@ -1561,6 +1561,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     onPatch({ textStyle: { ...object.textStyle, ...patch } } as Partial<HmiObject>);
   };
   const supportsRotationAnimation = ROTATION_ANIMATION_SUPPORTED_TYPES.has(object.type);
+  const supportsShadowEffects = true;
 
   const generalContent = (
     <>
@@ -1645,13 +1646,17 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     <>
       <Space style={{ marginBottom: 8 }}>
         <span>Enable Shadow</span>
-        <Switch checked={object.shadowEnabled ?? false} onChange={(checked) => onPatch({ shadowEnabled: checked } as Partial<HmiObject>)} />
+        <Switch
+          checked={supportsShadowEffects && (object.shadowEnabled ?? false)}
+          disabled={!supportsShadowEffects}
+          onChange={(checked) => onPatch({ shadowEnabled: checked } as Partial<HmiObject>)}
+        />
       </Space>
       <ColorField
         label="Shadow Color"
         value={object.shadowColor ?? "#000000"}
         fallback="#000000"
-        disabled={!(object.shadowEnabled ?? false)}
+        disabled={!supportsShadowEffects || !(object.shadowEnabled ?? false)}
         onChange={(next) => onPatch({ shadowColor: next } as Partial<HmiObject>)}
       />
       <Form.Item label="Shadow Opacity (0..1)">
@@ -1660,7 +1665,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           min={0}
           max={1}
           step={0.05}
-          disabled={!(object.shadowEnabled ?? false)}
+          disabled={!supportsShadowEffects || !(object.shadowEnabled ?? false)}
           value={object.shadowOpacity ?? 0.35}
           onChange={(value) => onPatch({ shadowOpacity: clampOpacity(value) } as Partial<HmiObject>)}
         />
@@ -1670,7 +1675,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           style={{ width: "100%" }}
           min={0}
           max={100}
-          disabled={!(object.shadowEnabled ?? false)}
+          disabled={!supportsShadowEffects || !(object.shadowEnabled ?? false)}
           value={object.shadowBlur ?? 8}
           onChange={(value) => onPatch({ shadowBlur: Math.max(0, Number(value ?? 8)) } as Partial<HmiObject>)}
         />
@@ -1680,14 +1685,14 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           style={{ width: "100%" }}
           min={0}
           max={100}
-          disabled={!(object.shadowEnabled ?? false)}
+          disabled={!supportsShadowEffects || !(object.shadowEnabled ?? false)}
           value={object.shadowDistance ?? 4}
           onChange={(value) => onPatch({ shadowDistance: Math.max(0, Number(value ?? 4)) } as Partial<HmiObject>)}
         />
       </Form.Item>
       <Form.Item label="Shadow Direction">
         <Select
-          disabled={!(object.shadowEnabled ?? false)}
+          disabled={!supportsShadowEffects || !(object.shadowEnabled ?? false)}
           value={object.shadowDirection ?? "bottom-right"}
           options={shadowDirectionOptions.map((item) => ({ label: item.label, value: item.value }))}
           onChange={(value) => onPatch({ shadowDirection: value } as Partial<HmiObject>)}
