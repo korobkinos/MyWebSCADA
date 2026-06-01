@@ -179,6 +179,7 @@ export class WebSocketGateway {
         return;
       }
 
+      const previousTags = this.subscriptions.get(client) ?? new Set<string>();
       const nextTags = new Set<string>();
       for (const item of parsed.payload.tags) {
         const trimmed = item.trim();
@@ -188,6 +189,10 @@ export class WebSocketGateway {
       }
       this.subscriptions.set(client, nextTags);
       this.syncRuntimeSubscriptions();
+      const addedTags = [...nextTags].filter((tagName) => !previousTags.has(tagName));
+      if (addedTags.length > 0) {
+        this.sendCurrentTagValuesToClient(client, addedTags);
+      }
     } catch {
       // ignore invalid client payloads
     }
@@ -258,5 +263,46 @@ export class WebSocketGateway {
         client.send(serialized);
       }
     }
+  }
+
+  private sendCurrentTagValuesToClient(client: WebSocket, tagNames: string[]): void {
+    if (client.readyState !== client.OPEN || tagNames.length === 0) {
+      return;
+    }
+    const updates: TagValue[] = [];
+    for (const tagName of tagNames) {
+      const value = this.tagStore.getValue(tagName);
+      if (value) {
+        updates.push(value);
+      }
+    }
+    if (updates.length === 0) {
+      return;
+    }
+    const message: RuntimeWsServerMessage =
+      updates.length === 1
+        ? {
+            type: "tag-update",
+            payload: {
+              name: updates[0].name,
+              value: updates[0].value,
+              quality: updates[0].quality,
+              timestamp: updates[0].timestamp,
+              source: updates[0].source,
+            },
+          }
+        : {
+            type: "tag-batch",
+            payload: {
+              updates: updates.map((item) => ({
+                name: item.name,
+                value: item.value,
+                quality: item.quality,
+                timestamp: item.timestamp,
+                source: item.source,
+              })),
+            },
+          };
+    client.send(JSON.stringify(message));
   }
 }

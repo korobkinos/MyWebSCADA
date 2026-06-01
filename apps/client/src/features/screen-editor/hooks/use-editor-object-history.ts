@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { HmiObject, HmiScreen } from "@web-scada/shared";
 import { message } from "antd";
 import { useSnapshotHistory } from "../../../hooks/use-snapshot-history";
@@ -45,6 +45,8 @@ export function useEditorObjectHistory({
 }: UseEditorObjectHistoryParams) {
   const history = useSnapshotHistory<HmiObject[]>({ maxSteps: 50 });
   const dragMoveSnapshotRef = useRef<HmiObject[] | null>(null);
+  const liveMoveFrameRef = useRef<number | null>(null);
+  const pendingLiveMoveRef = useRef<{ objectId: string; x: number; y: number } | null>(null);
 
   const captureObjects = useCallback((): HmiObject[] => structuredClone(screen?.objects ?? []), [screen?.objects]);
 
@@ -163,52 +165,84 @@ export function useEditorObjectHistory({
     [moveObject, runWithHistory, screen, selection.selectedObjectIds, setScreenObjects],
   );
 
+  const flushPendingLiveMove = useCallback(() => {
+    const pending = pendingLiveMoveRef.current;
+    pendingLiveMoveRef.current = null;
+    if (!pending || !screen) {
+      return;
+    }
+    const { objectId, x, y } = pending;
+    const dragged = screen.objects.find((item) => item.id === objectId);
+    if (!dragged || dragged.locked) {
+      return;
+    }
+    if (!dragMoveSnapshotRef.current) {
+      dragMoveSnapshotRef.current = captureObjects();
+    }
+
+    const selectedIdSet = new Set(selection.selectedObjectIds);
+    const selectedUnlockedIds = screen.objects
+      .filter((item) => selectedIdSet.has(item.id) && !item.locked)
+      .map((item) => item.id);
+    const isGroupMove = selectedUnlockedIds.length > 1 && selectedIdSet.has(objectId);
+
+    if (!isGroupMove) {
+      moveObject(screen.id, objectId, x, y);
+      return;
+    }
+
+    const dx = x - dragged.x;
+    const dy = y - dragged.y;
+    if (dx === 0 && dy === 0) {
+      return;
+    }
+    const movingIdSet = new Set(selectedUnlockedIds);
+    const next = screen.objects.map((item) => {
+      if (!movingIdSet.has(item.id)) {
+        return item;
+      }
+      return {
+        ...item,
+        x: item.x + dx,
+        y: item.y + dy,
+      };
+    });
+    setScreenObjects(screen.id, next);
+  }, [captureObjects, moveObject, screen, selection.selectedObjectIds, setScreenObjects]);
+
+  useEffect(() => {
+    return () => {
+      if (liveMoveFrameRef.current !== null) {
+        window.cancelAnimationFrame(liveMoveFrameRef.current);
+        liveMoveFrameRef.current = null;
+      }
+      pendingLiveMoveRef.current = null;
+    };
+  }, []);
+
   const moveObjectLive = useCallback(
     (objectId: string, x: number, y: number) => {
       if (!screen) {
         return;
       }
-      const dragged = screen.objects.find((item) => item.id === objectId);
-      if (!dragged || dragged.locked) {
+      pendingLiveMoveRef.current = { objectId, x, y };
+      if (liveMoveFrameRef.current !== null) {
         return;
       }
-      if (!dragMoveSnapshotRef.current) {
-        dragMoveSnapshotRef.current = captureObjects();
-      }
-
-      const selectedIdSet = new Set(selection.selectedObjectIds);
-      const selectedUnlockedIds = screen.objects
-        .filter((item) => selectedIdSet.has(item.id) && !item.locked)
-        .map((item) => item.id);
-      const isGroupMove = selectedUnlockedIds.length > 1 && selectedIdSet.has(objectId);
-
-      if (!isGroupMove) {
-        moveObject(screen.id, objectId, x, y);
-        return;
-      }
-
-      const dx = x - dragged.x;
-      const dy = y - dragged.y;
-      if (dx === 0 && dy === 0) {
-        return;
-      }
-      const movingIdSet = new Set(selectedUnlockedIds);
-      const next = screen.objects.map((item) => {
-        if (!movingIdSet.has(item.id)) {
-          return item;
-        }
-        return {
-          ...item,
-          x: item.x + dx,
-          y: item.y + dy,
-        };
+      liveMoveFrameRef.current = window.requestAnimationFrame(() => {
+        liveMoveFrameRef.current = null;
+        flushPendingLiveMove();
       });
-      setScreenObjects(screen.id, next);
     },
-    [captureObjects, moveObject, screen, selection.selectedObjectIds, setScreenObjects],
+    [flushPendingLiveMove, screen],
   );
 
   const commitLiveMoveWithHistory = useCallback(() => {
+    if (liveMoveFrameRef.current !== null) {
+      window.cancelAnimationFrame(liveMoveFrameRef.current);
+      liveMoveFrameRef.current = null;
+      flushPendingLiveMove();
+    }
     if (!screen) {
       dragMoveSnapshotRef.current = null;
       return;
@@ -227,7 +261,7 @@ export function useEditorObjectHistory({
       return;
     }
     history.pushEntry("Move objects", before, latestScreen.objects);
-  }, [history, screen]);
+  }, [flushPendingLiveMove, history, screen]);
 
   const resizeObjectWithHistory = useCallback(
     (objectId: string, patch: Partial<HmiObject>) => {
