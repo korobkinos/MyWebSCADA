@@ -138,6 +138,10 @@ function isWidgetOverlayObject(
   return object.type === "trendChart" || object.type === "eventTable";
 }
 
+function shouldCacheDuringEditorDrag(object: HmiObject): boolean {
+  return object.type === "group" || object.type === "frame" || object.type === "libraryElementInstance";
+}
+
 function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   const formatMode = opts.formatMode ?? "decimals";
   const decimals = opts.decimals ?? 2;
@@ -1318,7 +1322,6 @@ function ObjectNode({
 }: BaseNodeProps) {
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
-  const [isDragging, setIsDragging] = useState(false);
   const rotationAnimationOffsetRef = useRef(0);
   const flowAnimationPhaseRef = useRef(0);
   const rotationSpeedRef = useRef(0);
@@ -1332,7 +1335,8 @@ function ObjectNode({
   const flowArrowRefs = useRef<Array<Konva.Line | null>>([]);
   const rotationLastFrameRef = useRef<number | null>(null);
   const flowAnimationLastFrameRef = useRef<number | null>(null);
-  const effectiveShadowDisabled = shadowDisabled || (mode === "editor" && isDragging);
+  const dragCacheAppliedRef = useRef(false);
+  const effectiveShadowDisabled = shadowDisabled;
   const editorVisualListening = interactive ? false : undefined;
   const debugPerformance =
     import.meta.env.DEV &&
@@ -1849,14 +1853,16 @@ function ObjectNode({
       if (mode === "editor" && interactive && !resolvedObject.locked) {
         const node = evt.target as Konva.Node;
         node.transformsEnabled("position");
-        if (!node.isCached()) {
+        if (shouldCacheDuringEditorDrag(resolvedObject) && !node.isCached()) {
           node.cache({
             pixelRatio: 1,
             hitCanvasPixelRatio: 1,
             offset: 8,
           });
+          dragCacheAppliedRef.current = true;
+        } else {
+          dragCacheAppliedRef.current = false;
         }
-        setIsDragging(true);
       }
     },
     onClick: (evt: KonvaEventObject<MouseEvent>) => {
@@ -1888,13 +1894,13 @@ function ObjectNode({
       triggerObjectMacroEvent("release");
     },
     onDragEnd: (evt: KonvaEventObject<DragEvent>) => {
-      setIsDragging(false);
       if (interactive && !resolvedObject.locked) {
         const node = evt.target as Konva.Node;
         node.transformsEnabled("all");
-        if (node.isCached()) {
+        if (dragCacheAppliedRef.current && node.isCached()) {
           node.clearCache();
         }
+        dragCacheAppliedRef.current = false;
         onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
         onCommitObjectMove?.();
       }

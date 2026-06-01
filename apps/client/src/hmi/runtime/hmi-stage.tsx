@@ -59,8 +59,8 @@ type HmiStageProps = {
 export const OFFSCREEN_PAD = 2000;
 const MIN_EDITOR_OFFSCREEN_PAD = 600;
 const TARGET_VISIBLE_EDITOR_OFFSCREEN_PAD = 300;
-const EDITOR_STAGE_PIXEL_RATIO_MULTIPLIER = 2;
-const MAX_EDITOR_STAGE_PIXEL_RATIO = 4;
+const EDITOR_STAGE_PIXEL_RATIO_MULTIPLIER = 1;
+const MAX_EDITOR_STAGE_PIXEL_RATIO = 2;
 
 export function getEditorOffscreenPad(editorZoom: number): number {
   if (!Number.isFinite(editorZoom) || editorZoom <= 0) {
