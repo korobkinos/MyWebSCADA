@@ -1,5 +1,7 @@
 import {
   combineTagPrefix,
+  getEnabledFrameTagIndexRules,
+  getFrameTagIndexRulesSignature,
   getRuntimeValueSourceDependencies,
   resolveLibraryElementInstanceBindingsDetailed,
   resolveParameters,
@@ -183,7 +185,15 @@ function collectObjectTags(
   });
 
   if ("action" in resolvedObject && resolvedObject.action) {
-    collectActionTags(resolvedObject.action, context, out);
+    collectActionTags({
+      action: resolvedObject.action,
+      object: resolvedObject,
+      project,
+      context,
+      runtimeTagValues,
+      out,
+      dependencyOut,
+    });
   }
 
   switch (resolvedObject.type) {
@@ -485,8 +495,12 @@ function collectObjectTags(
         ...context,
         screenId: childScreen.id,
         tagPrefix: combineTagPrefix(context.tagPrefix, resolvedObject.tagPrefix),
+        inheritedIndexRules: [
+          ...(context.inheritedIndexRules ?? []),
+          ...getEnabledFrameTagIndexRules(resolvedObject.tagIndexRules),
+        ],
       };
-      const guardKey = `${childScreen.id}::${childContext.tagPrefix ?? ""}`;
+      const guardKey = `${childScreen.id}::${childContext.tagPrefix ?? ""}::${getFrameTagIndexRulesSignature(childContext.inheritedIndexRules)}`;
       if (frameGuard.has(guardKey)) {
         return;
       }
@@ -556,10 +570,27 @@ function collectObjectTags(
   }
 }
 
-function collectActionTags(action: RuntimeAction, context: RenderContext, out: Set<string>): void {
+function collectActionTags(input: {
+  action: RuntimeAction;
+  object: HmiObject;
+  project: ScadaProject;
+  context: RenderContext;
+  runtimeTagValues?: TagMap;
+  out: Set<string>;
+  dependencyOut: Set<string>;
+}): void {
+  const { action, object, project, context, runtimeTagValues, out, dependencyOut } = input;
   const resolved = resolveRuntimeAction(action, context);
   if (resolved.type === "write" || resolved.type === "pulse" || resolved.type === "toggle") {
-    addTag(out, resolved.tag, context);
+    addResolvedFieldTag(out, {
+      project,
+      object,
+      fieldName: "action.tag",
+      rawTagName: resolved.tag,
+      context,
+      runtimeTagValues,
+      dependencyOut,
+    });
     return;
   }
   if ((resolved.type === "writeConst" || resolved.type === "writeNumberPrompt") && resolved.target === "tag") {

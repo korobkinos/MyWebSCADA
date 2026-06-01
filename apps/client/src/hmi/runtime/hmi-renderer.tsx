@@ -6,11 +6,14 @@ import { message } from "antd";
 import {
   clampAccessRoleLevel,
   combineTagPrefix,
+  getEnabledFrameTagIndexRules,
+  getFrameTagIndexRulesSignature,
   hasRoleAccess,
   roleLevelFromRoles,
   resolveLibraryElementInstanceBindingsDetailed,
   isBindingReference,
   extractBindingKey,
+  resolveRuntimeAction,
   resolveRuntimeValueSync,
   type ElementStateRule,
   resolveParameters,
@@ -34,7 +37,7 @@ import {
   type TextStyle,
 } from "@web-scada/shared";
 import { applyElementStateRules } from "./element-state-rules";
-import { getObjectIndexedConfigForField, resolveObjectTagField } from "../tags/indexed-address";
+import { resolveObjectTagField } from "../tags/indexed-address";
 import { sortObjectsByZIndex } from "../editor/z-order";
 import { TrendRuntimeWidget } from "../../features/trends/TrendRuntimeWidget";
 import { EventTableRuntimeWidget } from "../../features/events/EventTableRuntimeWidget";
@@ -1243,6 +1246,10 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   if (prev.shadowDisabled !== next.shadowDisabled) return false;
   if (prev.renderFlowMode !== next.renderFlowMode) return false;
   if (prev.renderContext.tagPrefix !== next.renderContext.tagPrefix) return false;
+  if (
+    getFrameTagIndexRulesSignature(prev.renderContext.inheritedIndexRules)
+    !== getFrameTagIndexRulesSignature(next.renderContext.inheritedIndexRules)
+  ) return false;
   if (prev.renderContext.parameters !== next.renderContext.parameters) return false;
   if (prev.renderContext.isAuthenticated !== next.renderContext.isAuthenticated) return false;
   if (prev.renderContext.userRoleLevel !== next.renderContext.userRoleLevel) return false;
@@ -1466,8 +1473,7 @@ function ObjectNode({
     const resolved = resolveTagName(name, renderContext);
     const missingBindingReference = isBindingReference(name) && !resolved;
     const fieldName = options?.fieldName ?? "tag";
-    const indexedConfig = getObjectIndexedConfigForField(resolvedObject, fieldName);
-    if (!runtimeMode || !options?.useObjectIndexing || !indexedConfig?.enabled) {
+    if (!runtimeMode || !options?.useObjectIndexing) {
       const lookupName = resolveRuntimeTagLookupName(resolved, tags, project);
       return {
         resolvedName: lookupName ?? resolved,
@@ -2772,6 +2778,7 @@ function ObjectNode({
         groupProps={commonGroupProps}
         project={project}
         libraries={libraries}
+        tags={tags}
         scopedAssets={scopedAssets}
         interactive={interactive}
         onSelectObject={onSelectObject}
@@ -2957,6 +2964,7 @@ function ObjectNode({
         selected={selected}
         project={project}
         libraries={libraries}
+        tags={tags}
         scopedAssets={scopedAssets}
         stateValue={runtimeMode && resolvedObject.stateTag
           ? tagValue(resolvedObject.stateTag, { useObjectIndexing: true, fieldName: "stateTag" }).value
@@ -2995,6 +3003,7 @@ function ObjectNode({
         selected={selected}
         project={project}
         libraries={libraries}
+        tags={tags}
         scopedAssets={scopedAssets}
         stateValue={undefined}
         interactive={interactive}
@@ -3082,6 +3091,7 @@ function ObjectNode({
         selected={selected}
         project={project}
         libraries={libraries}
+        tags={tags}
         scopedAssets={scopedAssets}
         stateValue={undefined}
         interactive={interactive}
@@ -4726,6 +4736,36 @@ function isObjectVisibleByRole(object: HmiObject, mode: "editor" | "runtime", co
   return roles.some((role) => hasRoleAccess(userLevel, roleLevelFromRoles([role])));
 }
 
+function resolveRuntimeActionTagsWithObjectIndexing(
+  action: RuntimeAction,
+  object: HmiObject,
+  project: ScadaProject,
+  tags: TagMap,
+  context: RenderContext,
+): RuntimeAction {
+  const resolvedAction = resolveRuntimeAction(action, context);
+  if (
+    resolvedAction.type !== "write"
+    && resolvedAction.type !== "pulse"
+    && resolvedAction.type !== "toggle"
+  ) {
+    return resolvedAction;
+  }
+  const indexed = resolveObjectTagField({
+    object,
+    fieldName: "action.tag",
+    project,
+    context,
+    tagValues: tags,
+    rawTagName: resolvedAction.tag,
+  });
+  const resolvedTag = indexed.resolvedTagName ?? resolveTagName(resolvedAction.tag, context) ?? resolvedAction.tag;
+  return {
+    ...resolvedAction,
+    tag: resolvedTag,
+  };
+}
+
 function withActionRoleLevel(action: RuntimeAction, objectRequiredActionRole: number | undefined): RuntimeAction {
   if (typeof objectRequiredActionRole !== "number") {
     return action;
@@ -4919,14 +4959,32 @@ function FrameNode({
 }) {
   const screen = project.screens.find((item) => item.id === object.screenId);
   const hasCycle = frameStack.includes(object.screenId);
+  const activeFrameRules = useMemo(
+    () => getEnabledFrameTagIndexRules(object.tagIndexRules),
+    [object.tagIndexRules],
+  );
+  const inheritedRulesSignature = getFrameTagIndexRulesSignature(renderContext.inheritedIndexRules);
+  const localRulesSignature = getFrameTagIndexRulesSignature(activeFrameRules);
 
   const context: RenderContext = useMemo(
     () => ({
+      ...renderContext,
       tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
+      inheritedIndexRules: [...(renderContext.inheritedIndexRules ?? []), ...activeFrameRules],
       parameters: withRuntimeScopeParameter(renderContext.parameters, object.id),
       bindings: renderContext.bindings,
     }),
-    [object.id, object.tagPrefix, renderContext.bindings, renderContext.parameters, renderContext.tagPrefix],
+    [
+      activeFrameRules,
+      inheritedRulesSignature,
+      localRulesSignature,
+      object.id,
+      object.tagPrefix,
+      renderContext,
+      renderContext.bindings,
+      renderContext.parameters,
+      renderContext.tagPrefix,
+    ],
   );
 
   if (!screen) {
@@ -5181,6 +5239,7 @@ function LibraryInstanceNodeResolved({
     [element, object, runtimeResolveContext],
   );
   const context: RenderContext = {
+    ...renderContext,
     tagPrefix: combineTagPrefix(renderContext.tagPrefix, object.tagPrefix),
     parameters: mergedParameters,
     bindings: {
@@ -5259,7 +5318,10 @@ function LibraryInstanceNodeResolved({
         baseOnClick?.(event);
         if (!interactive && !runtimeDisabled && object.action) {
           onAction?.(
-            withActionRoleLevel(object.action, object.requiredActionRole),
+            withActionRoleLevel(
+              resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, context),
+              object.requiredActionRole,
+            ),
             withRuntimeActionContext(context, object.id, performance.now(), object.name),
           );
         }
@@ -5269,7 +5331,10 @@ function LibraryInstanceNodeResolved({
         baseOnTap?.(event);
         if (!interactive && !runtimeDisabled && object.action) {
           onAction?.(
-            withActionRoleLevel(object.action, object.requiredActionRole),
+            withActionRoleLevel(
+              resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, context),
+              object.requiredActionRole,
+            ),
             withRuntimeActionContext(context, object.id, performance.now(), object.name),
           );
         }
@@ -5313,6 +5378,7 @@ function ImageNode({
   groupProps,
   project,
   libraries,
+  tags,
   scopedAssets,
   stateValue,
   interactive,
@@ -5328,6 +5394,7 @@ function ImageNode({
   groupProps: Record<string, unknown>;
   project: ScadaProject;
   libraries: ElementLibrary[];
+  tags: TagMap;
   scopedAssets?: Record<string, Asset>;
   stateValue: unknown;
   interactive: boolean;
@@ -5374,7 +5441,10 @@ function ImageNode({
         }
         if (!runtimeDisabled && object.action) {
           onAction?.(
-            withActionRoleLevel(object.action, object.requiredActionRole),
+            withActionRoleLevel(
+              resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, renderContext),
+              object.requiredActionRole,
+            ),
             withRuntimeActionContext(renderContext, object.id, performance.now(), object.name),
           );
         }
@@ -5450,6 +5520,7 @@ function ButtonNode({
   groupProps,
   project,
   libraries,
+  tags,
   scopedAssets,
   interactive,
   onSelectObject,
@@ -5464,6 +5535,7 @@ function ButtonNode({
   groupProps: Record<string, unknown>;
   project: ScadaProject;
   libraries: ElementLibrary[];
+  tags: TagMap;
   scopedAssets?: Record<string, Asset>;
   interactive: boolean;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
@@ -5556,16 +5628,17 @@ function ButtonNode({
           return;
         }
         if (!isDisabled) {
+          const resolvedAction = resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, renderContext);
           const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
             __operatorActionKind: "button",
             __operatorActionLogOnThisCommand: true,
             __operatorActionDetails: {
-              buttonActionType: object.action.type,
-              pulseDurationMs: object.action.type === "pulse" ? object.action.durationMs : undefined,
+              buttonActionType: resolvedAction.type,
+              pulseDurationMs: resolvedAction.type === "pulse" ? resolvedAction.durationMs : undefined,
             },
           });
           setExecuting(true);
-          const result = onAction?.(withActionRoleLevel(object.action, object.requiredActionRole), nextContext);
+          const result = onAction?.(withActionRoleLevel(resolvedAction, object.requiredActionRole), nextContext);
           if (result && typeof (result as Promise<void>).finally === "function") {
             void (result as Promise<void>).finally(() => {
               setExecuting(false);

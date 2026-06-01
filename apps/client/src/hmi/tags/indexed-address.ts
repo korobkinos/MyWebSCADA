@@ -1,5 +1,7 @@
 import {
+  applyTagIndexTransform,
   extractIndexedAddressSlots,
+  getEnabledFrameTagIndexRules,
   resolveIndexedAddress,
   resolveTagName,
   type HmiObject,
@@ -223,8 +225,9 @@ export function resolveObjectTagField(params: {
 }): ResolvedIndexedObjectTag {
   const rawTagName = resolveTagName(params.rawTagName, params.context);
   const config = getObjectIndexedConfigForField(params.object, params.fieldName);
+  const localIndexedEnabled = config?.enabled === true;
 
-  if (config?.enabled) {
+  if (localIndexedEnabled) {
     debugIndexedAddress("resolveObjectTagField:start", {
       objectId: params.object.id,
       objectName: params.object.name,
@@ -253,11 +256,25 @@ export function resolveObjectTagField(params: {
     };
   }
 
-  if (!config?.enabled) {
+  if (!localIndexedEnabled) {
+    const inheritedRules = getEnabledFrameTagIndexRules(params.context.inheritedIndexRules);
+    if (inheritedRules.length === 0) {
+      return {
+        usedIndexedAddress: false,
+        rawTagName,
+        resolvedTagName: rawTagName,
+        errors: [],
+        dependencyTags: [],
+      };
+    }
+    let resolvedTagName = rawTagName;
+    for (const rule of inheritedRules) {
+      resolvedTagName = applyTagIndexTransform(resolvedTagName, rule.indexOffset, rule.indexMode);
+    }
     return {
-      usedIndexedAddress: false,
+      usedIndexedAddress: true,
       rawTagName,
-      resolvedTagName: rawTagName,
+      resolvedTagName,
       errors: [],
       dependencyTags: [],
     };

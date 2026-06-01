@@ -586,4 +586,111 @@ describe("collectRuntimeTagSubscriptions", () => {
 
     expect(subscriptions).toContain("Tag.OnScreen");
   });
+
+  it("collects frame-inherited indexed tags for read and action fields", () => {
+    const templateScreen: HmiScreen = {
+      id: "template-1",
+      name: "Template 1",
+      kind: "template",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "switch-1",
+          type: "switch",
+          x: 20,
+          y: 20,
+          width: 120,
+          height: 40,
+          tag: "Burner[1].Pressure",
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+        },
+        {
+          id: "button-1",
+          type: "button",
+          x: 20,
+          y: 80,
+          width: 120,
+          height: 40,
+          text: "Write",
+          showText: true,
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+          action: {
+            type: "write",
+            tag: "Burner[1].Cmd",
+            value: true,
+          },
+        },
+      ],
+    };
+
+    const runtimeScreen: HmiScreen = {
+      id: "runtime-main",
+      name: "Runtime Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "frame-1",
+          type: "frame",
+          x: 0,
+          y: 0,
+          width: 800,
+          height: 600,
+          screenId: templateScreen.id,
+          tagIndexRules: [
+            {
+              id: "rule-1",
+              enabled: true,
+              indexOffset: 1,
+              indexMode: {
+                type: "arrayIndex",
+                occurrence: 0,
+                operation: "add",
+                valueFrom: "indexOffset",
+              },
+              conflictMode: "skipLocal",
+            },
+          ],
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Frame index project",
+      drivers: [],
+      tags: [],
+      screens: [runtimeScreen, templateScreen],
+      startScreenId: runtimeScreen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen: runtimeScreen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Burner[2].Pressure");
+    expect(subscriptions).toContain("Burner[2].Cmd");
+    expect(subscriptions).not.toContain("Burner[1].Pressure");
+    expect(subscriptions).not.toContain("Burner[1].Cmd");
+  });
 });

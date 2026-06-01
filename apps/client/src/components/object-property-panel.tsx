@@ -8,6 +8,7 @@ import type {
   CheckboxWriteMode,
   ElementBindingDefinition,
   ElementLibrary,
+  FrameTagIndexRule,
   HmiObject,
   IndexedTagAddress,
   HmiScreen,
@@ -257,6 +258,53 @@ function parseOptionsMultiline(
     }
     return { label, value: parsed };
   });
+}
+
+function createDefaultFrameTagIndexRule(): FrameTagIndexRule {
+  const randomPart = Math.random().toString(36).slice(2, 8);
+  return {
+    id: `frame-index-rule-${Date.now()}-${randomPart}`,
+    enabled: true,
+    name: "",
+    indexOffset: 0,
+    indexMode: {
+      type: "arrayIndex",
+      occurrence: 0,
+      operation: "add",
+      valueFrom: "indexOffset",
+    },
+    conflictMode: "skipLocal",
+  };
+}
+
+function normalizeFrameTagIndexRuleForEditor(rule: FrameTagIndexRule): FrameTagIndexRule {
+  const normalizedIndexOffset = Number.isFinite(Number(rule.indexOffset)) ? Number(rule.indexOffset) : 0;
+  if (rule.indexMode.type === "arrayIndexBySegment") {
+    return {
+      ...rule,
+      enabled: rule.enabled !== false,
+      indexOffset: normalizedIndexOffset,
+      conflictMode: "skipLocal",
+      indexMode: {
+        type: "arrayIndexBySegment",
+        segmentName: rule.indexMode.segmentName ?? "",
+        operation: "add",
+        valueFrom: "indexOffset",
+      },
+    };
+  }
+  return {
+    ...rule,
+    enabled: rule.enabled !== false,
+    indexOffset: normalizedIndexOffset,
+    conflictMode: "skipLocal",
+    indexMode: {
+      type: "arrayIndex",
+      occurrence: Math.max(0, Math.floor(Number((rule.indexMode as { occurrence?: number }).occurrence ?? 0))),
+      operation: "add",
+      valueFrom: "indexOffset",
+    },
+  };
 }
 
 function parseScalarToken(rawValue: string): string | number | boolean {
@@ -4085,6 +4133,16 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "frame") {
+    const frameTagIndexRules = (object.tagIndexRules ?? []).map((rule) => normalizeFrameTagIndexRuleForEditor(rule));
+    const patchFrameTagIndexRules = (rules: FrameTagIndexRule[]) => {
+      onPatch({ tagIndexRules: rules.length > 0 ? rules : undefined } as Partial<HmiObject>);
+    };
+    const updateFrameTagIndexRule = (ruleId: string, patch: Partial<FrameTagIndexRule>) => {
+      const nextRules = frameTagIndexRules.map((rule) => (
+        rule.id === ruleId ? normalizeFrameTagIndexRuleForEditor({ ...rule, ...patch }) : rule
+      ));
+      patchFrameTagIndexRules(nextRules);
+    };
     const templateOptions = project.screens
       .filter((screen) => screen.kind === "template")
       .map((screen) => ({ label: `${screen.name} (${screen.kind})`, value: screen.id }));
@@ -4110,6 +4168,122 @@ function SpecificPropertyFields({
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           Prefix is kept for compatibility. Use Indexed Address for arrays and structures.
         </Typography.Text>
+        <Divider style={{ margin: "8px 0" }} />
+        <Typography.Text strong>Frame Index Rules (experimental)</Typography.Text>
+        <div style={{ marginTop: 8, marginBottom: 8 }}>
+          <Button
+            size="small"
+            onClick={() => patchFrameTagIndexRules([...frameTagIndexRules, createDefaultFrameTagIndexRule()])}
+          >
+            Add rule
+          </Button>
+        </div>
+        {frameTagIndexRules.length === 0 ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Rules are not configured.
+          </Typography.Text>
+        ) : (
+          frameTagIndexRules.map((rule, ruleIndex) => {
+            const modeType = rule.indexMode.type === "arrayIndexBySegment" ? "arrayIndexBySegment" : "arrayIndex";
+            return (
+              <div key={rule.id} style={{ border: "1px solid #3c3c3c", borderRadius: 4, padding: 8, marginBottom: 8 }}>
+                <Space size={8} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <Typography.Text strong>Rule {ruleIndex + 1}</Typography.Text>
+                  <Button
+                    size="small"
+                    danger
+                    onClick={() => patchFrameTagIndexRules(frameTagIndexRules.filter((item) => item.id !== rule.id))}
+                  >
+                    Delete
+                  </Button>
+                </Space>
+                <Space size={16} style={{ display: "flex", marginBottom: 8 }}>
+                  <Space>
+                    <span>Enabled</span>
+                    <Switch
+                      checked={rule.enabled !== false}
+                      onChange={(checked) => updateFrameTagIndexRule(rule.id, { enabled: checked })}
+                    />
+                  </Space>
+                </Space>
+                <Form.Item label="Name">
+                  <Input
+                    value={rule.name ?? ""}
+                    onChange={(event) => updateFrameTagIndexRule(rule.id, { name: event.target.value })}
+                  />
+                </Form.Item>
+                <Form.Item label="Offset">
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    value={rule.indexOffset}
+                    onChange={(value) => updateFrameTagIndexRule(rule.id, { indexOffset: Number(value ?? 0) })}
+                  />
+                </Form.Item>
+                <Form.Item label="Mode">
+                  <Select
+                    value={modeType}
+                    options={[
+                      { label: "Array index occurrence", value: "arrayIndex" },
+                      { label: "Array index by segment", value: "arrayIndexBySegment" },
+                    ]}
+                    onChange={(value) => {
+                      if (value === "arrayIndexBySegment") {
+                        updateFrameTagIndexRule(rule.id, {
+                          indexMode: {
+                            type: "arrayIndexBySegment",
+                            segmentName: "",
+                            operation: "add",
+                            valueFrom: "indexOffset",
+                          },
+                        });
+                        return;
+                      }
+                      updateFrameTagIndexRule(rule.id, {
+                        indexMode: {
+                          type: "arrayIndex",
+                          occurrence: 0,
+                          operation: "add",
+                          valueFrom: "indexOffset",
+                        },
+                      });
+                    }}
+                  />
+                </Form.Item>
+                {modeType === "arrayIndexBySegment" ? (
+                  <Form.Item label="Segment Name">
+                    <Input
+                      value={rule.indexMode.type === "arrayIndexBySegment" ? rule.indexMode.segmentName : ""}
+                      onChange={(event) => updateFrameTagIndexRule(rule.id, {
+                        indexMode: {
+                          type: "arrayIndexBySegment",
+                          segmentName: event.target.value,
+                          operation: "add",
+                          valueFrom: "indexOffset",
+                        },
+                      })}
+                    />
+                  </Form.Item>
+                ) : (
+                  <Form.Item label="Occurrence">
+                    <InputNumber
+                      min={0}
+                      style={{ width: "100%" }}
+                      value={rule.indexMode.type === "arrayIndex" ? rule.indexMode.occurrence : 0}
+                      onChange={(value) => updateFrameTagIndexRule(rule.id, {
+                        indexMode: {
+                          type: "arrayIndex",
+                          occurrence: Math.max(0, Math.floor(Number(value ?? 0))),
+                          operation: "add",
+                          valueFrom: "indexOffset",
+                        },
+                      })}
+                    />
+                  </Form.Item>
+                )}
+              </div>
+            );
+          })
+        )}
         <Form.Item label="Scale Mode">
           <Select
             value={object.scaleMode ?? "fit"}

@@ -1,4 +1,4 @@
-import type { ElementBindingAssignment } from "./asset-library-types";
+import type { ElementBindingAssignment, IndexApplyMode } from "./asset-library-types";
 import type { AccessRoleLevel, AppRole } from "./auth-types";
 import type { IndexedTagAddress } from "./indexed-address";
 import type { OperatorActionLoggingConfig } from "./operator-action-types";
@@ -496,10 +496,22 @@ export type PumpObject = HmiObjectBase & {
   popupScreenId?: string;
 };
 
+export type FrameTagIndexConflictMode = "skipLocal";
+
+export type FrameTagIndexRule = {
+  id: string;
+  enabled: boolean;
+  name?: string;
+  indexOffset: number;
+  indexMode: IndexApplyMode;
+  conflictMode?: FrameTagIndexConflictMode;
+};
+
 export type FrameObject = HmiObjectBase & {
   type: "frame";
   screenId: string;
   tagPrefix?: string;
+  tagIndexRules?: FrameTagIndexRule[];
   showTemplateBackground?: boolean;
   clipContent?: boolean;
   showBorder?: boolean;

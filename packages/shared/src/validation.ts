@@ -501,6 +501,51 @@ const indexApplyModeSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+function normalizeFrameTagIndexRules(
+  value: unknown,
+): Array<{
+  id: string;
+  enabled: boolean;
+  name?: string;
+  indexOffset: number;
+  indexMode: z.infer<typeof indexApplyModeSchema>;
+  conflictMode: "skipLocal";
+}> | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized: Array<{
+    id: string;
+    enabled: boolean;
+    name?: string;
+    indexOffset: number;
+    indexMode: z.infer<typeof indexApplyModeSchema>;
+    conflictMode: "skipLocal";
+  }> = [];
+
+  for (let index = 0; index < value.length; index += 1) {
+    const item = value[index];
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const candidate = item as Record<string, unknown>;
+    const indexModeParsed = indexApplyModeSchema.safeParse(candidate.indexMode);
+    const indexOffset = Number(candidate.indexOffset);
+    const normalizedRule = {
+      id: typeof candidate.id === "string" && candidate.id.trim() ? candidate.id.trim() : `frame-index-rule-${index + 1}`,
+      enabled: candidate.enabled !== false,
+      name: typeof candidate.name === "string" && candidate.name.trim() ? candidate.name.trim() : undefined,
+      indexOffset: Number.isFinite(indexOffset) ? indexOffset : 0,
+      indexMode: indexModeParsed.success ? indexModeParsed.data : { type: "none" as const },
+      conflictMode: "skipLocal" as const,
+    };
+    normalized.push(normalizedRule);
+  }
+
+  return normalized;
+}
+
 const runtimeValueSourceSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("static"),
@@ -600,6 +645,10 @@ const frameObjectSchema = hmiBaseSchema.extend({
   type: z.literal("frame"),
   screenId: z.string().min(1),
   tagPrefix: z.string().optional(),
+  tagIndexRules: z
+    .array(z.unknown())
+    .optional()
+    .transform((value) => normalizeFrameTagIndexRules(value)),
   showTemplateBackground: z.boolean().optional(),
   clipContent: z.boolean().optional(),
   showBorder: z.boolean().optional(),

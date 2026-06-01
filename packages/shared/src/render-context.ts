@@ -1,8 +1,13 @@
+import type { IndexApplyMode } from "./asset-library-types";
+import type { FrameTagIndexRule, RuntimeAction } from "./hmi-object-types";
+import { resolveParameters, resolveTemplateString } from "./parameter-resolver";
+
 export type RenderContext = {
   popupInstanceId?: string;
   screenId?: string;
   title?: string;
   tagPrefix?: string;
+  inheritedIndexRules?: FrameTagIndexRule[];
   parameters?: Record<string, unknown>;
   bindings?: Record<string, string>;
   args?: Record<string, unknown>;
@@ -10,9 +15,6 @@ export type RenderContext = {
   userRoleLevel?: number;
   isAuthenticated?: boolean;
 };
-
-import type { RuntimeAction } from "./hmi-object-types";
-import { resolveParameters, resolveTemplateString } from "./parameter-resolver";
 
 export function isBindingReference(tag: string | undefined): boolean {
   if (!tag) {
@@ -42,6 +44,81 @@ export function combineTagPrefix(parentPrefix?: string, childPrefix?: string): s
   }
 
   return childPrefix;
+}
+
+function normalizeIndexApplyMode(mode: IndexApplyMode | undefined): IndexApplyMode {
+  if (!mode || typeof mode !== "object") {
+    return { type: "none" };
+  }
+  if (mode.type === "arrayIndex") {
+    const occurrence = Number(mode.occurrence);
+    return {
+      type: "arrayIndex",
+      occurrence: Number.isFinite(occurrence) ? Math.max(0, Math.floor(occurrence)) : 0,
+      operation: "add",
+      valueFrom: "indexOffset",
+    };
+  }
+  if (mode.type === "arrayIndexBySegment") {
+    const segmentName = typeof mode.segmentName === "string" ? mode.segmentName.trim() : "";
+    if (!segmentName) {
+      return { type: "none" };
+    }
+    return {
+      type: "arrayIndexBySegment",
+      segmentName,
+      operation: "add",
+      valueFrom: "indexOffset",
+    };
+  }
+  return { type: "none" };
+}
+
+function normalizeFrameTagIndexRule(rule: FrameTagIndexRule | undefined, index: number): FrameTagIndexRule | undefined {
+  if (!rule || typeof rule !== "object") {
+    return undefined;
+  }
+  const id = typeof rule.id === "string" && rule.id.trim() ? rule.id.trim() : `frame-index-rule-${index + 1}`;
+  const indexOffset = Number(rule.indexOffset);
+  return {
+    id,
+    enabled: rule.enabled !== false,
+    name: typeof rule.name === "string" && rule.name.trim() ? rule.name.trim() : undefined,
+    indexOffset: Number.isFinite(indexOffset) ? indexOffset : 0,
+    indexMode: normalizeIndexApplyMode(rule.indexMode),
+    conflictMode: "skipLocal",
+  };
+}
+
+export function getEnabledFrameTagIndexRules(
+  rules: FrameTagIndexRule[] | undefined,
+): FrameTagIndexRule[] {
+  if (!Array.isArray(rules) || rules.length === 0) {
+    return [];
+  }
+  const normalized: FrameTagIndexRule[] = [];
+  for (let index = 0; index < rules.length; index += 1) {
+    const rule = normalizeFrameTagIndexRule(rules[index], index);
+    if (!rule || rule.enabled === false) {
+      continue;
+    }
+    normalized.push(rule);
+  }
+  return normalized;
+}
+
+export function getFrameTagIndexRulesSignature(rules: FrameTagIndexRule[] | undefined): string {
+  const activeRules = getEnabledFrameTagIndexRules(rules);
+  if (activeRules.length === 0) {
+    return "";
+  }
+  return JSON.stringify(activeRules.map((rule) => ({
+    id: rule.id,
+    enabled: rule.enabled,
+    indexOffset: rule.indexOffset,
+    conflictMode: rule.conflictMode ?? "skipLocal",
+    indexMode: rule.indexMode,
+  })));
 }
 
 export function resolveTagName(tag: string | undefined, context: RenderContext): string | undefined {
