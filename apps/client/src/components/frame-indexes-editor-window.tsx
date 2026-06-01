@@ -252,7 +252,7 @@ export function FrameIndexesEditorWindow({
                             </button>
                           </div>
                           <div className="frame-indexes-editor-rule__grid">
-                            <label className="frame-indexes-editor-field frame-indexes-editor-field--inline">
+                            <label className="frame-indexes-editor-field">
                               <span>Enabled</span>
                               <input
                                 type="checkbox"
@@ -873,6 +873,19 @@ function buildPreviewExpression(
     return undefined;
   }
 
+  if (Array.isArray(matchedRuleIds) && matchedRuleIds.length > 0) {
+    for (const matchedRuleId of matchedRuleIds) {
+      const matchedRule = activeRules.find((rule) => rule.id === matchedRuleId);
+      if (!matchedRule || !matchedRule.indexOffsetSource || matchedRule.indexOffsetSource.type === "static") {
+        continue;
+      }
+      const directPatched = patchTagByMode(rawTag, matchedRule, (inner) => `${inner}+${normalizeRuleLabel(matchedRule)}`);
+      if (directPatched) {
+        return directPatched;
+      }
+    }
+  }
+
   let expressionTag = rawTag;
   let hasExpression = false;
 
@@ -914,16 +927,6 @@ function buildPreviewExpression(
 
   if (hasExpression) {
     return expressionTag;
-  }
-
-  if (Array.isArray(matchedRuleIds) && matchedRuleIds.length > 0) {
-    const matchedRule = activeRules.find((rule) => matchedRuleIds.includes(rule.id));
-    if (matchedRule && matchedRule.indexOffsetSource && matchedRule.indexOffsetSource.type !== "static") {
-      const fallbackPatched = patchTagByMode(rawTag, matchedRule, (inner) => `${inner}+${normalizeRuleLabel(matchedRule)}`);
-      if (fallbackPatched) {
-        return fallbackPatched;
-      }
-    }
   }
 
   return undefined;

@@ -7413,9 +7413,8 @@ select.workbench-select:not(.ant-select) {
 
 .frame-indexes-editor-rule__grid {
   display: grid;
-  grid-template-columns: minmax(110px, max-content) repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: 120px repeat(auto-fit, minmax(160px, 1fr));
   gap: 8px;
-  align-items: end;
 }
 
 .frame-indexes-editor-field {
@@ -7432,6 +7431,10 @@ select.workbench-select:not(.ant-select) {
   justify-content: start;
   gap: 8px;
   max-width: 130px;
+}
+
+.frame-indexes-editor-field input[type="checkbox"] {
+  justify-self: start;
 }
 
 .frame-indexes-editor-field--full {
