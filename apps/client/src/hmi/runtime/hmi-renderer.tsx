@@ -887,6 +887,7 @@ type BaseNodeProps = {
   interactive: boolean;
   inheritedDisabled: boolean;
   selected: boolean;
+  selectedObjectCount: number;
   onSelectObject?: (payload: ObjectSelectPayload) => void;
   onMoveObject?: (objectId: string, x: number, y: number) => void;
   onCommitObjectMove?: () => void;
@@ -994,6 +995,7 @@ export function HmiRenderer({
             interactive={interactive}
             inheritedDisabled={inheritedDisabled}
             selected={selectedSet.has(object.id)}
+            selectedObjectCount={selectedObjectIds.length}
             onSelectObject={onSelectObject}
             onMoveObject={onMoveObject}
             onCommitObjectMove={onCommitObjectMove}
@@ -1028,6 +1030,7 @@ export function HmiRenderer({
             interactive={interactive}
             inheritedDisabled={inheritedDisabled}
             selected={selectedSet.has(object.id)}
+            selectedObjectCount={selectedObjectIds.length}
             onSelectObject={onSelectObject}
             onMoveObject={onMoveObject}
             onCommitObjectMove={onCommitObjectMove}
@@ -1130,6 +1133,7 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   if (prev.driverStatusesById !== next.driverStatusesById) return false;
   if (prev.libraries !== next.libraries) return false;
   if (prev.selected !== next.selected) return false;
+  if ((prev.selected || next.selected) && prev.selectedObjectCount !== next.selectedObjectCount) return false;
   if (prev.interactive !== next.interactive) return false;
   if (prev.inheritedDisabled !== next.inheritedDisabled) return false;
   if (prev.showObjectFrames !== next.showObjectFrames) return false;
@@ -1292,6 +1296,7 @@ function ObjectNode({
   interactive,
   inheritedDisabled,
   selected,
+  selectedObjectCount,
   onSelectObject,
   onMoveObject,
   onCommitObjectMove,
@@ -1875,15 +1880,13 @@ function ObjectNode({
     onDragEnd: (evt: KonvaEventObject<DragEvent>) => {
       setIsDragging(false);
       if (interactive && !resolvedObject.locked) {
-        if (onCommitObjectMove) {
-          onCommitObjectMove();
-        } else {
-          onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
-        }
+        onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
+        onCommitObjectMove?.();
       }
     },
     onDragMove: (evt: KonvaEventObject<DragEvent>) => {
-      if (interactive && !resolvedObject.locked) {
+      const shouldLiveSyncDuringDrag = mode === "editor" && selected && selectedObjectCount > 1;
+      if (interactive && !resolvedObject.locked && shouldLiveSyncDuringDrag) {
         onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
       }
     },
