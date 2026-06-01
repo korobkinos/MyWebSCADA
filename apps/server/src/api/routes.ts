@@ -2442,6 +2442,18 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     return macro;
   });
 
+  app.get("/api/macros/:id/locals", async (request, reply) => {
+    const params = request.params as { id: string };
+    const macro = deps.macroService.getById(params.id);
+    if (!macro) {
+      return reply.code(404).send({ message: "Macro not found" });
+    }
+    return {
+      macroId: params.id,
+      locals: deps.macroService.getLastLocals(params.id) ?? {},
+    };
+  });
+
   app.put("/api/macros/:id", async (request, reply) => {
     const auth = await requirePermission(request, reply, deps, "macros.write");
     if (!auth) {
@@ -2626,6 +2638,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         status: result.status,
         reason: result.reason,
         effects: result.effects,
+        locals: result.locals,
         diagnostics: runtimeCommandDebug ? result.diagnostics : undefined,
       };
       if (runtimeCommandDebug) {

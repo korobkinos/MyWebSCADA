@@ -1,5 +1,6 @@
 import type { InternalVariableDefinition, LwStoreConfig, TagDefinition, TagScalarValue, TagValue } from "@web-scada/shared";
 import { TagStore } from "../tags/tag-store.js";
+import { coerceTagValue } from "./tag-coercion.js";
 
 const LW_ADDRESS_NAME = /^LW\d+$/i;
 
@@ -163,11 +164,12 @@ export class InternalVariableService {
     const directTag = this.tagStore.getDefinition(name) ? name : undefined;
     const normalizedTag = directTag ?? toInternalTagName(name);
     const effectiveTag = this.tagStore.getDefinition(normalizedTag) ? normalizedTag : toInternalTagName(name);
+    const coercedValue = coerceTagValue(effectiveTag, value, this.tagStore);
     const timestamp = Date.now();
 
     this.tagStore.upsertValue({
       name: effectiveTag,
-      value,
+      value: coercedValue,
       quality: "Good",
       timestamp,
       source: LW_ADDRESS_NAME.test(effectiveTag) ? "lw" : "internal",
@@ -178,7 +180,7 @@ export class InternalVariableService {
       if (lwTag !== effectiveTag) {
         this.tagStore.upsertValue({
           name: lwTag,
-          value,
+          value: coercedValue,
           quality: "Good",
           timestamp,
           source: "lw",
@@ -190,7 +192,7 @@ export class InternalVariableService {
         }
         this.tagStore.upsertValue({
           name: alias,
-          value,
+          value: coercedValue,
           quality: "Good",
           timestamp,
           source: "internal",

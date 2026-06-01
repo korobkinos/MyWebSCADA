@@ -18,6 +18,7 @@ type MacroRunStatus = {
   status: "ok" | "skipped";
   reason?: MacroRunReason;
   effects?: MacroUiEffect[];
+  locals?: Record<string, unknown>;
 };
 
 type MacroExecutionDiagnostics = {
@@ -43,6 +44,7 @@ type CompiledMacro = {
 export class MacroService {
   private macros: MacroDefinition[] = [];
   private readonly compiledMacros = new Map<string, CompiledMacro>();
+  private readonly macroLocals = new Map<string, Record<string, unknown>>();
   private readonly manualInFlight = new Map<string, number>();
   private readonly slowExecutionWarnMs = 250;
   private readonly staleManualInFlightMs = COMMAND_TIMEOUT_MS * 4;
@@ -60,6 +62,7 @@ export class MacroService {
     for (const macroId of this.compiledMacros.keys()) {
       if (!nextMacroIds.has(macroId)) {
         this.compiledMacros.delete(macroId);
+        this.macroLocals.delete(macroId);
       }
     }
 
@@ -82,6 +85,14 @@ export class MacroService {
     return this.macros.find((item) => item.id === macroId);
   }
 
+  public getLastLocals(macroId: string): Record<string, unknown> | undefined {
+    const locals = this.macroLocals.get(macroId);
+    if (!locals) {
+      return undefined;
+    }
+    return { ...locals };
+  }
+
   public async run(
     macroId: string,
     args?: Record<string, unknown>,
@@ -92,6 +103,7 @@ export class MacroService {
       status: result.status,
       reason: result.reason,
       effects: result.effects,
+      locals: result.locals,
     };
   }
 
@@ -198,6 +210,7 @@ export class MacroService {
     const tagStore = this.tagStore;
     const runtimeContext = toMacroRuntimeContext(options?.context);
     const effects: MacroUiEffect[] = [];
+    const locals = new Map<string, unknown>();
     const ensureNotTimedOut = () => {
       if (deadlineAt !== undefined && Date.now() > deadlineAt) {
         throw new ManualCommandError("timeout", "Macro timeout");
@@ -303,13 +316,25 @@ export class MacroService {
         }
         return `${effectivePrefix}${relativeOrAbsoluteTag}`;
       },
+      setLocal: (name, value) => {
+        if (!name.trim()) {
+          throw new Error("Macro local variable name cannot be empty");
+        }
+        locals.set(name, toSerializableLocalValue(value));
+      },
+      getLocal: (name) => locals.get(name),
+      getLocals: () => Object.fromEntries(locals.entries()),
       log: (...items) => console.log(`[macro:${macro.id}]`, ...items),
       warn: (...items) => console.warn(`[macro:${macro.id}]`, ...items),
       error: (...items) => console.error(`[macro:${macro.id}]`, ...items),
     };
 
     const executionStartedAt = Date.now();
-    await fn(api, args ?? {});
+    try {
+      await fn(api, args ?? {});
+    } finally {
+      this.macroLocals.set(macro.id, Object.fromEntries(locals.entries()));
+    }
     const executionMs = Date.now() - executionStartedAt;
     const totalMs = Date.now() - startedAt;
 
@@ -333,6 +358,7 @@ export class MacroService {
     return {
       status: "ok",
       effects,
+      locals: this.getLastLocals(macro.id) ?? {},
       diagnostics: {
         lookupMs,
         compileMs,
@@ -383,6 +409,9 @@ export class MacroService {
         `  getCurrentTagPrefix,\n` +
         `  getContext,\n` +
         `  resolveTag,\n` +
+        `  setLocal,\n` +
+        `  getLocal,\n` +
+        `  getLocals,\n` +
         `  log,\n` +
         `  warn,\n` +
         `  error,\n` +
@@ -489,6 +518,9 @@ type MacroApi = {
   getCurrentTagPrefix: () => string | undefined;
   getContext: () => MacroRuntimeContext;
   resolveTag: (relativeOrAbsoluteTag: string, tagPrefix?: string) => string;
+  setLocal: (name: string, value: unknown) => void;
+  getLocal: (name: string) => unknown;
+  getLocals: () => Record<string, unknown>;
   log: (...items: unknown[]) => void;
   warn: (...items: unknown[]) => void;
   error: (...items: unknown[]) => void;
@@ -513,4 +545,20 @@ function toMacroRuntimeContext(input: Record<string, unknown> | undefined): Macr
     out.parameters = input.parameters as Record<string, unknown>;
   }
   return out;
+}
+
+function toSerializableLocalValue(value: unknown): unknown {
+  if (
+    value === null
+    || typeof value === "string"
+    || typeof value === "number"
+    || typeof value === "boolean"
+  ) {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value)) as unknown;
+  } catch {
+    return String(value);
+  }
 }

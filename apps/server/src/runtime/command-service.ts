@@ -5,6 +5,7 @@ import type { DriverStatus } from "../drivers/driver.js";
 import { InternalVariableService } from "./internal-variable-service.js";
 import { logPerf } from "./perf-logger.js";
 import { ManualCommandError } from "./manual-command-error.js";
+import { coerceTagValue } from "./tag-coercion.js";
 
 type CommandExecutionOptions = {
   manual?: boolean;
@@ -89,9 +90,10 @@ export class CommandService {
     if (!tag) {
       throw new Error(`Tag ${name} is not found`);
     }
+    const coercedValue = coerceTagValue(name, value, this.tagStore);
 
     if (!tag.driverId && tag.sourceType !== "simulated") {
-      this.internalVariableService.write(name, value);
+      this.internalVariableService.write(name, coercedValue);
       logPerf({
         component: "command",
         action: "write-tag",
@@ -112,7 +114,7 @@ export class CommandService {
     }
 
     await this.withTimeout(
-      this.driverManager.writeTag(tag, value),
+      this.driverManager.writeTag(tag, coercedValue),
       this.driverWriteTimeoutMs,
       commandKey
         ? `Command timeout: ${commandKey} after ${this.driverWriteTimeoutMs} ms`
@@ -120,7 +122,7 @@ export class CommandService {
     );
     this.tagStore.upsertValue({
       name,
-      value,
+      value: coercedValue,
       quality: "Good",
       timestamp: Date.now(),
       source: "command",
