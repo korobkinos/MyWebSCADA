@@ -520,6 +520,7 @@ function normalizeFrameTagIndexRules(
     enabled: boolean;
     name?: string;
     indexOffset: number;
+    indexOffsetSource?: z.infer<typeof runtimeValueSourceSchema>;
     indexMode: z.infer<typeof indexApplyModeSchema>;
     conflictMode: "skipLocal";
   }> = [];
@@ -531,12 +532,14 @@ function normalizeFrameTagIndexRules(
     }
     const candidate = item as Record<string, unknown>;
     const indexModeParsed = indexApplyModeSchema.safeParse(candidate.indexMode);
+    const indexOffsetSourceParsed = runtimeValueSourceSchema.safeParse(candidate.indexOffsetSource);
     const indexOffset = Number(candidate.indexOffset);
     const normalizedRule = {
       id: typeof candidate.id === "string" && candidate.id.trim() ? candidate.id.trim() : `frame-index-rule-${index + 1}`,
       enabled: candidate.enabled !== false,
       name: typeof candidate.name === "string" && candidate.name.trim() ? candidate.name.trim() : undefined,
       indexOffset: Number.isFinite(indexOffset) ? indexOffset : 0,
+      indexOffsetSource: indexOffsetSourceParsed.success ? indexOffsetSourceParsed.data : undefined,
       indexMode: indexModeParsed.success ? indexModeParsed.data : { type: "none" as const },
       conflictMode: "skipLocal" as const,
     };

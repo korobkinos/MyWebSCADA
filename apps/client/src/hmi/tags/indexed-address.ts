@@ -2,11 +2,15 @@ import {
   applyTagIndexTransform,
   extractIndexedAddressSlots,
   getEnabledFrameTagIndexRules,
+  getRuntimeValueSourceDependencies,
+  resolveRuntimeValueSync,
   resolveIndexedAddress,
   resolveTagName,
+  type FrameTagIndexRule,
   type HmiObject,
   type IndexedAddressBinding,
   type IndexedTagAddress,
+  type RuntimeDependency,
   type RenderContext,
   type ScadaProject,
   type TagDefinition,
@@ -35,6 +39,13 @@ export type ResolvedIndexedObjectTag = {
   matchingTag?: TagDefinition;
   errors: string[];
   dependencyTags: string[];
+};
+
+export type FrameRuleOffsetResolution = {
+  value: number;
+  usedSource: boolean;
+  fallbackUsed: boolean;
+  warning?: string;
 };
 
 const tagAddressMapCache = new WeakMap<ScadaProject, Map<string, TagDefinition>>();
@@ -142,6 +153,72 @@ export function buildIndexedAddressRuntimeValues(input: RuntimeValueInput): Reco
   return values;
 }
 
+export function resolveFrameRuleOffset(
+  rule: FrameTagIndexRule,
+  input: {
+    context: RenderContext;
+    runtimeValues?: Record<string, unknown>;
+  },
+): FrameRuleOffsetResolution {
+  const fallbackCandidate = Number(rule.indexOffset);
+  const fallback = Number.isFinite(fallbackCandidate) ? fallbackCandidate : 0;
+
+  if (!rule.indexOffsetSource) {
+    return {
+      value: fallback,
+      usedSource: false,
+      fallbackUsed: !Number.isFinite(fallbackCandidate),
+      warning: Number.isFinite(fallbackCandidate) ? undefined : "Invalid fallback offset. Using 0.",
+    };
+  }
+
+  const source = rule.indexOffsetSource.type === "tag"
+    ? {
+        ...rule.indexOffsetSource,
+        tag: resolveTagName(rule.indexOffsetSource.tag, input.context) ?? rule.indexOffsetSource.tag,
+      }
+    : rule.indexOffsetSource;
+
+  const resolved = resolveRuntimeValueSync(source, {
+    tagValues: input.runtimeValues,
+  });
+  const sourceOffset = Number(resolved);
+
+  if (Number.isFinite(sourceOffset)) {
+    return {
+      value: sourceOffset,
+      usedSource: true,
+      fallbackUsed: false,
+    };
+  }
+
+  const warning = resolved === undefined || resolved === null
+    ? "Offset source value is unavailable. Fallback offset is used."
+    : "Offset source value is not numeric. Fallback offset is used.";
+
+  return {
+    value: fallback,
+    usedSource: false,
+    fallbackUsed: true,
+    warning: Number.isFinite(fallbackCandidate) ? warning : `${warning} Fallback offset is invalid; using 0.`,
+  };
+}
+
+export function collectFrameRuleDependencyTags(rule: FrameTagIndexRule, context: RenderContext): string[] {
+  const dependencies = getRuntimeValueSourceDependencies(rule.indexOffsetSource);
+  if (dependencies.length === 0) {
+    return [];
+  }
+  const out = new Set<string>();
+  for (const dependency of dependencies) {
+    const normalized = normalizeRuntimeDependencyTag(dependency, context);
+    if (normalized) {
+      out.add(normalized);
+    }
+  }
+  return [...out];
+}
+
 function extractRuntimeTagValue(payload: unknown): unknown {
   if (
     payload &&
@@ -152,6 +229,25 @@ function extractRuntimeTagValue(payload: unknown): unknown {
   }
 
   return payload;
+}
+
+function normalizeRuntimeDependencyTag(dependency: RuntimeDependency, context: RenderContext): string | undefined {
+  if (dependency.type === "tag") {
+    const resolved = resolveTagName(dependency.tag, context) ?? dependency.tag;
+    const trimmed = resolved.trim();
+    return trimmed || undefined;
+  }
+  if (dependency.type === "lw") {
+    return `LW${Math.max(0, Math.floor(dependency.address))}`;
+  }
+  const raw = dependency.name.trim();
+  if (!raw) {
+    return undefined;
+  }
+  if (/^LW\d+$/i.test(raw)) {
+    return raw.toUpperCase();
+  }
+  return raw.startsWith("LW.") ? raw : `LW.${raw}`;
 }
 
 function getIndexedBindingRuntimeValue(
@@ -267,16 +363,30 @@ export function resolveObjectTagField(params: {
         dependencyTags: [],
       };
     }
+
+    const runtimeValues = buildIndexedAddressRuntimeValues({
+      context: params.context,
+      tagValues: params.tagValues,
+      variables: params.project.variables,
+    });
     let resolvedTagName = rawTagName;
+    const dependencyTags = new Set<string>();
     for (const rule of inheritedRules) {
-      resolvedTagName = applyTagIndexTransform(resolvedTagName, rule.indexOffset, rule.indexMode);
+      const offset = resolveFrameRuleOffset(rule, {
+        context: params.context,
+        runtimeValues,
+      });
+      resolvedTagName = applyTagIndexTransform(resolvedTagName, offset.value, rule.indexMode);
+      for (const dependency of collectFrameRuleDependencyTags(rule, params.context)) {
+        dependencyTags.add(dependency);
+      }
     }
     return {
       usedIndexedAddress: true,
       rawTagName,
       resolvedTagName,
       errors: [],
-      dependencyTags: [],
+      dependencyTags: [...dependencyTags],
     };
   }
 

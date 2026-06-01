@@ -7353,6 +7353,33 @@ select.workbench-select:not(.ant-select) {
   font-size: 10px;
 }
 
+.frame-indexes-editor-section__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.frame-indexes-editor-columns-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #343434;
+  background: #1f1f1f;
+}
+
+.frame-indexes-editor-column-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #cccccc;
+}
+
+.frame-indexes-editor-column-toggle input:disabled {
+  opacity: 0.55;
+}
+
 .frame-indexes-editor-empty-block {
   padding: 8px;
   color: #9f9f9f;
@@ -7430,6 +7457,18 @@ select.workbench-select:not(.ant-select) {
   max-height: 320px;
   overflow: auto;
   padding: 0 8px 8px;
+}
+
+.frame-indexes-editor-diagnostics {
+  margin: 0 8px 8px;
+  padding: 6px 8px;
+  border-left: 2px solid #e6b450;
+  background: #2a2518;
+  color: #d9d9d9;
+  font-size: 11px;
+  line-height: 1.35;
+  display: grid;
+  gap: 4px;
 }
 
 .frame-indexes-editor-monospace {

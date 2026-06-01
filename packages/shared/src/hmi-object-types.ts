@@ -1,4 +1,4 @@
-import type { ElementBindingAssignment, IndexApplyMode } from "./asset-library-types";
+import type { ElementBindingAssignment, IndexApplyMode, RuntimeValueSource } from "./asset-library-types";
 import type { AccessRoleLevel, AppRole } from "./auth-types";
 import type { IndexedTagAddress } from "./indexed-address";
 import type { OperatorActionLoggingConfig } from "./operator-action-types";
@@ -503,6 +503,7 @@ export type FrameTagIndexRule = {
   enabled: boolean;
   name?: string;
   indexOffset: number;
+  indexOffsetSource?: RuntimeValueSource;
   indexMode: IndexApplyMode;
   conflictMode?: FrameTagIndexConflictMode;
 };

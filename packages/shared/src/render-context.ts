@@ -85,6 +85,7 @@ function normalizeFrameTagIndexRule(rule: FrameTagIndexRule | undefined, index: 
     enabled: rule.enabled !== false,
     name: typeof rule.name === "string" && rule.name.trim() ? rule.name.trim() : undefined,
     indexOffset: Number.isFinite(indexOffset) ? indexOffset : 0,
+    indexOffsetSource: rule.indexOffsetSource,
     indexMode: normalizeIndexApplyMode(rule.indexMode),
     conflictMode: "skipLocal",
   };
@@ -116,6 +117,7 @@ export function getFrameTagIndexRulesSignature(rules: FrameTagIndexRule[] | unde
     id: rule.id,
     enabled: rule.enabled,
     indexOffset: rule.indexOffset,
+    indexOffsetSource: rule.indexOffsetSource,
     conflictMode: rule.conflictMode ?? "skipLocal",
     indexMode: rule.indexMode,
   })));

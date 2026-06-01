@@ -215,4 +215,96 @@ describe("resolveObjectTagField with frame inherited index rules", () => {
     expect(resolved.resolvedTagName).toBe("Burner[3].Cmd");
     expect(resolved.usedIndexedAddress).toBe(true);
   });
+
+  it("uses indexOffsetSource static value for inherited rule", () => {
+    const object: HmiObject = {
+      ...createBaseObject("text-4"),
+      type: "text",
+      text: "Value",
+      tag: "Burner[1].Pressure",
+      textStyle: {
+        fontFamily: "Arial",
+        fontSize: 12,
+        color: "#fff",
+        horizontalAlign: "left",
+        verticalAlign: "middle",
+      },
+    };
+    const context: RenderContext = {
+      inheritedIndexRules: [
+        {
+          id: "frame-rule-source-static",
+          enabled: true,
+          indexOffset: 1,
+          indexOffsetSource: {
+            type: "static",
+            value: 4,
+          },
+          indexMode: {
+            type: "arrayIndex",
+            occurrence: 0,
+            operation: "add",
+            valueFrom: "indexOffset",
+          },
+          conflictMode: "skipLocal",
+        },
+      ],
+    };
+
+    const resolved = resolveObjectTagField({
+      object,
+      fieldName: "tag",
+      project: createProject(["Burner[1].Pressure", "Burner[5].Pressure"]),
+      context,
+      rawTagName: object.tag,
+    });
+
+    expect(resolved.resolvedTagName).toBe("Burner[5].Pressure");
+  });
+
+  it("falls back to indexOffset when source is non-numeric", () => {
+    const object: HmiObject = {
+      ...createBaseObject("text-5"),
+      type: "text",
+      text: "Value",
+      tag: "Burner[1].Pressure",
+      textStyle: {
+        fontFamily: "Arial",
+        fontSize: 12,
+        color: "#fff",
+        horizontalAlign: "left",
+        verticalAlign: "middle",
+      },
+    };
+    const context: RenderContext = {
+      inheritedIndexRules: [
+        {
+          id: "frame-rule-source-fallback",
+          enabled: true,
+          indexOffset: 2,
+          indexOffsetSource: {
+            type: "expression",
+            expression: "\"bad\"",
+          },
+          indexMode: {
+            type: "arrayIndex",
+            occurrence: 0,
+            operation: "add",
+            valueFrom: "indexOffset",
+          },
+          conflictMode: "skipLocal",
+        },
+      ],
+    };
+
+    const resolved = resolveObjectTagField({
+      object,
+      fieldName: "tag",
+      project: createProject(["Burner[1].Pressure", "Burner[3].Pressure"]),
+      context,
+      rawTagName: object.tag,
+    });
+
+    expect(resolved.resolvedTagName).toBe("Burner[3].Pressure");
+  });
 });

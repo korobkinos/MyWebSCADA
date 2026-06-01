@@ -1997,7 +1997,9 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
         <FrameIndexesEditorWindow
           open={frameIndexesEditorOpen}
           project={project}
+          libraries={libraries}
           frame={object}
+          runtimePreviewValues={editorRuntimeValues}
           onApplyRules={(nextRules) => onPatch({ tagIndexRules: nextRules.length > 0 ? nextRules : undefined } as Partial<HmiObject>)}
           onClose={() => setFrameIndexesEditorOpen(false)}
         />
