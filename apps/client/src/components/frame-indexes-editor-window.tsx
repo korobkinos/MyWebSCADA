@@ -140,6 +140,22 @@ export function FrameIndexesEditorWindow({
     [draftRules, scanItems, runtimePreviewValues, frame.tagPrefix],
   );
   const selectedRow = useMemo(() => scanRows.find((item) => item.key === selectedRowId) ?? scanRows[0], [scanRows, selectedRowId]);
+  const selectedPreviewExpression = useMemo(() => {
+    if (!selectedRow) {
+      return undefined;
+    }
+    return buildPreviewExpression(
+      selectedRow.rawTag,
+      draftRules,
+      {
+        runtimeValues: runtimePreviewValues,
+        renderContext: {
+          tagPrefix: frame.tagPrefix,
+        },
+      },
+      selectedRow.matchedRuleIds,
+    );
+  }, [selectedRow, draftRules, runtimePreviewValues, frame.tagPrefix]);
 
   const conflictRows = useMemo(() => scanRows.filter((item) => item.hasLocalIndexing), [scanRows]);
   const visibleColumnIds = useMemo(
@@ -280,7 +296,7 @@ export function FrameIndexesEditorWindow({
                                 <option value="expression">Expression</option>
                               </select>
                             </label>
-                            <label className="frame-indexes-editor-field frame-indexes-editor-field--source-value">
+                            <label className="frame-indexes-editor-field">
                               <span>Source Value</span>
                               {(rule.indexOffsetSource?.type === "tag"
                                 || rule.indexOffsetSource?.type === "lw"
@@ -569,10 +585,10 @@ export function FrameIndexesEditorWindow({
                     <div className="frame-indexes-editor-monospace">{selectedRow.rawTag}</div>
                     <div>Result</div>
                     <div className="frame-indexes-editor-monospace">{selectedRow.preview}</div>
-                    {selectedRow.previewExpression ? (
+                    {selectedPreviewExpression ? (
                       <>
                         <div>Applied index expression</div>
-                        <div className="frame-indexes-editor-monospace">{selectedRow.previewExpression}</div>
+                        <div className="frame-indexes-editor-monospace">{selectedPreviewExpression}</div>
                       </>
                     ) : null}
                     <div>Matched rules</div>
@@ -850,6 +866,7 @@ function buildPreviewExpression(
     runtimeValues?: Record<string, unknown>;
     renderContext?: { tagPrefix?: string };
   },
+  matchedRuleIds?: string[],
 ): string | undefined {
   const activeRules = getEnabledFrameTagIndexRules(rules);
   if (!rawTag.trim() || activeRules.length === 0) {
@@ -895,7 +912,21 @@ function buildPreviewExpression(
     }
   }
 
-  return hasExpression ? expressionTag : undefined;
+  if (hasExpression) {
+    return expressionTag;
+  }
+
+  if (Array.isArray(matchedRuleIds) && matchedRuleIds.length > 0) {
+    const matchedRule = activeRules.find((rule) => matchedRuleIds.includes(rule.id));
+    if (matchedRule && matchedRule.indexOffsetSource && matchedRule.indexOffsetSource.type !== "static") {
+      const fallbackPatched = patchTagByMode(rawTag, matchedRule, (inner) => `${inner}+${normalizeRuleLabel(matchedRule)}`);
+      if (fallbackPatched) {
+        return fallbackPatched;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function normalizeRuleLabel(rule: FrameTagIndexRule): string {
