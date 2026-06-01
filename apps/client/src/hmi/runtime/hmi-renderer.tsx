@@ -1332,6 +1332,8 @@ function ObjectNode({
   const flowArrowRefs = useRef<Array<Konva.Line | null>>([]);
   const rotationLastFrameRef = useRef<number | null>(null);
   const flowAnimationLastFrameRef = useRef<number | null>(null);
+  const dragLayerRef = useRef<Konva.Layer | null>(null);
+  const dragLayerListeningRef = useRef<boolean>(true);
   const effectiveShadowDisabled = shadowDisabled || (mode === "editor" && isDragging);
   const editorVisualListening = interactive ? false : undefined;
   const debugPerformance =
@@ -1350,6 +1352,17 @@ function ObjectNode({
       interactive,
     });
   }, [debugPerformance, interactive, resolvedObject.id, resolvedObject.type]);
+
+  useEffect(() => {
+    return () => {
+      const layer = dragLayerRef.current;
+      if (layer) {
+        layer.listening(dragLayerListeningRef.current);
+        layer.batchDraw();
+        dragLayerRef.current = null;
+      }
+    };
+  }, []);
 
   const indexedTagCache = new Map<string, ReturnType<typeof resolveObjectTagField>>();
   const tagValue = (name: string | undefined, options?: { useObjectIndexing?: boolean; fieldName?: string }): ResolvedTagValue => {
@@ -1848,8 +1861,20 @@ function ObjectNode({
     onDragStart: (evt: KonvaEventObject<DragEvent>) => {
       if (mode === "editor" && interactive && !resolvedObject.locked) {
         const node = evt.target as Konva.Node;
+        node.transformsEnabled("position");
         if (!node.isCached()) {
-          node.cache();
+          node.cache({
+            pixelRatio: 1,
+            hitCanvasPixelRatio: 1,
+            offset: 8,
+          });
+        }
+        const layer = node.getLayer();
+        if (layer) {
+          dragLayerListeningRef.current = layer.listening();
+          dragLayerRef.current = layer;
+          layer.listening(false);
+          layer.batchDraw();
         }
         setIsDragging(true);
       }
@@ -1886,9 +1911,16 @@ function ObjectNode({
       setIsDragging(false);
       if (interactive && !resolvedObject.locked) {
         const node = evt.target as Konva.Node;
+        node.transformsEnabled("all");
         if (node.isCached()) {
           node.clearCache();
         }
+        const layer = dragLayerRef.current;
+        if (layer) {
+          layer.listening(dragLayerListeningRef.current);
+          layer.batchDraw();
+        }
+        dragLayerRef.current = null;
         onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
         onCommitObjectMove?.();
       }
