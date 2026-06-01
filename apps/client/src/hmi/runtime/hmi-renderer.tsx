@@ -1336,7 +1336,7 @@ function ObjectNode({
   const rotationLastFrameRef = useRef<number | null>(null);
   const flowAnimationLastFrameRef = useRef<number | null>(null);
   const dragCacheAppliedRef = useRef(false);
-  const effectiveShadowDisabled = shadowDisabled;
+  const effectiveShadowDisabled = shadowDisabled || mode === "editor";
   const editorVisualListening = interactive ? false : undefined;
   const debugPerformance =
     import.meta.env.DEV &&
