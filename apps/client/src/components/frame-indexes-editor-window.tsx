@@ -269,67 +269,24 @@ export function FrameIndexesEditorWindow({
                                 }
                               >
                                 <option value="constant">Constant</option>
-                                <option value="tag">Tag</option>
-                                <option value="lw">LW</option>
-                                <option value="internal">Internal</option>
+                                <option value="reference">Reference</option>
                                 <option value="expression">Expression</option>
                               </select>
                             </label>
                             <label className="frame-indexes-editor-field">
                               <span>Source Value</span>
-                              {rule.indexOffsetSource?.type === "tag" ? (
+                              {(rule.indexOffsetSource?.type === "tag"
+                                || rule.indexOffsetSource?.type === "lw"
+                                || rule.indexOffsetSource?.type === "internal") ? (
                                 <TagPicker
                                   project={project}
-                                  value={rule.indexOffsetSource.tag}
+                                  value={resolveReferencePickerValue(project, rule.indexOffsetSource)}
+                                  allowedSourceTypes={["opcua", "modbus", "simulated", "internal", "lw", "computed"]}
                                   onChange={(nextValue) =>
                                     setDraftRules((prev) =>
                                       prev.map((item) => (
-                                        item.id === rule.id && item.indexOffsetSource?.type === "tag"
-                                          ? { ...item, indexOffsetSource: { ...item.indexOffsetSource, tag: nextValue ?? "" } }
-                                          : item
-                                      )),
-                                    )
-                                  }
-                                />
-                              ) : null}
-                              {rule.indexOffsetSource?.type === "lw" ? (
-                                <TagPicker
-                                  project={project}
-                                  value={resolveLwPickerValue(project, rule.indexOffsetSource.address ?? 0)}
-                                  allowedSourceTypes={["lw"]}
-                                  onChange={(nextValue) =>
-                                    setDraftRules((prev) =>
-                                      prev.map((item) => (
-                                        item.id === rule.id && item.indexOffsetSource?.type === "lw"
-                                          ? {
-                                              ...item,
-                                              indexOffsetSource: {
-                                                ...item.indexOffsetSource,
-                                                address: resolveLwAddressFromPicker(project, nextValue),
-                                              },
-                                            }
-                                          : item
-                                      )),
-                                    )
-                                  }
-                                />
-                              ) : null}
-                              {rule.indexOffsetSource?.type === "internal" ? (
-                                <TagPicker
-                                  project={project}
-                                  value={resolveInternalPickerValue(project, rule.indexOffsetSource.name)}
-                                  allowedSourceTypes={["internal"]}
-                                  onChange={(nextValue) =>
-                                    setDraftRules((prev) =>
-                                      prev.map((item) => (
-                                        item.id === rule.id && item.indexOffsetSource?.type === "internal"
-                                          ? {
-                                              ...item,
-                                              indexOffsetSource: {
-                                                ...item.indexOffsetSource,
-                                                name: resolveInternalNameFromPicker(project, nextValue),
-                                              },
-                                            }
+                                        item.id === rule.id
+                                          ? { ...item, indexOffsetSource: resolveReferenceSourceFromPicker(project, nextValue, item.indexOffsetSource) }
                                           : item
                                       )),
                                     )
@@ -739,21 +696,20 @@ function normalizeOffsetSource(source: RuntimeValueSource | undefined, fallbackO
   };
 }
 
-function getOffsetSourceType(source: RuntimeValueSource | undefined): "constant" | "tag" | "lw" | "internal" | "expression" {
+function getOffsetSourceType(source: RuntimeValueSource | undefined): "constant" | "reference" | "expression" {
   if (!source || source.type === "static") {
     return "constant";
   }
-  return source.type;
+  if (source.type === "tag" || source.type === "lw" || source.type === "internal") {
+    return "reference";
+  }
+  return "expression";
 }
 
 function createOffsetSourceDraft(type: string, fallbackOffset: number): RuntimeValueSource {
   switch (type) {
-    case "tag":
+    case "reference":
       return { type: "tag", tag: "" };
-    case "lw":
-      return { type: "lw", address: 0 };
-    case "internal":
-      return { type: "internal", name: "" };
     case "expression":
       return { type: "expression", expression: "" };
     default:
@@ -772,6 +728,19 @@ function resolveLwPickerValue(project: ScadaProject, address: number): string {
     return fromTag.name.trim();
   }
   return `LW${normalizedAddress}`;
+}
+
+function resolveReferencePickerValue(project: ScadaProject, source: RuntimeValueSource): string {
+  if (source.type === "tag") {
+    return source.tag ?? "";
+  }
+  if (source.type === "lw") {
+    return resolveLwPickerValue(project, source.address ?? 0);
+  }
+  if (source.type === "internal") {
+    return resolveInternalPickerValue(project, source.name ?? "");
+  }
+  return "";
 }
 
 function resolveLwAddressFromPicker(project: ScadaProject, value: string | undefined): number {
@@ -824,6 +793,40 @@ function resolveInternalNameFromPicker(project: ScadaProject, value: string | un
     return match.name.trim();
   }
   return trimmed.startsWith("LW.") ? trimmed.slice(3) : trimmed;
+}
+
+function resolveReferenceSourceFromPicker(
+  project: ScadaProject,
+  value: string | undefined,
+  previous: RuntimeValueSource | undefined,
+): RuntimeValueSource {
+  const raw = value?.trim() ?? "";
+  if (!raw) {
+    if (previous?.type === "lw") {
+      return { type: "lw", address: 0 };
+    }
+    if (previous?.type === "internal") {
+      return { type: "internal", name: "" };
+    }
+    return { type: "tag", tag: "" };
+  }
+
+  const lwAddress = resolveLwAddressFromPicker(project, raw);
+  const looksLikeLw = /^LW\d+$/i.test(raw)
+    || project.tags.some((tag) => tag.name === raw && (tag.sourceType ?? "simulated") === "lw")
+    || project.variables?.some((item) => (
+      (item.name === raw || `LW.${item.name}` === raw) && typeof item.lwAddress === "number"
+    ));
+  if (looksLikeLw) {
+    return { type: "lw", address: lwAddress };
+  }
+
+  const isInternal = project.variables?.some((item) => item.name === raw || `LW.${item.name}` === raw);
+  if (isInternal) {
+    return { type: "internal", name: resolveInternalNameFromPicker(project, raw) };
+  }
+
+  return { type: "tag", tag: raw };
 }
 
 function renderScanColumn(row: ScanRow, columnId: FrameIndexColumnId) {
