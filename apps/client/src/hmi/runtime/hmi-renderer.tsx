@@ -773,7 +773,7 @@ function resolveShadowOffset(direction: ShadowDirection, distance: number): { x:
 }
 
 function resolveShapeShadowProps(object: HmiObject, options?: { disabled?: boolean }): Record<string, unknown> {
-  if (options?.disabled || object.type === "libraryElementInstance" || !(object.shadowEnabled ?? false)) {
+  if (options?.disabled || !(object.shadowEnabled ?? false)) {
     return {};
   }
   const shadowColor = object.shadowColor ?? "#000000";

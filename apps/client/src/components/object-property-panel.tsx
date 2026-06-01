@@ -1561,7 +1561,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     onPatch({ textStyle: { ...object.textStyle, ...patch } } as Partial<HmiObject>);
   };
   const supportsRotationAnimation = ROTATION_ANIMATION_SUPPORTED_TYPES.has(object.type);
-  const supportsShadowEffects = object.type !== "libraryElementInstance";
+  const supportsShadowEffects = true;
 
   const generalContent = (
     <>
@@ -1652,7 +1652,6 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           onChange={(checked) => onPatch({ shadowEnabled: checked } as Partial<HmiObject>)}
         />
       </Space>
-      {!supportsShadowEffects ? <div style={{ marginBottom: 8, opacity: 0.75 }}>Shadow is not supported for library instances.</div> : null}
       <ColorField
         label="Shadow Color"
         value={object.shadowColor ?? "#000000"}
