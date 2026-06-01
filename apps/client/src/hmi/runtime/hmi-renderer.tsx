@@ -5150,6 +5150,7 @@ function LibraryInstanceNodeResolved({
 
   const childScale = computeFrameScale(object.scaleMode ?? "fit", object.width, object.height, element.width, element.height);
   const scopedAssets = toAssetMap(library.assets);
+  const instanceShadowProps = resolveShapeShadowProps(object, { disabled: shadowDisabled });
 
   const virtualScreen: HmiScreen = {
     id: `${library.id}:${element.id}`,
@@ -5191,6 +5192,7 @@ function LibraryInstanceNodeResolved({
   return (
     <Group
       {...commonGroupProps}
+      {...instanceShadowProps}
       onClick={(event) => {
         if (!isPrimaryPointerButton(event.evt)) {
           return;
