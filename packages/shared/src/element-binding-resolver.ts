@@ -80,6 +80,14 @@ type IndexToken = {
   end: number;
 };
 
+export type TagIndexToken = {
+  occurrence: number;
+  segmentIndex: number;
+  segmentName: string;
+  value: number;
+  token: string;
+};
+
 function collectIndexTokens(segments: string[]): IndexToken[] {
   const tokens: IndexToken[] = [];
   for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
@@ -100,6 +108,24 @@ function collectIndexTokens(segments: string[]): IndexToken[] {
     }
   }
   return tokens;
+}
+
+export function extractTagIndexTokens(tag: string): TagIndexToken[] {
+  if (!tag.trim()) {
+    return [];
+  }
+  const segments = parseTagSegments(tag);
+  if (!segments.length) {
+    return [];
+  }
+  const rawTokens = collectIndexTokens(segments);
+  return rawTokens.map((token, occurrence) => ({
+    occurrence,
+    segmentIndex: token.segmentIndex,
+    segmentName: getSegmentName(segments[token.segmentIndex] ?? ""),
+    value: token.value,
+    token: `[${token.value}]`,
+  }));
 }
 
 function replaceIndexInSegment(segment: string, token: IndexToken, nextValue: number): string {

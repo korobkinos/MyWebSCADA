@@ -7258,6 +7258,228 @@ select.workbench-select:not(.ant-select) {
   border-top: 1px solid #3c3c3c;
 }
 
+/* Frame Indexes editor window */
+
+.frame-indexes-editor-window-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+.frame-indexes-editor-window-layer .workbench-window {
+  pointer-events: auto;
+}
+
+.frame-indexes-editor-window {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #252526;
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.frame-indexes-editor-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.frame-indexes-editor-toolbar__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.frame-indexes-editor-toolbar__meta span {
+  color: #9f9f9f;
+}
+
+.frame-indexes-editor-toolbar__meta strong {
+  color: #d7d7d7;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frame-indexes-editor-empty-screen {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: #a9a9a9;
+  font-size: 12px;
+  padding: 12px;
+}
+
+.frame-indexes-editor-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.frame-indexes-editor-section {
+  border: 1px solid #3c3c3c;
+  background: #1f1f1f;
+}
+
+.frame-indexes-editor-section__header {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #343434;
+  background: #2a2a2a;
+  color: #d4d4d4;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.frame-indexes-editor-section__header small {
+  color: #9a9a9a;
+  font-size: 10px;
+}
+
+.frame-indexes-editor-empty-block {
+  padding: 8px;
+  color: #9f9f9f;
+}
+
+.frame-indexes-editor-rules {
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.frame-indexes-editor-rule {
+  border: 1px solid #3a3a3a;
+  background: #202020;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.frame-indexes-editor-rule__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.frame-indexes-editor-rule__header strong {
+  font-size: 12px;
+  color: #dfdfdf;
+}
+
+.frame-indexes-editor-rule__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.frame-indexes-editor-field {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: #aaaaaa;
+}
+
+.frame-indexes-editor-field--inline {
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: start;
+  gap: 8px;
+}
+
+.frame-indexes-editor-field--full {
+  grid-column: 1 / -1;
+}
+
+.frame-indexes-editor-field .workbench-input,
+.frame-indexes-editor-field .workbench-select {
+  width: 100%;
+  min-height: 24px;
+}
+
+.frame-indexes-editor-readonly {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid #3c3c3c;
+  background: #1e1e1e;
+  color: #c0c0c0;
+}
+
+.frame-indexes-editor-table-wrap {
+  min-height: 220px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+
+.frame-indexes-editor-monospace {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.frame-indexes-editor-conflicts {
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.frame-indexes-editor-conflict {
+  border-left: 2px solid #e6b450;
+  background: #2a2518;
+  color: #d9d9d9;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  display: grid;
+  gap: 4px;
+}
+
+.frame-indexes-editor-preview {
+  margin-bottom: 8px;
+}
+
+.frame-indexes-editor-preview-grid {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 6px 10px;
+  padding: 8px;
+  font-size: 11px;
+}
+
+.frame-indexes-editor-preview-grid > div:nth-child(odd) {
+  color: #a5a5a5;
+}
+
+.frame-indexes-editor-actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid #3c3c3c;
+}
+
 /* ── Login Page – Workbench style ── */
 .workbench-login-page {
   width: 100vw;
