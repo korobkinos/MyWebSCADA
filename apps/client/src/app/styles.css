@@ -7436,6 +7436,11 @@ select.workbench-select:not(.ant-select) {
   grid-column: 1 / -1;
 }
 
+.frame-indexes-editor-field--source-value {
+  grid-column: span 2;
+  min-width: 260px;
+}
+
 .frame-indexes-editor-field .workbench-input,
 .frame-indexes-editor-field .workbench-select {
   width: 100%;

@@ -14,6 +14,7 @@ type TagPickerProps = {
   writableOnly?: boolean;
   allowedDataTypes?: string[];
   allowedSourceTypes?: TagSourceType[];
+  showBadges?: boolean;
 };
 
 type PickerTag = TagDefinition & {
@@ -192,6 +193,7 @@ export function TagPicker({
   writableOnly,
   allowedDataTypes,
   allowedSourceTypes,
+  showBadges = true,
 }: TagPickerProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerRect, setPickerRect] = useState<WorkbenchWindowRect>(() => loadRect());
@@ -274,7 +276,7 @@ export function TagPicker({
           onMouseDown={(event) => event.stopPropagation()}
         >
           <span className="tag-picker-field__name">{selectedValue || placeholder || "Select tag..."}</span>
-          {selectedTag ? (
+          {selectedTag && showBadges ? (
             <span className="tag-picker-field__badges">
               <span className="tag-picker-badge">{selectedTag.dataType}</span>
               <span className="tag-picker-badge">{sourceLabel}</span>

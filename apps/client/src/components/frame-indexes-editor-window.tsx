@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ElementLibrary, FrameObject, FrameTagIndexRule, RuntimeValueSource, ScadaProject } from "@web-scada/shared";
+import { getEnabledFrameTagIndexRules, type ElementLibrary, type FrameObject, type FrameTagIndexRule, type RuntimeValueSource, type ScadaProject } from "@web-scada/shared";
 import { WorkbenchTable, WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
 import { evaluateFrameIndexScanItem, scanFrameIndexTagsDetailed, type FrameIndexScanItem } from "../hmi/tags/frame-index-scan";
 import { TagPicker } from "./tag-picker";
+import { resolveFrameRuleOffset } from "../hmi/tags/indexed-address";
 
 type FrameIndexesEditorWindowProps = {
   open: boolean;
@@ -21,6 +22,7 @@ type ScanRow = FrameIndexScanItem & {
   preview: string;
   matchedRuleIds: string[];
   warnings: string[];
+  previewExpression?: string;
 };
 
 type FrameIndexColumnId = "object" | "type" | "field" | "rawTag" | "indexes" | "local" | "status" | "preview" | "notes";
@@ -113,14 +115,18 @@ export function FrameIndexesEditorWindow({
   const scanRows = useMemo<ScanRow[]>(
     () =>
       scanItems.map((item) => {
-        const evaluation = evaluateFrameIndexScanItem(item, draftRules, {
+        const previewContext = {
           runtimeValues: runtimePreviewValues,
           renderContext: {
             tagPrefix: frame.tagPrefix,
           },
+        };
+        const evaluation = evaluateFrameIndexScanItem(item, draftRules, {
+          ...previewContext,
         });
         const runtimeSuffix = item.runtimeSupport === "limited" ? " (runtime limited)" : "";
         const warningSuffix = evaluation.warnings.length > 0 ? " (fallback)" : "";
+        const previewExpression = buildPreviewExpression(item.rawTag, draftRules, previewContext);
         return {
           ...item,
           key: `${item.objectId}:${item.fieldPath}`,
@@ -128,6 +134,7 @@ export function FrameIndexesEditorWindow({
           preview: evaluation.preview,
           matchedRuleIds: evaluation.matchedRuleIds,
           warnings: evaluation.warnings,
+          previewExpression,
         };
       }),
     [draftRules, scanItems, runtimePreviewValues, frame.tagPrefix],
@@ -273,7 +280,7 @@ export function FrameIndexesEditorWindow({
                                 <option value="expression">Expression</option>
                               </select>
                             </label>
-                            <label className="frame-indexes-editor-field">
+                            <label className="frame-indexes-editor-field frame-indexes-editor-field--source-value">
                               <span>Source Value</span>
                               {(rule.indexOffsetSource?.type === "tag"
                                 || rule.indexOffsetSource?.type === "lw"
@@ -282,6 +289,7 @@ export function FrameIndexesEditorWindow({
                                   project={project}
                                   value={resolveReferencePickerValue(project, rule.indexOffsetSource)}
                                   allowedSourceTypes={["opcua", "modbus", "simulated", "internal", "lw", "computed"]}
+                                  showBadges={false}
                                   onChange={(nextValue) =>
                                     setDraftRules((prev) =>
                                       prev.map((item) => (
@@ -561,6 +569,12 @@ export function FrameIndexesEditorWindow({
                     <div className="frame-indexes-editor-monospace">{selectedRow.rawTag}</div>
                     <div>Result</div>
                     <div className="frame-indexes-editor-monospace">{selectedRow.preview}</div>
+                    {selectedRow.previewExpression ? (
+                      <>
+                        <div>Applied index expression</div>
+                        <div className="frame-indexes-editor-monospace">{selectedRow.previewExpression}</div>
+                      </>
+                    ) : null}
                     <div>Matched rules</div>
                     <div>{selectedRow.matchedRuleIds.length > 0 ? selectedRow.matchedRuleIds.join(", ") : "-"}</div>
                     <div>Notes</div>
@@ -827,6 +841,167 @@ function resolveReferenceSourceFromPicker(
   }
 
   return { type: "tag", tag: raw };
+}
+
+function buildPreviewExpression(
+  rawTag: string,
+  rules: FrameTagIndexRule[] | undefined,
+  context: {
+    runtimeValues?: Record<string, unknown>;
+    renderContext?: { tagPrefix?: string };
+  },
+): string | undefined {
+  const activeRules = getEnabledFrameTagIndexRules(rules);
+  if (!rawTag.trim() || activeRules.length === 0) {
+    return undefined;
+  }
+
+  let expressionTag = rawTag;
+  let hasExpression = false;
+
+  for (const rule of activeRules) {
+    const sourceType = rule.indexOffsetSource?.type;
+    const offset = resolveFrameRuleOffset(rule, {
+      context: context.renderContext ?? {},
+      runtimeValues: context.runtimeValues,
+    });
+
+    if (sourceType && sourceType !== "static") {
+      const ruleLabel = normalizeRuleLabel(rule);
+      const patched = patchTagByMode(expressionTag, rule, (inner) => `${inner}+${ruleLabel}`);
+      if (patched) {
+        expressionTag = patched;
+        hasExpression = true;
+      }
+      continue;
+    }
+
+    if (!hasExpression) {
+      continue;
+    }
+
+    const patched = patchTagByMode(expressionTag, rule, (inner) => {
+      const numeric = Number(inner.trim());
+      if (Number.isFinite(numeric)) {
+        return String(numeric + offset.value);
+      }
+      if (offset.value === 0) {
+        return inner;
+      }
+      return `${inner}${offset.value >= 0 ? `+${offset.value}` : String(offset.value)}`;
+    });
+    if (patched) {
+      expressionTag = patched;
+    }
+  }
+
+  return hasExpression ? expressionTag : undefined;
+}
+
+function normalizeRuleLabel(rule: FrameTagIndexRule): string {
+  const label = rule.name?.trim() || rule.id.trim();
+  return label || "rule";
+}
+
+function patchTagByMode(
+  tag: string,
+  rule: FrameTagIndexRule,
+  replacer: (inner: string) => string,
+): string | undefined {
+  const segments = splitTagSegments(tag);
+  const tokens = collectBracketTokens(segments);
+  if (tokens.length === 0) {
+    return undefined;
+  }
+
+  let target = undefined as (typeof tokens)[number] | undefined;
+  if (rule.indexMode.type === "arrayIndex") {
+    target = tokens[rule.indexMode.occurrence];
+  } else if (rule.indexMode.type === "arrayIndexBySegment") {
+    const segmentName = rule.indexMode.segmentName.trim();
+    if (!segmentName) {
+      return undefined;
+    }
+    target = tokens.find((token) => token.segmentName === segmentName);
+  }
+  if (!target) {
+    return undefined;
+  }
+
+  const currentSegment = segments[target.segmentIndex] ?? "";
+  const nextInner = replacer(target.inner);
+  segments[target.segmentIndex] = `${currentSegment.slice(0, target.start)}${nextInner}${currentSegment.slice(target.end)}`;
+  return segments.join(".");
+}
+
+function splitTagSegments(tag: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let bracketDepth = 0;
+
+  for (const char of tag) {
+    if (char === "[") {
+      bracketDepth += 1;
+      current += char;
+      continue;
+    }
+    if (char === "]" && bracketDepth > 0) {
+      bracketDepth -= 1;
+      current += char;
+      continue;
+    }
+    if (char === "." && bracketDepth === 0) {
+      segments.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  segments.push(current);
+  return segments.filter((segment) => segment.length > 0);
+}
+
+function collectBracketTokens(segments: string[]): Array<{
+  occurrence: number;
+  segmentIndex: number;
+  segmentName: string;
+  inner: string;
+  start: number;
+  end: number;
+}> {
+  const out: Array<{
+    occurrence: number;
+    segmentIndex: number;
+    segmentName: string;
+    inner: string;
+    start: number;
+    end: number;
+  }> = [];
+  let occurrence = 0;
+
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+    const segment = segments[segmentIndex] ?? "";
+    const segmentName = segment.split("[")[0] ?? "";
+    const matcher = /\[([^\]]*)\]/g;
+    let match = matcher.exec(segment);
+    while (match) {
+      const inner = match[1] ?? "";
+      const start = match.index + 1;
+      const end = start + inner.length;
+      out.push({
+        occurrence,
+        segmentIndex,
+        segmentName,
+        inner,
+        start,
+        end,
+      });
+      occurrence += 1;
+      match = matcher.exec(segment);
+    }
+  }
+
+  return out;
 }
 
 function renderScanColumn(row: ScanRow, columnId: FrameIndexColumnId) {
