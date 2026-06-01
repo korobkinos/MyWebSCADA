@@ -293,17 +293,21 @@ export function FrameIndexesEditorWindow({
                                 />
                               ) : null}
                               {rule.indexOffsetSource?.type === "lw" ? (
-                                <input
-                                  className="workbench-input"
-                                  type="number"
-                                  min={0}
-                                  value={String(rule.indexOffsetSource.address)}
-                                  placeholder="LW address"
-                                  onChange={(event) =>
+                                <TagPicker
+                                  project={project}
+                                  value={resolveLwPickerValue(project, rule.indexOffsetSource.address ?? 0)}
+                                  allowedSourceTypes={["lw"]}
+                                  onChange={(nextValue) =>
                                     setDraftRules((prev) =>
                                       prev.map((item) => (
                                         item.id === rule.id && item.indexOffsetSource?.type === "lw"
-                                          ? { ...item, indexOffsetSource: { ...item.indexOffsetSource, address: Math.max(0, Math.floor(toFiniteNumber(event.target.value))) } }
+                                          ? {
+                                              ...item,
+                                              indexOffsetSource: {
+                                                ...item.indexOffsetSource,
+                                                address: resolveLwAddressFromPicker(project, nextValue),
+                                              },
+                                            }
                                           : item
                                       )),
                                     )
@@ -311,15 +315,21 @@ export function FrameIndexesEditorWindow({
                                 />
                               ) : null}
                               {rule.indexOffsetSource?.type === "internal" ? (
-                                <input
-                                  className="workbench-input"
-                                  value={rule.indexOffsetSource.name}
-                                  placeholder="Variable name"
-                                  onChange={(event) =>
+                                <TagPicker
+                                  project={project}
+                                  value={resolveInternalPickerValue(project, rule.indexOffsetSource.name)}
+                                  allowedSourceTypes={["internal"]}
+                                  onChange={(nextValue) =>
                                     setDraftRules((prev) =>
                                       prev.map((item) => (
                                         item.id === rule.id && item.indexOffsetSource?.type === "internal"
-                                          ? { ...item, indexOffsetSource: { ...item.indexOffsetSource, name: event.target.value } }
+                                          ? {
+                                              ...item,
+                                              indexOffsetSource: {
+                                                ...item.indexOffsetSource,
+                                                name: resolveInternalNameFromPicker(project, nextValue),
+                                              },
+                                            }
                                           : item
                                       )),
                                     )
@@ -749,6 +759,71 @@ function createOffsetSourceDraft(type: string, fallbackOffset: number): RuntimeV
     default:
       return { type: "static", value: fallbackOffset };
   }
+}
+
+function resolveLwPickerValue(project: ScadaProject, address: number): string {
+  const normalizedAddress = Math.max(0, Math.floor(address));
+  const fromTag = project.tags.find((tag) => (
+    (tag.sourceType ?? "simulated") === "lw" &&
+    typeof tag.lwAddress === "number" &&
+    Math.floor(tag.lwAddress) === normalizedAddress
+  ));
+  if (fromTag?.name?.trim()) {
+    return fromTag.name.trim();
+  }
+  return `LW${normalizedAddress}`;
+}
+
+function resolveLwAddressFromPicker(project: ScadaProject, value: string | undefined): number {
+  const raw = value?.trim() ?? "";
+  if (!raw) {
+    return 0;
+  }
+  const lwMatch = raw.match(/^LW(\d+)$/i);
+  if (lwMatch) {
+    return Math.max(0, Math.floor(Number(lwMatch[1])));
+  }
+  const byTag = project.tags.find((tag) => tag.name === raw && typeof tag.lwAddress === "number");
+  const byTagAddress = byTag?.lwAddress;
+  if (typeof byTagAddress === "number" && Number.isFinite(byTagAddress)) {
+    return Math.max(0, Math.floor(byTagAddress));
+  }
+  const byVariable = project.variables?.find((item) => (
+    item.name === raw ||
+    `LW.${item.name}` === raw
+  ));
+  const byVariableAddress = byVariable?.lwAddress;
+  if (typeof byVariableAddress === "number" && Number.isFinite(byVariableAddress)) {
+    return Math.max(0, Math.floor(byVariableAddress));
+  }
+  return 0;
+}
+
+function resolveInternalPickerValue(project: ScadaProject, value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const asIs = project.variables?.some((item) => item.name === trimmed || `LW.${item.name}` === trimmed);
+  if (asIs) {
+    return trimmed.startsWith("LW.") ? trimmed : `LW.${trimmed}`;
+  }
+  return trimmed;
+}
+
+function resolveInternalNameFromPicker(project: ScadaProject, value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return "";
+  }
+  const match = project.variables?.find((item) => (
+    item.name === trimmed ||
+    `LW.${item.name}` === trimmed
+  ));
+  if (match?.name?.trim()) {
+    return match.name.trim();
+  }
+  return trimmed.startsWith("LW.") ? trimmed.slice(3) : trimmed;
 }
 
 function renderScanColumn(row: ScanRow, columnId: FrameIndexColumnId) {
