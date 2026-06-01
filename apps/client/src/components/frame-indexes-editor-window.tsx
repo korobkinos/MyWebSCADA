@@ -124,14 +124,14 @@ export function FrameIndexesEditorWindow({
         const evaluation = evaluateFrameIndexScanItem(item, draftRules, {
           ...previewContext,
         });
+        const previewExpression = buildPreviewExpression(item.rawTag, draftRules, previewContext, evaluation.matchedRuleIds);
         const runtimeSuffix = item.runtimeSupport === "limited" ? " (runtime limited)" : "";
         const warningSuffix = evaluation.warnings.length > 0 ? " (fallback)" : "";
-        const previewExpression = buildPreviewExpression(item.rawTag, draftRules, previewContext);
         return {
           ...item,
           key: `${item.objectId}:${item.fieldPath}`,
           status: `${evaluation.status}${runtimeSuffix}${warningSuffix}`,
-          preview: evaluation.preview,
+          preview: previewExpression ?? evaluation.preview,
           matchedRuleIds: evaluation.matchedRuleIds,
           warnings: evaluation.warnings,
           previewExpression,
