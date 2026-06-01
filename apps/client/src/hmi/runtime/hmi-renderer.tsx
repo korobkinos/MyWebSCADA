@@ -1332,8 +1332,6 @@ function ObjectNode({
   const flowArrowRefs = useRef<Array<Konva.Line | null>>([]);
   const rotationLastFrameRef = useRef<number | null>(null);
   const flowAnimationLastFrameRef = useRef<number | null>(null);
-  const dragLayerRef = useRef<Konva.Layer | null>(null);
-  const dragLayerListeningRef = useRef<boolean>(true);
   const effectiveShadowDisabled = shadowDisabled || (mode === "editor" && isDragging);
   const editorVisualListening = interactive ? false : undefined;
   const debugPerformance =
@@ -1352,17 +1350,6 @@ function ObjectNode({
       interactive,
     });
   }, [debugPerformance, interactive, resolvedObject.id, resolvedObject.type]);
-
-  useEffect(() => {
-    return () => {
-      const layer = dragLayerRef.current;
-      if (layer) {
-        layer.listening(dragLayerListeningRef.current);
-        layer.batchDraw();
-        dragLayerRef.current = null;
-      }
-    };
-  }, []);
 
   const indexedTagCache = new Map<string, ReturnType<typeof resolveObjectTagField>>();
   const tagValue = (name: string | undefined, options?: { useObjectIndexing?: boolean; fieldName?: string }): ResolvedTagValue => {
@@ -1869,13 +1856,6 @@ function ObjectNode({
             offset: 8,
           });
         }
-        const layer = node.getLayer();
-        if (layer) {
-          dragLayerListeningRef.current = layer.listening();
-          dragLayerRef.current = layer;
-          layer.listening(false);
-          layer.batchDraw();
-        }
         setIsDragging(true);
       }
     },
@@ -1915,12 +1895,6 @@ function ObjectNode({
         if (node.isCached()) {
           node.clearCache();
         }
-        const layer = dragLayerRef.current;
-        if (layer) {
-          layer.listening(dragLayerListeningRef.current);
-          layer.batchDraw();
-        }
-        dragLayerRef.current = null;
         onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
         onCommitObjectMove?.();
       }
