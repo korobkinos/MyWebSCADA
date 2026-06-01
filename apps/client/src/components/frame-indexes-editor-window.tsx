@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { ElementLibrary, FrameObject, FrameTagIndexRule, RuntimeValueSource, ScadaProject } from "@web-scada/shared";
 import { WorkbenchTable, WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
 import { evaluateFrameIndexScanItem, scanFrameIndexTagsDetailed, type FrameIndexScanItem } from "../hmi/tags/frame-index-scan";
+import { TagPicker } from "./tag-picker";
 
 type FrameIndexesEditorWindowProps = {
   open: boolean;
@@ -277,15 +278,14 @@ export function FrameIndexesEditorWindow({
                             <label className="frame-indexes-editor-field">
                               <span>Source Value</span>
                               {rule.indexOffsetSource?.type === "tag" ? (
-                                <input
-                                  className="workbench-input"
+                                <TagPicker
+                                  project={project}
                                   value={rule.indexOffsetSource.tag}
-                                  placeholder="Tag name"
-                                  onChange={(event) =>
+                                  onChange={(nextValue) =>
                                     setDraftRules((prev) =>
                                       prev.map((item) => (
                                         item.id === rule.id && item.indexOffsetSource?.type === "tag"
-                                          ? { ...item, indexOffsetSource: { ...item.indexOffsetSource, tag: event.target.value } }
+                                          ? { ...item, indexOffsetSource: { ...item.indexOffsetSource, tag: nextValue ?? "" } }
                                           : item
                                       )),
                                     )
