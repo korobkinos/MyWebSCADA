@@ -142,6 +142,59 @@ function shouldCacheDuringEditorDrag(object: HmiObject): boolean {
   return object.type === "group" || object.type === "frame" || object.type === "libraryElementInstance";
 }
 
+type DragShadowSnapshot = {
+  node: Konva.Shape;
+  shadowEnabled: boolean;
+  shadowForStrokeEnabled: boolean;
+};
+
+function disableLayerShadowsForEditorDrag(node: Konva.Node): DragShadowSnapshot[] {
+  const layer = node.getLayer();
+  if (!layer) {
+    return [];
+  }
+  const snapshots: DragShadowSnapshot[] = [];
+  const shapes = layer.find<Konva.Shape>("Shape");
+  for (const shape of shapes) {
+    const shapeShadowEnabled = shape.shadowEnabled();
+    const shapeShadowForStrokeEnabled = shape.shadowForStrokeEnabled();
+    if (!shapeShadowEnabled && !shapeShadowForStrokeEnabled) {
+      continue;
+    }
+    snapshots.push({
+      node: shape,
+      shadowEnabled: shapeShadowEnabled,
+      shadowForStrokeEnabled: shapeShadowForStrokeEnabled,
+    });
+    if (shapeShadowEnabled) {
+      shape.shadowEnabled(false);
+    }
+    if (shapeShadowForStrokeEnabled) {
+      shape.shadowForStrokeEnabled(false);
+    }
+  }
+  if (snapshots.length > 0) {
+    layer.batchDraw();
+  }
+  return snapshots;
+}
+
+function restoreLayerShadowsAfterEditorDrag(snapshots: DragShadowSnapshot[]): void {
+  if (!snapshots.length) {
+    return;
+  }
+  let targetLayer: Konva.Layer | null = null;
+  for (const snapshot of snapshots) {
+    if (!snapshot.node.getStage()) {
+      continue;
+    }
+    snapshot.node.shadowEnabled(snapshot.shadowEnabled);
+    snapshot.node.shadowForStrokeEnabled(snapshot.shadowForStrokeEnabled);
+    targetLayer = targetLayer ?? snapshot.node.getLayer();
+  }
+  targetLayer?.batchDraw();
+}
+
 function formatNumericValue(value: number, opts: FormatNumericOptions): string {
   const formatMode = opts.formatMode ?? "decimals";
   const decimals = opts.decimals ?? 2;
@@ -1336,7 +1389,8 @@ function ObjectNode({
   const rotationLastFrameRef = useRef<number | null>(null);
   const flowAnimationLastFrameRef = useRef<number | null>(null);
   const dragCacheAppliedRef = useRef(false);
-  const effectiveShadowDisabled = shadowDisabled || mode === "editor";
+  const dragShadowSnapshotRef = useRef<DragShadowSnapshot[]>([]);
+  const effectiveShadowDisabled = shadowDisabled;
   const editorVisualListening = interactive ? false : undefined;
   const debugPerformance =
     import.meta.env.DEV &&
@@ -1354,6 +1408,13 @@ function ObjectNode({
       interactive,
     });
   }, [debugPerformance, interactive, resolvedObject.id, resolvedObject.type]);
+
+  useEffect(() => {
+    return () => {
+      restoreLayerShadowsAfterEditorDrag(dragShadowSnapshotRef.current);
+      dragShadowSnapshotRef.current = [];
+    };
+  }, []);
 
   const indexedTagCache = new Map<string, ReturnType<typeof resolveObjectTagField>>();
   const tagValue = (name: string | undefined, options?: { useObjectIndexing?: boolean; fieldName?: string }): ResolvedTagValue => {
@@ -1852,6 +1913,7 @@ function ObjectNode({
     onDragStart: (evt: KonvaEventObject<DragEvent>) => {
       if (mode === "editor" && interactive && !resolvedObject.locked) {
         const node = evt.target as Konva.Node;
+        dragShadowSnapshotRef.current = disableLayerShadowsForEditorDrag(node);
         node.transformsEnabled("position");
         if (shouldCacheDuringEditorDrag(resolvedObject) && !node.isCached()) {
           node.cache({
@@ -1901,6 +1963,8 @@ function ObjectNode({
           node.clearCache();
         }
         dragCacheAppliedRef.current = false;
+        restoreLayerShadowsAfterEditorDrag(dragShadowSnapshotRef.current);
+        dragShadowSnapshotRef.current = [];
         onMoveObject?.(resolvedObject.id, evt.target.x(), evt.target.y());
         onCommitObjectMove?.();
       }
