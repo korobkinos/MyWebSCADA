@@ -5104,6 +5104,7 @@ function LibraryInstanceNodeResolved({
   element: LibraryElement;
   stackKey: string;
 }) {
+  const libraryInstanceShadowProps = resolveShapeShadowProps(object, { disabled: shadowDisabled });
   const instanceParams = toResolvedParameterMap(element, object.parameterValues);
   const mergedParameters = useMemo(
     () => ({
@@ -5191,6 +5192,7 @@ function LibraryInstanceNodeResolved({
   return (
     <Group
       {...commonGroupProps}
+      {...libraryInstanceShadowProps}
       onClick={(event) => {
         if (!isPrimaryPointerButton(event.evt)) {
           return;
