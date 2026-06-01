@@ -279,17 +279,15 @@ export class WebSocketGateway {
     if (updates.length === 0) {
       return;
     }
+    const first = updates[0];
+    if (!first) {
+      return;
+    }
     const message: RuntimeWsServerMessage =
       updates.length === 1
         ? {
             type: "tag-update",
-            payload: {
-              name: updates[0].name,
-              value: updates[0].value,
-              quality: updates[0].quality,
-              timestamp: updates[0].timestamp,
-              source: updates[0].source,
-            },
+            payload: first,
           }
         : {
             type: "tag-batch",
