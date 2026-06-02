@@ -511,6 +511,18 @@ export function ScreenEditorCenter({
     applyAutoFitZoom();
   }, [applyAutoFitZoom, screen.id]);
 
+  // Force auto-fit after layout settles (handles stale localStorage zoom)
+  useEffect(() => {
+    if (previewMode) return;
+    const id = window.setTimeout(() => {
+      if (previewMode) return;
+      isManualZoomRef.current = false;
+      applyAutoFitZoom();
+    }, 200);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen?.id]);
+
   useEffect(() => {
     if (previewMode) {
       return;
