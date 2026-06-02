@@ -236,6 +236,7 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
   const [statusStale, setStatusStale] = useState(false);
   const [statusRefreshError, setStatusRefreshError] = useState("");
   const pollErrorShownRef = useRef(false);
+  const opcUaTestAbortRef = useRef<AbortController | null>(null);
 
   const driverStatuses = drivers.length > 0 ? drivers : runtimeDrivers;
   const statusById = useMemo(() => new Map(driverStatuses.map((item) => [item.id, item])), [driverStatuses]);
@@ -317,6 +318,10 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
     setStatusStale(false);
     setStatusRefreshError("");
   }, [selectedOpcUaDriver?.id]);
+
+  useEffect(() => () => {
+    opcUaTestAbortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (!selectedSimulationDriver) {
@@ -536,18 +541,27 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
   };
 
   const testOpcUa = async (): Promise<void> => {
-    if (!opcUaDraft) {
+    if (!opcUaDraft || opcUaTestAbortRef.current) {
       return;
     }
+    const controller = new AbortController();
+    opcUaTestAbortRef.current = controller;
     setBusyAction("test");
     try {
-      await api.opcUaTest({
-        ...opcUaDraft,
-        endpointUrl: opcUaDraft.endpointUrl.trim(),
-        username: normalizeOptionalText(opcUaDraft.username),
-        password: normalizeOptionalText(opcUaDraft.password),
-      });
-      void message.success("OPC UA test successful");
+      const result = await api.opcUaTest(
+        {
+          ...opcUaDraft,
+          endpointUrl: opcUaDraft.endpointUrl.trim(),
+          username: normalizeOptionalText(opcUaDraft.username),
+          password: normalizeOptionalText(opcUaDraft.password),
+        },
+        { timeoutMs: 4_000, signal: controller.signal },
+      );
+      if (result.ok) {
+        void message.success("OPC UA test successful");
+      } else {
+        void message.error(result.message ?? "OPC UA test failed");
+      }
     } catch (error) {
       const text = error instanceof Error ? error.message : "OPC UA test failed";
       if (isOpcUaClockWarning(text)) {
@@ -556,6 +570,9 @@ export function ScreenEditorDriversWindow({ drivers = [] }: ScreenEditorDriversW
         void message.error(text);
       }
     } finally {
+      if (opcUaTestAbortRef.current === controller) {
+        opcUaTestAbortRef.current = null;
+      }
       setBusyAction("");
     }
   };

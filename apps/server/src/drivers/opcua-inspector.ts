@@ -48,6 +48,20 @@ const OPCUA_NODECLASS_WITH_POTENTIAL_CHILDREN = new Set<number>([
   NodeClass.View,
 ]);
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 function isBlankOrNullLike(value: string | undefined): boolean {
   if (!value) {
     return true;
@@ -108,6 +122,9 @@ export async function withOpcUaSession<T>(
   config: OpcUaDriverConfig,
   run: (session: ClientSession) => Promise<T>,
 ): Promise<T> {
+  const connectTimeoutMs = Math.max(500, config.connectTimeoutMs ?? config.timeoutMs ?? 3_000);
+  const sessionTimeoutMs = Math.max(1_000, config.sessionTimeoutMs ?? config.timeoutMs ?? 10_000);
+  const closeTimeoutMs = Math.min(1_000, connectTimeoutMs);
   const client = OPCUAClient.create({
     securityMode:
       config.securityMode === "Sign"
@@ -118,29 +135,50 @@ export async function withOpcUaSession<T>(
     securityPolicy:
       config.securityPolicy === "Basic256Sha256" ? SecurityPolicy.Basic256Sha256 : SecurityPolicy.None,
     endpointMustExist: false,
-    requestedSessionTimeout: config.timeoutMs ?? 10_000,
+    transportTimeout: connectTimeoutMs,
+    requestedSessionTimeout: sessionTimeoutMs,
     connectionStrategy: {
-      initialDelay: Math.max(200, Math.floor((config.reconnectMs ?? 1_000) / 2)),
-      maxRetry: 1,
-      maxDelay: Math.max(1_000, config.reconnectMs ?? 2_000),
+      initialDelay: 200,
+      maxRetry: 0,
+      maxDelay: 500,
     },
   });
   try {
-    await client.connect(config.endpointUrl);
+    await withTimeout(
+      client.connect(config.endpointUrl),
+      connectTimeoutMs,
+      `OPC UA connect timeout after ${connectTimeoutMs} ms`,
+    );
     const session = config.username
-      ? await client.createSession({
-          type: UserTokenType.UserName,
-          userName: config.username,
-          password: config.password ?? "",
-        })
-      : await client.createSession();
+      ? await withTimeout(
+          client.createSession({
+            type: UserTokenType.UserName,
+            userName: config.username,
+            password: config.password ?? "",
+          }),
+          connectTimeoutMs,
+          `OPC UA session timeout after ${connectTimeoutMs} ms`,
+        )
+      : await withTimeout(
+          client.createSession(),
+          connectTimeoutMs,
+          `OPC UA session timeout after ${connectTimeoutMs} ms`,
+        );
     try {
       return await run(session);
     } finally {
-      await session.close();
+      await withTimeout(
+        session.close(),
+        closeTimeoutMs,
+        `OPC UA session close timeout after ${closeTimeoutMs} ms`,
+      ).catch(() => undefined);
     }
   } finally {
-    await client.disconnect();
+    await withTimeout(
+      client.disconnect(),
+      closeTimeoutMs,
+      `OPC UA disconnect timeout after ${closeTimeoutMs} ms`,
+    ).catch(() => undefined);
   }
 }
 

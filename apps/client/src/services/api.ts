@@ -916,11 +916,29 @@ export const api = {
   optimizeOperatorActionArchive: () =>
     request<{ ok: boolean }>("/api/operator-actions/archive/optimize", { method: "POST" }),
   getDrivers: () => request<DriverStatus[]>("/api/drivers"),
-  opcUaTest: (config: OpcUaDriverConfigInput) =>
-    request<{ ok: boolean; message?: string }>("/api/drivers/opcua/test", {
-      method: "POST",
-      body: JSON.stringify({ config }),
-    }),
+  opcUaTest: async (
+    config: OpcUaDriverConfigInput,
+    options?: { timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<{ ok: boolean; message?: string }> => {
+    const timeoutMs = Math.max(500, Math.min(options?.timeoutMs ?? 4_000, 5_000));
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    attachAbortSignal(controller, options?.signal);
+    try {
+      return await request<{ ok: boolean; message?: string }>("/api/drivers/opcua/test", {
+        method: "POST",
+        signal: controller.signal,
+        body: JSON.stringify({ config }),
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        return { ok: false, message: `OPC UA test timeout after ${timeoutMs} ms` };
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  },
   getOpcUaConfig: (driverId?: string) =>
     request<{ ok: boolean; config: OpcUaDriverConfigInput }>(
       `/api/drivers/opcua/config${driverId ? `?driverId=${encodeURIComponent(driverId)}` : ""}`,

@@ -2800,11 +2800,15 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     }
     const payload = opcUaTestSchema.parse(request.body ?? {});
     try {
+      const timeoutMs = Math.min(payload.config.timeoutMs ?? 3_000, 3_000);
+      const connectTimeoutMs = Math.min(payload.config.connectTimeoutMs ?? payload.config.timeoutMs ?? 3_000, 3_000);
       await withOpcUaSession(
         {
           ...payload.config,
           enabled: payload.config.enabled ?? true,
           type: "opcua",
+          connectTimeoutMs,
+          timeoutMs,
         },
         async () => undefined,
       );
