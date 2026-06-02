@@ -1984,18 +1984,30 @@ select.workbench-select:not(.ant-select) {
 
 .screen-editor-toolbar__row {
   min-width: 0;
-  min-height: 32px;
+  min-height: 58px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   padding: 3px 6px;
+  overflow: visible;
+}
+
+.screen-editor-toolbar__groups {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
 .screen-editor-toolbar__group {
   flex: 0 0 auto;
-  display: inline-flex;
+  display: grid;
+  grid-template-rows: repeat(2, 24px);
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   align-items: center;
   gap: 4px;
   padding-right: 6px;
@@ -2007,6 +2019,71 @@ select.workbench-select:not(.ant-select) {
   border-right: 0;
   margin-right: 0;
   padding-right: 0;
+}
+
+.screen-editor-toolbar__customize {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+}
+
+.screen-editor-toolbar-config {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  z-index: 40;
+  width: 260px;
+  padding: 8px;
+  border: 1px solid #3c3c3c;
+  background: #252526;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: #cccccc;
+}
+
+.screen-editor-toolbar-config__header,
+.screen-editor-toolbar-config__row,
+.screen-editor-toolbar-config__actions,
+.screen-editor-toolbar-config__visible {
+  display: flex;
+  align-items: center;
+}
+
+.screen-editor-toolbar-config__header {
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #ffffff;
+}
+
+.screen-editor-toolbar-config__row {
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.screen-editor-toolbar-config__visible {
+  min-width: 0;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.screen-editor-toolbar-config__visible input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #007acc;
+}
+
+.screen-editor-toolbar-config__actions {
+  gap: 4px;
+}
+
+.screen-editor-toolbar-config .workbench-button {
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
 }
 
 .screen-editor-toolbar__screen-name {
