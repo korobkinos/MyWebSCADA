@@ -1965,7 +1965,10 @@ function ObjectNode({
       if (mode === "editor" && interactive && !resolvedObject.locked) {
         const node = evt.target as Konva.Node;
         dragShadowSnapshotRef.current = disableLayerShadowsForEditorDrag(node);
-        node.transformsEnabled("position");
+        // Keep transforms for rotated objects so rotation doesn't snap to 0 during drag
+        if (node.rotation() === 0) {
+          node.transformsEnabled("position");
+        }
         if (shouldCacheDuringEditorDrag(resolvedObject) && !node.isCached()) {
           node.cache({
             pixelRatio: 1,
@@ -4870,7 +4873,7 @@ function GroupNode({
   };
 
   return (
-    <Group {...groupProps}>
+    <Group {...groupProps} {...resolveShapeShadowProps(object, { disabled: shadowDisabled })}>
       <HmiRenderer
         project={project}
         screen={virtualScreen}
