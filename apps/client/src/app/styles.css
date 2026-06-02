@@ -7413,8 +7413,9 @@ select.workbench-select:not(.ant-select) {
 
 .frame-indexes-editor-rule__grid {
   display: grid;
-  grid-template-columns: 120px repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: minmax(110px, max-content) repeat(auto-fit, minmax(170px, 1fr));
   gap: 8px;
+  align-items: end;
 }
 
 .frame-indexes-editor-field {
@@ -7431,6 +7432,7 @@ select.workbench-select:not(.ant-select) {
   justify-content: start;
   gap: 8px;
   max-width: 130px;
+  min-height: 24px;
 }
 
 .frame-indexes-editor-field input[type="checkbox"] {
@@ -7442,7 +7444,8 @@ select.workbench-select:not(.ant-select) {
 }
 
 .frame-indexes-editor-field .workbench-input,
-.frame-indexes-editor-field .workbench-select {
+.frame-indexes-editor-field .workbench-select,
+.frame-indexes-editor-field .tag-picker-field {
   width: 100%;
   min-height: 24px;
 }
@@ -7480,6 +7483,14 @@ select.workbench-select:not(.ant-select) {
   font-family: Consolas, "Courier New", monospace;
   font-size: 11px;
   word-break: break-all;
+}
+
+.frame-indexes-editor-index-highlight {
+  display: inline-block;
+  padding: 0 2px;
+  border: 1px solid #6f642f;
+  background: #3a321b;
+  color: #f0d98b;
 }
 
 .frame-indexes-editor-conflicts {

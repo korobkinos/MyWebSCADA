@@ -44,7 +44,7 @@ const FRAME_INDEX_COLUMN_DEFINITIONS: Array<{
   { id: "indexes", title: "INDEXES FOUND", width: 150, minWidth: 96 },
   { id: "local", title: "LOCAL INDEXING", width: 120, minWidth: 90 },
   { id: "status", title: "STATUS", width: 130, minWidth: 88 },
-  { id: "preview", title: "PREVIEW", width: 210, minWidth: 120 },
+  { id: "preview", title: "RESULT", width: 210, minWidth: 120 },
   { id: "notes", title: "NOTES", width: 180, minWidth: 120 },
 ];
 
@@ -252,7 +252,7 @@ export function FrameIndexesEditorWindow({
                             </button>
                           </div>
                           <div className="frame-indexes-editor-rule__grid">
-                            <label className="frame-indexes-editor-field">
+                            <label className="frame-indexes-editor-field frame-indexes-editor-field--inline">
                               <span>Enabled</span>
                               <input
                                 type="checkbox"
@@ -582,9 +582,11 @@ export function FrameIndexesEditorWindow({
                     <div>Field</div>
                     <div>{selectedRow.fieldPath}</div>
                     <div>Raw tag</div>
-                    <div className="frame-indexes-editor-monospace">{selectedRow.rawTag}</div>
+                    <div>{renderIndexedTagPreview(selectedRow.rawTag, draftRules, selectedRow.matchedRuleIds)}</div>
+                    <div>Applied to</div>
+                    <div>{describeAppliedIndexTargets(selectedRow, draftRules)}</div>
                     <div>Result</div>
-                    <div className="frame-indexes-editor-monospace">{selectedRow.preview}</div>
+                    <div>{renderIndexedTagPreview(selectedRow.preview, draftRules, selectedRow.matchedRuleIds)}</div>
                     {selectedPreviewExpression ? (
                       <>
                         <div>Applied index expression</div>
@@ -1063,6 +1065,136 @@ function renderScanColumn(row: ScanRow, columnId: FrameIndexColumnId) {
     default:
       return "-";
   }
+}
+
+function describeAppliedIndexTargets(row: ScanRow, rules: FrameTagIndexRule[] | undefined): string {
+  const matchedRules = getMatchedRules(rules, row.matchedRuleIds);
+  if (matchedRules.length === 0) {
+    return "-";
+  }
+
+  return matchedRules.map((rule) => {
+    const token = findRuleToken(row.indexTokens, rule);
+    const ruleName = normalizeRuleLabel(rule);
+    if (!token) {
+      return `${ruleName}: target not found`;
+    }
+    const segmentName = token.segmentName?.trim() || "?";
+    return `${ruleName}: occurrence ${token.occurrence}, ${segmentName}${token.token}`;
+  }).join("; ");
+}
+
+function renderIndexedTagPreview(tag: string, rules: FrameTagIndexRule[] | undefined, matchedRuleIds: string[]) {
+  const ranges = collectTagTokenRanges(tag);
+  const targetKeys = new Set<string>();
+
+  for (const rule of getMatchedRules(rules, matchedRuleIds)) {
+    const target = findRuleToken(ranges, rule);
+    if (target) {
+      targetKeys.add(createTokenRangeKey(target));
+    }
+  }
+
+  if (targetKeys.size === 0) {
+    return <span className="frame-indexes-editor-monospace">{tag}</span>;
+  }
+
+  const parts = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      parts.push(<span key={`text:${cursor}`}>{tag.slice(cursor, range.start)}</span>);
+    }
+    const highlighted = targetKeys.has(createTokenRangeKey(range));
+    parts.push(
+      <span key={`token:${range.start}`} className={highlighted ? "frame-indexes-editor-index-highlight" : undefined}>
+        {tag.slice(range.start, range.end)}
+      </span>,
+    );
+    cursor = range.end;
+  }
+  if (cursor < tag.length) {
+    parts.push(<span key={`text:${cursor}`}>{tag.slice(cursor)}</span>);
+  }
+
+  return <span className="frame-indexes-editor-monospace">{parts}</span>;
+}
+
+function getMatchedRules(rules: FrameTagIndexRule[] | undefined, matchedRuleIds: string[]): FrameTagIndexRule[] {
+  if (matchedRuleIds.length === 0) {
+    return [];
+  }
+  const matchedIds = new Set(matchedRuleIds);
+  return getEnabledFrameTagIndexRules(rules).filter((rule) => matchedIds.has(rule.id));
+}
+
+function findRuleToken<T extends { occurrence: number; segmentName?: string | null }>(tokens: T[], rule: FrameTagIndexRule): T | undefined {
+  if (rule.indexMode.type === "arrayIndex") {
+    const occurrence = rule.indexMode.occurrence;
+    return tokens.find((token) => token.occurrence === occurrence);
+  }
+  if (rule.indexMode.type === "arrayIndexBySegment") {
+    const segmentName = rule.indexMode.segmentName.trim();
+    if (!segmentName) {
+      return undefined;
+    }
+    return tokens.find((token) => token.segmentName === segmentName);
+  }
+  return undefined;
+}
+
+function collectTagTokenRanges(tag: string): Array<{
+  occurrence: number;
+  segmentName: string;
+  token: string;
+  start: number;
+  end: number;
+}> {
+  const ranges: Array<{
+    occurrence: number;
+    segmentName: string;
+    token: string;
+    start: number;
+    end: number;
+  }> = [];
+  let segmentStart = 0;
+  let bracketStart = -1;
+  let bracketDepth = 0;
+
+  for (let index = 0; index < tag.length; index += 1) {
+    const char = tag[index];
+    if (char === "." && bracketDepth === 0) {
+      segmentStart = index + 1;
+      continue;
+    }
+    if (char === "[") {
+      if (bracketDepth === 0) {
+        bracketStart = index;
+      }
+      bracketDepth += 1;
+      continue;
+    }
+    if (char === "]" && bracketDepth > 0) {
+      bracketDepth -= 1;
+      if (bracketDepth === 0 && bracketStart >= 0) {
+        const segmentName = tag.slice(segmentStart, bracketStart).split("[")[0] ?? "";
+        ranges.push({
+          occurrence: ranges.length,
+          segmentName,
+          token: tag.slice(bracketStart, index + 1),
+          start: bracketStart,
+          end: index + 1,
+        });
+        bracketStart = -1;
+      }
+    }
+  }
+
+  return ranges;
+}
+
+function createTokenRangeKey(token: { occurrence: number; segmentName?: string | null }): string {
+  return `${token.occurrence}:${token.segmentName ?? ""}`;
 }
 
 function createDefaultColumnVisibility(): FrameIndexColumnVisibility {
