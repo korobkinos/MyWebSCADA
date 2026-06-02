@@ -704,6 +704,7 @@ type OpcUaBrowserContentProps = {
   subtreeImportRootName: string;
   subtreeImportScanRateMs: string;
   subtreeImportMaxNodes: string;
+  subtreeImportElapsedMs: number;
   onSubtreeImportOverwriteChange: (value: boolean) => void;
   onSubtreeImportRootNameChange: (value: string) => void;
   onSubtreeImportScanRateMsChange: (value: string) => void;
@@ -745,6 +746,7 @@ function OpcUaBrowserContent({
   subtreeImportRootName,
   subtreeImportScanRateMs,
   subtreeImportMaxNodes,
+  subtreeImportElapsedMs,
   onSubtreeImportOverwriteChange,
   onSubtreeImportRootNameChange,
   onSubtreeImportScanRateMsChange,
@@ -927,6 +929,14 @@ function OpcUaBrowserContent({
                 disabled={subtreeImportBusy}
               />
             </label>
+          </div>
+        ) : null}
+        {subtreeImportBusy ? (
+          <div className="screen-editor-opc-browser-progress" role="status">
+            <div className="screen-editor-opc-browser-progress__track">
+              <div className="screen-editor-opc-browser-progress__bar" />
+            </div>
+            <span>Importing subtree... {Math.floor(subtreeImportElapsedMs / 1000)}s</span>
           </div>
         ) : null}
         <WorkbenchButton onClick={onCancel} disabled={subtreeImportBusy}>Cancel</WorkbenchButton>
@@ -1201,6 +1211,7 @@ export function ScreenEditorTagsWindow() {
   const [opcBrowseHistory, setOpcBrowseHistory] = useState<string[]>([]);
   const [opcBrowsePreselectNodeId, setOpcBrowsePreselectNodeId] = useState<string | null>(null);
   const [opcImportSubtreeBusy, setOpcImportSubtreeBusy] = useState(false);
+  const [opcImportSubtreeElapsedMs, setOpcImportSubtreeElapsedMs] = useState(0);
   const [opcImportSubtreeOverwrite, setOpcImportSubtreeOverwrite] = useState(false);
   const [opcImportSubtreeRootName, setOpcImportSubtreeRootName] = useState("");
   const [opcImportSubtreeScanRateMs, setOpcImportSubtreeScanRateMs] = useState(String(OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE));
@@ -1355,6 +1366,7 @@ export function ScreenEditorTagsWindow() {
     [drivers],
   );
   const filteredTagKeys = useMemo(() => new Set(filteredTags.map((tag) => tagKey(tag))), [filteredTags]);
+  const hasActiveTagFilter = search.trim().length > 0 || sourceFilter !== "all" || driverFilter !== "all" || groupFilter !== "all";
   const selectedFilteredTags = useMemo(
     () => filteredTags.filter((tag) => selectedTagKeys.has(tagKey(tag))),
     [filteredTags, selectedTagKeys],
@@ -1363,6 +1375,18 @@ export function ScreenEditorTagsWindow() {
     () => selectedFilteredTags.filter((tag) => (tag.sourceType ?? "simulated") === "simulated"),
     [selectedFilteredTags],
   );
+
+  useEffect(() => {
+    if (!opcImportSubtreeBusy) {
+      setOpcImportSubtreeElapsedMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setOpcImportSubtreeElapsedMs(Date.now() - startedAt);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [opcImportSubtreeBusy]);
   const createSimulationNamePreview = useMemo(() => {
     const prefix = createSimulationPrefix.trim() || "AI_SIM";
     const count = Math.max(0, Math.floor(createSimulationCount));
@@ -1688,6 +1712,7 @@ export function ScreenEditorTagsWindow() {
     const scanRateMs = toOptionalNumber(opcImportSubtreeScanRateMs) ?? OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE;
     const rootName = opcImportSubtreeRootName.trim() || selectedNode.browseName || selectedNode.displayName;
 
+    setOpcImportSubtreeElapsedMs(0);
     setOpcImportSubtreeBusy(true);
     try {
       const response = await api.opcUaImportSubtree({
@@ -1975,28 +2000,27 @@ export function ScreenEditorTagsWindow() {
     setPendingDeleteTagId(null);
   };
 
-  const requestDeleteSelected = (): void => {
-    if (!selectedTag) {
+  const deleteTagsByKeys = (keys: Set<string>, label: string): void => {
+    if (keys.size === 0) {
+      void message.warning(`No ${label} tags`);
       return;
     }
-    setPendingDeleteTagId(tagKey(selectedTag));
-  };
-
-  const deleteCheckedTags = (): void => {
-    if (selectedTagKeys.size === 0) {
-      void message.warning("No selected tags");
-      return;
-    }
-    const count = selectedTagKeys.size;
-    const ok = window.confirm(`Delete ${count} selected tag(s)?`);
+    const count = keys.size;
+    const ok = window.confirm(`Delete ${count} ${label} tag(s)?`);
     if (!ok) {
       return;
     }
-    const nextTags = tags.filter((tag) => !selectedTagKeys.has(tagKey(tag)));
+    const nextTags = tags.filter((tag) => !keys.has(tagKey(tag)));
     saveTags(nextTags);
-    setSelectedTagKeys(new Set());
+    setSelectedTagKeys((prev) => {
+      const next = new Set(prev);
+      for (const key of keys) {
+        next.delete(key);
+      }
+      return next;
+    });
     setPendingDeleteTagId(null);
-    if (!selectedId || selectedTagKeys.has(selectedId)) {
+    if (!selectedId || keys.has(selectedId)) {
       const nextSelected = nextTags[0];
       setSelectedId(nextSelected ? tagKey(nextSelected) : null);
     }
@@ -2004,6 +2028,29 @@ export function ScreenEditorTagsWindow() {
     setEditingId(null);
     setEditorMode("view");
     void message.success(`Deleted ${count} tag(s)`);
+  };
+
+  const requestDeleteSelected = (): void => {
+    if (selectedTagKeys.size > 0) {
+      deleteTagsByKeys(selectedTagKeys, "selected");
+      return;
+    }
+    if (!selectedTag) {
+      return;
+    }
+    setPendingDeleteTagId(tagKey(selectedTag));
+  };
+
+  const deleteCheckedTags = (): void => {
+    deleteTagsByKeys(selectedTagKeys, "selected");
+  };
+
+  const deleteFilteredTags = (): void => {
+    if (!hasActiveTagFilter) {
+      void message.warning("Use search or filters first");
+      return;
+    }
+    deleteTagsByKeys(filteredTagKeys, "filtered");
   };
 
   const confirmDelete = (): void => {
@@ -2555,6 +2602,13 @@ export function ScreenEditorTagsWindow() {
           disabled={selectedTagKeys.size === 0}
         >
           Delete Selected
+        </WorkbenchButton>
+        <WorkbenchButton
+          variant="danger"
+          onClick={deleteFilteredTags}
+          disabled={!hasActiveTagFilter || filteredTags.length === 0}
+        >
+          Delete Found
         </WorkbenchButton>
         <WorkbenchButton onClick={exportCsv} disabled={tags.length === 0}>
           Export CSV
@@ -4016,6 +4070,7 @@ export function ScreenEditorTagsWindow() {
                   subtreeImportRootName={opcImportSubtreeRootName}
                   subtreeImportScanRateMs={opcImportSubtreeScanRateMs}
                   subtreeImportMaxNodes={opcImportSubtreeMaxNodes}
+                  subtreeImportElapsedMs={opcImportSubtreeElapsedMs}
                   onSubtreeImportOverwriteChange={setOpcImportSubtreeOverwrite}
                   onSubtreeImportRootNameChange={setOpcImportSubtreeRootName}
                   onSubtreeImportScanRateMsChange={setOpcImportSubtreeScanRateMs}
