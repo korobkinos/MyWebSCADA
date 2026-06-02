@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { createPortal } from "react-dom";
 import type { TagDefinition, TagScalarValue, TagSimulationProfile, TagSimulationSettings, TagSourceType } from "@web-scada/shared";
 import { message, Modal } from "antd";
-import { WorkbenchButton, WorkbenchWindow, type WorkbenchWindowRect } from "../../../components/workbench";
+import { WorkbenchButton, WorkbenchConfirmDialog, WorkbenchWindow, type WorkbenchWindowRect } from "../../../components/workbench";
 import { reconcileEventsAfterTagDeletion } from "../../events/event-tag-utils";
 import { api, type OpcUaBrowseItem } from "../../../services/api";
 import { useScadaStore } from "../../../store/scada-store";
@@ -1156,6 +1156,7 @@ export function ScreenEditorTagsWindow() {
   const [editorMode, setEditorMode] = useState<TagEditorMode>("view");
   const [draftTag, setDraftTag] = useState<TagDefinition | null>(null);
   const [pendingDeleteTagId, setPendingDeleteTagId] = useState<string | null>(null);
+  const [pendingBulkDelete, setPendingBulkDelete] = useState<{ keys: string[]; label: string } | null>(null);
   const [columnsPanelOpen, setColumnsPanelOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(() => {
@@ -2000,16 +2001,21 @@ export function ScreenEditorTagsWindow() {
     setPendingDeleteTagId(null);
   };
 
-  const deleteTagsByKeys = (keys: Set<string>, label: string): void => {
+  const requestDeleteTagsByKeys = (keys: Set<string>, label: string): void => {
     if (keys.size === 0) {
       void message.warning(`No ${label} tags`);
       return;
     }
-    const count = keys.size;
-    const ok = window.confirm(`Delete ${count} ${label} tag(s)?`);
-    if (!ok) {
+    setPendingBulkDelete({ keys: [...keys], label });
+  };
+
+  const confirmBulkDelete = (): void => {
+    if (!pendingBulkDelete) {
       return;
     }
+    const keys = new Set(pendingBulkDelete.keys);
+    const count = keys.size;
+    const label = pendingBulkDelete.label;
     const nextTags = tags.filter((tag) => !keys.has(tagKey(tag)));
     saveTags(nextTags);
     setSelectedTagKeys((prev) => {
@@ -2019,6 +2025,7 @@ export function ScreenEditorTagsWindow() {
       }
       return next;
     });
+    setPendingBulkDelete(null);
     setPendingDeleteTagId(null);
     if (!selectedId || keys.has(selectedId)) {
       const nextSelected = nextTags[0];
@@ -2032,7 +2039,7 @@ export function ScreenEditorTagsWindow() {
 
   const requestDeleteSelected = (): void => {
     if (selectedTagKeys.size > 0) {
-      deleteTagsByKeys(selectedTagKeys, "selected");
+      requestDeleteTagsByKeys(selectedTagKeys, "selected");
       return;
     }
     if (!selectedTag) {
@@ -2042,7 +2049,7 @@ export function ScreenEditorTagsWindow() {
   };
 
   const deleteCheckedTags = (): void => {
-    deleteTagsByKeys(selectedTagKeys, "selected");
+    requestDeleteTagsByKeys(selectedTagKeys, "selected");
   };
 
   const deleteFilteredTags = (): void => {
@@ -2050,7 +2057,7 @@ export function ScreenEditorTagsWindow() {
       void message.warning("Use search or filters first");
       return;
     }
-    deleteTagsByKeys(filteredTagKeys, "filtered");
+    requestDeleteTagsByKeys(filteredTagKeys, "filtered");
   };
 
   const confirmDelete = (): void => {
@@ -4082,6 +4089,16 @@ export function ScreenEditorTagsWindow() {
             document.body,
           )
         : null}
+
+      <WorkbenchConfirmDialog
+        open={Boolean(pendingBulkDelete)}
+        title="DELETE TAGS"
+        message={`Delete ${pendingBulkDelete?.keys.length ?? 0} ${pendingBulkDelete?.label ?? ""} tag(s)?`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onCancel={() => setPendingBulkDelete(null)}
+        onConfirm={confirmBulkDelete}
+      />
 
       <div className="screen-editor-tags-pagination">
         <span>
