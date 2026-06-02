@@ -240,6 +240,48 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).toContain("Fan_1.Speed");
   });
 
+  it("collects static rotation tag", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "pump-group",
+          type: "group",
+          x: 20,
+          y: 20,
+          width: 120,
+          height: 120,
+          rotationTag: "Pump_1.Rotation",
+          objects: [],
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Test project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Pump_1.Rotation");
+  });
+
   it("collects group rotation animation trigger/speed tags", () => {
     const screen: HmiScreen = {
       id: "screen-main",

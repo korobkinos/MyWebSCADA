@@ -77,6 +77,7 @@ function rotationAnimationTagFields(object: HmiObject): ObjectIoFieldDefinition[
 
 function baseTagFields(): ObjectIoFieldDefinition[] {
   return [
+    { fieldPath: "rotationTag", label: "Rotation Tag", direction: "read", dataTypeHint: "REAL", control: "tag" },
     { fieldPath: "visibleTag", label: "Visible Tag", direction: "read", dataTypeHint: "BOOL", control: "tag" },
     { fieldPath: "disabledTag", label: "Disabled Tag", direction: "read", dataTypeHint: "BOOL", control: "tag" },
   ];

@@ -128,6 +128,7 @@ export type HmiObjectBase = {
   height: number;
 
   rotation?: number;
+  rotationTag?: string;
   rotationAnimation?: RotationAnimationConfig;
   visible?: boolean;
   visibleForRoles?: AppRole[];

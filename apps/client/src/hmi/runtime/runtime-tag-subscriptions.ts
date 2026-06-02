@@ -158,6 +158,13 @@ function collectObjectTags(
   const resolvedObject = resolveObjectParameters(object, context.parameters ?? {});
 
   const runtimeTagValues = runtimeResolveContext.tagValues as TagMap | undefined;
+  addRotationFieldTags(out, {
+    project,
+    object: resolvedObject,
+    context,
+    runtimeTagValues,
+    dependencyOut,
+  });
   addResolvedFieldTag(out, {
     project,
     object: resolvedObject,
@@ -786,6 +793,30 @@ function toInternalRuntimeTag(name: string): string {
     return trimmed.toUpperCase();
   }
   return trimmed.startsWith("LW.") ? trimmed : `LW.${trimmed}`;
+}
+
+function addRotationFieldTags(
+  out: Set<string>,
+  input: {
+    project: ScadaProject;
+    object: HmiObject;
+    context: RenderContext;
+    runtimeTagValues?: TagMap;
+    dependencyOut?: Set<string>;
+  },
+): void {
+  if (!input.object.rotationTag?.trim()) {
+    return;
+  }
+  addResolvedFieldTag(out, {
+    project: input.project,
+    object: input.object,
+    fieldName: "rotationTag",
+    rawTagName: input.object.rotationTag,
+    context: input.context,
+    runtimeTagValues: input.runtimeTagValues,
+    dependencyOut: input.dependencyOut,
+  });
 }
 
 function toLwRuntimeTag(address: number): string {

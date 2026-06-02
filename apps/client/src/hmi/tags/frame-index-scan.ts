@@ -349,6 +349,7 @@ function listObjectTagFields(
   object: HmiObject,
 ): Array<{ fieldPath: string; rawTag: string | undefined; runtimeSupport: "full" | "limited" }> {
   const fields: Array<{ fieldPath: string; rawTag: string | undefined; runtimeSupport: "full" | "limited" }> = [
+    { fieldPath: "rotationTag", rawTag: object.rotationTag, runtimeSupport: "full" },
     { fieldPath: "visibleTag", rawTag: object.visibleTag, runtimeSupport: "full" },
     { fieldPath: "disabledTag", rawTag: object.disabledTag, runtimeSupport: "full" },
     { fieldPath: "rotationAnimation.triggerTag", rawTag: object.rotationAnimation?.triggerTag, runtimeSupport: "full" },

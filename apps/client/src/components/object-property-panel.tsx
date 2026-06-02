@@ -1624,6 +1624,16 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           onChange={(v) => onPatch({ rotation: toFixedPrecisionNumber(v ?? 0, 1) })}
         />
       </Form.Item>
+      <TagFieldWithBindingSource
+        project={project}
+        bindings={templateBindings}
+        value={object.rotationTag ?? ""}
+        bindingLabel="Rotation Binding"
+        tagLabel="Rotation Tag"
+        indexControl={buildIndexControl("rotationTag", "Rotation Tag", object.rotationTag)}
+        allowClear
+        onChange={(nextValue) => onPatch({ rotationTag: nextValue } as Partial<HmiObject>)}
+      />
       <Space>
         <span>Visible</span>
         <Switch checked={object.visible ?? true} onChange={(checked) => onPatch({ visible: checked })} />

@@ -87,6 +87,7 @@ const hmiBaseSchema = z.object({
   width: z.number().positive(),
   height: z.number().positive(),
   rotation: z.number().optional(),
+  rotationTag: z.string().optional(),
   rotationAnimation: rotationAnimationSchema.optional(),
   visible: z.boolean().optional(),
   visibleForRoles: z.array(z.enum(["admin", "engineer", "operator", "viewer"])).optional(),

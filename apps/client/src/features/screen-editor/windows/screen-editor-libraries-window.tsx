@@ -2381,7 +2381,7 @@ export function ScreenEditorLibrariesWindow(props: ScreenEditorLibrariesWindowPr
     const allBindings = selectedElement?.bindings ?? [];
     const preferred = allBindings.filter((binding) => preferredKinds.has(binding.kind));
     const secondary = allBindings.filter((binding) => !preferredKinds.has(binding.kind));
-    const preferNumericDataType = field.fieldPath === "rotationAnimation.speedTag" || field.fieldPath === "flowAnimation.speedTag";
+    const preferNumericDataType = field.fieldPath === "rotationTag" || field.fieldPath === "rotationAnimation.speedTag" || field.fieldPath === "flowAnimation.speedTag";
     const numericTypes = new Set<NonNullable<ElementBindingDefinition["dataType"]>>(["REAL", "INT", "DINT", "UINT", "UDINT"]);
     const sortPreferred = (rows: ElementBindingDefinition[]) => {
       if (!preferNumericDataType) {

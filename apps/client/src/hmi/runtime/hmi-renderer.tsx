@@ -1510,7 +1510,21 @@ function ObjectNode({
     };
   };
 
-  const baseRotation = resolvedObject.rotation ?? 0;
+  const rotationTag = runtimeMode && resolvedObject.rotationTag?.trim()
+    ? tagValue(resolvedObject.rotationTag, {
+      useObjectIndexing: true,
+      fieldName: "rotationTag",
+    })
+    : undefined;
+  const rotationTagNumber = Number(rotationTag?.value?.value);
+  const baseRotation = rotationTag
+    && rotationTag.resolvedName
+    && !rotationTag.missingBindingReference
+    && !rotationTag.missingIndexedTag
+    && rotationTag.value?.quality !== "Bad"
+    && Number.isFinite(rotationTagNumber)
+    ? rotationTagNumber
+    : (resolvedObject.rotation ?? 0);
   const rotationAnimation = resolvedObject.rotationAnimation;
   const rotationAnimationSupported = isRotationAnimationSupportedObjectType(resolvedObject.type);
   const rotationAnimationEnabled = rotationAnimation?.enabled === true;
