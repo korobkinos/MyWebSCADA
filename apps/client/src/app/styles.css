@@ -6174,7 +6174,7 @@ select.workbench-select:not(.ant-select) {
 .ant-color-picker .ant-color-picker-inner .ant-color-picker-input-container,
 .ant-color-picker-dropdown .ant-color-picker-input-container {
   display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: auto minmax(132px, 1fr) 54px;
   column-gap: 6px;
   align-items: stretch;
 }
