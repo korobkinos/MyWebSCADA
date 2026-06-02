@@ -4,7 +4,7 @@
   "description": "Пользовательская библиотека элементов оборудования",
   "version": "1.0.0",
   "createdAt": "2026-05-03T00:00:00.000Z",
-  "updatedAt": "2026-06-01T06:39:00.285Z",
+  "updatedAt": "2026-06-02T07:46:43.634Z",
   "assets": [
     {
       "id": "valve_closed_svg",
@@ -361,6 +361,197 @@
       ],
       "createdAt": "2026-05-29T11:38:19.997Z",
       "updatedAt": "2026-06-01T06:39:00.284Z"
+    },
+    {
+      "id": "element_w8giv6",
+      "libraryId": "amaks-basic-equipment",
+      "elementKey": "pzk",
+      "name": "pzk",
+      "description": "",
+      "category": "General",
+      "width": 59.39748140627506,
+      "height": 56.594961781873565,
+      "objects": [
+        {
+          "id": "group_qta362",
+          "type": "group",
+          "x": 0,
+          "y": 0,
+          "width": 59.39748140627508,
+          "height": 56.59496178187354,
+          "rotation": 0,
+          "visible": true,
+          "locked": false,
+          "minWidth": 8,
+          "minHeight": 8,
+          "objects": [
+            {
+              "id": "line_ycepy5",
+              "type": "line",
+              "name": "stick",
+              "x": 26.371565980853806,
+              "y": 39.48968633018096,
+              "width": 31.54300769560701,
+              "height": 7.158016814582317,
+              "rotation": -90.00000000000001,
+              "minWidth": 7.15801681458235,
+              "minHeight": 3.5790084072911728,
+              "points": [
+                0,
+                3.5790084072911585,
+                31.54300769560701,
+                3.5790084072911585
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 1.7895042036455873,
+              "lineCap": "round",
+              "lineJoin": "round",
+              "cornerRadius": 0,
+              "closed": false,
+              "activeValue": 1,
+              "inactiveStroke": "#d9d9d9",
+              "activeStroke": "#0e639c",
+              "gradientEnabled": false,
+              "gradientDirection": "horizontal"
+            },
+            {
+              "id": "line_43clfz",
+              "type": "line",
+              "name": "right",
+              "x": 29.633007870026013,
+              "y": 56.416011361508986,
+              "width": 33.28371350537013,
+              "height": 29.585523115884495,
+              "rotation": -90.00000000000001,
+              "opacity": 1,
+              "minWidth": 7.15801681458235,
+              "minHeight": 7.1580168145823455,
+              "points": [
+                16.641856752685065,
+                0,
+                33.28371350537013,
+                29.585523115884495,
+                0,
+                29.585523115884495
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 0.35790084072911743,
+              "closed": true,
+              "fill": "#262626"
+            },
+            {
+              "id": "line_xrxspb",
+              "type": "line",
+              "name": "left",
+              "x": 29.764473536249064,
+              "y": 23.132297856138873,
+              "width": 33.28371350537013,
+              "height": 29.585523115884495,
+              "rotation": 90,
+              "opacity": 1,
+              "minWidth": 7.15801681458235,
+              "minHeight": 7.1580168145823455,
+              "points": [
+                16.641856752685065,
+                0,
+                33.28371350537013,
+                29.585523115884495,
+                0,
+                29.585523115884495
+              ],
+              "stroke": "#262626",
+              "strokeWidth": 0.35790084072911743,
+              "closed": true,
+              "fill": "#262626"
+            },
+            {
+              "id": "square_wf5n6p",
+              "type": "rectangle",
+              "x": 18.999362499222144,
+              "y": 0,
+              "width": 22.577674318831992,
+              "height": 22.57767431883199,
+              "rotation": 0,
+              "opacity": 1,
+              "minWidth": 11.828643137167806,
+              "minHeight": 11.828643137167802,
+              "fill": "#262626",
+              "stroke": "#8c8c8c",
+              "strokeWidth": 1.1828643137167805,
+              "cornerRadius": 0
+            }
+          ]
+        }
+      ],
+      "bindings": [
+        {
+          "id": "binding_kaanol",
+          "key": "left",
+          "displayName": "left",
+          "description": "",
+          "kind": "state",
+          "dataType": "BOOL",
+          "required": false
+        },
+        {
+          "id": "binding_xrtpng",
+          "key": "right",
+          "displayName": "right",
+          "description": "",
+          "kind": "state",
+          "dataType": "BOOL",
+          "required": false
+        },
+        {
+          "id": "binding_oomk20",
+          "key": "error",
+          "displayName": "error",
+          "description": "",
+          "kind": "state",
+          "dataType": "BOOL",
+          "required": false
+        },
+        {
+          "id": "binding_pv7623",
+          "key": "move",
+          "displayName": "move",
+          "description": "",
+          "kind": "state",
+          "dataType": "BOOL",
+          "required": false
+        }
+      ],
+      "parameters": [],
+      "stateRules": [
+        {
+          "id": "rule_1x02q4",
+          "name": "left",
+          "source": {
+            "type": "tag",
+            "value": "$binding.left"
+          },
+          "cases": [
+            {
+              "id": "case_wg2qyy",
+              "name": "when",
+              "condition": {
+                "type": "equals",
+                "value": true
+              },
+              "actions": [
+                {
+                  "type": "setProperty",
+                  "objectId": "line_xrxspb",
+                  "property": "fill",
+                  "value": "#1aff00"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "createdAt": "2026-06-02T07:42:01.848Z",
+      "updatedAt": "2026-06-02T07:46:43.634Z"
     }
   ],
   "macros": []

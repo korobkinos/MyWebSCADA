@@ -922,13 +922,15 @@ export function ScreenEditorCenter({
               ) : null}
             </div>
           ))}
-        </div>
-        <div className="screen-editor-toolbar__eye-toggle">
-          <WorkbenchIconButton
+          <div className="screen-editor-toolbar-menu__spacer" />
+          <button
+            type="button"
+            className="screen-editor-toolbar-menu__button screen-editor-toolbar-menu__toggle"
             onClick={() => setToolbarExpanded(!toolbarExpanded)}
-            title={toolbarExpanded ? "Hide toolbar" : "Show toolbar"}
-            icon={toolbarExpanded ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-          />
+            title={toolbarExpanded ? "Hide icon toolbar" : "Show icon toolbar"}
+          >
+            {toolbarExpanded ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+          </button>
         </div>
         <div className={"screen-editor-toolbar__row" + (toolbarExpanded ? "" : " screen-editor-toolbar__row--collapsed")}>
           <div className="screen-editor-toolbar__groups">
