@@ -506,18 +506,21 @@ export function ScreenEditorCenter({
     };
   }, [previewMode, screen.height, screen.width]);
 
+  const applyAutoFitZoomRef = useRef(applyAutoFitZoom);
+  applyAutoFitZoomRef.current = applyAutoFitZoom;
+
   useEffect(() => {
     isManualZoomRef.current = false;
-    applyAutoFitZoom();
-  }, [applyAutoFitZoom, screen.id]);
+    applyAutoFitZoomRef.current();
+  }, [screen.id]);
 
   // Force auto-fit after layout settles (handles stale localStorage zoom)
   useEffect(() => {
-    if (previewMode) return;
+    if (previewMode || !screen) return;
     const id = window.setTimeout(() => {
       if (previewMode) return;
       isManualZoomRef.current = false;
-      applyAutoFitZoom();
+      applyAutoFitZoomRef.current();
     }, 200);
     return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
