@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldSuppressManualCommandError } from "./runtime-command-errors";
+import { shouldShowManualCommandToast, shouldSuppressManualCommandError } from "./runtime-command-errors";
 
 describe("shouldSuppressManualCommandError", () => {
   it("suppresses AbortError for superseded slider write commands", () => {
@@ -12,5 +12,24 @@ describe("shouldSuppressManualCommandError", () => {
     const error = Object.assign(new Error("Command timeout after 10000 ms"), { reason: "timeout" });
 
     expect(shouldSuppressManualCommandError(error, undefined)).toBe(false);
+  });
+});
+
+describe("shouldShowManualCommandToast", () => {
+  it("hides timeout toasts for slider latest-write commands", () => {
+    expect(shouldShowManualCommandToast("timeout", {
+      parameters: {
+        __operatorActionKind: "slider",
+        __allowConcurrentWrite: true,
+      },
+    })).toBe(false);
+  });
+
+  it("keeps timeout toasts for non-slider commands", () => {
+    expect(shouldShowManualCommandToast("timeout", {
+      parameters: {
+        __operatorActionKind: "button",
+      },
+    })).toBe(true);
   });
 });

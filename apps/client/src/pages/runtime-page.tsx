@@ -46,7 +46,11 @@ import {
   useWorkbenchWindows,
   type WorkbenchWindowDefinition,
 } from "../components/workbench";
-import { shouldSuppressManualCommandError, type RuntimeCommandAbortReason } from "./runtime-command-errors";
+import {
+  shouldShowManualCommandToast,
+  shouldSuppressManualCommandError,
+  type RuntimeCommandAbortReason,
+} from "./runtime-command-errors";
 
 type RuntimePageProps = {
   fullscreen?: boolean;
@@ -1319,10 +1323,12 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       const toastText = params.macroId
         ? `Macro failed: ${parsed.messageText}`
         : `Command failed: ${parsed.messageText}`;
-      if (parsed.reason === "busy") {
-        void message.warning(toastText);
-      } else {
-        void message.error(toastText);
+      if (shouldShowManualCommandToast(parsed.reason, params.context)) {
+        if (parsed.reason === "busy") {
+          void message.warning(toastText);
+        } else {
+          void message.error(toastText);
+        }
       }
       return undefined;
     } finally {
