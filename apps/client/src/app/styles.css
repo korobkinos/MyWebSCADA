@@ -6318,6 +6318,8 @@ select.workbench-select:not(.ant-select) {
   border: 1px solid #3c3c3c;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
   color: #cccccc;
+  font-size: 12px;
+  box-sizing: border-box;
 }
 
 .workbench-confirm-dialog__header {
@@ -6329,8 +6331,10 @@ select.workbench-select:not(.ant-select) {
   background: #2d2d2d;
   font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #ffffff;
+  box-sizing: border-box;
 }
 
 /* ── Asset grid tiles ── */
@@ -6816,17 +6820,45 @@ select.workbench-select:not(.ant-select) {
 }
 
 .workbench-confirm-dialog__body {
-  padding: 14px 12px;
+  padding: 12px;
   font-size: 12px;
   color: #cccccc;
+  background: #252526;
 }
 
 .workbench-confirm-dialog__actions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-top: 1px solid #3c3c3c;
+  background: #252526;
+}
+
+.workbench-confirm-dialog .workbench-button.bp6-button {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid #3c3c3c !important;
+  background: #2d2d2d !important;
+  color: #cccccc !important;
+  box-shadow: none !important;
+  font-size: 12px;
+}
+
+.workbench-confirm-dialog .workbench-button.bp6-button:hover:not(:disabled) {
+  background: #37373d !important;
+  color: #ffffff !important;
+}
+
+.workbench-confirm-dialog .workbench-button--danger.bp6-button {
+  border-color: #5a1d1d !important;
+  background: #3a1d1d !important;
+  color: #f2c5c5 !important;
+}
+
+.workbench-confirm-dialog .workbench-button--danger.bp6-button:hover:not(:disabled) {
+  background: #5a2525 !important;
 }
 
 .screen-editor-library-interface-dialog-body {
