@@ -6,6 +6,8 @@ import {
   DeleteOutlined,
   FileImageOutlined,
   FontSizeOutlined,
+  EyeOutlined,
+  LogoutOutlined,
   MinusOutlined,
   NumberOutlined,
   LineChartOutlined,
@@ -85,6 +87,12 @@ const TOOLBAR_GROUP_LABELS: Record<ToolbarGroupId, string> = {
 type ToolbarConfig = {
   order: ToolbarGroupId[];
   hidden: ToolbarGroupId[];
+};
+
+type ToolbarMenuItem = {
+  label: string;
+  disabled?: boolean;
+  onClick?: () => void;
 };
 
 function normalizeToolbarConfig(raw: Partial<ToolbarConfig> | null | undefined): ToolbarConfig {
@@ -312,7 +320,9 @@ export function ScreenEditorCenter({
   const [isPanning, setIsPanning] = useState(false);
   const [toolbarConfig, setToolbarConfig] = useState<ToolbarConfig>(() => loadToolbarConfig());
   const [toolbarConfigOpen, setToolbarConfigOpen] = useState(false);
+  const [openToolbarMenu, setOpenToolbarMenu] = useState<ToolbarGroupId | null>(null);
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
+  const gapInputRef = useRef<HTMLInputElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
   const pendingWheelZoomAnchorRef = useRef<{ screenX: number; screenY: number; targetZoom: number } | null>(null);
   const wheelZoomFrameIdRef = useRef<number | null>(null);
@@ -679,16 +689,13 @@ export function ScreenEditorCenter({
             />
             <WorkbenchIconButton onClick={undo} disabled={!canUndo} title="Undo" icon={<UndoOutlined />} />
             <WorkbenchIconButton onClick={redo} disabled={!canRedo} title="Redo" icon={<RedoOutlined />} />
-            <WorkbenchButton
-              variant={previewMode ? "primary" : "default"}
+            <WorkbenchIconButton
+              active={previewMode}
               onClick={() => onPreviewModeChange(!previewMode)}
               title={previewMode ? "Exit Preview" : "Preview"}
-            >
-              {previewMode ? "Exit Preview" : "Preview"}
-            </WorkbenchButton>
-            <WorkbenchButton onClick={onLogout} title="Logout and open Runtime">
-              Logout
-            </WorkbenchButton>
+              icon={<EyeOutlined />}
+            />
+            <WorkbenchIconButton onClick={onLogout} title="Logout and open Runtime" icon={<LogoutOutlined />} />
           </>
         );
       case "insert":
@@ -727,12 +734,13 @@ export function ScreenEditorCenter({
             <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
             <WorkbenchIconButton onClick={() => onRotateSelectedBy(-90)} disabled={!selectedUnlocked.length} title="Rotate 90° Counterclockwise" icon={<RotateLeftOutlined />} />
             <WorkbenchIconButton onClick={() => onRotateSelectedBy(90)} disabled={!selectedUnlocked.length} title="Rotate 90° Clockwise" icon={<RotateRightOutlined />} />
+            <WorkbenchIconButton onClick={() => gapInputRef.current?.focus()} title="Distribution gap" icon={<SpaceBetweenHorizontallyIcon />} />
             <input
+              ref={gapInputRef}
               className="workbench-input screen-editor-toolbar__gap-input"
               type="number"
               value={spacingGap ?? ""}
               onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-              placeholder="Gap"
               title="Distribution gap"
             />
           </>
@@ -756,8 +764,8 @@ export function ScreenEditorCenter({
             <WorkbenchIconButton onClick={deleteSelectionWithHistory} disabled={!canDelete} title="Delete" icon={<DeleteOutlined />} />
             <WorkbenchIconButton onClick={() => runCommand({ type: "groupSelected" })} disabled={!canGroup} title="Group selected objects" icon={<GroupIcon />} />
             <WorkbenchIconButton onClick={() => runCommand({ type: "ungroupSelected" })} disabled={!canUngroup} title="Ungroup selected objects" icon={<BorderSplitIcon />} />
-            <WorkbenchButton onClick={() => runCommand({ type: "mergeSelectedLinesToPolyline" })} disabled={!canMergeLines} title="Merge selected lines to polyline">Merge Lines</WorkbenchButton>
-            <WorkbenchButton onClick={() => runCommand({ type: "mergeSelectedShapes" })} disabled={!canMergeShapes} title="Merge selected primitive shapes into one compound shape.">Merge Shapes</WorkbenchButton>
+            <WorkbenchIconButton onClick={() => runCommand({ type: "mergeSelectedLinesToPolyline" })} disabled={!canMergeLines} title="Merge selected lines to polyline" icon={<BorderSplitIcon />} />
+            <WorkbenchIconButton onClick={() => runCommand({ type: "mergeSelectedShapes" })} disabled={!canMergeShapes} title="Merge selected primitive shapes" icon={<GroupIcon />} />
             <WorkbenchIconButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length} title="Clone selected objects" icon={<CopyIcon />} />
             <WorkbenchIconButton onClick={onBringToFront} disabled={!hasSelection} title="Bring to Front" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2912;</span>} />
             <WorkbenchIconButton onClick={onSendToBack} disabled={!hasSelection} title="Send to Back" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2913;</span>} />
@@ -781,9 +789,128 @@ export function ScreenEditorCenter({
     }
   };
 
+  const getToolbarMenuItems = (id: ToolbarGroupId): ToolbarMenuItem[] => {
+    switch (id) {
+      case "main":
+        return [
+          { label: "Save Project", disabled: !isProjectDirty || isSavingProject, onClick: () => void handleSaveProject() },
+          { label: "Undo", disabled: !canUndo, onClick: undo },
+          { label: "Redo", disabled: !canRedo, onClick: redo },
+          { label: previewMode ? "Exit Preview" : "Preview", onClick: () => onPreviewModeChange(!previewMode) },
+          { label: "Logout and open Runtime", onClick: onLogout },
+        ];
+      case "insert":
+        return [
+          { label: "Add Text", onClick: () => addAtViewportCenter(createObjectByType("text")) },
+          { label: "Add Line", onClick: () => addAtViewportCenter(createObjectByType("line")) },
+          { label: "Add Square", onClick: () => addPrimitiveShape("square", getViewportCenter()) },
+          { label: "Add Circle", onClick: () => addPrimitiveShape("circle", getViewportCenter()) },
+          { label: "Add Triangle", onClick: () => addPrimitiveShape("triangle", getViewportCenter()) },
+          { label: "Add Frame", onClick: () => addAtViewportCenter(createObjectByType("frame")) },
+          { label: "Add Image", onClick: () => addAtViewportCenter(createObjectByType("image")) },
+          { label: "Add State Image", onClick: () => addAtViewportCenter(createObjectByType("stateImage")) },
+          { label: "Add Numeric Image Indicator", onClick: () => addAtViewportCenter(createObjectByType("numeric-image-indicator")) },
+          { label: "Add Button", onClick: () => addAtViewportCenter(createObjectByType("button")) },
+          { label: "Add Switch", onClick: () => addAtViewportCenter(createObjectByType("switch")) },
+          { label: "Add Value Display", onClick: () => addAtViewportCenter(createObjectByType("value-display")) },
+          { label: "Add State Indicator", onClick: () => addAtViewportCenter(createObjectByType("state-indicator")) },
+          { label: "Add Checkbox", onClick: () => addAtViewportCenter(createObjectByType("checkbox")) },
+          { label: "Add Slider", onClick: () => addAtViewportCenter(createObjectByType("slider")) },
+          { label: "Add Progress Bar", onClick: () => addAtViewportCenter(createObjectByType("progress-bar")) },
+          { label: "Add Trend Chart", onClick: () => addAtViewportCenter(createObjectByType("trendChart")) },
+          { label: "Add Event Table", onClick: () => addAtViewportCenter(createObjectByType("eventTable")) },
+          { label: "Add Select", onClick: () => addAtViewportCenter(createObjectByType("select")) },
+          { label: "Add Radio Group", onClick: () => addAtViewportCenter(createObjectByType("radio-group")) },
+          { label: "Add Numeric Input", onClick: () => addAtViewportCenter(createObjectByType("numeric-input")) },
+        ];
+      case "arrange":
+        return [
+          { label: "Make same width", disabled: !canSameSize, onClick: () => runCommand({ type: "makeSameWidth" }) },
+          { label: "Make same height", disabled: !canSameSize, onClick: () => runCommand({ type: "makeSameHeight" }) },
+          { label: "Make same size", disabled: !canSameSize, onClick: () => runCommand({ type: "makeSameSize" }) },
+          { label: "Distribute horizontally", disabled: !canDistribute, onClick: () => runCommand({ type: "distributeHorizontally" }) },
+          { label: "Distribute vertically", disabled: !canDistribute, onClick: () => runCommand({ type: "distributeVertically" }) },
+          { label: "Rotate 90° Counterclockwise", disabled: !selectedUnlocked.length, onClick: () => onRotateSelectedBy(-90) },
+          { label: "Rotate 90° Clockwise", disabled: !selectedUnlocked.length, onClick: () => onRotateSelectedBy(90) },
+        ];
+      case "align":
+        return [
+          { label: "Align left", disabled: !canAlign, onClick: () => runCommand({ type: "alignLeft" }) },
+          { label: "Align horizontal center", disabled: !canAlign, onClick: () => runCommand({ type: "alignHorizontalCenter" }) },
+          { label: "Align right", disabled: !canAlign, onClick: () => runCommand({ type: "alignRight" }) },
+          { label: "Align top", disabled: !canAlign, onClick: () => runCommand({ type: "alignTop" }) },
+          { label: "Align vertical center", disabled: !canAlign, onClick: () => runCommand({ type: "alignVerticalCenter" }) },
+          { label: "Align bottom", disabled: !canAlign, onClick: () => runCommand({ type: "alignBottom" }) },
+        ];
+      case "edit":
+        return [
+          { label: "Copy", disabled: !canCopy, onClick: copySelectionToClipboard },
+          { label: "Paste", disabled: !canPaste, onClick: pasteFromClipboard },
+          { label: "Delete", disabled: !canDelete, onClick: deleteSelectionWithHistory },
+          { label: "Group selected objects", disabled: !canGroup, onClick: () => runCommand({ type: "groupSelected" }) },
+          { label: "Ungroup selected objects", disabled: !canUngroup, onClick: () => runCommand({ type: "ungroupSelected" }) },
+          { label: "Merge selected lines to polyline", disabled: !canMergeLines, onClick: () => runCommand({ type: "mergeSelectedLinesToPolyline" }) },
+          { label: "Merge selected primitive shapes", disabled: !canMergeShapes, onClick: () => runCommand({ type: "mergeSelectedShapes" }) },
+          { label: "Clone selected objects", disabled: !selectedUnlocked.length, onClick: () => setCloneOpen(true) },
+          { label: "Bring to Front", disabled: !hasSelection, onClick: onBringToFront },
+          { label: "Send to Back", disabled: !hasSelection, onClick: onSendToBack },
+          { label: "Move Forward", disabled: !hasSelection, onClick: onMoveForward },
+          { label: "Move Backward", disabled: !hasSelection, onClick: onMoveBackward },
+        ];
+      case "view":
+        return [
+          { label: "Open Screen Settings", onClick: onOpenScreenSettings },
+          { label: "Open Layers Window", onClick: onOpenLayers },
+          { label: "Open Object Properties Window", onClick: onOpenObjectProperties },
+          { label: "Save Selection As Element", disabled: !canSaveSelection, onClick: onOpenSaveSelection },
+          { label: "Select tool", onClick: () => setActiveTool("select") },
+          { label: "Pan tool", onClick: () => setActiveTool("pan") },
+        ];
+      default:
+        return [];
+    }
+  };
+
   return (
     <div className="screen-editor-center">
       <div className="screen-editor-toolbar">
+        <div className="screen-editor-toolbar-menu">
+          {visibleToolbarGroups.map((id) => (
+            <div key={id} className="screen-editor-toolbar-menu__item">
+              <button
+                type="button"
+                className={["screen-editor-toolbar-menu__button", openToolbarMenu === id ? "screen-editor-toolbar-menu__button--active" : ""].filter(Boolean).join(" ")}
+                onClick={() => {
+                  setToolbarConfigOpen(false);
+                  setOpenToolbarMenu((open) => (open === id ? null : id));
+                }}
+              >
+                {TOOLBAR_GROUP_LABELS[id]}
+              </button>
+              {openToolbarMenu === id ? (
+                <div className="screen-editor-toolbar-menu__dropdown">
+                  {getToolbarMenuItems(id).map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className="screen-editor-toolbar-menu__dropdown-item"
+                      disabled={item.disabled}
+                      onClick={() => {
+                        if (item.disabled) {
+                          return;
+                        }
+                        setOpenToolbarMenu(null);
+                        item.onClick?.();
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
         <div className="screen-editor-toolbar__row">
           <div className="screen-editor-toolbar__groups">
             {visibleToolbarGroups.map((id) => (
@@ -795,7 +922,10 @@ export function ScreenEditorCenter({
           <div className="screen-editor-toolbar__customize">
             <WorkbenchIconButton
               active={toolbarConfigOpen}
-              onClick={() => setToolbarConfigOpen((open) => !open)}
+              onClick={() => {
+                setOpenToolbarMenu(null);
+                setToolbarConfigOpen((open) => !open);
+              }}
               title="Customize toolbar"
               icon={<SettingOutlined />}
             />

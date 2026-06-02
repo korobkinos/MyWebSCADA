@@ -1982,6 +1982,77 @@ select.workbench-select:not(.ant-select) {
   background: #252526;
 }
 
+.screen-editor-toolbar-menu {
+  min-height: 24px;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  padding: 2px 6px 0;
+  border-bottom: 1px solid #2d2d2d;
+  overflow: visible;
+}
+
+.screen-editor-toolbar-menu__item {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.screen-editor-toolbar-menu__button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: #cccccc;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.screen-editor-toolbar-menu__button:hover,
+.screen-editor-toolbar-menu__button--active {
+  background: #37373d;
+  color: #ffffff;
+}
+
+.screen-editor-toolbar-menu__dropdown {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  z-index: 45;
+  min-width: 220px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 4px 0;
+  border: 1px solid #3c3c3c;
+  background: #252526;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.screen-editor-toolbar-menu__dropdown-item {
+  width: 100%;
+  min-height: 24px;
+  padding: 3px 16px;
+  border: 0;
+  background: transparent;
+  color: #cccccc;
+  display: block;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.screen-editor-toolbar-menu__dropdown-item:hover {
+  background: #37373d;
+  color: #ffffff;
+}
+
+.screen-editor-toolbar-menu__dropdown-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .screen-editor-toolbar__row {
   min-width: 0;
   min-height: 58px;
