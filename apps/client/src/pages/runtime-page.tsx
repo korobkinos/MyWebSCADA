@@ -1059,12 +1059,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     console.warn("[RuntimeCommand]", payload);
   };
 
-  const parseManualCommandError = (error: unknown): { reason: ManualCommandRejectReason; messageText: string } => {
+  const parseManualCommandError = (error: unknown): { reason: ManualCommandRejectReason; messageText: string } | null => {
     if (error instanceof DOMException && error.name === "AbortError") {
-      return {
-        reason: "timeout",
-        messageText: `Command timeout after ${COMMAND_TIMEOUT_MS} ms`,
-      };
+      return null;
     }
 
     const err = error as { message?: string; reason?: string; status?: number; details?: { reason?: string; message?: string } } | undefined;
@@ -1290,6 +1287,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         return undefined;
       }
       const parsed = parseManualCommandError(error);
+      if (!parsed) {
+        pendingDeleteReason = "aborted";
+        return undefined;
+      }
       pendingDeleteReason = parsed.reason;
       const durationMs = Date.now() - startedAt;
       debugRuntimeCommand(
