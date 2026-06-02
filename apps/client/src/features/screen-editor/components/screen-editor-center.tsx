@@ -245,6 +245,7 @@ export type ScreenEditorCenterProps = {
   onRotateSelectedBy: (deltaDeg: number) => void;
   onViewportCenterChange?: (center: { x: number; y: number }) => void;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
+  onResizeScreen?: (screenId: string, patch: Partial<HmiScreen>) => void;
 };
 
 export function ScreenEditorCenter({
@@ -310,6 +311,7 @@ export function ScreenEditorCenter({
   onRotateSelectedBy,
   onViewportCenterChange,
   onRequestNumericInput,
+  onResizeScreen,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
   const [activeTool, setActiveTool] = useState<EditorTool>(() => {
@@ -1111,6 +1113,7 @@ export function ScreenEditorCenter({
               editorGridLineWidth={gridLineWidth}
               editorGridLineStyle={gridLineStyle}
               onRequestNumericInput={onRequestNumericInput}
+              onResizeScreen={onResizeScreen}
             />
           ) : (
             <div className="screen-editor-empty-state">Select or create a screen</div>
