@@ -923,24 +923,12 @@ export function ScreenEditorCenter({
             </div>
           ))}
           <div className="screen-editor-toolbar-menu__spacer" />
-          <button
-            type="button"
-            className="screen-editor-toolbar-menu__button screen-editor-toolbar-menu__toggle"
-            onClick={() => setToolbarExpanded(!toolbarExpanded)}
-            title={toolbarExpanded ? "Hide icon toolbar" : "Show icon toolbar"}
-          >
-            {toolbarExpanded ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-          </button>
-        </div>
-        <div className={"screen-editor-toolbar__row" + (toolbarExpanded ? "" : " screen-editor-toolbar__row--collapsed")}>
-          <div className="screen-editor-toolbar__groups">
-            {visibleToolbarGroups.map((id) => (
-              <div key={id} className="screen-editor-toolbar__group" data-toolbar-group={id}>
-                {renderToolbarGroup(id)}
-              </div>
-            ))}
-          </div>
           <div className="screen-editor-toolbar__customize">
+            <WorkbenchIconButton
+              onClick={() => setToolbarExpanded(!toolbarExpanded)}
+              title={toolbarExpanded ? "Hide icon toolbar" : "Show icon toolbar"}
+              icon={toolbarExpanded ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+            />
             <WorkbenchIconButton
               active={toolbarConfigOpen}
               onClick={() => {
@@ -981,25 +969,15 @@ export function ScreenEditorCenter({
               </div>
             ) : null}
           </div>
-          {/*
-          <div className="screen-editor-toolbar__group">
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize} title="Make same width" icon={<WidthIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize} title="Make same height" icon={<HeightIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size" icon={<SizeIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute} title="Distribute horizontally" icon={<SpaceBetweenHorizontallyIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
-                      <WorkbenchIconButton onClick={() => onRotateSelectedBy(-90)} disabled={!selectedUnlocked.length} title="Rotate 90° Counterclockwise" icon={<RotateLeftOutlined />} />
-                      <WorkbenchIconButton onClick={() => onRotateSelectedBy(90)} disabled={!selectedUnlocked.length} title="Rotate 90° Clockwise" icon={<RotateRightOutlined />} />
-            <input
-              className="workbench-input screen-editor-toolbar__gap-input"
-              type="number"
-              value={spacingGap ?? ""}
-              onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-              placeholder="Gap"
-              title="Distribution gap"
-            />
+        </div>
+        <div className={"screen-editor-toolbar__row" + (toolbarExpanded ? "" : " screen-editor-toolbar__row--collapsed")}>
+          <div className="screen-editor-toolbar__groups">
+            {visibleToolbarGroups.map((id) => (
+              <div key={id} className="screen-editor-toolbar__group" data-toolbar-group={id}>
+                {renderToolbarGroup(id)}
+              </div>
+            ))}
           </div>
-          */}
           <div className="screen-editor-toolbar__screen-name" title={screen?.name ?? "Screen"}>
             {screen?.name ?? "Screen"}
           </div>
