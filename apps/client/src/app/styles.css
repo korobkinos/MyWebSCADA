@@ -2185,6 +2185,16 @@ select.workbench-select:not(.ant-select) {
   font-size: 11px;
 }
 
+.screen-editor-toolbar__gap-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.screen-editor-toolbar__row--collapsed {
+  display: none;
+}
+
 .screen-editor-canvas-host {
   flex: 1;
   min-height: 0;

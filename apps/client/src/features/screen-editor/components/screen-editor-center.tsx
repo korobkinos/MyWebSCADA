@@ -6,6 +6,7 @@ import {
   DeleteOutlined,
   FileImageOutlined,
   FontSizeOutlined,
+  EyeInvisibleOutlined,
   EyeOutlined,
   LogoutOutlined,
   MinusOutlined,
@@ -321,6 +322,8 @@ export function ScreenEditorCenter({
   const [toolbarConfig, setToolbarConfig] = useState<ToolbarConfig>(() => loadToolbarConfig());
   const [toolbarConfigOpen, setToolbarConfigOpen] = useState(false);
   const [openToolbarMenu, setOpenToolbarMenu] = useState<ToolbarGroupId | null>(null);
+  const [gapInputOpen, setGapInputOpen] = useState(false);
+  const [toolbarExpanded, setToolbarExpanded] = useState(true);
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const gapInputRef = useRef<HTMLInputElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
@@ -734,15 +737,24 @@ export function ScreenEditorCenter({
             <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
             <WorkbenchIconButton onClick={() => onRotateSelectedBy(-90)} disabled={!selectedUnlocked.length} title="Rotate 90° Counterclockwise" icon={<RotateLeftOutlined />} />
             <WorkbenchIconButton onClick={() => onRotateSelectedBy(90)} disabled={!selectedUnlocked.length} title="Rotate 90° Clockwise" icon={<RotateRightOutlined />} />
-            <WorkbenchIconButton onClick={() => gapInputRef.current?.focus()} title="Distribution gap" icon={<SpaceBetweenHorizontallyIcon />} />
-            <input
-              ref={gapInputRef}
-              className="workbench-input screen-editor-toolbar__gap-input"
-              type="number"
-              value={spacingGap ?? ""}
-              onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-              title="Distribution gap"
-            />
+            <div className="screen-editor-toolbar__gap-wrapper">
+              <WorkbenchIconButton
+                active={gapInputOpen}
+                onClick={() => { setGapInputOpen(!gapInputOpen); if (!gapInputOpen) setTimeout(() => gapInputRef.current?.focus(), 50); }}
+                title="Distribution gap"
+                icon={<SpaceBetweenHorizontallyIcon />}
+              />
+              {gapInputOpen && (
+                <input
+                  ref={gapInputRef}
+                  className="workbench-input screen-editor-toolbar__gap-input"
+                  type="number"
+                  value={spacingGap ?? ""}
+                  onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
+                  title="Distribution gap"
+                />
+              )}
+            </div>
           </>
         );
       case "align":
@@ -911,7 +923,7 @@ export function ScreenEditorCenter({
             </div>
           ))}
         </div>
-        <div className="screen-editor-toolbar__row">
+        <div className={"screen-editor-toolbar__row" + (toolbarExpanded ? "" : " screen-editor-toolbar__row--collapsed")}>
           <div className="screen-editor-toolbar__groups">
             {visibleToolbarGroups.map((id) => (
               <div key={id} className="screen-editor-toolbar__group" data-toolbar-group={id}>
@@ -920,6 +932,11 @@ export function ScreenEditorCenter({
             ))}
           </div>
           <div className="screen-editor-toolbar__customize">
+            <WorkbenchIconButton
+              onClick={() => setToolbarExpanded(!toolbarExpanded)}
+              title={toolbarExpanded ? "Hide toolbar" : "Show toolbar"}
+              icon={toolbarExpanded ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+            />
             <WorkbenchIconButton
               active={toolbarConfigOpen}
               onClick={() => {
