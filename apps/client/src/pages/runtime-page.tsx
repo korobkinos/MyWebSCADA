@@ -46,6 +46,7 @@ import {
   useWorkbenchWindows,
   type WorkbenchWindowDefinition,
 } from "../components/workbench";
+import { shouldSuppressManualCommandError, type RuntimeCommandAbortReason } from "./runtime-command-errors";
 
 type RuntimePageProps = {
   fullscreen?: boolean;
@@ -98,6 +99,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     commandKey: string;
     popupInstanceId?: string;
     abortController?: AbortController;
+    abortReason?: RuntimeCommandAbortReason;
   }>());
   const commandWarningTimestampsRef = useRef(new Map<string, number>());
   const runtimeRootRef = useRef<HTMLDivElement | null>(null);
@@ -976,6 +978,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       if (meta.commandKey !== commandKey) {
         continue;
       }
+      meta.abortReason = "superseded";
       meta.abortController?.abort();
       abortedCount += 1;
     }
@@ -988,6 +991,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       if (meta.popupInstanceId !== popupInstanceId) {
         continue;
       }
+      meta.abortReason = "popup_closed";
       meta.abortController?.abort();
       abortedCount += 1;
     }
@@ -1217,11 +1221,13 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     );
     const commandMeta = createManualCommandMeta(params.commandKey, timeoutMs);
     const abortController = typeof AbortController !== "undefined" ? new AbortController() : undefined;
-    activeRuntimeCommandsRef.current.set(commandMeta.commandId, {
+    const activeCommand = {
       commandKey: params.commandKey,
       popupInstanceId: params.context.popupInstanceId,
       abortController,
-    });
+      abortReason: undefined,
+    };
+    activeRuntimeCommandsRef.current.set(commandMeta.commandId, activeCommand);
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     let pendingDeleteReason = "completed";
 
@@ -1262,6 +1268,22 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       );
       return timedResult;
     } catch (error) {
+      const abortReason = activeCommand.abortReason;
+      if (abortReason && shouldSuppressManualCommandError(error, abortReason)) {
+        pendingDeleteReason = abortReason;
+        debugRuntimeCommand(
+          "skipped",
+          createRuntimeCommandDebugPayload({
+            status: "skipped",
+            actionType: params.action.type,
+            commandKey: params.commandKey,
+            context: params.context,
+            macroId: params.macroId,
+            reason: abortReason,
+          }),
+        );
+        return undefined;
+      }
       const parsed = parseManualCommandError(error);
       pendingDeleteReason = parsed.reason;
       const durationMs = Date.now() - startedAt;
