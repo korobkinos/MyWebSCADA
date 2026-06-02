@@ -125,13 +125,14 @@ export function FrameIndexesEditorWindow({
           ...previewContext,
         });
         const previewExpression = buildPreviewExpression(item.rawTag, draftRules, previewContext, evaluation.matchedRuleIds);
+        const ruleApplicationPreview = buildRuleApplicationPreview(item.rawTag, draftRules, evaluation.matchedRuleIds);
         const runtimeSuffix = item.runtimeSupport === "limited" ? " (runtime limited)" : "";
         const warningSuffix = evaluation.warnings.length > 0 ? " (fallback)" : "";
         return {
           ...item,
           key: `${item.objectId}:${item.fieldPath}`,
           status: `${evaluation.status}${runtimeSuffix}${warningSuffix}`,
-          preview: previewExpression ?? evaluation.preview,
+          preview: ruleApplicationPreview ?? previewExpression ?? evaluation.preview,
           matchedRuleIds: evaluation.matchedRuleIds,
           warnings: evaluation.warnings,
           previewExpression,
@@ -242,7 +243,24 @@ export function FrameIndexesEditorWindow({
                       return (
                         <div key={rule.id} className="frame-indexes-editor-rule">
                           <div className="frame-indexes-editor-rule__header">
-                            <strong>Rule {index + 1}</strong>
+                            <div className="frame-indexes-editor-rule__title">
+                              <strong>Rule {index + 1}</strong>
+                              <label className="frame-indexes-editor-switch">
+                                <input
+                                  type="checkbox"
+                                  checked={rule.enabled !== false}
+                                  onChange={(event) =>
+                                    setDraftRules((prev) =>
+                                      prev.map((item) => (item.id === rule.id ? { ...item, enabled: event.target.checked } : item)),
+                                    )
+                                  }
+                                />
+                                <span className="frame-indexes-editor-switch__track" aria-hidden="true">
+                                  <span className="frame-indexes-editor-switch__thumb" />
+                                </span>
+                                <span>Enabled</span>
+                              </label>
+                            </div>
                             <button
                               type="button"
                               className="workbench-button workbench-button--danger"
@@ -252,18 +270,6 @@ export function FrameIndexesEditorWindow({
                             </button>
                           </div>
                           <div className="frame-indexes-editor-rule__grid">
-                            <label className="frame-indexes-editor-field frame-indexes-editor-field--inline">
-                              <span>Enabled</span>
-                              <input
-                                type="checkbox"
-                                checked={rule.enabled !== false}
-                                onChange={(event) =>
-                                  setDraftRules((prev) =>
-                                    prev.map((item) => (item.id === rule.id ? { ...item, enabled: event.target.checked } : item)),
-                                  )
-                                }
-                              />
-                            </label>
                             <label className="frame-indexes-editor-field">
                               <span>Name</span>
                               <input
@@ -586,7 +592,7 @@ export function FrameIndexesEditorWindow({
                     <div>Applied to</div>
                     <div>{describeAppliedIndexTargets(selectedRow, draftRules)}</div>
                     <div>Result</div>
-                    <div>{renderIndexedTagPreview(selectedRow.preview, draftRules, selectedRow.matchedRuleIds)}</div>
+                    <div>{renderIndexedTagPreview(buildRuleApplicationPreview(selectedRow.rawTag, draftRules, selectedRow.matchedRuleIds) ?? selectedRow.preview, draftRules, selectedRow.matchedRuleIds)}</div>
                     {selectedPreviewExpression ? (
                       <>
                         <div>Applied index expression</div>
@@ -1084,6 +1090,21 @@ function describeAppliedIndexTargets(row: ScanRow, rules: FrameTagIndexRule[] | 
   }).join("; ");
 }
 
+function buildRuleApplicationPreview(rawTag: string, rules: FrameTagIndexRule[] | undefined, matchedRuleIds: string[]): string | undefined {
+  let nextTag = rawTag;
+  let changed = false;
+
+  for (const rule of getMatchedRules(rules, matchedRuleIds)) {
+    const patched = patchTagByMode(nextTag, rule, (inner) => `${inner}+${formatIndexApplicationLabel(rule)}`);
+    if (patched) {
+      nextTag = patched;
+      changed = true;
+    }
+  }
+
+  return changed ? nextTag : undefined;
+}
+
 function renderIndexedTagPreview(tag: string, rules: FrameTagIndexRule[] | undefined, matchedRuleIds: string[]) {
   const ranges = collectTagTokenRanges(tag);
   const targetKeys = new Set<string>();
@@ -1195,6 +1216,10 @@ function collectTagTokenRanges(tag: string): Array<{
 
 function createTokenRangeKey(token: { occurrence: number; segmentName?: string | null }): string {
   return `${token.occurrence}:${token.segmentName ?? ""}`;
+}
+
+function formatIndexApplicationLabel(rule: FrameTagIndexRule): string {
+  return rule.name?.trim() || "index";
 }
 
 function createDefaultColumnVisibility(): FrameIndexColumnVisibility {
