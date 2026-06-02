@@ -6,6 +6,7 @@ import {
   DeleteOutlined,
   FileImageOutlined,
   FontSizeOutlined,
+  EyeInvisibleOutlined,
   EyeOutlined,
   LogoutOutlined,
   MinusOutlined,
@@ -244,6 +245,7 @@ export type ScreenEditorCenterProps = {
   onRotateSelectedBy: (deltaDeg: number) => void;
   onViewportCenterChange?: (center: { x: number; y: number }) => void;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
+  onResizeScreen?: (screenId: string, patch: Partial<HmiScreen>) => void;
 };
 
 export function ScreenEditorCenter({
@@ -309,6 +311,7 @@ export function ScreenEditorCenter({
   onRotateSelectedBy,
   onViewportCenterChange,
   onRequestNumericInput,
+  onResizeScreen,
 }: ScreenEditorCenterProps) {
   const [isCanvasDragOver, setIsCanvasDragOver] = useState(false);
   const [activeTool, setActiveTool] = useState<EditorTool>(() => {
@@ -321,6 +324,8 @@ export function ScreenEditorCenter({
   const [toolbarConfig, setToolbarConfig] = useState<ToolbarConfig>(() => loadToolbarConfig());
   const [toolbarConfigOpen, setToolbarConfigOpen] = useState(false);
   const [openToolbarMenu, setOpenToolbarMenu] = useState<ToolbarGroupId | null>(null);
+  const [gapInputOpen, setGapInputOpen] = useState(false);
+  const [toolbarExpanded, setToolbarExpanded] = useState(true);
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const gapInputRef = useRef<HTMLInputElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
@@ -501,10 +506,25 @@ export function ScreenEditorCenter({
     };
   }, [previewMode, screen.height, screen.width]);
 
+  const applyAutoFitZoomRef = useRef(applyAutoFitZoom);
+  applyAutoFitZoomRef.current = applyAutoFitZoom;
+
   useEffect(() => {
     isManualZoomRef.current = false;
-    applyAutoFitZoom();
-  }, [applyAutoFitZoom, screen.id]);
+    applyAutoFitZoomRef.current();
+  }, [screen.id]);
+
+  // Force auto-fit after layout settles (handles stale localStorage zoom)
+  useEffect(() => {
+    if (previewMode || !screen) return;
+    const id = window.setTimeout(() => {
+      if (previewMode) return;
+      isManualZoomRef.current = false;
+      applyAutoFitZoomRef.current();
+    }, 200);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen?.id]);
 
   useEffect(() => {
     if (previewMode) {
@@ -734,15 +754,24 @@ export function ScreenEditorCenter({
             <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
             <WorkbenchIconButton onClick={() => onRotateSelectedBy(-90)} disabled={!selectedUnlocked.length} title="Rotate 90° Counterclockwise" icon={<RotateLeftOutlined />} />
             <WorkbenchIconButton onClick={() => onRotateSelectedBy(90)} disabled={!selectedUnlocked.length} title="Rotate 90° Clockwise" icon={<RotateRightOutlined />} />
-            <WorkbenchIconButton onClick={() => gapInputRef.current?.focus()} title="Distribution gap" icon={<SpaceBetweenHorizontallyIcon />} />
-            <input
-              ref={gapInputRef}
-              className="workbench-input screen-editor-toolbar__gap-input"
-              type="number"
-              value={spacingGap ?? ""}
-              onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-              title="Distribution gap"
-            />
+            <div className="screen-editor-toolbar__gap-wrapper">
+              <WorkbenchIconButton
+                active={gapInputOpen}
+                onClick={() => { setGapInputOpen(!gapInputOpen); if (!gapInputOpen) setTimeout(() => gapInputRef.current?.focus(), 50); }}
+                title="Distribution gap"
+                icon={<SpaceBetweenHorizontallyIcon />}
+              />
+              {gapInputOpen && (
+                <input
+                  ref={gapInputRef}
+                  className="workbench-input screen-editor-toolbar__gap-input"
+                  type="number"
+                  value={spacingGap ?? ""}
+                  onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
+                  title="Distribution gap"
+                />
+              )}
+            </div>
           </>
         );
       case "align":
@@ -910,16 +939,13 @@ export function ScreenEditorCenter({
               ) : null}
             </div>
           ))}
-        </div>
-        <div className="screen-editor-toolbar__row">
-          <div className="screen-editor-toolbar__groups">
-            {visibleToolbarGroups.map((id) => (
-              <div key={id} className="screen-editor-toolbar__group" data-toolbar-group={id}>
-                {renderToolbarGroup(id)}
-              </div>
-            ))}
-          </div>
+          <div className="screen-editor-toolbar-menu__spacer" />
           <div className="screen-editor-toolbar__customize">
+            <WorkbenchIconButton
+              onClick={() => setToolbarExpanded(!toolbarExpanded)}
+              title={toolbarExpanded ? "Hide icon toolbar" : "Show icon toolbar"}
+              icon={toolbarExpanded ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+            />
             <WorkbenchIconButton
               active={toolbarConfigOpen}
               onClick={() => {
@@ -960,25 +986,15 @@ export function ScreenEditorCenter({
               </div>
             ) : null}
           </div>
-          {/*
-          <div className="screen-editor-toolbar__group">
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize} title="Make same width" icon={<WidthIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize} title="Make same height" icon={<HeightIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size" icon={<SizeIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "distributeHorizontally" })} disabled={!canDistribute} title="Distribute horizontally" icon={<SpaceBetweenHorizontallyIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
-                      <WorkbenchIconButton onClick={() => onRotateSelectedBy(-90)} disabled={!selectedUnlocked.length} title="Rotate 90° Counterclockwise" icon={<RotateLeftOutlined />} />
-                      <WorkbenchIconButton onClick={() => onRotateSelectedBy(90)} disabled={!selectedUnlocked.length} title="Rotate 90° Clockwise" icon={<RotateRightOutlined />} />
-            <input
-              className="workbench-input screen-editor-toolbar__gap-input"
-              type="number"
-              value={spacingGap ?? ""}
-              onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-              placeholder="Gap"
-              title="Distribution gap"
-            />
+        </div>
+        <div className={"screen-editor-toolbar__row" + (toolbarExpanded ? "" : " screen-editor-toolbar__row--collapsed")}>
+          <div className="screen-editor-toolbar__groups">
+            {visibleToolbarGroups.map((id) => (
+              <div key={id} className="screen-editor-toolbar__group" data-toolbar-group={id}>
+                {renderToolbarGroup(id)}
+              </div>
+            ))}
           </div>
-          */}
           <div className="screen-editor-toolbar__screen-name" title={screen?.name ?? "Screen"}>
             {screen?.name ?? "Screen"}
           </div>
@@ -1112,6 +1128,7 @@ export function ScreenEditorCenter({
               editorGridLineWidth={gridLineWidth}
               editorGridLineStyle={gridLineStyle}
               onRequestNumericInput={onRequestNumericInput}
+              onResizeScreen={onResizeScreen}
             />
           ) : (
             <div className="screen-editor-empty-state">Select or create a screen</div>

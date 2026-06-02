@@ -54,6 +54,7 @@ type HmiStageProps = {
   editorGridLineStyle?: "solid" | "dashed" | "dotted" | "dashDot";
   currentUserRoleLevel?: number;
   onRequestNumericInput?: (state: NumericInputOpenPayload) => void;
+  onResizeScreen?: (screenId: string, patch: Partial<HmiScreen>) => void;
 };
 
 export const OFFSCREEN_PAD = 2000;
@@ -61,6 +62,8 @@ const MIN_EDITOR_OFFSCREEN_PAD = 600;
 const TARGET_VISIBLE_EDITOR_OFFSCREEN_PAD = 300;
 const EDITOR_STAGE_PIXEL_RATIO_MULTIPLIER = 1;
 const MAX_EDITOR_STAGE_PIXEL_RATIO = 2;
+const HANDLE_SIZE = 8;
+const MIN_SCREEN_SIZE = 100;
 
 export function getEditorOffscreenPad(editorZoom: number): number {
   if (!Number.isFinite(editorZoom) || editorZoom <= 0) {
@@ -103,11 +106,18 @@ export function HmiStage({
   editorGridLineStyle = "solid",
   currentUserRoleLevel,
   onRequestNumericInput,
+  onResizeScreen,
 }: HmiStageProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const screenResizeRef = useRef<{
+    startWidth: number;
+    startHeight: number;
+    startPointer: { x: number; y: number };
+    edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+  } | null>(null);
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [runtimeOverlay, setRuntimeOverlay] = useState<RuntimeOverlayState | null>(null);
   const [runtimeWidgetOverlays, setRuntimeWidgetOverlays] = useState<Record<string, RuntimeWidgetOverlayState>>({});
@@ -412,6 +422,104 @@ export function HmiStage({
     }
   }, [effectiveEditorZoom, mode, runtimeScale, screen.height, screen.id, screen.name, screen.objects.length, screen.width, stageHeight, stageWidth]);
 
+  const renderScreenResizeHandles = useCallback(() => {
+    if (mode !== "editor" || !onResizeScreen) {
+      return null;
+    }
+    const w = screen.width;
+    const h = screen.height;
+    const hs = HANDLE_SIZE;
+    const half = hs / 2;
+
+    const anchors: { x: number; y: number; cursor: string; edge: string }[] = [
+      { x: 0, y: 0, cursor: "nwse-resize", edge: "nw" },
+      { x: w, y: 0, cursor: "nesw-resize", edge: "ne" },
+      { x: w, y: h, cursor: "nwse-resize", edge: "se" },
+      { x: 0, y: h, cursor: "nesw-resize", edge: "sw" },
+      { x: w / 2, y: 0, cursor: "ns-resize", edge: "n" },
+      { x: w / 2, y: h, cursor: "ns-resize", edge: "s" },
+      { x: 0, y: h / 2, cursor: "ew-resize", edge: "w" },
+      { x: w, y: h / 2, cursor: "ew-resize", edge: "e" },
+    ];
+
+    const handleDragStart = (anchor: { x: number; y: number; edge: string }) => (evt: KonvaEventObject<DragEvent>) => {
+      evt.cancelBubble = true;
+      const stage = stageRef.current;
+      if (!stage) return;
+      const pointer = stage.getPointerPosition();
+      if (!pointer) return;
+      screenResizeRef.current = {
+        startWidth: screen.width,
+        startHeight: screen.height,
+        startPointer: { x: pointer.x - editorOffscreenPad, y: pointer.y - editorOffscreenPad },
+        edge: anchor.edge as any,
+      };
+    };
+
+    const handleDragMove = (anchor: { x: number; y: number; edge: string }) => (evt: KonvaEventObject<DragEvent>) => {
+      const resize = screenResizeRef.current;
+      if (!resize) return;
+      const stage = stageRef.current;
+      if (!stage) return;
+      const p = stage.getPointerPosition();
+      if (!p) return;
+
+      // Keep handle pinned to its anchor position
+      evt.target.x(anchor.x - half);
+      evt.target.y(anchor.y - half);
+
+      const sx = p.x - editorOffscreenPad;
+      const sy = p.y - editorOffscreenPad;
+      let nw = resize.startWidth;
+      let nh = resize.startHeight;
+      const dx = sx - resize.startPointer.x;
+      const dy = sy - resize.startPointer.y;
+      if (resize.edge.includes("e")) nw = resize.startWidth + dx;
+      if (resize.edge.includes("w")) nw = resize.startWidth - dx;
+      if (resize.edge.includes("s")) nh = resize.startHeight + dy;
+      if (resize.edge.includes("n")) nh = resize.startHeight - dy;
+      nw = Math.max(MIN_SCREEN_SIZE, Math.round(nw));
+      nh = Math.max(MIN_SCREEN_SIZE, Math.round(nh));
+      onResizeScreen(screen.id, { width: nw, height: nh });
+    };
+
+    const handleDragEnd = () => {
+      screenResizeRef.current = null;
+      const container = stageRef.current?.container();
+      if (container) container.style.cursor = "";
+    };
+
+    const handleMouseEnter = (cursor: string) => (evt: KonvaEventObject<MouseEvent>) => {
+      const container = evt.target.getStage()?.container();
+      if (container) container.style.cursor = cursor;
+    };
+    const handleMouseLeave = () => {
+      if (screenResizeRef.current) return;
+      const container = stageRef.current?.container();
+      if (container) container.style.cursor = "";
+    };
+
+    return anchors.map((anchor) => (
+      <Rect
+        key={anchor.edge}
+        x={anchor.x - half}
+        y={anchor.y - half}
+        width={hs}
+        height={hs}
+        fill="#69c0ff"
+        stroke="#ffffff"
+        strokeWidth={1}
+        cornerRadius={1}
+        draggable
+        onDragStart={handleDragStart(anchor)}
+        onDragMove={handleDragMove(anchor)}
+        onDragEnd={handleDragEnd}
+        onMouseEnter={handleMouseEnter(anchor.cursor)}
+        onMouseLeave={handleMouseLeave}
+      />
+    ));
+  }, [mode, onResizeScreen, screen.id, screen.width, screen.height, editorOffscreenPad]);
+
   return (
     <div
       ref={wrapRef}
@@ -523,6 +631,7 @@ export function HmiStage({
                   return newBox;
                 }}
               />
+              {renderScreenResizeHandles()}
             </Group>
           ) : (
             <>

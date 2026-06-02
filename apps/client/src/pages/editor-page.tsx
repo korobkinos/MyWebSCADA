@@ -1440,6 +1440,7 @@ export function EditorPage() {
               viewportCenterRef.current = center;
             }}
             onRequestNumericInput={previewMode ? handlePreviewRequestNumericInput : undefined}
+            onResizeScreen={updateScreen}
           />
         }
         bottom={
