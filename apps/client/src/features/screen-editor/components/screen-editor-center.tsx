@@ -49,7 +49,6 @@ import {
   DotFilledIcon,
   InputIcon,
 } from "@radix-ui/react-icons";
-import { Tabs } from "antd";
 import { getEditorOffscreenPad, HmiStage } from "../../../hmi/runtime/hmi-stage";
 import { createObjectByType } from "../../../hmi/editor/default-object-factory";
 import {
@@ -63,7 +62,6 @@ import type { NumericInputOpenPayload } from "../../../hmi/runtime/hmi-renderer"
 type PrimitiveShapeKind = "square" | "circle" | "triangle";
 type DropPosition = { x: number; y: number };
 type EditorTool = "select" | "pan";
-type ToolbarTab = "main" | "insert" | "arrange" | "align" | "edit" | "view";
 const MIN_EDITOR_ZOOM = 0.02;
 const MAX_EDITOR_ZOOM = 20;
 const ZOOM_STEP = 1.1;
@@ -267,7 +265,6 @@ export function ScreenEditorCenter({
     return parseEditorTool(window.localStorage.getItem(ACTIVE_TOOL_STORAGE_KEY));
   });
   const [isPanning, setIsPanning] = useState(false);
-  const [toolbarTab, setToolbarTab] = useState<ToolbarTab>("main");
   const canvasScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressNextContextMenuRef = useRef(false);
   const pendingWheelZoomAnchorRef = useRef<{ screenX: number; screenY: number; targetZoom: number } | null>(null);
@@ -582,18 +579,7 @@ export function ScreenEditorCenter({
     <div className="screen-editor-center">
       <div className="screen-editor-toolbar">
         <div className="screen-editor-toolbar__row">
-          <div className="screen-editor-toolbar__group screen-editor-toolbar__group--tabs">
-            <Tabs
-              size="small"
-              activeKey={toolbarTab}
-              onChange={(key) => setToolbarTab(key as ToolbarTab)}
-              className="object-property-tabs object-property-tabs--main screen-editor-toolbar-tabs"
-              items={[
-                {
-                  key: "main",
-                  label: "Main",
-                  children: (
-                    <div className="screen-editor-toolbar-tabs__actions">
+          <div className="screen-editor-toolbar__group">
                       <WorkbenchIconButton
                         onClick={() => void handleSaveProject()}
                         disabled={!isProjectDirty || isSavingProject}
@@ -609,17 +595,11 @@ export function ScreenEditorCenter({
                       >
                         {previewMode ? "Exit Preview" : "Preview"}
                       </WorkbenchButton>
-                      <WorkbenchButton onClick={onLogout} title="Logout and open Runtime">
-                        Logout
-                      </WorkbenchButton>
-                    </div>
-                  ),
-                },
-                {
-                  key: "insert",
-                  label: "Insert",
-                  children: (
-                    <div className="screen-editor-toolbar-tabs__actions">
+            <WorkbenchButton onClick={onLogout} title="Logout and open Runtime">
+              Logout
+            </WorkbenchButton>
+          </div>
+          <div className="screen-editor-toolbar__group">
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("text"))} title="Add Text" icon={<FontSizeOutlined />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("line"))} title="Add Line" icon={<MinusOutlined />} />
                       <WorkbenchIconButton onClick={() => addPrimitiveShape("square", getViewportCenter())} title="Add Square" icon={<SquareIcon />} />
@@ -640,15 +620,9 @@ export function ScreenEditorCenter({
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("eventTable"))} title="Add Event Table" icon={<TableOutlined />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("select"))} title="Add Select" icon={<ChevronDownIcon />} />
                       <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("radio-group"))} title="Add Radio Group" icon={<DotFilledIcon />} />
-                      <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("numeric-input"))} title="Add Numeric Input" icon={<InputIcon />} />
-                    </div>
-                  ),
-                },
-                {
-                  key: "arrange",
-                  label: "Arrange",
-                  children: (
-                    <div className="screen-editor-toolbar-tabs__actions">
+            <WorkbenchIconButton onClick={() => addAtViewportCenter(createObjectByType("numeric-input"))} title="Add Numeric Input" icon={<InputIcon />} />
+          </div>
+          <div className="screen-editor-toolbar__group">
                       <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameWidth" })} disabled={!canSameSize} title="Make same width" icon={<WidthIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameHeight" })} disabled={!canSameSize} title="Make same height" icon={<HeightIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "makeSameSize" })} disabled={!canSameSize} title="Make same size" icon={<SizeIcon />} />
@@ -656,36 +630,24 @@ export function ScreenEditorCenter({
                       <WorkbenchIconButton onClick={() => runCommand({ type: "distributeVertically" })} disabled={!canDistribute} title="Distribute vertically" icon={<SpaceBetweenVerticallyIcon />} />
                       <WorkbenchIconButton onClick={() => onRotateSelectedBy(-90)} disabled={!selectedUnlocked.length} title="Rotate 90° Counterclockwise" icon={<RotateLeftOutlined />} />
                       <WorkbenchIconButton onClick={() => onRotateSelectedBy(90)} disabled={!selectedUnlocked.length} title="Rotate 90° Clockwise" icon={<RotateRightOutlined />} />
-                      <input
-                        className="workbench-input screen-editor-toolbar__gap-input"
-                        type="number"
-                        value={spacingGap ?? ""}
-                        onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
-                        placeholder="Gap"
-                        title="Distribution gap"
-                      />
-                    </div>
-                  ),
-                },
-                {
-                  key: "align",
-                  label: "Align",
-                  children: (
-                    <div className="screen-editor-toolbar-tabs__actions">
+            <input
+              className="workbench-input screen-editor-toolbar__gap-input"
+              type="number"
+              value={spacingGap ?? ""}
+              onChange={(e) => setSpacingGap(e.target.value ? Number(e.target.value) : undefined)}
+              placeholder="Gap"
+              title="Distribution gap"
+            />
+          </div>
+          <div className="screen-editor-toolbar__group">
                       <WorkbenchIconButton onClick={() => runCommand({ type: "alignLeft" })} disabled={!canAlign} title="Align left" icon={<AlignLeftIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "alignHorizontalCenter" })} disabled={!canAlign} title="Align horizontal center" icon={<AlignCenterHorizontallyIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "alignRight" })} disabled={!canAlign} title="Align right" icon={<AlignRightIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "alignTop" })} disabled={!canAlign} title="Align top" icon={<AlignTopIcon />} />
                       <WorkbenchIconButton onClick={() => runCommand({ type: "alignVerticalCenter" })} disabled={!canAlign} title="Align vertical center" icon={<AlignCenterVerticallyIcon />} />
-                      <WorkbenchIconButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign} title="Align bottom" icon={<AlignBottomIcon />} />
-                    </div>
-                  ),
-                },
-                {
-                  key: "edit",
-                  label: "Edit",
-                  children: (
-                    <div className="screen-editor-toolbar-tabs__actions">
+            <WorkbenchIconButton onClick={() => runCommand({ type: "alignBottom" })} disabled={!canAlign} title="Align bottom" icon={<AlignBottomIcon />} />
+          </div>
+          <div className="screen-editor-toolbar__group">
                       <WorkbenchIconButton onClick={copySelectionToClipboard} disabled={!canCopy} title="Copy" icon={<CopyOutlined />} />
                       <WorkbenchIconButton onClick={pasteFromClipboard} disabled={!canPaste} title="Paste" icon={<SnippetsOutlined />} />
                       <WorkbenchIconButton
@@ -701,16 +663,10 @@ export function ScreenEditorCenter({
                       <WorkbenchIconButton onClick={() => setCloneOpen(true)} disabled={!selectedUnlocked.length} title="Clone selected objects" icon={<CopyIcon />} />
                       <WorkbenchIconButton onClick={onBringToFront} disabled={!hasSelection} title="Bring to Front" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2912;</span>} />
                       <WorkbenchIconButton onClick={onSendToBack} disabled={!hasSelection} title="Send to Back" icon={<span style={{ fontSize: 13, lineHeight: 1 }}>&#x2913;</span>} />
-                      <WorkbenchIconButton onClick={onMoveForward} disabled={!hasSelection} title="Move Forward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>&#x2191;</span>} />
-                      <WorkbenchIconButton onClick={onMoveBackward} disabled={!hasSelection} title="Move Backward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>&#x2193;</span>} />
-                    </div>
-                  ),
-                },
-                {
-                  key: "view",
-                  label: "View",
-                  children: (
-                    <div className="screen-editor-toolbar-tabs__actions">
+            <WorkbenchIconButton onClick={onMoveForward} disabled={!hasSelection} title="Move Forward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>&#x2191;</span>} />
+            <WorkbenchIconButton onClick={onMoveBackward} disabled={!hasSelection} title="Move Backward" icon={<span style={{ fontSize: 14, lineHeight: 1 }}>&#x2193;</span>} />
+          </div>
+          <div className="screen-editor-toolbar__group">
                       <WorkbenchIconButton onClick={onOpenScreenSettings} title="Open Screen Settings" icon={<AppstoreOutlined />} />
                       <WorkbenchIconButton onClick={onOpenLayers} title="Open Layers Window" icon={<UnorderedListOutlined />} />
                       <WorkbenchIconButton onClick={onOpenObjectProperties} title="Open Object Properties Window" icon={<SettingOutlined />} />
@@ -726,16 +682,11 @@ export function ScreenEditorCenter({
                         title="Select tool"
                         icon={<CursorArrowIcon />}
                       />
-                      <WorkbenchIconButton
-                        active={activeTool === "pan"}
-                        onClick={() => setActiveTool("pan")}
-                        title="Pan tool"
-                        icon={<HandIcon />}
-                      />
-                    </div>
-                  ),
-                },
-              ]}
+            <WorkbenchIconButton
+              active={activeTool === "pan"}
+              onClick={() => setActiveTool("pan")}
+              title="Pan tool"
+              icon={<HandIcon />}
             />
           </div>
           <div className="screen-editor-toolbar__screen-name" title={screen?.name ?? "Screen"}>
