@@ -975,6 +975,7 @@ type HmiRendererProps = {
   shadowDisabled?: boolean;
   nodeIdPrefix?: string;
   renderFlowMode?: "all" | "none" | "only";
+  disableOffscreenCulling?: boolean;
 };
 
 type BaseNodeProps = {
@@ -1044,6 +1045,7 @@ export function HmiRenderer({
   shadowDisabled = false,
   nodeIdPrefix,
   renderFlowMode = "all",
+  disableOffscreenCulling = false,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
@@ -1082,7 +1084,7 @@ export function HmiRenderer({
   return (
     <>
       {sortedObjects
-        .filter((object) => mode !== "runtime" || intersectsScreenBounds(object, screen))
+        .filter((object) => mode !== "runtime" || disableOffscreenCulling || intersectsScreenBounds(object, screen))
         .map((object) => (
         <Fragment key={object.id}>
           <MemoObjectNode
@@ -4900,6 +4902,7 @@ function GroupNode({
         shadowDisabled={shadowDisabled}
         nodeIdPrefix={`${nodeIdPrefix ?? ""}group-${object.id}-`}
         renderFlowMode={renderFlowMode}
+        disableOffscreenCulling={true}
       />
       {interactive ? <SelectionOutline object={object} selected={selected || showObjectFrames} /> : null}
     </Group>
@@ -5041,6 +5044,7 @@ function FrameNode({
           shadowDisabled={shadowDisabled}
           nodeIdPrefix={`${nodeIdPrefix ?? ""}frame-${object.id}-`}
           renderFlowMode={renderFlowMode}
+          disableOffscreenCulling={true}
         />
       </Group>
       <SelectionOutline object={object} selected={selected} />
@@ -5365,6 +5369,7 @@ function LibraryInstanceNodeResolved({
           shadowDisabled={shadowDisabled}
           nodeIdPrefix={mode === "editor" ? `${nodeIdPrefix ?? ""}libinst-${object.id}-` : nodeIdPrefix}
           renderFlowMode={renderFlowMode}
+          disableOffscreenCulling={true}
         />
       </Group>
       {interactive ? <SelectionOutline object={object} selected={selected} /> : null}
