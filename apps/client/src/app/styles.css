@@ -1983,6 +1983,7 @@ select.workbench-select:not(.ant-select) {
 }
 
 .screen-editor-toolbar__row {
+  min-width: 0;
   min-height: 32px;
   display: flex;
   align-items: flex-start;
@@ -2009,13 +2010,16 @@ select.workbench-select:not(.ant-select) {
 }
 
 .screen-editor-toolbar__group--tabs {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  width: 100%;
   min-width: 0;
   align-items: stretch;
+  display: flex;
 }
 
 .screen-editor-toolbar-tabs {
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
   min-width: 0;
 }
 
@@ -2024,8 +2028,19 @@ select.workbench-select:not(.ant-select) {
 }
 
 .screen-editor-toolbar-tabs .ant-tabs-content-holder {
+  width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+.screen-editor-toolbar-tabs .ant-tabs-content {
+  min-width: 100%;
+}
+
+.screen-editor-toolbar-tabs .ant-tabs-tabpane-active {
+  width: max-content;
+  min-width: 100%;
 }
 
 .screen-editor-toolbar-tabs .ant-tabs-tab {
@@ -2034,9 +2049,12 @@ select.workbench-select:not(.ant-select) {
 }
 
 .screen-editor-toolbar-tabs__actions {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
+  width: max-content;
+  max-width: none;
   min-height: 24px;
   padding-bottom: 1px;
 }
