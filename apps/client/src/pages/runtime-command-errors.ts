@@ -11,6 +11,11 @@ type RuntimeCommandToastContext = {
   parameters?: Record<string, unknown>;
 };
 
+function isSliderLatestWrite(context: RuntimeCommandToastContext): boolean {
+  return context.parameters?.__operatorActionKind === "slider"
+    && context.parameters.__allowConcurrentWrite === true;
+}
+
 export function shouldSuppressManualCommandError(
   error: unknown,
   abortReason: RuntimeCommandAbortReason | undefined,
@@ -22,10 +27,17 @@ export function shouldShowManualCommandToast(
   reason: RuntimeCommandToastReason,
   context: RuntimeCommandToastContext,
 ): boolean {
-  const isSliderLatestWrite =
-    context.parameters?.__operatorActionKind === "slider"
-    && context.parameters.__allowConcurrentWrite === true;
-  if (reason === "timeout" && isSliderLatestWrite) {
+  if (reason === "timeout" && isSliderLatestWrite(context)) {
+    return false;
+  }
+  return true;
+}
+
+export function shouldReportManualCommandFailure(
+  reason: RuntimeCommandToastReason,
+  context: RuntimeCommandToastContext,
+): boolean {
+  if (reason === "timeout" && isSliderLatestWrite(context)) {
     return false;
   }
   return true;

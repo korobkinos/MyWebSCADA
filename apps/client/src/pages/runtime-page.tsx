@@ -47,6 +47,7 @@ import {
   type WorkbenchWindowDefinition,
 } from "../components/workbench";
 import {
+  shouldReportManualCommandFailure,
   shouldShowManualCommandToast,
   shouldSuppressManualCommandError,
   type RuntimeCommandAbortReason,
@@ -1307,19 +1308,22 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         }),
       );
       const level: "warning" | "error" = parsed.reason === "busy" ? "warning" : "error";
-      if (parsed.reason === "timeout") {
+      const shouldReportFailure = shouldReportManualCommandFailure(parsed.reason, params.context);
+      if (shouldReportFailure && parsed.reason === "timeout") {
         markEndpointFailure("runtimeStatus", "Runtime command timeout");
       }
-      logRuntimeCommand({
-        level,
-        reason: parsed.reason,
-        actionType: params.action.type,
-        commandKey: params.commandKey,
-        context: params.context,
-        macroId: params.macroId,
-        durationMs,
-        messageText: parsed.messageText,
-      });
+      if (shouldReportFailure) {
+        logRuntimeCommand({
+          level,
+          reason: parsed.reason,
+          actionType: params.action.type,
+          commandKey: params.commandKey,
+          context: params.context,
+          macroId: params.macroId,
+          durationMs,
+          messageText: parsed.messageText,
+        });
+      }
       const toastText = params.macroId
         ? `Macro failed: ${parsed.messageText}`
         : `Command failed: ${parsed.messageText}`;
