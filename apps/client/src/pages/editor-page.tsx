@@ -1132,7 +1132,12 @@ export function EditorPage() {
     startRuntime: handleStartRuntime,
     stopRuntime: handleStopRuntime,
     refreshRuntimeStatus: handleRefreshRuntimeStatus,
-    navigateToRuntime: () => navigate("/runtime"),
+    navigateToRuntime: () => {
+      if (project?.startScreenId) {
+        setCurrentScreen(project.startScreenId);
+      }
+      navigate("/runtime");
+    },
     setSelectedObjects,
     deleteSelectionWithHistory,
     runCommand,
