@@ -657,7 +657,7 @@ const frameObjectSchema = hmiBaseSchema.extend({
   clipContent: z.boolean().optional(),
   showBorder: z.boolean().optional(),
   borderColor: z.string().optional(),
-  borderWidth: z.number().positive().optional(),
+  borderWidth: z.number().nonnegative().optional(),
   scaleMode: z.enum(["none", "fit", "stretch"]).optional(),
 });
 
