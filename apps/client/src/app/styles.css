@@ -2195,6 +2195,15 @@ select.workbench-select:not(.ant-select) {
   display: none;
 }
 
+.screen-editor-toolbar__eye-toggle {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  border-bottom: 1px solid #2d2d2d;
+  background: #252526;
+}
+
 .screen-editor-canvas-host {
   flex: 1;
   min-height: 0;
