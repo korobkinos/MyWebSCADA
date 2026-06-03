@@ -1,6 +1,6 @@
-import { AttributeIds, VariantArrayType } from "node-opcua";
+import { AttributeIds, DataType, VariantArrayType } from "node-opcua";
 import { describe, expect, it } from "vitest";
-import type { TagDefinition } from "@web-scada/shared";
+import type { TagDefinition, TagScalarValue } from "@web-scada/shared";
 import { resolveOpcUaDataValueForTag, toOpcUaReadValueId, toOpcUaWriteValue } from "./opcua-driver";
 
 function makeDataValue(value: unknown) {
@@ -88,6 +88,49 @@ describe("OPC UA tag addressing", () => {
     expect(variant.value).toEqual([true]);
   });
 
+  it("writes scalar BOOL values as OPC UA Boolean", () => {
+    const tag: TagDefinition = {
+      name: "Open",
+      sourceType: "opcua",
+      dataType: "BOOL",
+      writable: true,
+      address: { nodeId: "ns=1;s=Open" },
+    };
+
+    const writeValue = toOpcUaWriteValue(tag, true);
+    const variant = writeValue.value.value as { dataType?: DataType; value?: unknown };
+
+    expect(variant.dataType).toBe(DataType.Boolean);
+    expect(variant.value).toBe(true);
+  });
+
+  it("uses tag dataType for scalar array element writes", () => {
+    const cases: Array<[TagDefinition["dataType"], TagScalarValue, DataType]> = [
+      ["BOOL", false, DataType.Boolean],
+      ["REAL", 12.5, DataType.Float],
+      ["INT", 12, DataType.Int16],
+      ["DINT", 1234, DataType.Int32],
+    ];
+
+    for (const [dataType, value, expectedDataType] of cases) {
+      const tag: TagDefinition = {
+        name: `Array_${dataType}[0]`,
+        sourceType: "opcua",
+        dataType,
+        writable: true,
+        address: { nodeId: `ns=1;s=Array_${dataType}`, indexRange: "0" },
+      };
+
+      const writeValue = toOpcUaWriteValue(tag, value);
+      const variant = writeValue.value.value as { arrayType?: VariantArrayType; dataType?: DataType; value?: unknown };
+
+      expect(writeValue.indexRange?.toString()).toBe("0");
+      expect(variant.arrayType).toBe(VariantArrayType.Array);
+      expect(variant.dataType).toBe(expectedDataType);
+      expect(variant.value).toEqual([value]);
+    }
+  });
+
   it("keeps structure field writes read-only", () => {
     const tag: TagDefinition = {
       name: "Pid[0].down_out",
@@ -97,6 +140,6 @@ describe("OPC UA tag addressing", () => {
       address: { nodeId: "ns=1;s=Pid", indexRange: "0", memberPath: ["down_out"] },
     };
 
-    expect(() => toOpcUaWriteValue(tag, true)).toThrow("structure field addressing");
+    expect(() => toOpcUaWriteValue(tag, true)).toThrow("direct memberPath writes are not supported");
   });
 });

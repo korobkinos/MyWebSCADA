@@ -134,7 +134,7 @@ export function resolveOpcUaDataValueForTag(dataValue: DataValue, tag: TagDefini
 export function toOpcUaWriteValue(tag: TagDefinition, value: TagScalarValue) {
   const address = extractAddress(tag);
   if (address.memberPath?.length) {
-    throw new Error(`Tag ${tag.name} uses OPC UA structure field addressing and is read-only`);
+    throw new Error(`Tag ${tag.name} is an OPC UA structure field; direct memberPath writes are not supported`);
   }
   return {
     nodeId: address.nodeId,
@@ -142,21 +142,30 @@ export function toOpcUaWriteValue(tag: TagDefinition, value: TagScalarValue) {
     ...(address.indexRange ? { indexRange: toIndexRange(address.indexRange) } : {}),
     value: {
       value: {
-        dataType: toDataType(value),
+        dataType: toDataType(tag.dataType),
         ...(address.indexRange ? { arrayType: VariantArrayType.Array, value: [value] } : { value }),
       },
     },
   };
 }
 
-function toDataType(value: TagScalarValue): DataType {
-  if (typeof value === "boolean") {
-    return DataType.Boolean;
+function toDataType(dataType: TagDefinition["dataType"]): DataType {
+  switch (dataType) {
+    case "BOOL":
+      return DataType.Boolean;
+    case "INT":
+      return DataType.Int16;
+    case "UINT":
+      return DataType.UInt16;
+    case "DINT":
+      return DataType.Int32;
+    case "UDINT":
+      return DataType.UInt32;
+    case "REAL":
+      return DataType.Float;
+    case "STRING":
+      return DataType.String;
   }
-  if (typeof value === "number") {
-    return DataType.Double;
-  }
-  return DataType.String;
 }
 
 export class OpcUaDriver implements Driver {
