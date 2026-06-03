@@ -565,11 +565,15 @@ export class OpcUaDriver implements Driver {
         )
         : toOpcUaWriteValue(tag, value);
 
-      await this.withTimeout(
+      const writeResult = await this.withTimeout(
         this.session!.write(writeValue),
         this.getOperationTimeoutMs(),
         `OPC UA write timeout for tag ${tag.name}`,
       );
+      const writeStatus = Array.isArray(writeResult) ? writeResult[0] : writeResult;
+      if (writeStatus && !writeStatus.isGood()) {
+        throw new Error(`OPC UA write rejected for tag ${tag.name}: ${writeStatus.toString()}`);
+      }
       logPerf({
         driver: "opcua",
         id: this.id,
