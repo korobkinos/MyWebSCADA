@@ -578,7 +578,7 @@ export async function collectOpcUaSubtreeVariables(
         for (const field of fieldPaths) {
           if (!pushCandidate({
             nodeId: child.nodeId,
-            browsePath: toTagNameFromBrowsePath(`${browsePath}[${index}].${field.path.join(".")}`),
+            browsePath: toTagNameFromBrowsePath(`${browsePath}[${index + 1}].${field.path.join(".")}`),
             dataType: inferOpcUaDataTypeFromValue(field.path.reduce<unknown>((value, key) => toInspectableObject(value)?.[key], element), child.dataType),
             indexRange: String(index),
             memberPath: field.path,
@@ -594,7 +594,7 @@ export async function collectOpcUaSubtreeVariables(
     for (let index = 0; index < arrayLength; index += 1) {
       if (!pushCandidate({
         nodeId: child.nodeId,
-        browsePath: toTagNameFromBrowsePath(`${browsePath}[${index}]`),
+        browsePath: toTagNameFromBrowsePath(`${browsePath}[${index + 1}]`),
         dataType: child.dataType,
         indexRange: String(index),
         writable: child.writable,
