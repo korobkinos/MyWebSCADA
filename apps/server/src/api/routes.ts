@@ -561,6 +561,8 @@ const opcUaImportSchema = z.object({
       dataTypeNodeId: z.string().optional(),
       writable: z.boolean().optional(),
       scanRateMs: z.number().int().positive().optional(),
+      indexRange: z.string().optional(),
+      memberPath: z.array(z.string().min(1)).optional(),
     }),
   ).min(1),
 });
@@ -3074,7 +3076,11 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         dataType: opcUaDataTypeToTagDataType(item.dataTypeNodeId),
         driverId: payload.driverId,
         nodeId: item.nodeId,
-        address: { nodeId: item.nodeId },
+        address: {
+          nodeId: item.nodeId,
+          ...(item.indexRange ? { indexRange: item.indexRange } : {}),
+          ...(item.memberPath?.length ? { memberPath: item.memberPath } : {}),
+        },
         writable: item.writable ?? prevTag?.writable ?? false,
         scanRateMs: item.scanRateMs ?? prevTag?.scanRateMs ?? 500,
       };
