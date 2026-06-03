@@ -3070,7 +3070,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         driverId: payload.driverId,
         nodeId: item.nodeId,
         address: { nodeId: item.nodeId },
-        writable: item.writable ?? existingByName.get(item.name)?.writable ?? false,
+        writable: true,
         scanRateMs: item.scanRateMs ?? existingByName.get(item.name)?.scanRateMs ?? 500,
       };
       const existingIndex = nextTags.findIndex((tag) => tag.name === item.name);
@@ -3143,7 +3143,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
           ...(item.indexRange ? { indexRange: item.indexRange } : {}),
           ...(item.memberPath?.length ? { memberPath: item.memberPath } : {}),
         },
-        writable: item.memberPath?.length ? false : item.writable ?? prevTag?.writable ?? false,
+        writable: item.memberPath?.length ? false : true,
         scanRateMs: payload.scanRateMs ?? prevTag?.scanRateMs ?? 500,
       };
       const existingIndex = nextTags.findIndex((tag) => tag.name === tagName);

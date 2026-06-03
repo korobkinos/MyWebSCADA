@@ -1616,7 +1616,7 @@ export function ScreenEditorTagsWindow() {
         name: isNewTag && !prev.name.trim() ? generatedName : prev.name,
         description: prev.description?.trim() ? prev.description : (node.displayName || node.browseName || prev.description),
         dataType: mapOpcUaDataTypeToTagDataType(node.dataType),
-        writable: node.writable ?? prev.writable ?? false,
+        writable: true,
         scanRateMs: prev.scanRateMs ?? 500,
       };
     });
@@ -1663,7 +1663,7 @@ export function ScreenEditorTagsWindow() {
         driverId: opcBrowseDriverId,
         nodeId: node.nodeId,
         address: { nodeId: node.nodeId },
-        writable: Boolean(node.writable),
+        writable: true,
         scanRateMs: 500,
         createdAt: stamp,
         updatedAt: stamp,
