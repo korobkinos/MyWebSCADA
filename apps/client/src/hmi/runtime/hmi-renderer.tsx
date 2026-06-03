@@ -5888,6 +5888,9 @@ function ButtonNode({
 }) {
   const [pressed, setPressed] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const buttonGroupProps = { ...groupProps };
+  delete buttonGroupProps.opacity;
+  const visualOpacity = object.opacity ?? 1;
   const isDisabled = runtimeDisabled || (!interactive && !onAction) || executing;
   const normalSrc = resolveAssetUrl(object.backgroundAssetId, {
     projectAssets: project.assets ?? [],
@@ -5928,7 +5931,7 @@ function ButtonNode({
 
   return (
     <Group
-      {...groupProps}
+      {...buttonGroupProps}
       onMouseDown={(evt: KonvaEventObject<MouseEvent>) => {
         const baseOnMouseDown = groupProps.onMouseDown as ((event: KonvaEventObject<MouseEvent>) => void) | undefined;
         baseOnMouseDown?.(evt);
@@ -5992,28 +5995,31 @@ function ButtonNode({
         }
       }}
     >
-      <RuntimeAnimatedRect
-        runtimeMode={runtimeMode}
-        width={object.width}
-        height={object.height}
-        {...buttonGradientProps}
-        stroke={object.borderColor}
-        strokeWidth={object.borderWidth ?? 0}
-        cornerRadius={6}
-        perfectDrawEnabled={false}
-        {...buttonShadowProps}
-      />
-      {currentSrc && image ? (
-        <KonvaImage image={image} x={placement.x} y={placement.y} width={placement.width} height={placement.height} />
-      ) : null}
-      {(object.showText ?? true) && object.text ? (
-        renderBoxText(object.text, object.textStyle, {
-          width: object.width,
-          height: object.height,
-          wrap: object.wrap,
-          ellipsis: object.ellipsis,
-        })
-      ) : null}
+      <Rect x={0} y={0} width={object.width} height={object.height} fill="rgba(0,0,0,0.001)" />
+      <Group opacity={visualOpacity} listening={false}>
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
+          width={object.width}
+          height={object.height}
+          {...buttonGradientProps}
+          stroke={object.borderColor}
+          strokeWidth={object.borderWidth ?? 0}
+          cornerRadius={6}
+          perfectDrawEnabled={false}
+          {...buttonShadowProps}
+        />
+        {currentSrc && image ? (
+          <KonvaImage image={image} x={placement.x} y={placement.y} width={placement.width} height={placement.height} />
+        ) : null}
+        {(object.showText ?? true) && object.text ? (
+          renderBoxText(object.text, object.textStyle, {
+            width: object.width,
+            height: object.height,
+            wrap: object.wrap,
+            ellipsis: object.ellipsis,
+          })
+        ) : null}
+      </Group>
       <SelectionOutline object={object} selected={selected || forceFrame} />
     </Group>
   );

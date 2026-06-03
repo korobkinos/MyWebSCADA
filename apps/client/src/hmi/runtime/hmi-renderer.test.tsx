@@ -15,8 +15,33 @@ vi.mock("antd", () => ({
 vi.mock("react-konva", async () => {
   const React = await import("react");
   const makeNode = (name: string) => {
-    return function MockKonvaNode({ children, id }: { children?: React.ReactNode; id?: string }) {
-      return React.createElement("div", { "data-konva-node": name, id }, children);
+    return function MockKonvaNode({
+      children,
+      id,
+      opacity,
+      fill,
+      strokeWidth,
+      onClick,
+    }: {
+      children?: React.ReactNode;
+      id?: string;
+      opacity?: number;
+      fill?: string;
+      strokeWidth?: number;
+      onClick?: unknown;
+    }) {
+      return React.createElement(
+        "div",
+        {
+          "data-konva-node": name,
+          "data-fill": fill,
+          "data-has-on-click": typeof onClick === "function" ? "true" : undefined,
+          "data-opacity": opacity,
+          "data-stroke-width": strokeWidth,
+          id,
+        },
+        children,
+      );
     };
   };
 
@@ -119,6 +144,51 @@ describe("HmiRenderer offscreen culling", () => {
     };
 
     expect(renderRenderer(screen, true)).toContain("hmi-rect-offscreen");
+  });
+});
+
+describe("HmiRenderer button opacity", () => {
+  it("keeps an opacity zero runtime button clickable while hiding its visuals", () => {
+    const screen: HmiScreen = {
+      id: "screen-main",
+      name: "Main",
+      kind: "screen",
+      width: 200,
+      height: 100,
+      background: "transparent",
+      objects: [
+        {
+          id: "button-invisible",
+          type: "button",
+          x: 10,
+          y: 10,
+          width: 80,
+          height: 30,
+          opacity: 0,
+          text: "",
+          showText: false,
+          borderWidth: 0,
+          backgroundColor: "#0958d9",
+          action: { type: "write", tag: "Cmd", value: true },
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+        } as HmiObject,
+      ],
+    };
+
+    const html = renderRenderer(screen);
+
+    expect(html).toContain('id="hmi-button-invisible"');
+    expect(html).toContain('data-has-on-click="true"');
+    expect(html).toContain('data-opacity="0"');
+    expect(html).toContain('data-fill="rgba(0,0,0,0.001)"');
+    expect(html).toContain('data-stroke-width="0"');
+    expect(html).not.toContain('data-opacity="0" id="hmi-button-invisible"');
   });
 });
 
