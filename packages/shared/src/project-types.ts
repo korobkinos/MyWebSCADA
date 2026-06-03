@@ -318,6 +318,8 @@ export type ProjectRuntimeSettings = {
   alwaysActiveTags?: string[];
   // Allow unauthenticated runtime actions (tag writes, macro runs) when object/action role requirements allow it.
   allowGuestRuntimeActions?: boolean;
+  // Heartbeat timeout in seconds (1-20, default 2). Controls how long the runtime waits for a status response before showing "Connection Lost".
+  heartbeatTimeoutSec?: number;
 };
 
 export type ScadaProject = {

@@ -117,6 +117,16 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
     });
   };
 
+  const updateRuntimeSettings = (patch: Partial<NonNullable<ScadaProject["runtimeSettings"]>>) => {
+    onUpdateProject({
+      ...project,
+      runtimeSettings: {
+        ...(project.runtimeSettings ?? {}),
+        ...patch,
+      },
+    });
+  };
+
   return (
     <div className="screen-editor-window-content screen-editor-project-settings-window">
       <WorkbenchCollapsibleSection title="PROJECT" storageKey="project-settings.project">
@@ -281,6 +291,17 @@ export function ScreenEditorProjectSettingsWindow(props: ScreenEditorProjectSett
             />
             <span>Runtime hides main menu</span>
           </label>
+          <div className="screen-editor-settings-field">
+            <label>Heartbeat timeout (sec)</label>
+            <InputNumber
+              className="workbench-input"
+              value={project.runtimeSettings?.heartbeatTimeoutSec ?? 2}
+              min={1}
+              max={20}
+              step={1}
+              onChange={(value) => updateRuntimeSettings({ heartbeatTimeoutSec: value ?? 2 })}
+            />
+          </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <WorkbenchButton onClick={onOpenUserManagement} disabled={!canUsersView}>
               Open User Management

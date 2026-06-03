@@ -74,7 +74,6 @@ const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
 const COMMAND_WARNING_RETENTION_MS = 30_000;
 const FAST_INTERNAL_MACRO_TIMEOUT_MS = 1000;
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 2000;
-const RUNTIME_HEARTBEAT_TIMEOUT_MS = 1600;
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const location = useLocation();
@@ -241,10 +240,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       const controller = new AbortController();
       inFlightController = controller;
       let timedOut = false;
+      const heartbeatTimeoutMs = (project?.runtimeSettings?.heartbeatTimeoutSec ?? 2) * 1000;
       const timeoutId = window.setTimeout(() => {
         timedOut = true;
         controller.abort();
-      }, RUNTIME_HEARTBEAT_TIMEOUT_MS);
+      }, heartbeatTimeoutMs);
 
       void api.getRuntimeStatus({
         signal: controller.signal,
