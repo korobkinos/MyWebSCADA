@@ -1006,7 +1006,8 @@ export const api = {
     }),
   opcUaImportSubtree: (payload: {
     driverId: string;
-    nodeId: string;
+    nodeId?: string;
+    nodeIds?: string[];
     rootName?: string;
     overwrite?: boolean;
     scanRateMs?: number;

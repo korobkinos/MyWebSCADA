@@ -1634,29 +1634,17 @@ export function ScreenEditorTagsWindow() {
       return;
     }
 
-    const existingNodeKeySet = new Set(
-      tags
-        .filter((tag) => tag.sourceType === "opcua")
-        .map((tag) => `${tag.driverId ?? ""}::${tag.nodeId ?? ""}`),
-    );
     const reservedNames = new Set(tags.map((tag) => tag.name));
     const nextTags = [...tags];
     let skipped = 0;
+    let created = 0;
+    let updated = 0;
 
     for (const node of selectedNodes) {
       const nodeKey = `${opcBrowseDriverId}::${node.nodeId}`;
-      if (existingNodeKeySet.has(nodeKey)) {
-        skipped += 1;
-        continue;
-      }
       const baseName = makeTagNameFromOpcNode(node);
-      const uniqueName = makeUniqueTagName(baseName, tags, reservedNames);
-      reservedNames.add(uniqueName);
-      existingNodeKeySet.add(nodeKey);
       const stamp = nowIso();
-      nextTags.push({
-        id: createId(),
-        name: uniqueName,
+      const nextTagBase = {
         description: node.displayName || node.browseName || undefined,
         sourceType: "opcua",
         dataType: mapOpcUaDataTypeToTagDataType(node.dataType),
@@ -1665,12 +1653,59 @@ export function ScreenEditorTagsWindow() {
         address: { nodeId: node.nodeId },
         writable: true,
         scanRateMs: 500,
-        createdAt: stamp,
         updatedAt: stamp,
+      } as const;
+      const existingNodeIndex = nextTags.findIndex((tag) => (
+        tag.sourceType === "opcua"
+        && `${tag.driverId ?? ""}::${tag.nodeId ?? ""}` === nodeKey
+      ));
+      if (existingNodeIndex >= 0) {
+        if (!opcImportSubtreeOverwrite) {
+          skipped += 1;
+          continue;
+        }
+        const prev = nextTags[existingNodeIndex]!;
+        nextTags[existingNodeIndex] = {
+          ...prev,
+          ...nextTagBase,
+          name: prev.name,
+          createdAt: prev.createdAt ?? stamp,
+        };
+        updated += 1;
+        continue;
+      }
+
+      const existingNameIndex = nextTags.findIndex((tag) => tag.name === baseName);
+      if (opcImportSubtreeOverwrite && existingNameIndex >= 0) {
+        const prev = nextTags[existingNameIndex]!;
+        nextTags[existingNameIndex] = {
+          ...prev,
+          ...nextTagBase,
+          name: baseName,
+          createdAt: prev.createdAt ?? stamp,
+        };
+        updated += 1;
+        continue;
+      }
+
+      const uniqueName = makeUniqueTagName(baseName, tags, reservedNames);
+      reservedNames.add(uniqueName);
+      nextTags.push({
+        id: createId(),
+        name: uniqueName,
+        ...nextTagBase,
+        createdAt: stamp,
       });
+      created += 1;
     }
 
     if (nextTags.length === tags.length) {
+      if (updated > 0) {
+        saveTags(nextTags);
+        closeOpcBrowseDialog();
+        void message.success(`Updated ${updated} OPC UA tags`);
+        return;
+      }
       void message.warning(skipped > 0 ? `Skipped ${skipped} already imported nodes` : "Nothing imported");
       return;
     }
@@ -1681,25 +1716,23 @@ export function ScreenEditorTagsWindow() {
       setSelectedId(tagKey(lastImportedTag));
     }
     closeOpcBrowseDialog();
-    if (skipped > 0) {
-      void message.warning(`Imported ${nextTags.length - tags.length} nodes. Skipped ${skipped} already imported nodes`);
+    if (updated > 0 || skipped > 0) {
+      void message.warning(`Imported ${created} nodes, updated ${updated}. Skipped ${skipped} already imported nodes`);
     } else {
-      void message.success(`Imported ${nextTags.length - tags.length} OPC UA tags`);
+      void message.success(`Imported ${created} OPC UA tags`);
     }
   };
 
-  const resolveOpcBrowseSelectionForSubtree = (): OpcUaBrowseItem | null => {
-    if (opcBrowseFocusNodeId) {
-      const focused = opcBrowseNodes.find((node) => node.nodeId === opcBrowseFocusNodeId);
-      if (focused) {
-        return focused;
-      }
+  const resolveOpcBrowseSelectionsForSubtree = (): OpcUaBrowseItem[] => {
+    const selected = opcBrowseNodes.filter((node) => opcBrowseSelectedNodeIds.has(node.nodeId));
+    if (selected.length > 0) {
+      return selected;
     }
-    const selectedNodeId = [...opcBrowseSelectedNodeIds][0];
-    if (!selectedNodeId) {
-      return null;
+    if (!opcBrowseFocusNodeId) {
+      return [];
     }
-    return opcBrowseNodes.find((node) => node.nodeId === selectedNodeId) ?? null;
+    const focused = opcBrowseNodes.find((node) => node.nodeId === opcBrowseFocusNodeId);
+    return focused ? [focused] : [];
   };
 
   const importOpcUaSubtree = async (): Promise<void> => {
@@ -1707,26 +1740,27 @@ export function ScreenEditorTagsWindow() {
       void message.error("Select OPC UA driver");
       return;
     }
-    const selectedNode = resolveOpcBrowseSelectionForSubtree();
-    if (!selectedNode) {
+    const selectedNodes = resolveOpcBrowseSelectionsForSubtree();
+    if (selectedNodes.length === 0) {
       void message.warning("Select a folder/structure node first");
       return;
     }
-    if (!selectedNode.hasChildren && !selectedNode.isArray) {
+    const importableNodes = selectedNodes.filter((node) => node.hasChildren || node.isArray);
+    if (importableNodes.length === 0) {
       void message.warning("Import Subtree is available only for nodes with children or arrays");
       return;
     }
 
     const maxNodes = toOptionalNumber(opcImportSubtreeMaxNodes) ?? OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES;
     const scanRateMs = toOptionalNumber(opcImportSubtreeScanRateMs) ?? OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE;
-    const rootName = opcImportSubtreeRootName.trim() || selectedNode.browseName || selectedNode.displayName;
+    const rootName = opcImportSubtreeRootName.trim() || (importableNodes.length === 1 ? importableNodes[0]!.browseName || importableNodes[0]!.displayName : "");
 
     setOpcImportSubtreeElapsedMs(0);
     setOpcImportSubtreeBusy(true);
     try {
       const response = await api.opcUaImportSubtree({
         driverId: opcBrowseDriverId,
-        nodeId: selectedNode.nodeId,
+        nodeIds: importableNodes.map((node) => node.nodeId),
         rootName,
         overwrite: opcImportSubtreeOverwrite,
         scanRateMs,
@@ -1832,8 +1866,8 @@ export function ScreenEditorTagsWindow() {
   };
 
   const opcBrowseParentNodeId = getOpcUaParentNodeId(opcBrowseNodeId || OPC_UA_BROWSE_ROOT_NODE_ID);
-  const selectedOpcBrowseNodeForSubtree = resolveOpcBrowseSelectionForSubtree();
-  const canImportOpcBrowseSubtree = Boolean(selectedOpcBrowseNodeForSubtree?.hasChildren || selectedOpcBrowseNodeForSubtree?.isArray);
+  const selectedOpcBrowseNodesForSubtree = resolveOpcBrowseSelectionsForSubtree();
+  const canImportOpcBrowseSubtree = selectedOpcBrowseNodesForSubtree.some((node) => node.hasChildren || node.isArray);
 
   const focusOpcBrowserWindow = useCallback(() => {
     setOpcBrowserZIndex((value) => value + 1);

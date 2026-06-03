@@ -58,6 +58,7 @@ import {
   readOpcUaNode,
   withOpcUaSession,
 } from "../drivers/opcua-inspector.js";
+import { applyOpcUaImportCandidates } from "./opcua-import-utils.js";
 import { LibraryService } from "../libraries/library-service.js";
 import { ProjectArchiveService } from "../project/project-archive-service.js";
 import { ProjectCleanupService } from "../project/project-cleanup-service.js";
@@ -565,11 +566,14 @@ const opcUaImportSchema = z.object({
 });
 const opcUaImportSubtreeSchema = z.object({
   driverId: z.string().min(1),
-  nodeId: z.string().min(1),
+  nodeId: z.string().min(1).optional(),
+  nodeIds: z.array(z.string().min(1)).min(1).max(100).optional(),
   rootName: z.string().optional(),
   overwrite: z.boolean().optional(),
   scanRateMs: z.number().int().positive().optional(),
   maxNodes: z.number().int().positive().max(100_000).optional(),
+}).refine((payload) => Boolean(payload.nodeId || payload.nodeIds?.length), {
+  message: "nodeId or nodeIds is required",
 });
 const opcUaConfigQuerySchema = z.object({
   driverId: z.string().min(1).optional(),
@@ -3106,70 +3110,39 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return reply.code(400).send({ ok: false, message: `OPC UA driver ${payload.driverId} not found` });
     }
 
-    const discovered = await withOpcUaSession(driver, async (session) =>
-      collectOpcUaSubtreeVariables(session, payload.nodeId, payload.rootName, payload.maxNodes ?? 20_000),
-    );
+    const requestedNodeIds = payload.nodeIds?.length ? payload.nodeIds : [payload.nodeId!];
+    const perNodeMaxNodes = Math.max(1, Math.floor((payload.maxNodes ?? 20_000) / requestedNodeIds.length));
+    const discovered = await withOpcUaSession(driver, async (session) => {
+      const batches = [];
+      for (const nodeId of requestedNodeIds) {
+        batches.push(await collectOpcUaSubtreeVariables(session, nodeId, payload.rootName, perNodeMaxNodes));
+      }
+      return {
+        candidates: batches.flatMap((batch) => batch.candidates),
+        scannedNodes: batches.reduce((sum, batch) => sum + batch.scannedNodes, 0),
+      };
+    });
 
     if (discovered.candidates.length === 0) {
       return reply.send({ ok: true, created: 0, updated: 0, total: 0, scanned: discovered.scannedNodes });
     }
 
-    const existingByName = new Map(project.tags.map((tag) => [tag.name, tag]));
-    const overwrite = payload.overwrite ?? false;
-    let created = 0;
-    let updated = 0;
-    const nextTags = [...project.tags];
-
-    for (const item of discovered.candidates) {
-      const tagNameBase = item.browsePath;
-      let tagName = tagNameBase;
-      if (!overwrite) {
-        let suffix = 2;
-        while (existingByName.has(tagName) || nextTags.some((tag) => tag.name === tagName)) {
-          tagName = `${tagNameBase}_${suffix}`;
-          suffix += 1;
-        }
-      }
-      const prevTag = existingByName.get(tagName);
-      const nextTag = {
-        ...prevTag,
-        name: tagName,
-        sourceType: "opcua" as const,
-        dataType: opcUaDataTypeToTagDataType(item.dataType),
-        driverId: payload.driverId,
-        nodeId: item.nodeId,
-        address: {
-          nodeId: item.nodeId,
-          ...(item.indexRange ? { indexRange: item.indexRange } : {}),
-          ...(item.memberPath?.length ? { memberPath: item.memberPath } : {}),
-        },
-        writable: item.memberPath?.length ? false : true,
-        scanRateMs: payload.scanRateMs ?? prevTag?.scanRateMs ?? 500,
-      };
-      const existingIndex = nextTags.findIndex((tag) => tag.name === tagName);
-      if (existingIndex >= 0) {
-        if (!overwrite) {
-          continue;
-        }
-        nextTags[existingIndex] = nextTag;
-        updated += 1;
-      } else {
-        nextTags.push(nextTag);
-        created += 1;
-      }
-    }
+    const applied = applyOpcUaImportCandidates(project, payload.driverId, discovered.candidates, {
+      overwrite: payload.overwrite,
+      scanRateMs: payload.scanRateMs,
+    });
 
     const nextProject: ScadaProject = {
       ...project,
-      tags: nextTags,
+      tags: applied.tags,
     };
     await persistProjectUpdate(deps, nextProject);
 
     return reply.send({
       ok: true,
-      created,
-      updated,
-      total: created + updated,
+      created: applied.created,
+      updated: applied.updated,
+      total: applied.created + applied.updated,
       scanned: discovered.scannedNodes,
     });
   });
