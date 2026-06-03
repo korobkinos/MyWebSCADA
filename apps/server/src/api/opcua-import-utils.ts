@@ -45,7 +45,7 @@ export function applyOpcUaImportCandidates(
         ...(item.indexRange ? { indexRange: item.indexRange } : {}),
         ...(item.memberPath?.length ? { memberPath: item.memberPath } : {}),
       },
-      writable: true,
+      writable: item.writable ?? prevTag?.writable ?? false,
       scanRateMs: options?.scanRateMs ?? prevTag?.scanRateMs ?? 500,
     };
     const existingIndex = nextTags.findIndex((tag) => tag.name === tagName);

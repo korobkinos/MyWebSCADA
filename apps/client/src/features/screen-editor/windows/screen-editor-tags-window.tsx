@@ -866,7 +866,9 @@ function OpcUaBrowserContent({
               <div className="screen-editor-opc-browser-cell" title={node.arrayDimensions?.join(",")}>
                 {node.arrayDimensions?.length ? node.arrayDimensions.join(",") : "-"}
               </div>
-              <div className="screen-editor-opc-browser-cell">{node.writable ? "Yes" : "No"}</div>
+              <div className="screen-editor-opc-browser-cell">
+                {node.nodeClass === "Variable" ? (node.writable === undefined ? "-" : node.writable ? "Yes" : "No") : "-"}
+              </div>
               <div className="screen-editor-opc-browser-cell" title={node.nodeId}>{node.nodeId}</div>
               <div className="screen-editor-opc-browser-cell screen-editor-opc-browser-cell--actions">
                 {isBrowsable ? (

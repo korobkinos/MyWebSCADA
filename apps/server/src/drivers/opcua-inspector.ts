@@ -56,6 +56,22 @@ const OPCUA_ARRAY_IMPORT_HARD_LIMIT = 1_000;
 const OPCUA_STRUCTURE_FIELD_DEPTH_LIMIT = 4;
 const OPCUA_STRUCTURE_FIELD_LIMIT = 100;
 
+function isOpcUaWritable(accessLevel: unknown, userAccessLevel: unknown): boolean | undefined {
+  const userAccess = typeof userAccessLevel === "number" ? userAccessLevel : undefined;
+  const access = typeof accessLevel === "number" ? accessLevel : undefined;
+
+  if ((userAccess !== undefined && (userAccess & 0x02) !== 0)
+    || (access !== undefined && (access & 0x02) !== 0)) {
+    return true;
+  }
+
+  if (userAccess !== undefined || access !== undefined) {
+    return false;
+  }
+
+  return undefined;
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timeout: NodeJS.Timeout | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -245,6 +261,7 @@ async function readOpcUaBrowseItemMetadata(session: ClientSession, nodeId: strin
       nodeClassAttr,
       dataTypeAttr,
       accessLevelAttr,
+      userAccessLevelAttr,
       valueRankAttr,
       arrayDimensionsAttr,
     ] = await session.read([
@@ -252,6 +269,7 @@ async function readOpcUaBrowseItemMetadata(session: ClientSession, nodeId: strin
       { nodeId, attributeId: AttributeIds.DisplayName },
       { nodeId, attributeId: AttributeIds.NodeClass },
       { nodeId, attributeId: AttributeIds.DataType },
+      { nodeId, attributeId: AttributeIds.AccessLevel },
       { nodeId, attributeId: AttributeIds.UserAccessLevel },
       { nodeId, attributeId: AttributeIds.ValueRank },
       { nodeId, attributeId: AttributeIds.ArrayDimensions },
@@ -262,6 +280,7 @@ async function readOpcUaBrowseItemMetadata(session: ClientSession, nodeId: strin
     const valueRank = typeof valueRankAttr?.value?.value === "number" ? valueRankAttr.value.value : undefined;
     const arrayDimensions = toNumberArray(arrayDimensionsAttr?.value?.value);
     const access = accessLevelAttr?.value?.value;
+    const userAccess = userAccessLevelAttr?.value?.value;
     return {
       nodeId,
       browseName: toQualifiedNameText(browseNameAttr?.value?.value) ?? nodeId,
@@ -271,7 +290,7 @@ async function readOpcUaBrowseItemMetadata(session: ClientSession, nodeId: strin
       valueRank,
       arrayDimensions,
       isArray: isArrayNode(valueRank, arrayDimensions),
-      writable: typeof access === "number" ? (access & 0x2) !== 0 : undefined,
+      writable: nodeClassNumeric === NodeClass.Variable ? isOpcUaWritable(access, userAccess) : undefined,
       hasChildren: false,
     };
   } catch {
@@ -384,6 +403,7 @@ export async function browseOpcUaNode(
           nodeClassAttr,
           dataTypeAttr,
           accessLevelAttr,
+          userAccessLevelAttr,
           valueRankAttr,
           arrayDimensionsAttr,
         ] = await session.read([
@@ -391,6 +411,7 @@ export async function browseOpcUaNode(
           { nodeId: refNodeId, attributeId: AttributeIds.DisplayName },
           { nodeId: refNodeId, attributeId: AttributeIds.NodeClass },
           { nodeId: refNodeId, attributeId: AttributeIds.DataType },
+          { nodeId: refNodeId, attributeId: AttributeIds.AccessLevel },
           { nodeId: refNodeId, attributeId: AttributeIds.UserAccessLevel },
           { nodeId: refNodeId, attributeId: AttributeIds.ValueRank },
           { nodeId: refNodeId, attributeId: AttributeIds.ArrayDimensions },
@@ -411,7 +432,8 @@ export async function browseOpcUaNode(
 
         dataType = dataTypeAttr?.value?.value?.toString?.();
         const access = accessLevelAttr?.value?.value;
-        writable = typeof access === "number" ? (access & 0x2) !== 0 : undefined;
+        const userAccess = userAccessLevelAttr?.value?.value;
+        writable = nodeClassNumeric === NodeClass.Variable ? isOpcUaWritable(access, userAccess) : undefined;
         valueRank = typeof valueRankAttr?.value?.value === "number" ? valueRankAttr.value.value : undefined;
         arrayDimensions = toNumberArray(arrayDimensionsAttr?.value?.value);
       }
@@ -560,7 +582,7 @@ export async function collectOpcUaSubtreeVariables(
             dataType: inferOpcUaDataTypeFromValue(field.path.reduce<unknown>((value, key) => toInspectableObject(value)?.[key], element), child.dataType),
             indexRange: String(index),
             memberPath: field.path,
-            writable: true,
+            writable: false,
           })) {
             return;
           }

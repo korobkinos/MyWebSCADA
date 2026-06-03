@@ -1,6 +1,6 @@
 import { AttributeIds, NodeClass } from "node-opcua";
 import { describe, expect, it } from "vitest";
-import { collectOpcUaSubtreeVariables } from "./opcua-inspector";
+import { browseOpcUaNode, collectOpcUaSubtreeVariables } from "./opcua-inspector";
 
 type FakeNode = {
   nodeId: string;
@@ -11,6 +11,7 @@ type FakeNode = {
   valueRank?: number;
   arrayDimensions?: number[];
   accessLevel?: number;
+  userAccessLevel?: number;
   value?: unknown;
   children?: string[];
 };
@@ -58,8 +59,10 @@ function makeSession(nodes: Record<string, FakeNode>) {
             return makeDataValue(node?.nodeClass);
           case AttributeIds.DataType:
             return makeDataValue(node?.dataType);
+          case AttributeIds.AccessLevel:
+            return makeDataValue(node?.accessLevel);
           case AttributeIds.UserAccessLevel:
-            return makeDataValue(node?.accessLevel ?? 1);
+            return makeDataValue(node?.userAccessLevel ?? node?.accessLevel ?? 1);
           case AttributeIds.ValueRank:
             return makeDataValue(node?.valueRank ?? -1);
           case AttributeIds.ArrayDimensions:
@@ -105,6 +108,8 @@ describe("collectOpcUaSubtreeVariables", () => {
         dataType: "ns=0;i=11",
         valueRank: 1,
         arrayDimensions: [3],
+        accessLevel: 3,
+        userAccessLevel: 1,
         value: [10, 20, 30],
       },
     });
@@ -115,11 +120,12 @@ describe("collectOpcUaSubtreeVariables", () => {
       browsePath: item.browsePath,
       indexRange: item.indexRange,
       memberPath: item.memberPath,
+      writable: item.writable,
     }))).toEqual([
-      { browsePath: "Application.SomeArray", indexRange: undefined, memberPath: undefined },
-      { browsePath: "Application.SomeArray[0]", indexRange: "0", memberPath: undefined },
-      { browsePath: "Application.SomeArray[1]", indexRange: "1", memberPath: undefined },
-      { browsePath: "Application.SomeArray[2]", indexRange: "2", memberPath: undefined },
+      { browsePath: "Application.SomeArray", indexRange: undefined, memberPath: undefined, writable: true },
+      { browsePath: "Application.SomeArray[0]", indexRange: "0", memberPath: undefined, writable: true },
+      { browsePath: "Application.SomeArray[1]", indexRange: "1", memberPath: undefined, writable: true },
+      { browsePath: "Application.SomeArray[2]", indexRange: "2", memberPath: undefined, writable: true },
     ]);
   });
 
@@ -133,6 +139,7 @@ describe("collectOpcUaSubtreeVariables", () => {
         dataType: "ns=4;i=5001",
         valueRank: 1,
         arrayDimensions: [2],
+        accessLevel: 3,
         value: [
           { down_out: true, up_out: false, nested: { gain: 1.5 } },
           { down_out: false, up_out: true, nested: { gain: 2.5 } },
@@ -146,14 +153,35 @@ describe("collectOpcUaSubtreeVariables", () => {
       browsePath: item.browsePath,
       indexRange: item.indexRange,
       memberPath: item.memberPath,
+      writable: item.writable,
     }))).toEqual([
-      { browsePath: "Application.GVL_REGULATOR.pid_control", indexRange: undefined, memberPath: undefined },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[0].down_out", indexRange: "0", memberPath: ["down_out"] },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[0].up_out", indexRange: "0", memberPath: ["up_out"] },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[0].nested.gain", indexRange: "0", memberPath: ["nested", "gain"] },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].down_out", indexRange: "1", memberPath: ["down_out"] },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].up_out", indexRange: "1", memberPath: ["up_out"] },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].nested.gain", indexRange: "1", memberPath: ["nested", "gain"] },
+      { browsePath: "Application.GVL_REGULATOR.pid_control", indexRange: undefined, memberPath: undefined, writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].down_out", indexRange: "0", memberPath: ["down_out"], writable: false },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].up_out", indexRange: "0", memberPath: ["up_out"], writable: false },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].nested.gain", indexRange: "0", memberPath: ["nested", "gain"], writable: false },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].down_out", indexRange: "1", memberPath: ["down_out"], writable: false },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].up_out", indexRange: "1", memberPath: ["up_out"], writable: false },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].nested.gain", indexRange: "1", memberPath: ["nested", "gain"], writable: false },
     ]);
+  });
+});
+
+describe("browseOpcUaNode", () => {
+  it("uses AccessLevel CurrentWrite when UserAccessLevel does not include it", async () => {
+    const session = makeSession({
+      root: { nodeId: "root", browseName: "Root", nodeClass: NodeClass.Object, children: ["level"] },
+      level: {
+        nodeId: "level",
+        browseName: "Level",
+        nodeClass: NodeClass.Variable,
+        dataType: "ns=0;i=11",
+        accessLevel: 3,
+        userAccessLevel: 1,
+      },
+    });
+
+    const result = await browseOpcUaNode(session as never, "root");
+
+    expect(result[0]).toMatchObject({ nodeId: "level", writable: true });
   });
 });

@@ -29,7 +29,7 @@ describe("applyOpcUaImportCandidates", () => {
       "opc",
       [
         { browsePath: "FolderA.Tag", nodeId: "new-a", dataType: "ns=0;i=11" },
-        { browsePath: "FolderB.Tag", nodeId: "new-b", dataType: "ns=0;i=11" },
+        { browsePath: "FolderB.Tag", nodeId: "new-b", dataType: "ns=0;i=11", writable: true },
       ],
       { overwrite: true, scanRateMs: 250 },
     );
@@ -39,21 +39,22 @@ describe("applyOpcUaImportCandidates", () => {
     expect(result.tags.find((tag) => tag.name === "FolderA.Tag")).toMatchObject({
       nodeId: "new-a",
       address: { nodeId: "new-a" },
-      writable: true,
+      writable: false,
       scanRateMs: 250,
     });
     expect(result.tags.find((tag) => tag.name === "FolderB.Tag")).toMatchObject({
       nodeId: "new-b",
       address: { nodeId: "new-b" },
+      writable: true,
     });
   });
 
-  it("marks array and structure members writable by default", () => {
+  it("uses candidate writable and defaults missing writable to false", () => {
     const result = applyOpcUaImportCandidates(
       { ...makeProject(), tags: [] },
       "opc",
       [
-        { browsePath: "Array[0]", nodeId: "array", indexRange: "0" },
+        { browsePath: "Array[0]", nodeId: "array", indexRange: "0", writable: true },
         { browsePath: "StructArray[0].field", nodeId: "struct-array", indexRange: "0", memberPath: ["field"] },
       ],
       { overwrite: true },
@@ -61,7 +62,7 @@ describe("applyOpcUaImportCandidates", () => {
 
     expect(result.tags).toEqual([
       expect.objectContaining({ name: "Array[0]", writable: true }),
-      expect.objectContaining({ name: "StructArray[0].field", writable: true }),
+      expect.objectContaining({ name: "StructArray[0].field", writable: false }),
     ]);
   });
 });
