@@ -1760,6 +1760,7 @@ export function ScreenEditorTagsWindow() {
     try {
       const response = await api.opcUaImportSubtree({
         driverId: opcBrowseDriverId,
+        nodeId: importableNodes[0]!.nodeId,
         nodeIds: importableNodes.map((node) => node.nodeId),
         rootName,
         overwrite: opcImportSubtreeOverwrite,
