@@ -26,6 +26,8 @@ import { WebSocketGateway } from "./websocket/websocket-gateway.js";
 import { type OperatorActionArchiveSettings } from "@web-scada/shared";
 
 const port = Number(process.env.PORT ?? 3001);
+const bodyLimitMb = Number(process.env.API_BODY_LIMIT_MB ?? 200);
+const bodyLimit = Math.max(1, Number.isFinite(bodyLimitMb) ? bodyLimitMb : 200) * 1024 * 1024;
 const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(runtimeDir, "..");
 
@@ -46,7 +48,7 @@ const defaultAdminUsername = process.env.DEFAULT_ADMIN_USERNAME ?? "admin";
 const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD ?? process.env.ENGINEER_PASSWORD ?? "1234";
 
 async function bootstrap(): Promise<void> {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, bodyLimit });
   let shuttingDown = false;
   await app.register(cors, { origin: true });
   await app.register(websocket);

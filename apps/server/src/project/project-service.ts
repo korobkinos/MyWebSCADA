@@ -95,11 +95,24 @@ function normalizeLegacyMacroLanguages(input: unknown): unknown {
       if (!resolvedNodeId) {
         return item;
       }
+      const addressRecord = tag.address && typeof tag.address === "object"
+        ? tag.address as Record<string, unknown>
+        : undefined;
+      const indexRange = typeof addressRecord?.indexRange === "string" && addressRecord.indexRange.trim().length > 0
+        ? addressRecord.indexRange.trim()
+        : undefined;
+      const memberPath = Array.isArray(addressRecord?.memberPath)
+        ? addressRecord.memberPath.filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+        : undefined;
       return {
         ...item,
         sourceType: "opcua",
         nodeId: resolvedNodeId,
-        address: { nodeId: resolvedNodeId },
+        address: {
+          nodeId: resolvedNodeId,
+          ...(indexRange ? { indexRange } : {}),
+          ...(memberPath?.length ? { memberPath } : {}),
+        },
       };
     });
   }
