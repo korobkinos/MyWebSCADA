@@ -46,7 +46,7 @@ vi.mock("../../features/events/EventTableRuntimeWidget", async () => {
   };
 });
 
-import { HmiRenderer } from "./hmi-renderer";
+import { HmiRenderer, RUNTIME_COLOR_TRANSITION_MS, computeRuntimeColorTransitionFrame } from "./hmi-renderer";
 
 const renderContext: RenderContext = {
   screenId: "screen-main",
@@ -119,5 +119,61 @@ describe("HmiRenderer offscreen culling", () => {
     };
 
     expect(renderRenderer(screen, true)).toContain("hmi-rect-offscreen");
+  });
+});
+
+describe("runtime color transition", () => {
+  it("interpolates hex colors over the default duration", () => {
+    const frame = computeRuntimeColorTransitionFrame({
+      fromColor: "#808080",
+      toColor: "#ffff00",
+      startedAt: 1000,
+      now: 1000 + RUNTIME_COLOR_TRANSITION_MS / 2,
+      durationMs: RUNTIME_COLOR_TRANSITION_MS,
+    });
+
+    expect(frame).toEqual({
+      color: "rgba(192, 192, 64, 1)",
+      rgba: { r: 192, g: 192, b: 64, a: 1 },
+      done: false,
+    });
+  });
+
+  it("can start a new transition from the current interpolated color", () => {
+    const firstFrame = computeRuntimeColorTransitionFrame({
+      fromColor: "#808080",
+      toColor: "#ffff00",
+      startedAt: 0,
+      now: 100,
+      durationMs: RUNTIME_COLOR_TRANSITION_MS,
+    });
+
+    expect(firstFrame).not.toBeNull();
+
+    const secondFrame = computeRuntimeColorTransitionFrame({
+      fromColor: firstFrame!.rgba,
+      toColor: "#ffffff",
+      startedAt: 100,
+      now: 125,
+      durationMs: RUNTIME_COLOR_TRANSITION_MS,
+    });
+
+    expect(secondFrame?.color).toBe("rgba(187, 187, 95, 1)");
+  });
+
+  it("returns the target color exactly when the transition is complete", () => {
+    const frame = computeRuntimeColorTransitionFrame({
+      fromColor: "#808080",
+      toColor: "#ffff00",
+      startedAt: 0,
+      now: RUNTIME_COLOR_TRANSITION_MS,
+      durationMs: RUNTIME_COLOR_TRANSITION_MS,
+    });
+
+    expect(frame).toEqual({
+      color: "#ffff00",
+      rgba: { r: 255, g: 255, b: 0, a: 1 },
+      done: true,
+    });
   });
 });

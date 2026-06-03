@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Shape, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type Konva from "konva";
@@ -62,6 +62,7 @@ const HMI_CONTROL_COLORS = {
 } as const;
 const EMPTY_DRIVERS: DriverStatus[] = [];
 const ROTATION_TAG_SMOOTHING_MS = 500;
+export const RUNTIME_COLOR_TRANSITION_MS = 250;
 
 type AnimationTickHandler = (time: number) => void;
 const globalAnimationTickHandlers = new Set<AnimationTickHandler>();
@@ -620,6 +621,238 @@ function mixRgba(left: RgbaColor, right: RgbaColor, t: number): RgbaColor {
 function rgbaToCss(color: RgbaColor): string {
   const alpha = Math.max(0, Math.min(1, color.a));
   return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+}
+
+type RuntimeColorTransitionFrame = {
+  color: string;
+  rgba: RgbaColor;
+  done: boolean;
+};
+
+export function computeRuntimeColorTransitionFrame(args: {
+  fromColor: string | RgbaColor;
+  toColor: string;
+  startedAt: number;
+  now: number;
+  durationMs: number;
+}): RuntimeColorTransitionFrame | null {
+  const fromColor = typeof args.fromColor === "string" ? parseHexColorToRgba(args.fromColor) : args.fromColor;
+  const toColor = parseHexColorToRgba(args.toColor);
+  if (!fromColor || !toColor) {
+    return null;
+  }
+  const durationMs = Math.max(1, args.durationMs);
+  const progress = Math.max(0, Math.min(1, (args.now - args.startedAt) / durationMs));
+  if (progress >= 1) {
+    return {
+      color: args.toColor,
+      rgba: toColor,
+      done: true,
+    };
+  }
+  const rgba = mixRgba(fromColor, toColor, progress);
+  return {
+    color: rgbaToCss(rgba),
+    rgba,
+    done: false,
+  };
+}
+
+type RuntimeColorTransitionState = {
+  targetColor?: string;
+  currentColor?: string;
+  currentRgba?: RgbaColor;
+};
+
+function useAnimatedColor(targetColor: string | undefined, options: { enabled: boolean; durationMs?: number }): string | undefined {
+  const durationMs = options.durationMs ?? RUNTIME_COLOR_TRANSITION_MS;
+  const transitionRef = useRef<RuntimeColorTransitionState>({});
+  const [, forceUpdate] = useState(0);
+  const targetRgba = targetColor ? parseHexColorToRgba(targetColor) : null;
+  const canAnimate = options.enabled && Boolean(targetColor) && Boolean(targetRgba) && durationMs > 0;
+  const state = transitionRef.current;
+
+  if (!canAnimate) {
+    state.targetColor = targetColor;
+    state.currentColor = targetColor;
+    state.currentRgba = targetRgba ?? undefined;
+  } else if (state.currentColor === undefined || state.currentRgba === undefined || state.targetColor === undefined) {
+    state.targetColor = targetColor;
+    state.currentColor = targetColor;
+    state.currentRgba = targetRgba ?? undefined;
+  }
+
+  useEffect(() => {
+    const nextRgba = targetColor ? parseHexColorToRgba(targetColor) : null;
+    if (!canAnimate || !targetColor || !nextRgba) {
+      return;
+    }
+    const currentState = transitionRef.current;
+    if (currentState.targetColor === targetColor && currentState.currentRgba) {
+      return;
+    }
+    const startedAt = performance.now();
+    const fromColor = currentState.currentRgba ?? nextRgba;
+    currentState.targetColor = targetColor;
+
+    const unsubscribe = subscribeGlobalAnimationTick((time) => {
+      const frame = computeRuntimeColorTransitionFrame({
+        fromColor,
+        toColor: targetColor,
+        startedAt,
+        now: time,
+        durationMs,
+      });
+      if (!frame) {
+        currentState.currentColor = targetColor;
+        currentState.currentRgba = nextRgba;
+        forceUpdate((value) => value + 1);
+        unsubscribe();
+        return;
+      }
+      currentState.currentColor = frame.color;
+      currentState.currentRgba = frame.rgba;
+      forceUpdate((value) => value + 1);
+      if (frame.done) {
+        unsubscribe();
+      }
+    });
+
+    return unsubscribe;
+  }, [canAnimate, durationMs, targetColor]);
+
+  return canAnimate ? state.currentColor : targetColor;
+}
+
+type AnimatedColorProps = {
+  runtimeMode: boolean;
+  colorTransitionDurationMs?: number;
+};
+
+function RuntimeAnimatedRect({
+  runtimeMode,
+  colorTransitionDurationMs,
+  fill,
+  stroke,
+  ...props
+}: ComponentProps<typeof Rect> & AnimatedColorProps) {
+  const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  return (
+    <Rect
+      {...props}
+      fill={typeof fill === "string" ? animatedFill : fill}
+      stroke={typeof stroke === "string" ? animatedStroke : stroke}
+    />
+  );
+}
+
+function RuntimeAnimatedLine({
+  runtimeMode,
+  colorTransitionDurationMs,
+  fill,
+  stroke,
+  ...props
+}: ComponentProps<typeof Line> & AnimatedColorProps) {
+  const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  return (
+    <Line
+      {...props}
+      fill={typeof fill === "string" ? animatedFill : fill}
+      stroke={typeof stroke === "string" ? animatedStroke : stroke}
+    />
+  );
+}
+
+function RuntimeAnimatedPath({
+  runtimeMode,
+  colorTransitionDurationMs,
+  fill,
+  stroke,
+  ...props
+}: ComponentProps<typeof Path> & AnimatedColorProps) {
+  const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  return (
+    <Path
+      {...props}
+      fill={typeof fill === "string" ? animatedFill : fill}
+      stroke={typeof stroke === "string" ? animatedStroke : stroke}
+    />
+  );
+}
+
+function RuntimeAnimatedCircle({
+  runtimeMode,
+  colorTransitionDurationMs,
+  fill,
+  stroke,
+  ...props
+}: ComponentProps<typeof Circle> & AnimatedColorProps) {
+  const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  return (
+    <Circle
+      {...props}
+      fill={typeof fill === "string" ? animatedFill : fill}
+      stroke={typeof stroke === "string" ? animatedStroke : stroke}
+    />
+  );
+}
+
+function RuntimeAnimatedShape({
+  runtimeMode,
+  colorTransitionDurationMs,
+  fillColor,
+  strokeColor,
+  sceneFunc,
+  ...props
+}: Omit<ComponentProps<typeof Shape>, "sceneFunc"> & AnimatedColorProps & {
+  fillColor?: string;
+  strokeColor?: string;
+  sceneFunc: (context: Konva.Context, colors: { fillColor?: string; strokeColor?: string }) => void;
+}) {
+  const animatedFill = useAnimatedColor(fillColor, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  const animatedStroke = useAnimatedColor(strokeColor, {
+    enabled: runtimeMode,
+    durationMs: colorTransitionDurationMs,
+  });
+  return (
+    <Shape
+      {...props}
+      sceneFunc={(context) => {
+        sceneFunc(context, { fillColor: animatedFill, strokeColor: animatedStroke });
+      }}
+    />
+  );
 }
 
 function resolveFillGradientProps(args: {
@@ -2411,7 +2644,8 @@ function ObjectNode({
         {renderLineBase ? <SelectionHitArea object={resolvedObject} enabled={interactive} /> : null}
         {renderLineBase && renderRoundedLine && roundedLinePath
           ? (
-            <Path
+            <RuntimeAnimatedPath
+              runtimeMode={runtimeMode}
               data={roundedLinePath}
               stroke={lineStroke}
               strokeWidth={resolvedObject.strokeWidth}
@@ -2423,7 +2657,8 @@ function ObjectNode({
             />
             )
           : (
-            <Line
+            <RuntimeAnimatedLine
+              runtimeMode={runtimeMode}
               points={resolvedObject.points}
               stroke={lineStroke}
               strokeWidth={resolvedObject.strokeWidth}
@@ -2591,11 +2826,13 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Shape
-          sceneFunc={(context) => {
+        <RuntimeAnimatedShape
+          runtimeMode={runtimeMode}
+          fillColor={compoundFill}
+          sceneFunc={(context, colors) => {
             context.beginPath();
             drawCompoundPath(context);
-            context._context.fillStyle = compoundFill;
+            context._context.fillStyle = colors.fillColor ?? compoundFill;
             context._context.fill(compoundFillRule);
             if (fillPatternStyle !== "solid" && fillPatternImage) {
               context.beginPath();
@@ -2612,17 +2849,21 @@ function ObjectNode({
           {...compoundShadowProps}
         />
         {strokePatternStyle === "solid" ? (
-          <Shape
-            sceneFunc={(context) => {
-              drawStroke(context, compoundStroke, compoundStrokeWidth);
+          <RuntimeAnimatedShape
+            runtimeMode={runtimeMode}
+            strokeColor={compoundStroke}
+            sceneFunc={(context, colors) => {
+              drawStroke(context, colors.strokeColor ?? compoundStroke, compoundStrokeWidth);
             }}
             listening={false}
             perfectDrawEnabled={false}
           />
         ) : isBeveledPatternStyle(strokePatternStyle) ? (
-          <Shape
-            sceneFunc={(context) => {
-              drawStroke(context, strokeOuterBandColor, compoundStrokeWidth);
+          <RuntimeAnimatedShape
+            runtimeMode={runtimeMode}
+            strokeColor={strokeOuterBandColor}
+            sceneFunc={(context, colors) => {
+              drawStroke(context, colors.strokeColor ?? strokeOuterBandColor, compoundStrokeWidth);
               const innerWidth = Math.max(0, compoundStrokeWidth - Math.max(1.4, compoundStrokeWidth * 0.32));
               if (innerWidth <= 0) {
                 return;
@@ -2665,7 +2906,8 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           width={resolvedObject.width}
           height={resolvedObject.height}
           {...rectGradientProps}
@@ -2782,7 +3024,8 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           width={resolvedObject.width}
           height={resolvedObject.height}
           fill={runtimeDisabled ? "#3d3d3d" : "#141414"}
@@ -2827,7 +3070,7 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} cornerRadius={8} perfectDrawEnabled={false} {...indicatorGradientProps} {...stateIndicatorShadowProps} />
+        <RuntimeAnimatedRect runtimeMode={runtimeMode} width={resolvedObject.width} height={resolvedObject.height} cornerRadius={8} perfectDrawEnabled={false} {...indicatorGradientProps} {...stateIndicatorShadowProps} />
         {renderBoxText(text, resolvedObject.textStyle, {
           width: resolvedObject.width,
           height: resolvedObject.height,
@@ -2856,6 +3099,7 @@ function ObjectNode({
         runtimeDisabled={runtimeDisabled}
         forceFrame={showObjectFrames}
         shadowDisabled={effectiveShadowDisabled}
+        runtimeMode={runtimeMode}
       />
     );
   }
@@ -2933,7 +3177,8 @@ function ObjectNode({
         onClick={handleSwitchClick}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           width={resolvedObject.width}
           height={resolvedObject.height}
           {...switchGradientProps}
@@ -3003,7 +3248,8 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           width={resolvedObject.width}
           height={resolvedObject.height}
           fill={runtimeDisabled ? "#3d3d3d" : "#1f2a38"}
@@ -3184,9 +3430,9 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} perfectDrawEnabled={false} {...valveShadowProps} />
-        <Line points={[20, 20, resolvedObject.width - 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
-        <Line points={[resolvedObject.width - 20, 20, 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
+        <RuntimeAnimatedRect runtimeMode={runtimeMode} width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} perfectDrawEnabled={false} {...valveShadowProps} />
+        <RuntimeAnimatedLine runtimeMode={runtimeMode} points={[20, 20, resolvedObject.width - 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
+        <RuntimeAnimatedLine runtimeMode={runtimeMode} points={[resolvedObject.width - 20, 20, 20, resolvedObject.height - 20]} stroke={color} strokeWidth={6} />
         {renderBoxText(resolvedObject.label ?? "Valve", resolvedObject.textStyle, { width: resolvedObject.width, height: resolvedObject.height })}
         <SelectionOutline object={resolvedObject} selected={selected} />
       </Group>
@@ -3202,9 +3448,10 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} perfectDrawEnabled={false} {...pumpShadowProps} />
-        <Circle x={resolvedObject.width * 0.35} y={resolvedObject.height * 0.45} radius={Math.min(resolvedObject.width, resolvedObject.height) * 0.2} fill={color} />
-        <Line
+        <RuntimeAnimatedRect runtimeMode={runtimeMode} width={resolvedObject.width} height={resolvedObject.height} fill="#141414" stroke="#595959" cornerRadius={8} perfectDrawEnabled={false} {...pumpShadowProps} />
+        <RuntimeAnimatedCircle runtimeMode={runtimeMode} x={resolvedObject.width * 0.35} y={resolvedObject.height * 0.45} radius={Math.min(resolvedObject.width, resolvedObject.height) * 0.2} fill={color} />
+        <RuntimeAnimatedLine
+          runtimeMode={runtimeMode}
           points={[
             resolvedObject.width * 0.55,
             resolvedObject.height * 0.45,
@@ -3359,7 +3606,8 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           x={checkX}
           y={checkY}
           width={checkBoxSize}
@@ -3374,7 +3622,8 @@ function ObjectNode({
         />
         {isChecked ? (
           <>
-            <Line
+            <RuntimeAnimatedLine
+              runtimeMode={runtimeMode}
               points={[
                 checkX + checkBoxSize * 0.22,
                 checkY + checkBoxSize * 0.55,
@@ -3386,7 +3635,8 @@ function ObjectNode({
               lineCap="round"
               listening={editorVisualListening}
             />
-            <Line
+            <RuntimeAnimatedLine
+              runtimeMode={runtimeMode}
               points={[
                 checkX + checkBoxSize * 0.45,
                 checkY + checkBoxSize * 0.78,
@@ -3501,7 +3751,8 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           width={resolvedObject.width}
           height={resolvedObject.height}
           fill={renderBackground}
@@ -3511,7 +3762,8 @@ function ObjectNode({
           perfectDrawEnabled={false}
           {...progressBarShadowProps}
         />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           x={innerX}
           y={innerY}
           width={innerW}
@@ -3519,7 +3771,8 @@ function ObjectNode({
           fill={trackColor}
           cornerRadius={fillCorner}
         />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           x={fillRect.x}
           y={fillRect.y}
           width={Math.max(0, fillRect.width)}
@@ -3740,7 +3993,8 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           width={resolvedObject.width}
           height={resolvedObject.height}
           fill={renderBackground}
@@ -3752,7 +4006,8 @@ function ObjectNode({
           perfectDrawEnabled={false}
           {...selectShadowProps}
         />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           x={Math.max(0, resolvedObject.width - selectArrowAreaWidth)}
           y={0}
           width={selectArrowAreaWidth}
@@ -3772,7 +4027,8 @@ function ObjectNode({
           width: Math.max(1, resolvedObject.width - selectArrowAreaWidth),
           height: resolvedObject.height,
         })}
-        <Line
+        <RuntimeAnimatedLine
+          runtimeMode={runtimeMode}
           points={[
             Math.max(0, resolvedObject.width - selectArrowAreaWidth),
             4,
@@ -3784,7 +4040,8 @@ function ObjectNode({
           strokeWidth={Math.max(1, selectBorderWidth)}
           listening={false}
         />
-        <Line
+        <RuntimeAnimatedLine
+          runtimeMode={runtimeMode}
           points={[
             resolvedObject.width - selectArrowAreaWidth / 2 - 5,
             resolvedObject.height / 2 - 2,
@@ -3926,7 +4183,8 @@ function ObjectNode({
         }}
       >
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           width={resolvedObject.width}
           height={resolvedObject.height}
           fill={renderBackground}
@@ -3959,7 +4217,8 @@ function ObjectNode({
           const optionFontSize = fontSize;
           return (
             <Group key={idx} x={optX} y={optY}>
-              <Rect
+              <RuntimeAnimatedRect
+                runtimeMode={runtimeMode}
                 x={0}
                 y={0}
                 width={optW}
@@ -4001,7 +4260,8 @@ function ObjectNode({
     return (
       <Group {...commonGroupProps}>
         <SelectionHitArea object={resolvedObject} enabled={interactive} />
-        <Rect
+        <RuntimeAnimatedRect
+          runtimeMode={runtimeMode}
           width={resolvedObject.width}
           height={resolvedObject.height}
           fill="#1e1e1e"
@@ -4649,7 +4909,8 @@ function SliderObjectNode({
       }}
     >
       <SelectionHitArea object={resolvedObject} enabled={interactive} />
-      <Rect
+      <RuntimeAnimatedRect
+        runtimeMode={runtimeMode}
         width={resolvedObject.width}
         height={resolvedObject.height}
         fill={renderBackgroundColor}
@@ -4663,7 +4924,8 @@ function SliderObjectNode({
       />
       {isSliderVertical ? (
         <>
-          <Rect
+          <RuntimeAnimatedRect
+            runtimeMode={runtimeMode}
             x={resolvedObject.width * 0.5 - sliderTrackThickness / 2}
             y={sliderThumbRadius}
             width={sliderTrackThickness}
@@ -4672,7 +4934,8 @@ function SliderObjectNode({
             cornerRadius={sliderTrackThickness / 2}
             listening={editorVisualListening}
           />
-          <Rect
+          <RuntimeAnimatedRect
+            runtimeMode={runtimeMode}
             x={resolvedObject.width * 0.5 - sliderTrackThickness / 2}
             y={sliderThumbRadius + resolvedObject.height * (1 - sliderRenderRatio) - sliderThumbRadius * 2 * (1 - sliderRenderRatio)}
             width={sliderTrackThickness}
@@ -4681,7 +4944,8 @@ function SliderObjectNode({
             cornerRadius={sliderTrackThickness / 2}
             listening={editorVisualListening}
           />
-          <Circle
+          <RuntimeAnimatedCircle
+            runtimeMode={runtimeMode}
             x={thumbCenterX}
             y={thumbCenterY}
             radius={sliderThumbRadius}
@@ -4695,7 +4959,8 @@ function SliderObjectNode({
         </>
       ) : (
         <>
-          <Rect
+          <RuntimeAnimatedRect
+            runtimeMode={runtimeMode}
             x={sliderThumbRadius}
             y={resolvedObject.height * 0.5 - sliderTrackThickness / 2}
             width={Math.max(0, resolvedObject.width - sliderThumbRadius * 2)}
@@ -4704,7 +4969,8 @@ function SliderObjectNode({
             cornerRadius={sliderTrackThickness / 2}
             listening={editorVisualListening}
           />
-          <Rect
+          <RuntimeAnimatedRect
+            runtimeMode={runtimeMode}
             x={sliderThumbRadius}
             y={resolvedObject.height * 0.5 - sliderTrackThickness / 2}
             width={Math.max(0, (resolvedObject.width - sliderThumbRadius * 2) * sliderRenderRatio)}
@@ -4713,7 +4979,8 @@ function SliderObjectNode({
             cornerRadius={sliderTrackThickness / 2}
             listening={editorVisualListening}
           />
-          <Circle
+          <RuntimeAnimatedCircle
+            runtimeMode={runtimeMode}
             x={thumbCenterX}
             y={thumbCenterY}
             radius={sliderThumbRadius}
@@ -5601,6 +5868,7 @@ function ButtonNode({
   runtimeDisabled,
   forceFrame = false,
   shadowDisabled,
+  runtimeMode,
 }: {
   object: Extract<HmiObject, { type: "button" }>;
   selected: boolean;
@@ -5616,6 +5884,7 @@ function ButtonNode({
   runtimeDisabled: boolean;
   forceFrame?: boolean;
   shadowDisabled: boolean;
+  runtimeMode: boolean;
 }) {
   const [pressed, setPressed] = useState(false);
   const [executing, setExecuting] = useState(false);
@@ -5723,7 +5992,8 @@ function ButtonNode({
         }
       }}
     >
-      <Rect
+      <RuntimeAnimatedRect
+        runtimeMode={runtimeMode}
         width={object.width}
         height={object.height}
         {...buttonGradientProps}
