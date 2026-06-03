@@ -2835,7 +2835,7 @@ function SpecificPropertyFields({
             <Form.Item label="Popup Title">
               <Input
                 value={openPopupAction.title ?? ""}
-                placeholder="РЈРїСЂР°РІР»РµРЅРёРµ: {{valveName}}"
+                placeholder="Управление: {{valveName}}"
                 onChange={(event) =>
                   onPatch({
                     action: {

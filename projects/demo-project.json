@@ -11,6 +11,9 @@
     "editorWheelZoomEnabled": true,
     "windowTitle": "Котёл K-11"
   },
+  "runtimeSettings": {
+    "heartbeatTimeoutSec": 3
+  },
   "assets": [
     {
       "id": "74833278-14a0-4c31-9873-99766385d846",
@@ -20744,7 +20747,7 @@
         {
           "id": "slider_vmnk0x",
           "type": "slider",
-          "x": 393.66262910891123,
+          "x": 401.6352941006992,
           "y": 105.10934502514908,
           "width": 220,
           "height": 44,
@@ -20785,6 +20788,39 @@
           "disabledColor": "#3d3d3d",
           "disabledTextColor": "#8c8c8c",
           "transparentBackground": true
+        },
+        {
+          "id": "btn_qfa8iw",
+          "type": "button",
+          "x": 283.2938537884654,
+          "y": 516.5649167888073,
+          "width": 130,
+          "height": 44,
+          "opacity": 0,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "Start",
+          "showText": true,
+          "backgroundColor": "#0958d9",
+          "pressedBackgroundColor": "#0747b3",
+          "disabledBackgroundColor": "#434343",
+          "borderColor": "#0958d9",
+          "borderWidth": 1,
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          },
+          "action": {
+            "type": "runMacro",
+            "macroId": "macro_458y8c"
+          }
         }
       ]
     }
