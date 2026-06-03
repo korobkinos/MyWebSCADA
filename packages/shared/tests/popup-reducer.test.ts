@@ -13,6 +13,19 @@ describe("popupReducer", () => {
         y: 120,
         title: "Valve",
         tagPrefix: "Burner_1.PZK_1",
+        inheritedIndexRules: [
+          {
+            id: "rule-1",
+            enabled: true,
+            indexOffset: 3,
+            indexMode: {
+              type: "arrayIndex",
+              occurrence: 0,
+              operation: "add",
+              valueFrom: "indexOffset",
+            },
+          },
+        ],
         args: { valveName: "ПЗК-1" },
         modal: false,
         draggable: true,
@@ -23,6 +36,7 @@ describe("popupReducer", () => {
 
     expect(next.items).toHaveLength(1);
     expect(next.items[0]?.zIndex).toBe(1);
+    expect(next.items[0]?.inheritedIndexRules?.[0]?.indexOffset).toBe(3);
     expect(next.items[0]?.args).toEqual({ valveName: "ПЗК-1" });
     expect(next.nextZIndex).toBe(2);
   });

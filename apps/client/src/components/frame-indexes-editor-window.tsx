@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { getEnabledFrameTagIndexRules, type ElementLibrary, type FrameObject, type FrameTagIndexRule, type RuntimeValueSource, type ScadaProject } from "@web-scada/shared";
+import { getEnabledFrameTagIndexRules, type ElementLibrary, type FrameTagIndexRule, type RuntimeValueSource, type ScadaProject } from "@web-scada/shared";
 import { WorkbenchTable, WorkbenchWindow, type WorkbenchWindowRect, nextGlobalZIndex } from "./workbench";
 import { evaluateFrameIndexScanItem, scanFrameIndexTagsDetailed, type FrameIndexScanItem } from "../hmi/tags/frame-index-scan";
 import { TagPicker } from "./tag-picker";
@@ -10,10 +10,22 @@ type FrameIndexesEditorWindowProps = {
   open: boolean;
   project: ScadaProject;
   libraries: ElementLibrary[];
-  frame: FrameObject;
+  frame: FrameIndexRulesEditorTarget;
+  title?: string;
+  targetLabel?: string;
+  emptyScreenMessage?: string;
+  missingScreenMessage?: string;
   runtimePreviewValues?: Record<string, unknown>;
   onApplyRules: (nextRules: FrameTagIndexRule[]) => void;
   onClose: () => void;
+};
+
+type FrameIndexRulesEditorTarget = {
+  id: string;
+  name?: string;
+  screenId: string;
+  tagPrefix?: string;
+  tagIndexRules?: FrameTagIndexRule[];
 };
 
 type ScanRow = FrameIndexScanItem & {
@@ -58,6 +70,10 @@ export function FrameIndexesEditorWindow({
   project,
   libraries,
   frame,
+  title = "Frame Indexes",
+  targetLabel = "Frame",
+  emptyScreenMessage = "Select frame screen first.",
+  missingScreenMessage = "Frame screen/template not found.",
   runtimePreviewValues,
   onApplyRules,
   onClose,
@@ -195,7 +211,7 @@ export function FrameIndexesEditorWindow({
     >
       <WorkbenchWindow
         id="frameIndexesEditor"
-        title="Frame Indexes"
+        title={title}
         rect={rect}
         zIndex={zIndex}
         minWidth={MIN_WIDTH}
@@ -208,7 +224,7 @@ export function FrameIndexesEditorWindow({
         <div className="frame-indexes-editor-window">
           <div className="frame-indexes-editor-toolbar">
             <div className="frame-indexes-editor-toolbar__meta">
-              <span>Frame:</span>
+              <span>{targetLabel}:</span>
               <strong>{frame.name?.trim() || frame.id}</strong>
             </div>
             <div className="frame-indexes-editor-toolbar__meta">
@@ -218,9 +234,9 @@ export function FrameIndexesEditorWindow({
           </div>
 
           {!frame.screenId ? (
-            <div className="frame-indexes-editor-empty-screen">Select frame screen first.</div>
+            <div className="frame-indexes-editor-empty-screen">{emptyScreenMessage}</div>
           ) : !selectedScreen ? (
-            <div className="frame-indexes-editor-empty-screen">Frame screen/template not found.</div>
+            <div className="frame-indexes-editor-empty-screen">{missingScreenMessage}</div>
           ) : (
             <div className="frame-indexes-editor-content">
               <section className="frame-indexes-editor-section">

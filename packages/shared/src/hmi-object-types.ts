@@ -284,6 +284,7 @@ export type RuntimeAction = {
       x?: number;
       y?: number;
       tagPrefix?: string;
+      tagIndexRules?: FrameTagIndexRule[];
       args?: Record<string, unknown>;
     }
   | {

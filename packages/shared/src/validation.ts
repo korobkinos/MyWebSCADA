@@ -207,6 +207,10 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
     x: z.number().optional(),
     y: z.number().optional(),
     tagPrefix: z.string().optional(),
+    tagIndexRules: z
+      .array(z.unknown())
+      .optional()
+      .transform((value) => normalizeFrameTagIndexRules(value)),
     args: z.record(z.unknown()).optional(),
   }),
   z.object({

@@ -68,6 +68,55 @@ describe("binding helpers", () => {
 });
 
 describe("resolveRuntimeAction openPopup", () => {
+  it("preserves popup tag index rules while resolving prefix and args", () => {
+    const action = resolveRuntimeAction(
+      {
+        type: "openPopup",
+        popupScreenId: "Popup_ValveControl",
+        tagPrefix: ".PZK_1",
+        args: {
+          valveName: "{{name}}",
+        },
+        tagIndexRules: [
+          {
+            id: "rule-1",
+            enabled: true,
+            indexOffset: 3,
+            indexMode: {
+              type: "arrayIndex",
+              occurrence: 0,
+              operation: "add",
+              valueFrom: "indexOffset",
+            },
+          },
+        ],
+      },
+      {
+        tagPrefix: "VALVES",
+        parameters: {
+          name: "PZK-1",
+        },
+      },
+    );
+
+    expect(action.type).toBe("openPopup");
+    expect(action.tagPrefix).toBe("VALVES.PZK_1");
+    expect(action.args).toEqual({ valveName: "PZK-1" });
+    expect(action.tagIndexRules).toEqual([
+      {
+        id: "rule-1",
+        enabled: true,
+        indexOffset: 3,
+        indexMode: {
+          type: "arrayIndex",
+          occurrence: 0,
+          operation: "add",
+          valueFrom: "indexOffset",
+        },
+      },
+    ]);
+  });
+
   it("combines parent and relative popup prefix", () => {
     const action = resolveRuntimeAction(
       {

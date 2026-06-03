@@ -4,6 +4,7 @@ import {
   ACCESS_ROLE_LABELS_RU,
   COMMAND_TIMEOUT_MS,
   clampAccessRoleLevel,
+  getEnabledFrameTagIndexRules,
   getUserRoleLevel,
   hasRoleAccess,
   isOperatorActionEnabledForObject,
@@ -324,6 +325,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     () => popupScreens.map(({ item, screen: popupScreen }) => ({
       screen: popupScreen,
       tagPrefix: item.tagPrefix,
+      inheritedIndexRules: item.inheritedIndexRules,
       args: item.args,
     })),
     [popupScreens],
@@ -1728,6 +1730,10 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         }
       }
       const popupOptions = popupScreen.popupOptions ?? {};
+      const inheritedIndexRules = [
+        ...(context.inheritedIndexRules ?? []),
+        ...getEnabledFrameTagIndexRules(action.tagIndexRules),
+      ];
       dispatchPopup({
         type: "open",
         payload: {
@@ -1738,6 +1744,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           x: action.x ?? popupOptions.defaultX ?? 120,
           y: action.y ?? popupOptions.defaultY ?? 120,
           tagPrefix: action.tagPrefix,
+          inheritedIndexRules: inheritedIndexRules.length > 0 ? inheritedIndexRules : undefined,
           args: action.args,
           modal: popupOptions.modal ?? false,
           draggable: popupOptions.draggable ?? true,
@@ -1941,6 +1948,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
               screenId: popupScreen.id,
               title: item.title,
               tagPrefix: item.tagPrefix,
+              inheritedIndexRules: item.inheritedIndexRules,
               parameters: item.args,
               args: item.args,
               userRoles: runtimeUserRoles,

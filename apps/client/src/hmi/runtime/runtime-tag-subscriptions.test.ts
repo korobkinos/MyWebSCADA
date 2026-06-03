@@ -735,4 +735,117 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).not.toContain("Burner[1].Pressure");
     expect(subscriptions).not.toContain("Burner[1].Cmd");
   });
+
+  it("collects popup-inherited indexed tags", () => {
+    const mainScreen: HmiScreen = {
+      id: "runtime-main",
+      name: "Runtime Main",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [],
+    };
+
+    const popupScreen: HmiScreen = {
+      id: "popup-1",
+      name: "Popup 1",
+      kind: "popup",
+      width: 400,
+      height: 300,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "switch-1",
+          type: "switch",
+          x: 20,
+          y: 20,
+          width: 120,
+          height: 40,
+          tag: "Burners[0].Pressure",
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+        },
+        {
+          id: "button-1",
+          type: "button",
+          x: 20,
+          y: 80,
+          width: 120,
+          height: 40,
+          text: "Write",
+          showText: true,
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "center",
+            verticalAlign: "middle",
+          },
+          action: {
+            type: "write",
+            tag: "Burners[0].Valves[0].Open",
+            value: true,
+          },
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Popup index project",
+      drivers: [],
+      tags: [],
+      screens: [mainScreen, popupScreen],
+      startScreenId: mainScreen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen: mainScreen,
+      tags: {},
+      popups: [
+        {
+          screen: popupScreen,
+          inheritedIndexRules: [
+            {
+              id: "rule-1",
+              enabled: true,
+              indexOffset: 2,
+              indexMode: {
+                type: "arrayIndex",
+                occurrence: 0,
+                operation: "add",
+                valueFrom: "indexOffset",
+              },
+              conflictMode: "skipLocal",
+            },
+            {
+              id: "rule-2",
+              enabled: true,
+              indexOffset: 5,
+              indexMode: {
+                type: "arrayIndex",
+                occurrence: 1,
+                operation: "add",
+                valueFrom: "indexOffset",
+              },
+              conflictMode: "skipLocal",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(subscriptions).toContain("Burners[2].Pressure");
+    expect(subscriptions).toContain("Burners[2].Valves[5].Open");
+    expect(subscriptions).not.toContain("Burners[0].Pressure");
+    expect(subscriptions).not.toContain("Burners[0].Valves[0].Open");
+  });
 });

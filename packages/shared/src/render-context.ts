@@ -192,6 +192,7 @@ export function resolveRuntimeAction(action: RuntimeAction, context: RenderConte
       ...action,
       title: action.title ? resolveTemplateString(action.title, context.parameters ?? {}) : action.title,
       tagPrefix: combineTagPrefix(context.tagPrefix, action.tagPrefix),
+      tagIndexRules: action.tagIndexRules,
       args: action.args ? (resolveParameters(action.args, context.parameters ?? {}) as Record<string, unknown>) : action.args,
     };
   }

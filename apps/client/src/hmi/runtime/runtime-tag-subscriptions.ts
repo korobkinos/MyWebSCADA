@@ -9,6 +9,7 @@ import {
   resolveRuntimeAction,
   resolveTagName,
   type ElementLibrary,
+  type FrameTagIndexRule,
   type HmiObject,
   type HmiScreen,
   type RenderContext,
@@ -26,6 +27,7 @@ type TagMap = Record<string, TagValue>;
 type PopupSubscriptionContext = {
   screen: HmiScreen;
   tagPrefix?: string;
+  inheritedIndexRules?: FrameTagIndexRule[];
   args?: Record<string, unknown>;
 };
 
@@ -113,6 +115,7 @@ export function collectRuntimeTagSubscriptionPlan(input: RuntimeTagSubscriptionI
       {
         screenId: popup.screen.id,
         tagPrefix: popup.tagPrefix,
+        inheritedIndexRules: popup.inheritedIndexRules,
         parameters: popup.args,
         args: popup.args,
       },

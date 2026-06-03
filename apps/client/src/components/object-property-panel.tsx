@@ -1448,6 +1448,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     rawTagName?: string;
   } | null>(null);
   const [frameIndexesEditorOpen, setFrameIndexesEditorOpen] = useState(false);
+  const [popupIndexesEditorOpen, setPopupIndexesEditorOpen] = useState(false);
   const [trendTagPickerOpen, setTrendTagPickerOpen] = useState(false);
   const [trendSettingsOpen, setTrendSettingsOpen] = useState(false);
   const [trendSettingsInitialTab, setTrendSettingsInitialTab] = useState<"appearance" | "performance" | "axes" | "series" | "table" | "toolbar">("appearance");
@@ -1480,6 +1481,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
   useEffect(() => {
     setIndexedEditorTarget(null);
     setFrameIndexesEditorOpen(false);
+    setPopupIndexesEditorOpen(false);
     setTrendTagPickerOpen(false);
     setTrendSettingsOpen(false);
     setTrendSettingsInitialTab("appearance");
@@ -1732,6 +1734,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
       elementBindings={elementBindings}
       buildIndexControl={buildIndexControl}
       onOpenFrameIndexes={() => setFrameIndexesEditorOpen(true)}
+      onOpenPopupIndexes={() => setPopupIndexesEditorOpen(true)}
       onOpenTrendTagPicker={() => setTrendTagPickerOpen(true)}
       onOpenTrendSettings={(tab) => {
         setTrendSettingsInitialTab(tab ?? "appearance");
@@ -1980,6 +1983,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
         { key: "runtime", label: "Runtime", children: runtimeStateContent },
         { key: "access", label: "Access", children: accessContent },
       ];
+  const popupIndexesAction = "action" in object && object.action?.type === "openPopup" ? object.action : undefined;
 
   return (
     <div className="object-property-panel object-property-panel--workbench">
@@ -2012,6 +2016,34 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           runtimePreviewValues={editorRuntimeValues}
           onApplyRules={(nextRules) => onPatch({ tagIndexRules: nextRules.length > 0 ? nextRules : undefined } as Partial<HmiObject>)}
           onClose={() => setFrameIndexesEditorOpen(false)}
+        />
+      ) : null}
+      {popupIndexesAction ? (
+        <FrameIndexesEditorWindow
+          open={popupIndexesEditorOpen}
+          project={project}
+          libraries={libraries}
+          frame={{
+            id: `${object.id}:openPopup`,
+            name: object.name,
+            screenId: popupIndexesAction.popupScreenId,
+            tagPrefix: popupIndexesAction.tagPrefix,
+            tagIndexRules: popupIndexesAction.tagIndexRules,
+          }}
+          title="Popup Indexes"
+          targetLabel="Popup"
+          emptyScreenMessage="Select popup screen first."
+          missingScreenMessage="Popup screen not found."
+          runtimePreviewValues={editorRuntimeValues}
+          onApplyRules={(nextRules) =>
+            onPatch({
+              action: {
+                ...popupIndexesAction,
+                tagIndexRules: nextRules.length > 0 ? nextRules : undefined,
+              },
+            } as Partial<HmiObject>)
+          }
+          onClose={() => setPopupIndexesEditorOpen(false)}
         />
       ) : null}
       {object.type === "trendChart" ? (
@@ -2056,6 +2088,7 @@ function SpecificPropertyFields({
   buildIndexControl,
   numericInputSection,
   onOpenFrameIndexes,
+  onOpenPopupIndexes,
   onOpenTrendTagPicker,
   onOpenTrendSettings,
   onPatch,
@@ -2074,6 +2107,7 @@ function SpecificPropertyFields({
     };
   numericInputSection?: "value" | "appearance" | "error" | "dialog";
   onOpenFrameIndexes?: () => void;
+  onOpenPopupIndexes?: () => void;
   onOpenTrendTagPicker?: () => void;
   onOpenTrendSettings?: (tab?: "appearance" | "performance" | "axes" | "series" | "table" | "toolbar") => void;
   onPatch: (patch: Partial<HmiObject>) => void;
@@ -2860,6 +2894,11 @@ function SpecificPropertyFields({
                 }
               />
             </Form.Item>
+            <Form.Item label="Popup Indexes">
+              <Button size="small" onClick={() => onOpenPopupIndexes?.()} disabled={!openPopupAction.popupScreenId}>
+                Popup Indexes...
+              </Button>
+            </Form.Item>
             <Form.Item label="Popup Args (JSON)">
               <Input.TextArea
                 rows={3}
@@ -3375,6 +3414,11 @@ function SpecificPropertyFields({
                   } as Partial<HmiObject>)
                 }
               />
+            </Form.Item>
+            <Form.Item label="Popup Indexes">
+              <Button size="small" onClick={() => onOpenPopupIndexes?.()} disabled={!imageOpenPopupAction.popupScreenId}>
+                Popup Indexes...
+              </Button>
             </Form.Item>
             <Form.Item label="Popup Args (JSON)">
               <Input.TextArea

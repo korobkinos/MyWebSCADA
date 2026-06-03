@@ -1,3 +1,5 @@
+import type { FrameTagIndexRule } from "./hmi-object-types";
+
 export type PopupInstance = {
   id: string;
   popupScreenId: string;
@@ -7,6 +9,7 @@ export type PopupInstance = {
   y: number;
   zIndex: number;
   tagPrefix?: string;
+  inheritedIndexRules?: FrameTagIndexRule[];
   args?: Record<string, unknown>;
   modal: boolean;
   draggable: boolean;
