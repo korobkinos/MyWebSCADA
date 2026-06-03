@@ -3138,8 +3138,12 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
         dataType: opcUaDataTypeToTagDataType(item.dataType),
         driverId: payload.driverId,
         nodeId: item.nodeId,
-        address: { nodeId: item.nodeId },
-        writable: item.writable ?? prevTag?.writable ?? false,
+        address: {
+          nodeId: item.nodeId,
+          ...(item.indexRange ? { indexRange: item.indexRange } : {}),
+          ...(item.memberPath?.length ? { memberPath: item.memberPath } : {}),
+        },
+        writable: item.indexRange || item.memberPath?.length ? false : item.writable ?? prevTag?.writable ?? false,
         scanRateMs: payload.scanRateMs ?? prevTag?.scanRateMs ?? 500,
       };
       const existingIndex = nextTags.findIndex((tag) => tag.name === tagName);

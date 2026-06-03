@@ -16,6 +16,9 @@ export type OpcUaBrowseItem = {
   displayName: string;
   nodeClass: string;
   dataType?: string;
+  valueRank?: number;
+  arrayDimensions?: number[];
+  isArray?: boolean;
   writable?: boolean;
   hasChildren: boolean;
 };
@@ -31,6 +34,8 @@ export type OpcUaImportCandidate = {
   nodeId: string;
   browsePath: string;
   dataType?: string;
+  indexRange?: string;
+  memberPath?: string[];
   writable?: boolean;
 };
 
@@ -47,6 +52,9 @@ const OPCUA_NODECLASS_WITH_POTENTIAL_CHILDREN = new Set<number>([
   NodeClass.Variable,
   NodeClass.View,
 ]);
+const OPCUA_ARRAY_IMPORT_HARD_LIMIT = 1_000;
+const OPCUA_STRUCTURE_FIELD_DEPTH_LIMIT = 4;
+const OPCUA_STRUCTURE_FIELD_LIMIT = 100;
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timeout: NodeJS.Timeout | undefined;
@@ -116,6 +124,159 @@ function toLocalizedText(value: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+function toNumberArray(value: unknown): number[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    return value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
+  }
+  if (ArrayBuffer.isView(value) && "length" in value) {
+    return Array.from(value as unknown as ArrayLike<number>).filter((item) => typeof item === "number" && Number.isFinite(item));
+  }
+  return undefined;
+}
+
+function isArrayNode(valueRank: number | undefined, arrayDimensions: number[] | undefined): boolean {
+  return (typeof valueRank === "number" && valueRank >= 1)
+    || Boolean(arrayDimensions?.some((dimension) => dimension > 0));
+}
+
+function isArrayLikeValue(value: unknown): value is ArrayLike<unknown> {
+  return Array.isArray(value) || (ArrayBuffer.isView(value) && "length" in value);
+}
+
+function getArrayLength(value: unknown): number | undefined {
+  return isArrayLikeValue(value) ? value.length : undefined;
+}
+
+function getArrayElement(value: unknown, index: number): unknown {
+  if (!isArrayLikeValue(value)) {
+    return undefined;
+  }
+  return value[index];
+}
+
+function toInspectableObject(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || value instanceof Date || ArrayBuffer.isView(value)) {
+    return undefined;
+  }
+  const toJSON = (value as { toJSON?: unknown }).toJSON;
+  if (typeof toJSON === "function") {
+    try {
+      const json = toJSON.call(value);
+      if (json && typeof json === "object" && !Array.isArray(json)) {
+        return json as Record<string, unknown>;
+      }
+    } catch {
+      // Fall back to enumerable fields below.
+    }
+  }
+  if (Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function collectStructureFieldPaths(
+  value: unknown,
+  path: string[] = [],
+  output: Array<{ path: string[]; value: unknown }> = [],
+): Array<{ path: string[]; value: unknown }> {
+  if (output.length >= OPCUA_STRUCTURE_FIELD_LIMIT || path.length >= OPCUA_STRUCTURE_FIELD_DEPTH_LIMIT) {
+    return output;
+  }
+  const objectValue = toInspectableObject(value);
+  if (!objectValue) {
+    if (path.length > 0) {
+      output.push({ path, value });
+    }
+    return output;
+  }
+
+  for (const key of Object.keys(objectValue)) {
+    if (output.length >= OPCUA_STRUCTURE_FIELD_LIMIT) {
+      break;
+    }
+    if (!key || key.startsWith("_")) {
+      continue;
+    }
+    const nextValue = objectValue[key];
+    const nextPath = [...path, key];
+    const nextObject = toInspectableObject(nextValue);
+    if (nextObject && path.length + 1 < OPCUA_STRUCTURE_FIELD_DEPTH_LIMIT) {
+      collectStructureFieldPaths(nextValue, nextPath, output);
+    } else {
+      output.push({ path: nextPath, value: nextValue });
+    }
+  }
+  return output;
+}
+
+function inferOpcUaDataTypeFromValue(value: unknown, fallback?: string): string | undefined {
+  if (typeof value === "boolean") {
+    return "Boolean";
+  }
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? "Int32" : "Double";
+  }
+  if (typeof value === "string") {
+    return "String";
+  }
+  return fallback;
+}
+
+async function readOpcUaRawValue(session: ClientSession, nodeId: string): Promise<unknown> {
+  try {
+    const valueAttr = await session.read({ nodeId, attributeId: AttributeIds.Value });
+    return valueAttr?.value?.value;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readOpcUaBrowseItemMetadata(session: ClientSession, nodeId: string): Promise<OpcUaBrowseItem | undefined> {
+  try {
+    const [
+      browseNameAttr,
+      displayNameAttr,
+      nodeClassAttr,
+      dataTypeAttr,
+      accessLevelAttr,
+      valueRankAttr,
+      arrayDimensionsAttr,
+    ] = await session.read([
+      { nodeId, attributeId: AttributeIds.BrowseName },
+      { nodeId, attributeId: AttributeIds.DisplayName },
+      { nodeId, attributeId: AttributeIds.NodeClass },
+      { nodeId, attributeId: AttributeIds.DataType },
+      { nodeId, attributeId: AttributeIds.UserAccessLevel },
+      { nodeId, attributeId: AttributeIds.ValueRank },
+      { nodeId, attributeId: AttributeIds.ArrayDimensions },
+    ]);
+    const nodeClassNumeric = typeof nodeClassAttr?.value?.value === "number"
+      ? nodeClassAttr.value.value
+      : NodeClass.Unspecified;
+    const valueRank = typeof valueRankAttr?.value?.value === "number" ? valueRankAttr.value.value : undefined;
+    const arrayDimensions = toNumberArray(arrayDimensionsAttr?.value?.value);
+    const access = accessLevelAttr?.value?.value;
+    return {
+      nodeId,
+      browseName: toQualifiedNameText(browseNameAttr?.value?.value) ?? nodeId,
+      displayName: toLocalizedText(displayNameAttr?.value?.value) ?? nodeId,
+      nodeClass: NodeClass[nodeClassNumeric] ?? String(nodeClassNumeric),
+      dataType: dataTypeAttr?.value?.value?.toString?.(),
+      valueRank,
+      arrayDimensions,
+      isArray: isArrayNode(valueRank, arrayDimensions),
+      writable: typeof access === "number" ? (access & 0x2) !== 0 : undefined,
+      hasChildren: false,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export async function withOpcUaSession<T>(
@@ -213,14 +374,26 @@ export async function browseOpcUaNode(
         nodeClassNumeric === OPCUA_NODECLASS_UNSPECIFIED;
       let dataType: string | undefined;
       let writable: boolean | undefined;
+      let valueRank: number | undefined;
+      let arrayDimensions: number[] | undefined;
 
       if (needsMetadataRead || nodeClassNumeric === NodeClass.Variable) {
-        const [browseNameAttr, displayNameAttr, nodeClassAttr, dataTypeAttr, accessLevelAttr] = await session.read([
+        const [
+          browseNameAttr,
+          displayNameAttr,
+          nodeClassAttr,
+          dataTypeAttr,
+          accessLevelAttr,
+          valueRankAttr,
+          arrayDimensionsAttr,
+        ] = await session.read([
           { nodeId: refNodeId, attributeId: AttributeIds.BrowseName },
           { nodeId: refNodeId, attributeId: AttributeIds.DisplayName },
           { nodeId: refNodeId, attributeId: AttributeIds.NodeClass },
           { nodeId: refNodeId, attributeId: AttributeIds.DataType },
           { nodeId: refNodeId, attributeId: AttributeIds.UserAccessLevel },
+          { nodeId: refNodeId, attributeId: AttributeIds.ValueRank },
+          { nodeId: refNodeId, attributeId: AttributeIds.ArrayDimensions },
         ]);
 
         if (!browseName) {
@@ -239,6 +412,8 @@ export async function browseOpcUaNode(
         dataType = dataTypeAttr?.value?.value?.toString?.();
         const access = accessLevelAttr?.value?.value;
         writable = typeof access === "number" ? (access & 0x2) !== 0 : undefined;
+        valueRank = typeof valueRankAttr?.value?.value === "number" ? valueRankAttr.value.value : undefined;
+        arrayDimensions = toNumberArray(arrayDimensionsAttr?.value?.value);
       }
 
       return {
@@ -247,6 +422,8 @@ export async function browseOpcUaNode(
         displayName: isBlankOrNullLike(displayName) ? (isBlankOrNullLike(browseName) ? refNodeId : browseName!) : displayName!,
         nodeClassNumeric: nodeClassNumeric ?? NodeClass.Unspecified,
         dataType,
+        valueRank,
+        arrayDimensions,
         writable,
       };
     }),
@@ -293,6 +470,9 @@ export async function browseOpcUaNode(
       displayName: item.displayName,
       nodeClass: nodeClassName,
       dataType: item.dataType,
+      valueRank: item.valueRank,
+      arrayDimensions: item.arrayDimensions,
+      isArray: isArrayNode(item.valueRank, item.arrayDimensions),
       writable: item.writable,
       hasChildren: hasChildrenByNodeId.get(item.nodeId) ?? false,
     };
@@ -335,6 +515,77 @@ export async function collectOpcUaSubtreeVariables(
   const visited = new Set<string>();
   const output: OpcUaImportCandidate[] = [];
   const queue: Array<{ nodeId: string; path: string }> = [{ nodeId, path: rootBrowsePath?.trim() || "" }];
+  const pushCandidate = (candidate: OpcUaImportCandidate): boolean => {
+    if (output.length >= maxNodes) {
+      return false;
+    }
+    output.push(candidate);
+    return true;
+  };
+  const addVariableCandidate = async (child: OpcUaBrowseItem, browsePath: string): Promise<void> => {
+    if (!pushCandidate({
+      nodeId: child.nodeId,
+      browsePath: toTagNameFromBrowsePath(browsePath),
+      dataType: child.dataType,
+      writable: child.writable,
+    })) {
+      return;
+    }
+    if (!child.isArray) {
+      return;
+    }
+    const rawValue = await readOpcUaRawValue(session, child.nodeId);
+    const dimensionLength = child.arrayDimensions?.find((dimension) => dimension > 0);
+    const valueLength = getArrayLength(rawValue);
+    const arrayLength = Math.min(
+      dimensionLength ?? valueLength ?? 0,
+      OPCUA_ARRAY_IMPORT_HARD_LIMIT,
+      Math.max(0, maxNodes - output.length),
+    );
+    if (arrayLength <= 0) {
+      return;
+    }
+
+    const sampleIndex = Array.from({ length: arrayLength }, (_, index) => index)
+      .find((index) => getArrayElement(rawValue, index) != null);
+    const sampleValue = sampleIndex === undefined ? undefined : getArrayElement(rawValue, sampleIndex);
+    const fieldPaths = collectStructureFieldPaths(sampleValue);
+    if (fieldPaths.length > 0) {
+      for (let index = 0; index < arrayLength; index += 1) {
+        const element = getArrayElement(rawValue, index);
+        for (const field of fieldPaths) {
+          if (!pushCandidate({
+            nodeId: child.nodeId,
+            browsePath: toTagNameFromBrowsePath(`${browsePath}[${index}].${field.path.join(".")}`),
+            dataType: inferOpcUaDataTypeFromValue(field.path.reduce<unknown>((value, key) => toInspectableObject(value)?.[key], element), child.dataType),
+            indexRange: String(index),
+            memberPath: field.path,
+            writable: false,
+          })) {
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    for (let index = 0; index < arrayLength; index += 1) {
+      if (!pushCandidate({
+        nodeId: child.nodeId,
+        browsePath: toTagNameFromBrowsePath(`${browsePath}[${index}]`),
+        dataType: child.dataType,
+        indexRange: String(index),
+        writable: false,
+      })) {
+        return;
+      }
+    }
+  };
+
+  const rootMetadata = await readOpcUaBrowseItemMetadata(session, nodeId);
+  if (rootMetadata && rootMetadata.nodeClass.toLowerCase() === "variable" && rootMetadata.isArray) {
+    await addVariableCandidate(rootMetadata, rootBrowsePath?.trim() || rootMetadata.browseName || rootMetadata.displayName || nodeId);
+  }
 
   while (queue.length > 0) {
     const current = queue.shift()!;
@@ -353,12 +604,7 @@ export async function collectOpcUaSubtreeVariables(
       const classLower = (child.nodeClass ?? "").toLowerCase();
       const isVariable = classLower === "variable";
       if (isVariable) {
-        output.push({
-          nodeId: child.nodeId,
-          browsePath: toTagNameFromBrowsePath(childPath),
-          dataType: child.dataType,
-          writable: child.writable,
-        });
+        await addVariableCandidate(child, childPath);
       }
       if (child.hasChildren) {
         queue.push({ nodeId: child.nodeId, path: childPath });
@@ -404,6 +650,22 @@ export async function readOpcUaNode(session: ClientSession, nodeId: string): Pro
 
 export function opcUaDataTypeToTagDataType(dataTypeNodeId: string | undefined): TagDataType {
   if (!dataTypeNodeId) {
+    return "STRING";
+  }
+  const normalized = dataTypeNodeId.toLowerCase();
+  if (normalized.includes("bool")) {
+    return "BOOL";
+  }
+  if (normalized.includes("uint") || normalized.includes("int32") || normalized.includes("dint")) {
+    return "DINT";
+  }
+  if (normalized.includes("int") || normalized.includes("short")) {
+    return "INT";
+  }
+  if (normalized.includes("double") || normalized.includes("float") || normalized.includes("real")) {
+    return "REAL";
+  }
+  if (normalized.includes("string") || normalized.includes("text")) {
     return "STRING";
   }
   const match = /i=(\d+)/i.exec(dataTypeNodeId);

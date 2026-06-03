@@ -30,6 +30,8 @@ export type ModbusAddress = {
 
 export type OpcUaAddress = {
   nodeId: string;
+  indexRange?: string;
+  memberPath?: string[];
 };
 
 export type SimulatedAddress = {

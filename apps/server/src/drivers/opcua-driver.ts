@@ -4,6 +4,7 @@ import {
   ClientSubscription,
   DataType,
   MessageSecurityMode,
+  NumericRange,
   OPCUAClient,
   SecurityPolicy,
   TimestampsToReturn,
@@ -17,38 +18,116 @@ import type { OpcUaDriverConfig, TagDefinition, TagScalarValue, TagValue } from 
 import type { Driver, DriverStatus } from "./driver.js";
 import { logPerf } from "../runtime/perf-logger.js";
 
-type OpcUaAddress = { nodeId: string };
+type OpcUaAddress = { nodeId: string; indexRange?: string; memberPath?: string[] };
 type SubscriptionGroupBinding = {
   group: ClientMonitoredItemGroup;
-  nodeIds: string[];
+  keys: string[];
 };
 
 function extractAddress(tag: TagDefinition): OpcUaAddress {
-  const inlineNodeId = typeof tag.nodeId === "string" ? tag.nodeId.trim() : "";
-  if (inlineNodeId.length > 0) {
-    return { nodeId: inlineNodeId };
-  }
-
   if (tag.address && typeof tag.address === "object") {
-    const nodeId = (tag.address as Record<string, unknown>).nodeId;
+    const rawAddress = tag.address as Record<string, unknown>;
+    const nodeId = rawAddress.nodeId;
     if (typeof nodeId === "string" && nodeId.trim().length > 0) {
-      return { nodeId: nodeId.trim() };
+      const indexRange = typeof rawAddress.indexRange === "string" && rawAddress.indexRange.trim().length > 0
+        ? rawAddress.indexRange.trim()
+        : undefined;
+      const memberPath = Array.isArray(rawAddress.memberPath)
+        ? rawAddress.memberPath.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : undefined;
+      return {
+        nodeId: nodeId.trim(),
+        ...(indexRange ? { indexRange } : {}),
+        ...(memberPath?.length ? { memberPath } : {}),
+      };
     }
-    const raw = (tag.address as Record<string, unknown>).raw;
+    const raw = rawAddress.raw;
     if (typeof raw === "string" && raw.trim().length > 0) {
       return { nodeId: raw.trim() };
     }
   }
 
+  const inlineNodeId = typeof tag.nodeId === "string" ? tag.nodeId.trim() : "";
+  if (inlineNodeId.length > 0) {
+    return { nodeId: inlineNodeId };
+  }
+
   throw new Error(`Tag ${tag.name} requires OPC UA nodeId`);
 }
 
-function toScalar(value: DataValue): TagScalarValue {
-  const raw = value.value.value;
+function toScalarValue(raw: unknown): TagScalarValue {
   if (typeof raw === "boolean" || typeof raw === "number" || typeof raw === "string") {
     return raw;
   }
   return null;
+}
+
+function isArrayLikeValue(value: unknown): value is ArrayLike<unknown> {
+  return Array.isArray(value) || (ArrayBuffer.isView(value) && "length" in value);
+}
+
+function unwrapIndexRangeValue(value: unknown, address: OpcUaAddress): unknown {
+  if (!address.indexRange || !isArrayLikeValue(value) || value.length !== 1) {
+    return value;
+  }
+  return value[0];
+}
+
+function toInspectableObject(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || value instanceof Date || ArrayBuffer.isView(value) || Array.isArray(value)) {
+    return undefined;
+  }
+  const toJSON = (value as { toJSON?: unknown }).toJSON;
+  if (typeof toJSON === "function") {
+    try {
+      const json = toJSON.call(value);
+      if (json && typeof json === "object" && !Array.isArray(json)) {
+        return json as Record<string, unknown>;
+      }
+    } catch {
+      // Use enumerable fields below.
+    }
+  }
+  return value as Record<string, unknown>;
+}
+
+function resolveMemberPath(value: unknown, memberPath: string[] | undefined): unknown {
+  if (!memberPath?.length) {
+    return value;
+  }
+  let current = value;
+  for (const member of memberPath) {
+    const objectValue = toInspectableObject(current);
+    if (!objectValue || !(member in objectValue)) {
+      return undefined;
+    }
+    current = objectValue[member];
+  }
+  return current;
+}
+
+function toAddressKey(address: OpcUaAddress): string {
+  return `${address.nodeId}\u001f${address.indexRange ?? ""}`;
+}
+
+function toIndexRange(value: string | undefined): NumericRange | undefined {
+  return value ? new NumericRange(value) : undefined;
+}
+
+export function toOpcUaReadValueId(tag: TagDefinition): ReadValueIdOptions {
+  const address = extractAddress(tag);
+  return {
+    nodeId: address.nodeId,
+    attributeId: AttributeIds.Value,
+    ...(address.indexRange ? { indexRange: toIndexRange(address.indexRange) } : {}),
+  };
+}
+
+export function resolveOpcUaDataValueForTag(dataValue: DataValue, tag: TagDefinition): TagScalarValue {
+  const address = extractAddress(tag);
+  const raw = unwrapIndexRangeValue(dataValue.value.value, address);
+  const resolved = resolveMemberPath(raw, address.memberPath);
+  return toScalarValue(resolved);
 }
 
 function toDataType(value: TagScalarValue): DataType {
@@ -105,7 +184,7 @@ export class OpcUaDriver implements Driver {
   private subscription: ClientSubscription | undefined;
   private readonly monitoredGroups: SubscriptionGroupBinding[] = [];
   private readonly subscribedTagNames = new Set<string>();
-  private readonly subscriptionTagsByNodeId = new Map<string, TagDefinition[]>();
+  private readonly subscriptionTagsByAddressKey = new Map<string, TagDefinition[]>();
   private desiredSubscriptionTags: TagDefinition[] = [];
   private subscriptionOnValues: ((values: TagValue[]) => void) | undefined;
   private subscriptionSetupTask: Promise<void> | undefined;
@@ -208,12 +287,8 @@ export class OpcUaDriver implements Driver {
     const startedAt = Date.now();
     try {
       await this.ensureConnected({ waitForConnect: false });
-      const address = extractAddress(tag);
       const dataValue = await this.withTimeout(
-        this.session!.read({
-          nodeId: address.nodeId,
-          attributeId: AttributeIds.Value,
-        }),
+        this.session!.read(toOpcUaReadValueId(tag)),
         this.getOperationTimeoutMs(),
         `OPC UA read timeout for tag ${tag.name}`,
       );
@@ -229,7 +304,7 @@ export class OpcUaDriver implements Driver {
 
       return {
         name: tag.name,
-        value: toScalar(dataValue),
+        value: resolveOpcUaDataValueForTag(dataValue, tag),
         quality: dataValue.statusCode.isGood() ? "Good" : "Bad",
         timestamp: Date.now(),
         source: this.id,
@@ -267,12 +342,19 @@ export class OpcUaDriver implements Driver {
     try {
       await this.ensureConnected({ waitForConnect: false });
 
-      const valid: Array<{ tag: TagDefinition; nodeId: string }> = [];
+      const valid: Array<{ tag: TagDefinition; readValueId: ReadValueIdOptions }> = [];
       const invalid: TagDefinition[] = [];
       for (const tag of tags) {
         try {
           const address = extractAddress(tag);
-          valid.push({ tag, nodeId: address.nodeId });
+          valid.push({
+            tag,
+            readValueId: {
+              nodeId: address.nodeId,
+              attributeId: AttributeIds.Value,
+              ...(address.indexRange ? { indexRange: toIndexRange(address.indexRange) } : {}),
+            },
+          });
         } catch {
           invalid.push(tag);
         }
@@ -287,10 +369,7 @@ export class OpcUaDriver implements Driver {
           const batchStartedAt = Date.now();
           const dataValues = await this.withTimeout(
             this.session!.read(
-              batch.map((item) => ({
-                nodeId: item.nodeId,
-                attributeId: AttributeIds.Value,
-              })),
+              batch.map((item) => item.readValueId),
             ),
             this.getOperationTimeoutMs(),
             `OPC UA batch read timeout for ${batch.length} tags`,
@@ -313,7 +392,7 @@ export class OpcUaDriver implements Driver {
 
             values.push({
               name: item.tag.name,
-              value: toScalar(dataValue),
+              value: resolveOpcUaDataValueForTag(dataValue, item.tag),
               quality: dataValue.statusCode.isGood() ? "Good" : "Bad",
               timestamp: Date.now(),
               source: this.id,
@@ -375,6 +454,9 @@ export class OpcUaDriver implements Driver {
     try {
       await this.ensureConnected({ waitForConnect: false });
       const address = extractAddress(tag);
+      if (address.indexRange || address.memberPath?.length) {
+        throw new Error(`Tag ${tag.name} uses extended OPC UA addressing and is read-only`);
+      }
 
       await this.withTimeout(
         this.session!.write({
@@ -992,12 +1074,12 @@ export class OpcUaDriver implements Driver {
       throw new Error(OpcUaDriver.OFFLINE_SKIP_STATUS);
     }
 
-    const validTargets: Array<{ tag: TagDefinition; nodeId: string }> = [];
+    const validTargets: Array<{ tag: TagDefinition; address: OpcUaAddress; key: string }> = [];
     const invalidTags: TagDefinition[] = [];
     for (const tag of this.desiredSubscriptionTags) {
       try {
         const address = extractAddress(tag);
-        validTargets.push({ tag, nodeId: address.nodeId });
+        validTargets.push({ tag, address, key: toAddressKey(address) });
       } catch {
         invalidTags.push(tag);
       }
@@ -1033,21 +1115,21 @@ export class OpcUaDriver implements Driver {
     this.attachSubscriptionHandlers(subscription);
     this.updateSubscriptionState("creating");
 
-    const tagsByNodeId = new Map<string, TagDefinition[]>();
+    const tagsByAddressKey = new Map<string, { address: OpcUaAddress; tags: TagDefinition[] }>();
     for (const target of validTargets) {
-      const group = tagsByNodeId.get(target.nodeId);
+      const group = tagsByAddressKey.get(target.key);
       if (group) {
-        group.push(target.tag);
+        group.tags.push(target.tag);
       } else {
-        tagsByNodeId.set(target.nodeId, [target.tag]);
+        tagsByAddressKey.set(target.key, { address: target.address, tags: [target.tag] });
       }
     }
-    this.subscriptionTagsByNodeId.clear();
-    for (const [nodeId, tags] of tagsByNodeId.entries()) {
-      this.subscriptionTagsByNodeId.set(nodeId, tags);
+    this.subscriptionTagsByAddressKey.clear();
+    for (const [key, group] of tagsByAddressKey.entries()) {
+      this.subscriptionTagsByAddressKey.set(key, group.tags);
     }
 
-    const nodeIds = [...tagsByNodeId.keys()];
+    const addressGroups = [...tagsByAddressKey.entries()].map(([key, group]) => ({ key, address: group.address }));
     const batchSize = this.getSubscriptionBatchSize();
     const monitoringParameters: MonitoringParametersOptions = {
       samplingInterval: this.getSamplingIntervalMs(),
@@ -1056,7 +1138,7 @@ export class OpcUaDriver implements Driver {
     };
 
     let monitoredNodes = 0;
-    for (let index = 0; index < nodeIds.length; index += batchSize) {
+    for (let index = 0; index < addressGroups.length; index += batchSize) {
       if (epoch !== this.subscriptionEpoch) {
         return;
       }
@@ -1064,44 +1146,45 @@ export class OpcUaDriver implements Driver {
       if (this.subscription !== subscription) {
         return;
       }
-      const batchNodeIds = nodeIds.slice(index, index + batchSize);
-      const itemsToMonitor: ReadValueIdOptions[] = batchNodeIds.map((nodeId) => ({
-        nodeId,
+      const batchAddressGroups = addressGroups.slice(index, index + batchSize);
+      const itemsToMonitor: ReadValueIdOptions[] = batchAddressGroups.map((item) => ({
+        nodeId: item.address.nodeId,
         attributeId: AttributeIds.Value,
+        ...(item.address.indexRange ? { indexRange: toIndexRange(item.address.indexRange) } : {}),
       }));
 
       try {
         const group = await this.withTimeout(
           subscription.monitorItems(itemsToMonitor, monitoringParameters, TimestampsToReturn.Both),
           this.getOperationTimeoutMs(),
-          `OPC UA subscription batch timeout for ${batchNodeIds.length} items`,
+          `OPC UA subscription batch timeout for ${batchAddressGroups.length} items`,
         );
         const binding: SubscriptionGroupBinding = {
           group,
-          nodeIds: batchNodeIds,
+          keys: batchAddressGroups.map((item) => item.key),
         };
         group.on("changed", (_monitoredItem, dataValue, itemIndex) => {
-          const nodeId = binding.nodeIds[itemIndex];
-          if (!nodeId) {
+          const key = binding.keys[itemIndex];
+          if (!key) {
             return;
           }
-          this.handleSubscriptionValue(nodeId, dataValue);
+          this.handleSubscriptionValue(key, dataValue);
         });
         group.on("err", (message) => {
           this.updateSubscriptionState("error", String(message || "Subscription group error"));
         });
         this.monitoredGroups.push(binding);
-        monitoredNodes += batchNodeIds.length;
+        monitoredNodes += batchAddressGroups.length;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logDiagnostic(
           "subscription-batch-error",
-          `[OpcUaDriver:${this.id}] subscription batch failed items=${batchNodeIds.length} error=${message}`,
+          `[OpcUaDriver:${this.id}] subscription batch failed items=${batchAddressGroups.length} error=${message}`,
           2_000,
         );
         const failedTags: TagDefinition[] = [];
-        for (const nodeId of batchNodeIds) {
-          failedTags.push(...(this.subscriptionTagsByNodeId.get(nodeId) ?? []));
+        for (const item of batchAddressGroups) {
+          failedTags.push(...(this.subscriptionTagsByAddressKey.get(item.key) ?? []));
         }
         this.publishBadValues(failedTags);
         this.subscriptionError = message;
@@ -1151,18 +1234,17 @@ export class OpcUaDriver implements Driver {
     });
   }
 
-  private handleSubscriptionValue(nodeId: string, dataValue: DataValue): void {
-    const tags = this.subscriptionTagsByNodeId.get(nodeId);
+  private handleSubscriptionValue(addressKey: string, dataValue: DataValue): void {
+    const tags = this.subscriptionTagsByAddressKey.get(addressKey);
     const callback = this.subscriptionOnValues;
     if (!tags || tags.length === 0 || !callback) {
       return;
     }
     const quality = dataValue.statusCode.isGood() ? "Good" : "Bad";
     const timestamp = Date.now();
-    const value = toScalar(dataValue);
     const updates: TagValue[] = tags.map((tag) => ({
       name: tag.name,
-      value,
+      value: resolveOpcUaDataValueForTag(dataValue, tag),
       quality,
       timestamp,
       source: this.id,
@@ -1203,7 +1285,7 @@ export class OpcUaDriver implements Driver {
     const activeSubscription = this.subscription;
     this.subscription = undefined;
     this.monitoredGroups.length = 0;
-    this.subscriptionTagsByNodeId.clear();
+    this.subscriptionTagsByAddressKey.clear();
     this.subscriptionActive = false;
     this.subscriptionState = "inactive";
     this.subscriptionError = undefined;

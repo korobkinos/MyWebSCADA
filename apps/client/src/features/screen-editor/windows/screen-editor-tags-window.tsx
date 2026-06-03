@@ -811,6 +811,9 @@ function OpcUaBrowserContent({
           <div className="screen-editor-opc-browser-cell">Display Name</div>
           <div className="screen-editor-opc-browser-cell">Node Class</div>
           <div className="screen-editor-opc-browser-cell">Data Type</div>
+          <div className="screen-editor-opc-browser-cell">Array</div>
+          <div className="screen-editor-opc-browser-cell">ValueRank</div>
+          <div className="screen-editor-opc-browser-cell">Dimensions</div>
           <div className="screen-editor-opc-browser-cell">Writable</div>
           <div className="screen-editor-opc-browser-cell">NodeId</div>
           <div className="screen-editor-opc-browser-cell">Actions</div>
@@ -858,6 +861,11 @@ function OpcUaBrowserContent({
               <div className="screen-editor-opc-browser-cell" title={node.displayName}>{node.displayName || "-"}</div>
               <div className="screen-editor-opc-browser-cell" title={node.nodeClass}>{node.nodeClass || "-"}</div>
               <div className="screen-editor-opc-browser-cell" title={node.dataType}>{node.dataType || "-"}</div>
+              <div className="screen-editor-opc-browser-cell">{node.isArray ? "Yes" : "No"}</div>
+              <div className="screen-editor-opc-browser-cell">{node.valueRank ?? "-"}</div>
+              <div className="screen-editor-opc-browser-cell" title={node.arrayDimensions?.join(",")}>
+                {node.arrayDimensions?.length ? node.arrayDimensions.join(",") : "-"}
+              </div>
               <div className="screen-editor-opc-browser-cell">{node.writable ? "Yes" : "No"}</div>
               <div className="screen-editor-opc-browser-cell" title={node.nodeId}>{node.nodeId}</div>
               <div className="screen-editor-opc-browser-cell screen-editor-opc-browser-cell--actions">
@@ -1704,8 +1712,8 @@ export function ScreenEditorTagsWindow() {
       void message.warning("Select a folder/structure node first");
       return;
     }
-    if (!selectedNode.hasChildren) {
-      void message.warning("Import Subtree is available only for nodes with children");
+    if (!selectedNode.hasChildren && !selectedNode.isArray) {
+      void message.warning("Import Subtree is available only for nodes with children or arrays");
       return;
     }
 
@@ -1825,7 +1833,7 @@ export function ScreenEditorTagsWindow() {
 
   const opcBrowseParentNodeId = getOpcUaParentNodeId(opcBrowseNodeId || OPC_UA_BROWSE_ROOT_NODE_ID);
   const selectedOpcBrowseNodeForSubtree = resolveOpcBrowseSelectionForSubtree();
-  const canImportOpcBrowseSubtree = Boolean(selectedOpcBrowseNodeForSubtree?.hasChildren);
+  const canImportOpcBrowseSubtree = Boolean(selectedOpcBrowseNodeForSubtree?.hasChildren || selectedOpcBrowseNodeForSubtree?.isArray);
 
   const focusOpcBrowserWindow = useCallback(() => {
     setOpcBrowserZIndex((value) => value + 1);

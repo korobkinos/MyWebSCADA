@@ -65,6 +65,9 @@ export type OpcUaBrowseItem = {
   displayName: string;
   nodeClass: string;
   dataType?: string;
+  valueRank?: number;
+  arrayDimensions?: number[];
+  isArray?: boolean;
   writable?: boolean;
   hasChildren: boolean;
 };

@@ -1284,6 +1284,8 @@ const modbusAddressSchema = z.object({
 
 const opcuaAddressSchema = z.object({
   nodeId: z.string().min(1),
+  indexRange: z.string().min(1).optional(),
+  memberPath: z.array(z.string().min(1)).optional(),
 });
 
 const simulatedAddressSchema = z.object({
