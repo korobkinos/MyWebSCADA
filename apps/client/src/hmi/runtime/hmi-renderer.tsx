@@ -61,7 +61,7 @@ const HMI_CONTROL_COLORS = {
   overlayBg: "#252526",
 } as const;
 const EMPTY_DRIVERS: DriverStatus[] = [];
-const ROTATION_TAG_SMOOTHING_MS = 250;
+const ROTATION_TAG_SMOOTHING_MS = 500;
 
 type AnimationTickHandler = (time: number) => void;
 const globalAnimationTickHandlers = new Set<AnimationTickHandler>();
