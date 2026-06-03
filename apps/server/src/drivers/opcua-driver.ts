@@ -7,6 +7,7 @@ import {
   NumericRange,
   OPCUAClient,
   SecurityPolicy,
+  StatusCodes,
   TimestampsToReturn,
   UserTokenType,
   VariantArrayType,
@@ -571,6 +572,25 @@ export class OpcUaDriver implements Driver {
         `OPC UA write timeout for tag ${tag.name}`,
       );
       const writeStatus = Array.isArray(writeResult) ? writeResult[0] : writeResult;
+
+      // Some OPC UA servers (Codesys-based PLCs) don't support indexRange writes.
+      // Fall back to read-modify-write: read full array, patch one element, write it back.
+      if (writeStatus && !writeStatus.isGood() && address.indexRange && !address.memberPath?.length) {
+        const statusValue = typeof writeStatus.value === "number" ? writeStatus.value : Number(writeStatus.value);
+        if (statusValue === StatusCodes.BadWriteNotSupported.value) {
+          await this.writeTagReadModifyArray(tag, value);
+          logPerf({
+            driver: "opcua",
+            id: this.id,
+            action: "writeTag",
+            tag: tag.name,
+            durationMs: Date.now() - startedAt,
+            status: "ok",
+          });
+          return;
+        }
+      }
+
       if (writeStatus && !writeStatus.isGood()) {
         throw new Error(`OPC UA write rejected for tag ${tag.name}: ${writeStatus.toString()}`);
       }
@@ -588,6 +608,62 @@ export class OpcUaDriver implements Driver {
         await this.handleOperationFailure("writeTag", message, startedAt, tag.name);
       }
       throw error;
+    }
+  }
+
+  /**
+   * Fallback for OPC UA servers that don't support indexRange writes (e.g. Codesys).
+   * Reads the full array, modifies the element at the given index, writes the full array back.
+   */
+  private async writeTagReadModifyArray(tag: TagDefinition, value: TagScalarValue): Promise<void> {
+    const address = extractAddress(tag);
+    const index = parseSingleIndexRange(address.indexRange);
+    if (index === undefined) {
+      throw new Error(`Cannot read-modify-write: tag ${tag.name} has no numeric indexRange`);
+    }
+
+    const dataValue = await this.withTimeout(
+      this.session!.read({
+        nodeId: address.nodeId,
+        attributeId: AttributeIds.Value,
+      }),
+      this.getOperationTimeoutMs(),
+      `OPC UA read before array fallback write timeout for tag ${tag.name}`,
+    );
+
+    if (!dataValue || !dataValue.statusCode.isGood()) {
+      throw new Error(`OPC UA read before array fallback write failed for tag ${tag.name}: bad data value`);
+    }
+
+    const rawValue = dataValue.value.value;
+    if (!rawValue || typeof rawValue !== "object" || !("length" in rawValue)) {
+      throw new Error(`OPC UA read before array fallback write: tag ${tag.name} is not an array`);
+    }
+
+    const nextArray = Array.from(rawValue as ArrayLike<unknown>);
+    if (index >= nextArray.length) {
+      throw new Error(`OPC UA array index ${index} out of bounds for tag ${tag.name} (length ${nextArray.length})`);
+    }
+    nextArray[index] = value;
+
+    const fallbackWriteResult = await this.withTimeout(
+      this.session!.write({
+        nodeId: address.nodeId,
+        attributeId: AttributeIds.Value,
+        value: {
+          value: {
+            dataType: dataValue.value.dataType,
+            ...(dataValue.value.arrayType !== undefined ? { arrayType: dataValue.value.arrayType } : {}),
+            value: nextArray,
+          },
+        },
+      }),
+      this.getOperationTimeoutMs(),
+      `OPC UA array fallback write timeout for tag ${tag.name}`,
+    );
+    const fbStatus = Array.isArray(fallbackWriteResult) ? fallbackWriteResult[0] : fallbackWriteResult;
+    if (fbStatus && !fbStatus.isGood()) {
+      throw new Error(`OPC UA array fallback write rejected for tag ${tag.name}: ${fbStatus.toString()}`);
     }
   }
 
