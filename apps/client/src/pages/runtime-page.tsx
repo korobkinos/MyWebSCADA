@@ -1417,9 +1417,15 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       if (result === undefined) {
         return;
       }
+      const pulseDurationMs = typeof action.durationMs === "number" && Number.isFinite(action.durationMs)
+        ? Math.max(1, Math.floor(action.durationMs))
+        : 500;
+      const resetValue = action.resetValue !== undefined ? action.resetValue : !action.value;
       setTimeout(() => {
-        void writeTag(action.tag, false);
-      }, action.durationMs);
+        writeTag(action.tag, resetValue).catch((error) => {
+          console.error(`[Pulse] Failed to reset tag ${action.tag}:`, error);
+        });
+      }, pulseDurationMs);
       return;
     }
 
