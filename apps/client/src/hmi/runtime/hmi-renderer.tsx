@@ -1296,7 +1296,7 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
 
   if (object.type === "group") {
     const tags = new Set<string>();
-    for (const ownTag of [object.visibleTag, object.disabledTag]) {
+    for (const ownTag of [object.visibleTag, object.disabledTag, object.rotationTag]) {
       const resolvedOwnTag = resolveTagName(ownTag, context);
       if (resolvedOwnTag) {
         tags.add(resolvedOwnTag);
@@ -1324,7 +1324,7 @@ function collectWatchedTags(object: HmiObject, context: RenderContext): string[]
   }
 
   const candidates: Array<string | undefined> = [];
-  candidates.push(object.visibleTag, object.disabledTag);
+  candidates.push(object.visibleTag, object.disabledTag, object.rotationTag);
   switch (object.type) {
     case "line":
       candidates.push(object.stateTag);
@@ -1937,7 +1937,8 @@ function ObjectNode({
   }, [applyFlowDashOffset, flowAnimationConfigActive, flowUsesMarkerNodes, updateFlowMarkerNodes]);
 
   const effectiveRotation = baseRotation;
-  const useAnimatedCenterPivot = rotationAnimationConfigActive && rotationPivot === "center";
+  const hasRuntimeRotationTag = runtimeMode && Boolean(resolvedObject.rotationTag?.trim());
+  const useCenterRotationPivot = (rotationAnimationConfigActive && rotationPivot === "center") || hasRuntimeRotationTag;
   const centerOffsetX = resolvedObject.width * 0.5;
   const centerOffsetY = resolvedObject.height * 0.5;
   const flowOnlyPass = renderFlowMode === "only";
@@ -1969,11 +1970,11 @@ function ObjectNode({
   const commonGroupProps = {
     ref: groupNodeRef,
     id: `hmi-${nodeIdPrefix ?? ""}${resolvedObject.id}`,
-    x: useAnimatedCenterPivot ? (resolvedObject.x + centerOffsetX) : resolvedObject.x,
-    y: useAnimatedCenterPivot ? (resolvedObject.y + centerOffsetY) : resolvedObject.y,
+    x: useCenterRotationPivot ? (resolvedObject.x + centerOffsetX) : resolvedObject.x,
+    y: useCenterRotationPivot ? (resolvedObject.y + centerOffsetY) : resolvedObject.y,
     rotation: effectiveRotation,
-    offsetX: useAnimatedCenterPivot ? centerOffsetX : 0,
-    offsetY: useAnimatedCenterPivot ? centerOffsetY : 0,
+    offsetX: useCenterRotationPivot ? centerOffsetX : 0,
+    offsetY: useCenterRotationPivot ? centerOffsetY : 0,
     opacity: resolvedObject.opacity ?? 1,
     visible: (resolvedObject.visible ?? true) && visibleByRole,
     draggable: interactive && !resolvedObject.locked,
