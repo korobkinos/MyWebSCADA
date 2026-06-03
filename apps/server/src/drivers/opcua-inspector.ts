@@ -575,7 +575,7 @@ export async function collectOpcUaSubtreeVariables(
         browsePath: toTagNameFromBrowsePath(`${browsePath}[${index}]`),
         dataType: child.dataType,
         indexRange: String(index),
-        writable: false,
+        writable: child.writable,
       })) {
         return;
       }

@@ -3143,7 +3143,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
           ...(item.indexRange ? { indexRange: item.indexRange } : {}),
           ...(item.memberPath?.length ? { memberPath: item.memberPath } : {}),
         },
-        writable: item.indexRange || item.memberPath?.length ? false : item.writable ?? prevTag?.writable ?? false,
+        writable: item.memberPath?.length ? false : item.writable ?? prevTag?.writable ?? false,
         scanRateMs: payload.scanRateMs ?? prevTag?.scanRateMs ?? 500,
       };
       const existingIndex = nextTags.findIndex((tag) => tag.name === tagName);

@@ -9,6 +9,7 @@ import {
   SecurityPolicy,
   TimestampsToReturn,
   UserTokenType,
+  VariantArrayType,
   type ClientSession,
   type DataValue,
   type MonitoringParametersOptions,
@@ -128,6 +129,24 @@ export function resolveOpcUaDataValueForTag(dataValue: DataValue, tag: TagDefini
   const raw = unwrapIndexRangeValue(dataValue.value.value, address);
   const resolved = resolveMemberPath(raw, address.memberPath);
   return toScalarValue(resolved);
+}
+
+export function toOpcUaWriteValue(tag: TagDefinition, value: TagScalarValue) {
+  const address = extractAddress(tag);
+  if (address.memberPath?.length) {
+    throw new Error(`Tag ${tag.name} uses OPC UA structure field addressing and is read-only`);
+  }
+  return {
+    nodeId: address.nodeId,
+    attributeId: AttributeIds.Value,
+    ...(address.indexRange ? { indexRange: toIndexRange(address.indexRange) } : {}),
+    value: {
+      value: {
+        dataType: toDataType(value),
+        ...(address.indexRange ? { arrayType: VariantArrayType.Array, value: [value] } : { value }),
+      },
+    },
+  };
 }
 
 function toDataType(value: TagScalarValue): DataType {
@@ -453,22 +472,9 @@ export class OpcUaDriver implements Driver {
     const startedAt = Date.now();
     try {
       await this.ensureConnected({ waitForConnect: false });
-      const address = extractAddress(tag);
-      if (address.indexRange || address.memberPath?.length) {
-        throw new Error(`Tag ${tag.name} uses extended OPC UA addressing and is read-only`);
-      }
 
       await this.withTimeout(
-        this.session!.write({
-          nodeId: address.nodeId,
-          attributeId: AttributeIds.Value,
-          value: {
-            value: {
-              dataType: toDataType(value),
-              value,
-            },
-          },
-        }),
+        this.session!.write(toOpcUaWriteValue(tag, value)),
         this.getOperationTimeoutMs(),
         `OPC UA write timeout for tag ${tag.name}`,
       );
