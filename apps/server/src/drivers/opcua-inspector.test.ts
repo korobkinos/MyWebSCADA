@@ -123,9 +123,9 @@ describe("collectOpcUaSubtreeVariables", () => {
       writable: item.writable,
     }))).toEqual([
       { browsePath: "Application.SomeArray", indexRange: undefined, memberPath: undefined, writable: true },
-      { browsePath: "Application.SomeArray[1]", indexRange: "0", memberPath: undefined, writable: true },
-      { browsePath: "Application.SomeArray[2]", indexRange: "1", memberPath: undefined, writable: true },
-      { browsePath: "Application.SomeArray[3]", indexRange: "2", memberPath: undefined, writable: true },
+      { browsePath: "Application.SomeArray[0]", indexRange: "0", memberPath: undefined, writable: true },
+      { browsePath: "Application.SomeArray[1]", indexRange: "1", memberPath: undefined, writable: true },
+      { browsePath: "Application.SomeArray[2]", indexRange: "2", memberPath: undefined, writable: true },
     ]);
   });
 
@@ -156,12 +156,12 @@ describe("collectOpcUaSubtreeVariables", () => {
       writable: item.writable,
     }))).toEqual([
       { browsePath: "Application.GVL_REGULATOR.pid_control", indexRange: undefined, memberPath: undefined, writable: true },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].down_out", indexRange: "0", memberPath: ["down_out"], writable: true },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].up_out", indexRange: "0", memberPath: ["up_out"], writable: true },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].nested.gain", indexRange: "0", memberPath: ["nested", "gain"], writable: true },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[2].down_out", indexRange: "1", memberPath: ["down_out"], writable: true },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[2].up_out", indexRange: "1", memberPath: ["up_out"], writable: true },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[2].nested.gain", indexRange: "1", memberPath: ["nested", "gain"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].down_out", indexRange: "0", memberPath: ["down_out"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].up_out", indexRange: "0", memberPath: ["up_out"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].nested.gain", indexRange: "0", memberPath: ["nested", "gain"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].down_out", indexRange: "1", memberPath: ["down_out"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].up_out", indexRange: "1", memberPath: ["up_out"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].nested.gain", indexRange: "1", memberPath: ["nested", "gain"], writable: true },
     ]);
   });
 });
