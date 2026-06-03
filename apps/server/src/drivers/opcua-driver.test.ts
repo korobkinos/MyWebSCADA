@@ -1,11 +1,20 @@
 import { AttributeIds, DataType, VariantArrayType } from "node-opcua";
 import { describe, expect, it } from "vitest";
 import type { TagDefinition, TagScalarValue } from "@web-scada/shared";
-import { resolveOpcUaDataValueForTag, toOpcUaReadValueId, toOpcUaWriteValue } from "./opcua-driver";
+import {
+  resolveOpcUaDataValueForTag,
+  toOpcUaReadValueId,
+  toOpcUaStructureFieldWriteValue,
+  toOpcUaWriteValue,
+} from "./opcua-driver";
 
-function makeDataValue(value: unknown) {
+function makeDataValue(value: unknown, options?: { dataType?: DataType; arrayType?: VariantArrayType }) {
   return {
-    value: { value },
+    value: {
+      value,
+      ...(options?.dataType !== undefined ? { dataType: options.dataType } : {}),
+      ...(options?.arrayType !== undefined ? { arrayType: options.arrayType } : {}),
+    },
     statusCode: {
       isGood: () => true,
     },
@@ -28,7 +37,7 @@ describe("OPC UA tag addressing", () => {
     expect(resolveOpcUaDataValueForTag(makeDataValue(12.5) as never, tag)).toBe(12.5);
   });
 
-  it("passes indexRange to OPC UA reads and unwraps single-element arrays", () => {
+  it("reads scalar array elements from the parent array and unwraps indexRange", () => {
     const tag: TagDefinition = {
       name: "Array[0]",
       sourceType: "opcua",
@@ -41,9 +50,19 @@ describe("OPC UA tag addressing", () => {
     expect(readValueId).toEqual({
       nodeId: "ns=1;s=Array",
       attributeId: AttributeIds.Value,
-      indexRange: expect.anything(),
     });
-    expect(readValueId.indexRange?.toString()).toBe("0");
+    expect(readValueId.indexRange).toBeUndefined();
+    expect(resolveOpcUaDataValueForTag(makeDataValue([42, 7]) as never, tag)).toBe(42);
+  });
+
+  it("keeps compatibility with one-element indexRange read responses", () => {
+    const tag: TagDefinition = {
+      name: "Array[2]",
+      sourceType: "opcua",
+      dataType: "REAL",
+      address: { nodeId: "ns=1;s=Array", indexRange: "2" },
+    };
+
     expect(resolveOpcUaDataValueForTag(makeDataValue([42]) as never, tag)).toBe(42);
   });
 
@@ -56,7 +75,9 @@ describe("OPC UA tag addressing", () => {
       address: { nodeId: "ns=1;s=Pid", indexRange: "0", memberPath: ["down_out"] },
     };
 
-    expect(resolveOpcUaDataValueForTag(makeDataValue([{ down_out: true }]) as never, tag)).toBe(true);
+    const readValueId = toOpcUaReadValueId(tag);
+    expect(readValueId.indexRange).toBeUndefined();
+    expect(resolveOpcUaDataValueForTag(makeDataValue([{ down_out: true }, { down_out: false }]) as never, tag)).toBe(true);
   });
 
   it("returns null when a memberPath cannot be resolved", () => {
@@ -131,7 +152,7 @@ describe("OPC UA tag addressing", () => {
     }
   });
 
-  it("keeps structure field writes read-only", () => {
+  it("builds read-modify-write payloads for structure array fields", () => {
     const tag: TagDefinition = {
       name: "Pid[0].down_out",
       sourceType: "opcua",
@@ -139,7 +160,20 @@ describe("OPC UA tag addressing", () => {
       writable: true,
       address: { nodeId: "ns=1;s=Pid", indexRange: "0", memberPath: ["down_out"] },
     };
+    const currentValue = [{ down_out: false }, { down_out: false }];
 
-    expect(() => toOpcUaWriteValue(tag, true)).toThrow("direct memberPath writes are not supported");
+    const writeValue = toOpcUaStructureFieldWriteValue(
+      tag,
+      makeDataValue(currentValue, { dataType: DataType.ExtensionObject, arrayType: VariantArrayType.Array }) as never,
+      true,
+    );
+
+    const variant = writeValue.value.value as { arrayType?: VariantArrayType; dataType?: DataType; value?: unknown };
+    expect(writeValue.nodeId).toBe("ns=1;s=Pid");
+    expect("indexRange" in writeValue ? writeValue.indexRange : undefined).toBeUndefined();
+    expect(variant.arrayType).toBe(VariantArrayType.Array);
+    expect(variant.dataType).toBe(DataType.ExtensionObject);
+    expect(variant.value).toEqual([{ down_out: true }, { down_out: false }]);
+    expect(currentValue).toEqual([{ down_out: false }, { down_out: false }]);
   });
 });

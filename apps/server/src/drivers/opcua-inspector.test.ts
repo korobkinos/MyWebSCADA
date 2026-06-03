@@ -156,12 +156,12 @@ describe("collectOpcUaSubtreeVariables", () => {
       writable: item.writable,
     }))).toEqual([
       { browsePath: "Application.GVL_REGULATOR.pid_control", indexRange: undefined, memberPath: undefined, writable: true },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[0].down_out", indexRange: "0", memberPath: ["down_out"], writable: false },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[0].up_out", indexRange: "0", memberPath: ["up_out"], writable: false },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[0].nested.gain", indexRange: "0", memberPath: ["nested", "gain"], writable: false },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].down_out", indexRange: "1", memberPath: ["down_out"], writable: false },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].up_out", indexRange: "1", memberPath: ["up_out"], writable: false },
-      { browsePath: "Application.GVL_REGULATOR.pid_control[1].nested.gain", indexRange: "1", memberPath: ["nested", "gain"], writable: false },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].down_out", indexRange: "0", memberPath: ["down_out"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].up_out", indexRange: "0", memberPath: ["up_out"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[0].nested.gain", indexRange: "0", memberPath: ["nested", "gain"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].down_out", indexRange: "1", memberPath: ["down_out"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].up_out", indexRange: "1", memberPath: ["up_out"], writable: true },
+      { browsePath: "Application.GVL_REGULATOR.pid_control[1].nested.gain", indexRange: "1", memberPath: ["nested", "gain"], writable: true },
     ]);
   });
 });

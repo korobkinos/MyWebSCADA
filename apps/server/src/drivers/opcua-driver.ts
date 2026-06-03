@@ -67,11 +67,26 @@ function isArrayLikeValue(value: unknown): value is ArrayLike<unknown> {
   return Array.isArray(value) || (ArrayBuffer.isView(value) && "length" in value);
 }
 
+function parseSingleIndexRange(value: string | undefined): number | undefined {
+  if (!value || !/^\d+$/.test(value)) {
+    return undefined;
+  }
+  return Number(value);
+}
+
 function unwrapIndexRangeValue(value: unknown, address: OpcUaAddress): unknown {
-  if (!address.indexRange || !isArrayLikeValue(value) || value.length !== 1) {
+  const index = parseSingleIndexRange(address.indexRange);
+  if (index === undefined || !isArrayLikeValue(value)) {
     return value;
   }
-  return value[0];
+  if (value.length === 1) {
+    return value[0];
+  }
+  return index < value.length ? value[index] : undefined;
+}
+
+function shouldReadWholeNode(address: OpcUaAddress): boolean {
+  return parseSingleIndexRange(address.indexRange) !== undefined;
 }
 
 function toInspectableObject(value: unknown): Record<string, unknown> | undefined {
@@ -92,6 +107,13 @@ function toInspectableObject(value: unknown): Record<string, unknown> | undefine
   return value as Record<string, unknown>;
 }
 
+function cloneWritableObject(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || value instanceof Date || ArrayBuffer.isView(value) || Array.isArray(value)) {
+    return undefined;
+  }
+  return Object.assign(Object.create(Object.getPrototypeOf(value)), value) as Record<string, unknown>;
+}
+
 function resolveMemberPath(value: unknown, memberPath: string[] | undefined): unknown {
   if (!memberPath?.length) {
     return value;
@@ -107,6 +129,37 @@ function resolveMemberPath(value: unknown, memberPath: string[] | undefined): un
   return current;
 }
 
+function setMemberPathValue(value: unknown, memberPath: string[], nextValue: TagScalarValue): unknown {
+  const [member, ...rest] = memberPath;
+  if (!member) {
+    return nextValue;
+  }
+  const objectValue = cloneWritableObject(value);
+  if (!objectValue || !(member in objectValue)) {
+    throw new Error(`OPC UA structure field '${member}' cannot be resolved for write`);
+  }
+  objectValue[member] = rest.length > 0
+    ? setMemberPathValue(objectValue[member], rest, nextValue)
+    : nextValue;
+  return objectValue;
+}
+
+function setAddressMemberPathValue(value: unknown, address: OpcUaAddress, nextValue: TagScalarValue): unknown {
+  if (!address.memberPath?.length) {
+    return nextValue;
+  }
+  const index = parseSingleIndexRange(address.indexRange);
+  if (index === undefined) {
+    return setMemberPathValue(value, address.memberPath, nextValue);
+  }
+  if (!isArrayLikeValue(value) || index >= value.length) {
+    throw new Error(`OPC UA indexRange '${address.indexRange}' cannot be resolved for write`);
+  }
+  const nextArray = Array.from(value);
+  nextArray[index] = setMemberPathValue(value[index], address.memberPath, nextValue);
+  return nextArray;
+}
+
 function toAddressKey(address: OpcUaAddress): string {
   return `${address.nodeId}\u001f${address.indexRange ?? ""}`;
 }
@@ -120,7 +173,7 @@ export function toOpcUaReadValueId(tag: TagDefinition): ReadValueIdOptions {
   return {
     nodeId: address.nodeId,
     attributeId: AttributeIds.Value,
-    ...(address.indexRange ? { indexRange: toIndexRange(address.indexRange) } : {}),
+    ...(address.indexRange && !shouldReadWholeNode(address) ? { indexRange: toIndexRange(address.indexRange) } : {}),
   };
 }
 
@@ -144,6 +197,24 @@ export function toOpcUaWriteValue(tag: TagDefinition, value: TagScalarValue) {
       value: {
         dataType: toDataType(tag.dataType),
         ...(address.indexRange ? { arrayType: VariantArrayType.Array, value: [value] } : { value }),
+      },
+    },
+  };
+}
+
+export function toOpcUaStructureFieldWriteValue(tag: TagDefinition, dataValue: DataValue, value: TagScalarValue) {
+  const address = extractAddress(tag);
+  if (!address.memberPath?.length) {
+    return toOpcUaWriteValue(tag, value);
+  }
+  return {
+    nodeId: address.nodeId,
+    attributeId: AttributeIds.Value,
+    value: {
+      value: {
+        dataType: dataValue.value.dataType,
+        ...(dataValue.value.arrayType !== undefined ? { arrayType: dataValue.value.arrayType } : {}),
+        value: setAddressMemberPathValue(dataValue.value.value, address, value),
       },
     },
   };
@@ -380,7 +451,7 @@ export class OpcUaDriver implements Driver {
             readValueId: {
               nodeId: address.nodeId,
               attributeId: AttributeIds.Value,
-              ...(address.indexRange ? { indexRange: toIndexRange(address.indexRange) } : {}),
+              ...(address.indexRange && !shouldReadWholeNode(address) ? { indexRange: toIndexRange(address.indexRange) } : {}),
             },
           });
         } catch {
@@ -481,9 +552,21 @@ export class OpcUaDriver implements Driver {
     const startedAt = Date.now();
     try {
       await this.ensureConnected({ waitForConnect: false });
+      const address = extractAddress(tag);
+      const writeValue = address.memberPath?.length
+        ? toOpcUaStructureFieldWriteValue(
+          tag,
+          await this.withTimeout(
+            this.session!.read(toOpcUaReadValueId(tag)),
+            this.getOperationTimeoutMs(),
+            `OPC UA read before structure write timeout for tag ${tag.name}`,
+          ),
+          value,
+        )
+        : toOpcUaWriteValue(tag, value);
 
       await this.withTimeout(
-        this.session!.write(toOpcUaWriteValue(tag, value)),
+        this.session!.write(writeValue),
         this.getOperationTimeoutMs(),
         `OPC UA write timeout for tag ${tag.name}`,
       );
@@ -1165,7 +1248,7 @@ export class OpcUaDriver implements Driver {
       const itemsToMonitor: ReadValueIdOptions[] = batchAddressGroups.map((item) => ({
         nodeId: item.address.nodeId,
         attributeId: AttributeIds.Value,
-        ...(item.address.indexRange ? { indexRange: toIndexRange(item.address.indexRange) } : {}),
+        ...(item.address.indexRange && !shouldReadWholeNode(item.address) ? { indexRange: toIndexRange(item.address.indexRange) } : {}),
       }));
 
       try {

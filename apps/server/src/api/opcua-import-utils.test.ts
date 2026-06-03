@@ -56,6 +56,7 @@ describe("applyOpcUaImportCandidates", () => {
       [
         { browsePath: "Array[0]", nodeId: "array", indexRange: "0", writable: true },
         { browsePath: "StructArray[0].field", nodeId: "struct-array", indexRange: "0", memberPath: ["field"] },
+        { browsePath: "StructArray[0].command", nodeId: "struct-array", indexRange: "0", memberPath: ["command"], writable: true },
       ],
       { overwrite: true },
     );
@@ -63,6 +64,7 @@ describe("applyOpcUaImportCandidates", () => {
     expect(result.tags).toEqual([
       expect.objectContaining({ name: "Array[0]", writable: true }),
       expect.objectContaining({ name: "StructArray[0].field", writable: false }),
+      expect.objectContaining({ name: "StructArray[0].command", writable: true }),
     ]);
   });
 

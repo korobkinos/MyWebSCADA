@@ -582,7 +582,7 @@ export async function collectOpcUaSubtreeVariables(
             dataType: inferOpcUaDataTypeFromValue(field.path.reduce<unknown>((value, key) => toInspectableObject(value)?.[key], element), child.dataType),
             indexRange: String(index),
             memberPath: field.path,
-            writable: false,
+            writable: child.writable,
           })) {
             return;
           }
