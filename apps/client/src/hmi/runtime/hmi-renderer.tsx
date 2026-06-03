@@ -61,6 +61,7 @@ const HMI_CONTROL_COLORS = {
   overlayBg: "#252526",
 } as const;
 const EMPTY_DRIVERS: DriverStatus[] = [];
+const ROTATION_TAG_SMOOTHING_MS = 250;
 
 type AnimationTickHandler = (time: number) => void;
 const globalAnimationTickHandlers = new Set<AnimationTickHandler>();
@@ -90,6 +91,15 @@ function subscribeGlobalAnimationTick(handler: AnimationTickHandler): () => void
       globalAnimationFrameId = null;
     }
   };
+}
+
+function normalizeRotationDelta(delta: number): number {
+  return ((((delta + 180) % 360) + 360) % 360) - 180;
+}
+
+function easeOutCubic(progress: number): number {
+  const clamped = Math.max(0, Math.min(1, progress));
+  return 1 - ((1 - clamped) ** 3);
 }
 
 function isPrimaryPointerButton(event: Event): boolean {
@@ -1430,6 +1440,7 @@ function ObjectNode({
   const resolvedObject = useMemo(() => resolveObjectParameters(object, renderContext.parameters ?? {}), [object, renderContext.parameters]);
   const runtimeMode = mode === "runtime";
   const rotationAnimationOffsetRef = useRef(0);
+  const rotationDisplayBaseRef = useRef<number | null>(null);
   const flowAnimationPhaseRef = useRef(0);
   const rotationSpeedRef = useRef(0);
   const rotationActiveRef = useRef(false);
@@ -1525,6 +1536,10 @@ function ObjectNode({
     && Number.isFinite(rotationTagNumber)
     ? rotationTagNumber
     : (resolvedObject.rotation ?? 0);
+  if (rotationDisplayBaseRef.current === null) {
+    rotationDisplayBaseRef.current = baseRotation;
+  }
+  const hasRuntimeRotationTag = runtimeMode && Boolean(resolvedObject.rotationTag?.trim());
   const rotationAnimation = resolvedObject.rotationAnimation;
   const rotationAnimationSupported = isRotationAnimationSupportedObjectType(resolvedObject.type);
   const rotationAnimationEnabled = rotationAnimation?.enabled === true;
@@ -1740,13 +1755,13 @@ function ObjectNode({
     if (!node) {
       return;
     }
-    const nextRotation = baseRotation + offset;
+    const nextRotation = (rotationDisplayBaseRef.current ?? 0) + offset;
     if (Math.abs(node.rotation() - nextRotation) < 1e-6) {
       return;
     }
     node.rotation(nextRotation);
     node.getLayer()?.batchDraw();
-  }, [baseRotation]);
+  }, []);
 
   const applyFlowDashOffset = useCallback((offset: number) => {
     if (flowDashLineRef.current) {
@@ -1863,6 +1878,41 @@ function ObjectNode({
   }, [flowEffectType, flowSpacing, lineFlowRuntimeData]);
 
   useEffect(() => {
+    if (!hasRuntimeRotationTag) {
+      rotationDisplayBaseRef.current = baseRotation;
+      applyRotationNode(rotationAnimationOffsetRef.current);
+      return;
+    }
+
+    const startBaseRotation = rotationDisplayBaseRef.current ?? baseRotation;
+    const delta = normalizeRotationDelta(baseRotation - startBaseRotation);
+    if (Math.abs(delta) < 1e-6) {
+      rotationDisplayBaseRef.current = baseRotation;
+      applyRotationNode(rotationAnimationOffsetRef.current);
+      return;
+    }
+
+    let startTime: number | null = null;
+    const unsubscribe = subscribeGlobalAnimationTick((time) => {
+      startTime ??= time;
+      const progress = (time - startTime) / ROTATION_TAG_SMOOTHING_MS;
+      const easedProgress = easeOutCubic(progress);
+      const nextBaseRotation = progress >= 1
+        ? baseRotation
+        : startBaseRotation + (delta * easedProgress);
+
+      rotationDisplayBaseRef.current = nextBaseRotation;
+      applyRotationNode(rotationAnimationOffsetRef.current);
+
+      if (progress >= 1) {
+        unsubscribe();
+      }
+    });
+
+    return unsubscribe;
+  }, [applyRotationNode, baseRotation, hasRuntimeRotationTag]);
+
+  useEffect(() => {
     rotationActiveRef.current = rotationAnimationIsActive;
     rotationSpeedRef.current = Number.isFinite(rotationAnimationSpeedDegPerSec) ? rotationAnimationSpeedDegPerSec : 0;
     if (!rotationAnimationConfigActive) {
@@ -1936,8 +1986,7 @@ function ObjectNode({
     };
   }, [applyFlowDashOffset, flowAnimationConfigActive, flowUsesMarkerNodes, updateFlowMarkerNodes]);
 
-  const effectiveRotation = baseRotation;
-  const hasRuntimeRotationTag = runtimeMode && Boolean(resolvedObject.rotationTag?.trim());
+  const effectiveRotation = (rotationDisplayBaseRef.current ?? baseRotation) + rotationAnimationOffsetRef.current;
   const useCenterRotationPivot = (rotationAnimationConfigActive && rotationPivot === "center") || hasRuntimeRotationTag;
   const centerOffsetX = resolvedObject.width * 0.5;
   const centerOffsetY = resolvedObject.height * 0.5;
