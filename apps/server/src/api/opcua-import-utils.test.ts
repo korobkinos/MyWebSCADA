@@ -65,4 +65,21 @@ describe("applyOpcUaImportCandidates", () => {
       expect.objectContaining({ name: "StructArray[0].field", writable: false }),
     ]);
   });
+
+  it("inherits simple array element writable from parent array candidate", () => {
+    const result = applyOpcUaImportCandidates(
+      { ...makeProject(), tags: [] },
+      "opc",
+      [
+        { browsePath: "Alarm", nodeId: "alarm", writable: true },
+        { browsePath: "Alarm[0]", nodeId: "alarm", indexRange: "0" },
+      ],
+      { overwrite: true },
+    );
+
+    expect(result.tags).toEqual([
+      expect.objectContaining({ name: "Alarm", writable: true }),
+      expect.objectContaining({ name: "Alarm[0]", writable: true }),
+    ]);
+  });
 });

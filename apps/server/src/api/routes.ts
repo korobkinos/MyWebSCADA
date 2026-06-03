@@ -3066,16 +3066,17 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
     const nextTags = [...project.tags];
 
     for (const item of payload.items) {
+      const prevTag = existingByName.get(item.name);
       const nextTag = {
-        ...existingByName.get(item.name),
+        ...prevTag,
         name: item.name,
         sourceType: "opcua" as const,
         dataType: opcUaDataTypeToTagDataType(item.dataTypeNodeId),
         driverId: payload.driverId,
         nodeId: item.nodeId,
         address: { nodeId: item.nodeId },
-        writable: true,
-        scanRateMs: item.scanRateMs ?? existingByName.get(item.name)?.scanRateMs ?? 500,
+        writable: item.writable ?? prevTag?.writable ?? false,
+        scanRateMs: item.scanRateMs ?? prevTag?.scanRateMs ?? 500,
       };
       const existingIndex = nextTags.findIndex((tag) => tag.name === item.name);
       if (existingIndex >= 0) {

@@ -19,8 +19,15 @@ export function applyOpcUaImportCandidates(
   const overwrite = options?.overwrite ?? false;
   const nextTags = [...project.tags];
   const existingByName = new Map(nextTags.map((tag) => [tag.name, tag]));
+  const parentWritableByNodeId = new Map<string, boolean>();
   let created = 0;
   let updated = 0;
+
+  for (const item of candidates) {
+    if (!item.indexRange && !item.memberPath?.length && item.writable !== undefined) {
+      parentWritableByNodeId.set(item.nodeId, item.writable);
+    }
+  }
 
   for (const item of candidates) {
     const tagNameBase = item.browsePath;
@@ -33,6 +40,9 @@ export function applyOpcUaImportCandidates(
       }
     }
     const prevTag = existingByName.get(tagName);
+    const inheritedArrayWritable = item.indexRange && !item.memberPath?.length
+      ? parentWritableByNodeId.get(item.nodeId)
+      : undefined;
     const nextTag: TagDefinition = {
       ...prevTag,
       name: tagName,
@@ -45,7 +55,7 @@ export function applyOpcUaImportCandidates(
         ...(item.indexRange ? { indexRange: item.indexRange } : {}),
         ...(item.memberPath?.length ? { memberPath: item.memberPath } : {}),
       },
-      writable: item.writable ?? prevTag?.writable ?? false,
+      writable: item.writable ?? inheritedArrayWritable ?? prevTag?.writable ?? false,
       scanRateMs: options?.scanRateMs ?? prevTag?.scanRateMs ?? 500,
     };
     const existingIndex = nextTags.findIndex((tag) => tag.name === tagName);
