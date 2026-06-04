@@ -436,7 +436,7 @@ function findTagByAddress(tags: TagDefinition[] | undefined, address: string): T
   if (!normalizedAddress) {
     return undefined;
   }
-  return tags?.find((tag) => collectAddressCandidates(tag).some((candidate) => candidate.toLowerCase() === normalizedAddress));
+  return tags?.find((tag) => collectAddressCandidates(tag, true).some((candidate) => candidate.toLowerCase() === normalizedAddress));
 }
 
 function getTagAddressTemplate(tag: TagDefinition | undefined): string {

@@ -614,6 +614,7 @@ function collectAddressCandidates(tag: TagDefinition): string[] {
     typeof fromAddress?.nodeId === "string" ? fromAddress.nodeId : undefined,
     typeof raw.addressRaw === "string" ? raw.addressRaw : undefined,
     typeof tag.address === "string" ? tag.address : undefined,
+    tag.name,
   ];
   return candidates
     .map((item) => normalizeAddress(item))
@@ -625,7 +626,11 @@ function normalizeAddress(value: unknown): string | undefined {
     return undefined;
   }
   const trimmed = value.trim();
-  return trimmed || undefined;
+  if (!trimmed) {
+    return undefined;
+  }
+  const nodeIdPrefix = "ns=2;s=";
+  return trimmed.startsWith(nodeIdPrefix) ? trimmed.slice(nodeIdPrefix.length) : trimmed;
 }
 
 function isIndexedAddressDebugEnabled(): boolean {

@@ -848,4 +848,66 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(subscriptions).not.toContain("Burners[0].Pressure");
     expect(subscriptions).not.toContain("Burners[0].Valves[0].Open");
   });
+
+  it("uses resolved indexed address when no matching tag definition exists", () => {
+    const screen: HmiScreen = {
+      id: "screen-indexed-fallback",
+      name: "Indexed fallback",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [
+        {
+          id: "text-indexed",
+          type: "text",
+          text: "Value",
+          x: 0,
+          y: 0,
+          width: 120,
+          height: 30,
+          tag: "Application.GVL_BURNER_VALVE.open_state[0]",
+          tagIndexing: {
+            enabled: true,
+            template: "Application.GVL_BURNER_VALVE.open_state[0]",
+            bindings: [{
+              key: "INDEX_1",
+              slotIndex: 0,
+              baseValue: 0,
+              source: "constant",
+              constantValue: 1,
+              offset: 0,
+            }],
+          },
+          textStyle: {
+            fontFamily: "Arial",
+            fontSize: 14,
+            color: "#fff",
+            horizontalAlign: "left",
+            verticalAlign: "middle",
+          },
+        },
+      ],
+    };
+
+    const project: ScadaProject = {
+      version: 1,
+      name: "Indexed fallback project",
+      drivers: [],
+      tags: [],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const subscriptions = collectRuntimeTagSubscriptions({
+      project,
+      libraries: [],
+      screen,
+      tags: {},
+      popups: [],
+    });
+
+    expect(subscriptions).toContain("Application.GVL_BURNER_VALVE.open_state[1]");
+    expect(subscriptions).not.toContain("Application.GVL_BURNER_VALVE.open_state[0]");
+  });
 });

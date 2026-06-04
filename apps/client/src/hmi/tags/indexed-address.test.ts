@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HmiObject, RenderContext, ScadaProject, TagDefinition } from "@web-scada/shared";
-import { getTagAddressTemplate, resolveObjectTagField } from "./indexed-address";
+import { findTagByAddress, getTagAddressTemplate, resolveObjectTagField } from "./indexed-address";
 
 function createProject(tags: string[]): ScadaProject {
   return {
@@ -27,6 +27,40 @@ function createBaseObject(id: string): Pick<HmiObject, "id" | "x" | "y" | "width
 }
 
 describe("resolveObjectTagField with frame inherited index rules", () => {
+  it("finds matching tag by tag name", () => {
+    const project: ScadaProject = {
+      version: 1,
+      name: "Name matching project",
+      drivers: [],
+      tags: [{
+        name: "Application.GVL_BURNER_VALVE.open_state[1]",
+        dataType: "BOOL",
+        address: { nodeId: "Other.Format.OpenState1" },
+      }],
+      screens: [],
+    };
+
+    expect(findTagByAddress(project, "Application.GVL_BURNER_VALVE.open_state[1]")?.name)
+      .toBe("Application.GVL_BURNER_VALVE.open_state[1]");
+  });
+
+  it("finds matching tag when nodeId has OPC UA prefix", () => {
+    const project: ScadaProject = {
+      version: 1,
+      name: "Prefixed nodeId project",
+      drivers: [],
+      tags: [{
+        name: "Open state 1",
+        nodeId: "ns=2;s=Application.GVL_BURNER_VALVE.open_state[1]",
+        dataType: "BOOL",
+      }],
+      screens: [],
+    };
+
+    expect(findTagByAddress(project, "Application.GVL_BURNER_VALVE.open_state[1]")?.name)
+      .toBe("Open state 1");
+  });
+
   it("prefers indexed address candidates for tag address templates", () => {
     const tag = {
       name: "Application.GVL_BURNER_VALVE.open",
