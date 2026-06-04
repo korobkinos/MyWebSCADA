@@ -22,7 +22,6 @@ import {
   type PopupInstance,
   type RenderContext,
   type RuntimeAction,
-  type TagValue,
 } from "@web-scada/shared";
 import { Button, Card, Form, InputNumber, Modal, Space, Typography, message } from "antd";
 import { HmiStage } from "../hmi/runtime/hmi-stage";
@@ -35,6 +34,10 @@ import { api, isAbortError } from "../services/api";
 import { getConnectionSnapshot, markEndpointFailure, subscribeConnectionState } from "../services/connection-state";
 import { useScadaStore } from "../store/scada-store";
 import { createRuntimeSubscriptionScheduler } from "./runtime-subscription-scheduler";
+import {
+  createRuntimeDependencyTagSignature,
+  haveSameRuntimeSubscriptionTags,
+} from "./runtime-subscription-state";
 import {
   AUTH_INTENT_REDIRECT_EDITOR,
   readAuthIntentFromLocationState,
@@ -134,6 +137,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const runtimePerfDebugEnabledRef = useRef(false);
   const tagsRef = useRef(tags);
   const runtimeSubscriptionSchedulerRef = useRef<ReturnType<typeof createRuntimeSubscriptionScheduler> | null>(null);
+  const runtimeSubscriptionTagsRef = useRef<string[] | null>(null);
   const runtimeExecuteActionRef = useRef<(action: RuntimeAction, context: RenderContext) => Promise<void>>(
     async () => undefined,
   );
@@ -390,18 +394,23 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   const runtimeDependencyTagSignature = useMemo(() => {
     const dependencyTags = runtimeSubscriptionPlan?.dependencyTags ?? [];
-    if (dependencyTags.length === 0) {
-      return "";
-    }
-    return dependencyTags
-      .map((tagName) => `${tagName}=${serializeRuntimeTagForSignature(tags[tagName])}`)
-      .join("|");
+    return createRuntimeDependencyTagSignature(dependencyTags, tags);
   }, [runtimeSubscriptionPlan?.dependencyTags, tags]);
+
+  const applyRuntimeTagSubscriptions = useCallback((nextTags: string[]): boolean => {
+    const previousTags = runtimeSubscriptionTagsRef.current;
+    if (previousTags && haveSameRuntimeSubscriptionTags(previousTags, nextTags)) {
+      return false;
+    }
+    runtimeSubscriptionTagsRef.current = [...nextTags];
+    updateRuntimeTagSubscriptions(nextTags);
+    return true;
+  }, []);
 
   useEffect(() => {
     if (!project || !screen) {
       runtimeSubscriptionSchedulerRef.current?.reset();
-      updateRuntimeTagSubscriptions([]);
+      applyRuntimeTagSubscriptions([]);
       return;
     }
     runtimePerfDebugEnabledRef.current = readRuntimePerfDebugFlag();
@@ -417,13 +426,14 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         // eslint-disable-next-line no-console
         console.debug(`[runtime-perf] subscription: ${nextTags.length} tags, static`);
       }
-      updateRuntimeTagSubscriptions(nextTags);
+      const subscriptionsChanged = applyRuntimeTagSubscriptions(nextTags);
       if (runtimePerfDebugEnabledRef.current) {
         runtimeSubscriptionRecalcCountRef.current += 1;
         // eslint-disable-next-line no-console
         console.debug("[runtime-perf] subscription-recalc (static)", {
           count: runtimeSubscriptionRecalcCountRef.current,
           subscriptionTagCount: runtimeSubscriptionPlan?.subscriptionTags.length ?? 0,
+          subscriptionsChanged,
         });
       }
       return;
@@ -440,7 +450,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         tags: tagsRef.current,
         popups: popupSubscriptionContexts,
       });
-      updateRuntimeTagSubscriptions(subscriptionTags);
+      const subscriptionsChanged = applyRuntimeTagSubscriptions(subscriptionTags);
       if (runtimePerfDebugEnabledRef.current) {
         runtimeSubscriptionRecalcCountRef.current += 1;
         // eslint-disable-next-line no-console
@@ -449,10 +459,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
           subscriptionTagCount: subscriptionTags.length,
           dependencyTagCount,
+          subscriptionsChanged,
         });
       }
     });
-  }, [activeLibraries, popupSubscriptionContexts, project, runtimeDependencyTagSignature, runtimeSubscriptionPlan, screen]);
+  }, [activeLibraries, applyRuntimeTagSubscriptions, popupSubscriptionContexts, project, runtimeDependencyTagSignature, runtimeSubscriptionPlan, screen]);
 
   useEffect(() => () => {
     runtimeSubscriptionSchedulerRef.current?.reset();
@@ -488,9 +499,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   useEffect(() => {
     return () => {
-      updateRuntimeTagSubscriptions([]);
+      applyRuntimeTagSubscriptions([]);
     };
-  }, []);
+  }, [applyRuntimeTagSubscriptions]);
 
   useEffect(() => {
     const socket = createRuntimeSocket(
@@ -2580,22 +2591,6 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 function readRuntimePerfDebugFlag(): boolean {
   return typeof window !== "undefined"
     && window.localStorage.getItem(RUNTIME_PERF_DEBUG_LOCAL_STORAGE_KEY) === "1";
-}
-
-function serializeRuntimeTagForSignature(value: TagValue | undefined): string {
-  if (!value) {
-    return "null";
-  }
-  const rawValue = value.value;
-  const valuePart =
-    rawValue === null || rawValue === undefined
-      ? "null"
-      : typeof rawValue === "number"
-        ? String(rawValue)
-        : typeof rawValue === "boolean"
-          ? (rawValue ? "1" : "0")
-          : rawValue;
-  return `${valuePart}|${value.quality ?? ""}|${value.source ?? ""}`;
 }
 
 function unwrapRuntimeTagValue(value: unknown): unknown {

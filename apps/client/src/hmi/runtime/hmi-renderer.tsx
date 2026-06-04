@@ -50,6 +50,7 @@ import { EventTableRuntimeWidget } from "../../features/events/EventTableRuntime
 import { collectRuntimeObjectResolvedTags } from "./runtime-tag-subscriptions";
 import { diagnoseOpcUaCommunication } from "./runtime-opcua-communication";
 import { intersectsScreenBounds } from "./offscreen-filter";
+import { shouldRunRuntimeAnimationTick, shouldUpdateRuntimeFlowFrame } from "./runtime-animation-policy";
 
 const HMI_CONTROL_COLORS = {
   text: "#cccccc",
@@ -73,12 +74,91 @@ export const RUNTIME_COLOR_TRANSITION_MS = 250;
 type AnimationTickHandler = (time: number) => void;
 const globalAnimationTickHandlers = new Set<AnimationTickHandler>();
 let globalAnimationFrameId: number | null = null;
+let runtimeAnimationDebugEnabled = false;
+let runtimeAnimationDebugFlagCheckedAt = 0;
+let runtimeAnimationLastFrameAt: number | null = null;
+let runtimeAnimationReportStartedAt = 0;
+let runtimeAnimationFrameCount = 0;
+let runtimeAnimationLongFrame16Count = 0;
+let runtimeAnimationLongFrame33Count = 0;
+let runtimeAnimationLongFrame50Count = 0;
+let runtimeAnimationMaxTickDurationMs = 0;
+let runtimeAnimationLayerDrawRequests = 0;
+let runtimeAnimationFlowMarkerUpdates = 0;
+
+function refreshRuntimeAnimationDebugFlag(time: number): void {
+  if (time - runtimeAnimationDebugFlagCheckedAt < 1000) {
+    return;
+  }
+  runtimeAnimationDebugFlagCheckedAt = time;
+  runtimeAnimationDebugEnabled =
+    typeof window !== "undefined"
+    && window.localStorage.getItem("scada.debugRuntimePerf") === "1";
+}
+
+function recordRuntimeAnimationLayerDraw(layer: Konva.Layer | null | undefined): void {
+  if (!layer) {
+    return;
+  }
+  if (runtimeAnimationDebugEnabled) {
+    runtimeAnimationLayerDrawRequests += 1;
+  }
+  layer.batchDraw();
+}
+
+function recordRuntimeFlowMarkerUpdates(count: number): void {
+  if (runtimeAnimationDebugEnabled) {
+    runtimeAnimationFlowMarkerUpdates += count;
+  }
+}
+
+function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCount: number): void {
+  if (!runtimeAnimationDebugEnabled) {
+    runtimeAnimationLastFrameAt = time;
+    return;
+  }
+  const frameGapMs = runtimeAnimationLastFrameAt === null ? 0 : time - runtimeAnimationLastFrameAt;
+  runtimeAnimationLastFrameAt = time;
+  runtimeAnimationFrameCount += 1;
+  runtimeAnimationLongFrame16Count += frameGapMs > 16 ? 1 : 0;
+  runtimeAnimationLongFrame33Count += frameGapMs > 33 ? 1 : 0;
+  runtimeAnimationLongFrame50Count += frameGapMs > 50 ? 1 : 0;
+  runtimeAnimationMaxTickDurationMs = Math.max(runtimeAnimationMaxTickDurationMs, performance.now() - startedAt);
+  if (runtimeAnimationReportStartedAt === 0) {
+    runtimeAnimationReportStartedAt = time;
+  }
+  if (time - runtimeAnimationReportStartedAt < 2000) {
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.debug("[runtime-perf] animation", {
+    frameCount: runtimeAnimationFrameCount,
+    handlerCount,
+    longFramesOver16Ms: runtimeAnimationLongFrame16Count,
+    longFramesOver33Ms: runtimeAnimationLongFrame33Count,
+    longFramesOver50Ms: runtimeAnimationLongFrame50Count,
+    maxTickDurationMs: Math.round(runtimeAnimationMaxTickDurationMs * 1000) / 1000,
+    layerDrawRequests: runtimeAnimationLayerDrawRequests,
+    flowMarkerUpdates: runtimeAnimationFlowMarkerUpdates,
+  });
+  runtimeAnimationReportStartedAt = time;
+  runtimeAnimationFrameCount = 0;
+  runtimeAnimationLongFrame16Count = 0;
+  runtimeAnimationLongFrame33Count = 0;
+  runtimeAnimationLongFrame50Count = 0;
+  runtimeAnimationMaxTickDurationMs = 0;
+  runtimeAnimationLayerDrawRequests = 0;
+  runtimeAnimationFlowMarkerUpdates = 0;
+}
 
 function runGlobalAnimationTicker(time: number): void {
+  refreshRuntimeAnimationDebugFlag(time);
+  const startedAt = runtimeAnimationDebugEnabled ? performance.now() : 0;
   const handlers = Array.from(globalAnimationTickHandlers);
   for (const handler of handlers) {
     handler(time);
   }
+  recordRuntimeAnimationFrame(time, startedAt, handlers.length);
   if (globalAnimationTickHandlers.size > 0) {
     globalAnimationFrameId = requestAnimationFrame(runGlobalAnimationTicker);
   } else {
@@ -1575,9 +1655,9 @@ function buildIndexedTagCacheKey(input: {
 
 function serializeTagValueForCache(value: TagValue | undefined): string {
   if (!value) {
-    return "null";
+    return "missing";
   }
-  return `${String(value.value)}:${value.quality}:${value.timestamp}`;
+  return `present:${typeof value.value}:${String(value.value)}:${value.quality}`;
 }
 
 function stableJsonForCache(value: unknown): string {
@@ -1591,7 +1671,7 @@ function stableJsonForCache(value: unknown): string {
   }
 }
 
-function logIndexedTagCachePerf(stats: { hits: number; misses: number; lastLogAt: number }): void {
+function logIndexedTagCachePerf(stats: { hits: number; misses: number; clears: number; lastLogAt: number }): void {
   const now = Date.now();
   if (now - stats.lastLogAt < 2000) {
     return;
@@ -1601,6 +1681,7 @@ function logIndexedTagCachePerf(stats: { hits: number; misses: number; lastLogAt
   console.debug("[runtime-perf] indexed-tag-cache", {
     hits: stats.hits,
     misses: stats.misses,
+    clears: stats.clears,
   });
 }
 
@@ -1777,7 +1858,7 @@ function ObjectNode({
     window.localStorage.getItem("scada.debugRuntimePerf") === "1";
   const inheritedIndexRulesSignature = getFrameTagIndexRulesSignature(renderContext.inheritedIndexRules);
   const indexedTagCacheRef = useRef(new Map<string, IndexedTagCacheValue>());
-  const indexedTagCacheStatsRef = useRef({ hits: 0, misses: 0, lastLogAt: 0 });
+  const indexedTagCacheStatsRef = useRef({ hits: 0, misses: 0, clears: 0, lastLogAt: 0 });
 
   useEffect(() => {
     if (!debugPerformance) {
@@ -1799,6 +1880,9 @@ function ObjectNode({
   }, []);
 
   useEffect(() => {
+    if (debugRuntimePerf && indexedTagCacheRef.current.size > 0) {
+      indexedTagCacheStatsRef.current.clears += 1;
+    }
     indexedTagCacheRef.current.clear();
   }, [
     project,
@@ -2051,6 +2135,16 @@ function ObjectNode({
   const normalizedDashLength = Number.isFinite(flowDashLength) && flowDashLength > 0 ? flowDashLength : 12;
   const normalizedGapLength = Number.isFinite(flowGapLength) && flowGapLength > 0 ? flowGapLength : 8;
   const flowSpacing = Math.max(2, normalizedDashLength + normalizedGapLength);
+  const rotationAnimationShouldTick = shouldRunRuntimeAnimationTick(
+    rotationAnimationConfigActive,
+    rotationAnimationIsActive,
+    rotationAnimationSpeedDegPerSec,
+  );
+  const flowAnimationShouldTick = shouldRunRuntimeAnimationTick(
+    flowAnimationConfigActive,
+    flowAnimationIsActive,
+    flowAnimationSpeedPxPerSec,
+  );
   const lineFlowPoints = useMemo(() => {
     if (resolvedObject.type !== "line") {
       return [];
@@ -2110,7 +2204,7 @@ function ObjectNode({
       return;
     }
     node.rotation(nextRotation);
-    node.getLayer()?.batchDraw();
+    recordRuntimeAnimationLayerDraw(node.getLayer());
   }, []);
 
   const applyFlowDashOffset = useCallback((offset: number) => {
@@ -2132,6 +2226,7 @@ function ObjectNode({
       }
       return false;
     }
+    recordRuntimeFlowMarkerUpdates(lineFlowRuntimeData.markerCount);
 
     const isFlowMarkerInsideOpenBounds = (distance: number, padding: number): boolean => {
       if (lineFlowRuntimeData.flowPathIsClosed || !(lineFlowRuntimeData.flowPath.totalLength > 0)) {
@@ -2274,7 +2369,7 @@ function ObjectNode({
 
   useEffect(() => {
     rotationLastFrameRef.current = null;
-    if (!rotationAnimationConfigActive) {
+    if (!rotationAnimationShouldTick) {
       return;
     }
     const unsubscribe = subscribeGlobalAnimationTick((time) => {
@@ -2292,7 +2387,7 @@ function ObjectNode({
       unsubscribe();
       rotationLastFrameRef.current = null;
     };
-  }, [applyRotationNode, rotationAnimationConfigActive]);
+  }, [applyRotationNode, rotationAnimationShouldTick]);
 
   useEffect(() => {
     flowActiveRef.current = flowAnimationIsActive;
@@ -2304,17 +2399,26 @@ function ObjectNode({
         ?? flowGradientLineRef.current?.getLayer()
         ?? flowDotRefs.current[0]?.getLayer()
         ?? flowArrowRefs.current[0]?.getLayer();
-      layer?.batchDraw();
+      recordRuntimeAnimationLayerDraw(layer);
     }
   }, [applyFlowDashOffset, flowAnimationIsActive, flowAnimationSpeedPxPerSec, updateFlowMarkerNodes]);
 
   useEffect(() => {
     flowAnimationLastFrameRef.current = null;
-    if (!flowAnimationConfigActive) {
+    if (!flowAnimationShouldTick) {
       return;
     }
     const unsubscribe = subscribeGlobalAnimationTick((time) => {
-      const previousTime = flowAnimationLastFrameRef.current ?? time;
+      const previousFrameTime = flowAnimationLastFrameRef.current;
+      if (!shouldUpdateRuntimeFlowFrame(
+        time,
+        previousFrameTime,
+        flowUsesMarkerNodes,
+        lineFlowRuntimeData?.markerCount ?? 0,
+      )) {
+        return;
+      }
+      const previousTime = previousFrameTime ?? time;
       const deltaSeconds = Math.min(0.05, Math.max(0, (time - previousTime) / 1000));
       flowAnimationLastFrameRef.current = time;
       if (deltaSeconds > 0 && flowActiveRef.current && flowSpeedRef.current !== 0) {
@@ -2327,14 +2431,14 @@ function ObjectNode({
           ?? flowGradientLineRef.current?.getLayer()
           ?? flowDotRefs.current[0]?.getLayer()
           ?? flowArrowRefs.current[0]?.getLayer();
-        layer?.batchDraw();
+        recordRuntimeAnimationLayerDraw(layer);
       }
     });
     return () => {
       unsubscribe();
       flowAnimationLastFrameRef.current = null;
     };
-  }, [applyFlowDashOffset, flowAnimationConfigActive, flowUsesMarkerNodes, updateFlowMarkerNodes]);
+  }, [applyFlowDashOffset, flowAnimationShouldTick, flowUsesMarkerNodes, lineFlowRuntimeData?.markerCount, updateFlowMarkerNodes]);
 
   const effectiveRotation = (rotationDisplayBaseRef.current ?? baseRotation) + rotationAnimationOffsetRef.current;
   const useCenterRotationPivot = (rotationAnimationConfigActive && rotationPivot === "center") || hasRuntimeRotationTag;
