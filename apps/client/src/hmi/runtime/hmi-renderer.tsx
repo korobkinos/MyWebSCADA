@@ -2285,9 +2285,19 @@ function ObjectNode({
     }
 
     let startTime: number | null = null;
+    let smoothingFrameCount = 0;
     const unsubscribe = subscribeGlobalAnimationTick((time) => {
       startTime ??= time;
       const progress = (time - startTime) / ROTATION_TAG_SMOOTHING_MS;
+
+      smoothingFrameCount += 1;
+      if (smoothingFrameCount % 2 === 0 && progress < 1) {
+        if (progress >= 1) {
+          unsubscribe();
+        }
+        return;
+      }
+
       const easedProgress = easeOutCubic(progress);
       const nextBaseRotation = progress >= 1
         ? baseRotation
