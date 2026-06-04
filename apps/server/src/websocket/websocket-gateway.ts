@@ -131,24 +131,39 @@ export class WebSocketGateway {
     }));
 
     this.queue.clear();
-
-    const first = updates[0];
-    if (!first) {
+    if (updates.length === 0) {
       return;
     }
 
-    const message: RuntimeWsServerMessage =
-      updates.length === 1
-        ? {
-            type: "tag-update",
-            payload: first,
-          }
-        : {
-            type: "tag-batch",
-            payload: { updates },
-          };
+    for (const client of this.clients) {
+      if (client.readyState !== client.OPEN) {
+        continue;
+      }
+      const subscribed = this.subscriptions.get(client);
+      if (!subscribed || subscribed.size === 0) {
+        continue;
+      }
+      const clientUpdates = updates.filter((item) => subscribed.has(item.name));
+      if (clientUpdates.length === 0) {
+        continue;
+      }
+      const first = clientUpdates[0];
+      if (!first) {
+        continue;
+      }
+      const message: RuntimeWsServerMessage =
+        clientUpdates.length === 1
+          ? {
+              type: "tag-update",
+              payload: first,
+            }
+          : {
+              type: "tag-batch",
+              payload: { updates: clientUpdates },
+            };
+      client.send(JSON.stringify(message));
+    }
 
-    this.broadcastSerialized(JSON.stringify(message));
     logPerf({
       component: "websocket",
       action: "broadcast",
