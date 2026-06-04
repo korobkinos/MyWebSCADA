@@ -819,7 +819,16 @@ type RuntimeColorTransitionState = {
   currentRgba?: RgbaColor;
 };
 
-function useAnimatedColor(targetColor: string | undefined, options: { enabled: boolean; durationMs?: number }): string | undefined {
+interface AnimatedColorOptions {
+  enabled: boolean;
+  durationMs?: number;
+  /** When provided, the animation tick directly mutates the Konva node instead of calling forceUpdate */
+  konvaRef?: React.RefObject<{ fill?: (color: string) => void; stroke?: (color: string) => void } | null>;
+  /** Konva property to mutate on each tick (only used with konvaRef) */
+  konvaProperty?: "fill" | "stroke";
+}
+
+function useAnimatedColor(targetColor: string | undefined, options: AnimatedColorOptions): string | undefined {
   const durationMs = options.durationMs ?? RUNTIME_COLOR_TRANSITION_MS;
   const transitionRef = useRef<RuntimeColorTransitionState>({});
   const [, forceUpdate] = useState(0);
@@ -837,6 +846,21 @@ function useAnimatedColor(targetColor: string | undefined, options: { enabled: b
     state.currentRgba = targetRgba ?? undefined;
   }
 
+  const applyToNode = useCallback((color: string) => {
+    const konvaNode = options.konvaRef?.current;
+    if (!konvaNode || !options.konvaProperty) {
+      return;
+    }
+    if (options.konvaProperty === "fill") {
+      konvaNode.fill!(color);
+    } else {
+      konvaNode.stroke!(color);
+    }
+    if (typeof (konvaNode as Record<string, unknown>).getLayer === "function") {
+      requestRuntimeAnimationLayerDraw((konvaNode as Record<string, unknown>).getLayer() as Konva.Layer | null);
+    }
+  }, [options.konvaRef, options.konvaProperty]);
+
   useEffect(() => {
     const nextRgba = targetColor ? parseHexColorToRgba(targetColor) : null;
     if (!canAnimate || !targetColor || !nextRgba) {
@@ -850,6 +874,8 @@ function useAnimatedColor(targetColor: string | undefined, options: { enabled: b
     const fromColor = currentState.currentRgba ?? nextRgba;
     currentState.targetColor = targetColor;
 
+    const useDirectKonva = Boolean(options.konvaRef?.current && options.konvaProperty);
+
     const unsubscribe = subscribeGlobalAnimationTick((time) => {
       const frame = computeRuntimeColorTransitionFrame({
         fromColor,
@@ -861,20 +887,28 @@ function useAnimatedColor(targetColor: string | undefined, options: { enabled: b
       if (!frame) {
         currentState.currentColor = targetColor;
         currentState.currentRgba = nextRgba;
-        forceUpdate((value) => value + 1);
+        if (useDirectKonva) {
+          applyToNode(targetColor);
+        } else {
+          forceUpdate((value) => value + 1);
+        }
         unsubscribe();
         return;
       }
       currentState.currentColor = frame.color;
       currentState.currentRgba = frame.rgba;
-      forceUpdate((value) => value + 1);
+      if (useDirectKonva) {
+        applyToNode(frame.color);
+      } else {
+        forceUpdate((value) => value + 1);
+      }
       if (frame.done) {
         unsubscribe();
       }
     });
 
     return unsubscribe;
-  }, [canAnimate, durationMs, targetColor]);
+  }, [canAnimate, durationMs, targetColor, applyToNode, options.konvaRef, options.konvaProperty]);
 
   return canAnimate ? state.currentColor : targetColor;
 }
@@ -891,16 +925,22 @@ function RuntimeAnimatedRect({
   stroke,
   ...props
 }: ComponentProps<typeof Rect> & AnimatedColorProps) {
+  const shapeRef = useRef<Konva.Rect>(null);
   const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
     enabled: runtimeMode,
     durationMs: colorTransitionDurationMs,
+    konvaRef: shapeRef,
+    konvaProperty: "fill",
   });
   const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
     enabled: runtimeMode,
     durationMs: colorTransitionDurationMs,
+    konvaRef: shapeRef,
+    konvaProperty: "stroke",
   });
   return (
     <Rect
+      ref={shapeRef}
       {...props}
       fill={typeof fill === "string" ? animatedFill : fill}
       stroke={typeof stroke === "string" ? animatedStroke : stroke}
@@ -915,16 +955,22 @@ function RuntimeAnimatedLine({
   stroke,
   ...props
 }: ComponentProps<typeof Line> & AnimatedColorProps) {
+  const shapeRef = useRef<Konva.Line>(null);
   const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
     enabled: runtimeMode,
     durationMs: colorTransitionDurationMs,
+    konvaRef: shapeRef,
+    konvaProperty: "fill",
   });
   const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
     enabled: runtimeMode,
     durationMs: colorTransitionDurationMs,
+    konvaRef: shapeRef,
+    konvaProperty: "stroke",
   });
   return (
     <Line
+      ref={shapeRef}
       {...props}
       fill={typeof fill === "string" ? animatedFill : fill}
       stroke={typeof stroke === "string" ? animatedStroke : stroke}
@@ -939,16 +985,22 @@ function RuntimeAnimatedPath({
   stroke,
   ...props
 }: ComponentProps<typeof Path> & AnimatedColorProps) {
+  const shapeRef = useRef<Konva.Path>(null);
   const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
     enabled: runtimeMode,
     durationMs: colorTransitionDurationMs,
+    konvaRef: shapeRef,
+    konvaProperty: "fill",
   });
   const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
     enabled: runtimeMode,
     durationMs: colorTransitionDurationMs,
+    konvaRef: shapeRef,
+    konvaProperty: "stroke",
   });
   return (
     <Path
+      ref={shapeRef}
       {...props}
       fill={typeof fill === "string" ? animatedFill : fill}
       stroke={typeof stroke === "string" ? animatedStroke : stroke}
@@ -963,16 +1015,22 @@ function RuntimeAnimatedCircle({
   stroke,
   ...props
 }: ComponentProps<typeof Circle> & AnimatedColorProps) {
+  const shapeRef = useRef<Konva.Circle>(null);
   const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
     enabled: runtimeMode,
     durationMs: colorTransitionDurationMs,
+    konvaRef: shapeRef,
+    konvaProperty: "fill",
   });
   const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
     enabled: runtimeMode,
     durationMs: colorTransitionDurationMs,
+    konvaRef: shapeRef,
+    konvaProperty: "stroke",
   });
   return (
     <Circle
+      ref={shapeRef}
       {...props}
       fill={typeof fill === "string" ? animatedFill : fill}
       stroke={typeof stroke === "string" ? animatedStroke : stroke}
