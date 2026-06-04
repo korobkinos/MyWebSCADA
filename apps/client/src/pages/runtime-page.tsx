@@ -132,8 +132,6 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const runtimeSubscriptionRecalcCountRef = useRef(0);
   const runtimePerfDebugEnabledRef = useRef(false);
   const tagsRef = useRef(tags);
-  const lastSubscriptionSignatureRef = useRef("");
-  const runtimeSubscriptionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runtimeExecuteActionRef = useRef<(action: RuntimeAction, context: RenderContext) => Promise<void>>(
     async () => undefined,
   );
@@ -383,64 +381,34 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       .join("|");
   }, [runtimeSubscriptionPlan?.dependencyTags, tags]);
 
-  const applyRuntimeTagSubscriptions = useCallback((subscriptionTags: string[]) => {
-    const nextSignature = buildSubscriptionSignature(subscriptionTags);
-    if (nextSignature === lastSubscriptionSignatureRef.current) {
-      return false;
-    }
-    lastSubscriptionSignatureRef.current = nextSignature;
-    updateRuntimeTagSubscriptions(subscriptionTags);
-    return true;
-  }, []);
-
   useEffect(() => {
-    if (runtimeSubscriptionTimerRef.current) {
-      clearTimeout(runtimeSubscriptionTimerRef.current);
-      runtimeSubscriptionTimerRef.current = null;
-    }
     if (!project || !screen) {
-      applyRuntimeTagSubscriptions([]);
+      updateRuntimeTagSubscriptions([]);
       return;
     }
     runtimePerfDebugEnabledRef.current = readRuntimePerfDebugFlag();
+    const startedAt = runtimePerfDebugEnabledRef.current ? performance.now() : 0;
     const dependencyTagCount = runtimeSubscriptionPlan?.dependencyTags.length ?? 0;
-
-    if (dependencyTagCount === 0) {
-      applyRuntimeTagSubscriptions(runtimeSubscriptionPlan?.subscriptionTags ?? []);
-      return;
-    }
-
-    runtimeSubscriptionTimerRef.current = setTimeout(() => {
-      runtimeSubscriptionTimerRef.current = null;
-      const startedAt = runtimePerfDebugEnabledRef.current ? performance.now() : 0;
-      const subscriptionTags = collectRuntimeTagSubscriptions({
-        project,
-        libraries: activeLibraries,
-        screen,
-        tags: tagsRef.current,
-        popups: popupSubscriptionContexts,
+    const shouldResolveFromRuntimeTags = dependencyTagCount > 0;
+    const subscriptionTags = collectRuntimeTagSubscriptions({
+      project,
+      libraries: activeLibraries,
+      screen,
+      tags: shouldResolveFromRuntimeTags ? tagsRef.current : undefined,
+      popups: popupSubscriptionContexts,
+    });
+    updateRuntimeTagSubscriptions(subscriptionTags);
+    if (runtimePerfDebugEnabledRef.current) {
+      runtimeSubscriptionRecalcCountRef.current += 1;
+      // eslint-disable-next-line no-console
+      console.debug("[runtime-perf] subscription-recalc", {
+        count: runtimeSubscriptionRecalcCountRef.current,
+        durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
+        subscriptionTagCount: subscriptionTags.length,
+        dependencyTagCount,
       });
-      const updated = applyRuntimeTagSubscriptions(subscriptionTags);
-      if (runtimePerfDebugEnabledRef.current) {
-        runtimeSubscriptionRecalcCountRef.current += 1;
-        // eslint-disable-next-line no-console
-        console.debug("[runtime-perf] subscription-recalc", {
-          count: runtimeSubscriptionRecalcCountRef.current,
-          durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
-          subscriptionTagCount: subscriptionTags.length,
-          dependencyTagCount,
-          updated,
-        });
-      }
-    }, 100);
-
-    return () => {
-      if (runtimeSubscriptionTimerRef.current) {
-        clearTimeout(runtimeSubscriptionTimerRef.current);
-        runtimeSubscriptionTimerRef.current = null;
-      }
-    };
-  }, [activeLibraries, applyRuntimeTagSubscriptions, popupSubscriptionContexts, project, runtimeDependencyTagSignature, runtimeSubscriptionPlan, screen]);
+    }
+  }, [activeLibraries, popupSubscriptionContexts, project, runtimeDependencyTagSignature, runtimeSubscriptionPlan, screen]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2580,10 +2548,6 @@ function serializeRuntimeTagForSignature(value: TagValue | undefined): string {
           ? (rawValue ? "1" : "0")
           : rawValue;
   return `${valuePart}|${value.quality ?? ""}|${value.source ?? ""}`;
-}
-
-function buildSubscriptionSignature(tags: string[]): string {
-  return [...new Set(tags)].sort((a, b) => a.localeCompare(b)).join("\n");
 }
 
 function unwrapRuntimeTagValue(value: unknown): unknown {
