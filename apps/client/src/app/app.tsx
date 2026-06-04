@@ -146,7 +146,7 @@ export function App() {
     const tagBatcher = createTagValueBatcher(
       (values) => startTransition(() => setTagValues(values)),
       {
-        schedule: (callback) => setTimeout(callback, 200),
+        schedule: (callback) => setTimeout(callback, 400),
         cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
       },
     );
