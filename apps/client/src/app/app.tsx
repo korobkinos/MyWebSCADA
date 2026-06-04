@@ -146,8 +146,8 @@ export function App() {
     const tagBatcher = createTagValueBatcher(
       (values) => startTransition(() => setTagValues(values)),
       {
-        schedule: (callback) => requestAnimationFrame(callback),
-        cancel: (handle) => cancelAnimationFrame(handle as number),
+        schedule: (callback) => setTimeout(callback, 100),
+        cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
       },
     );
     const socket = createRuntimeSocket({
