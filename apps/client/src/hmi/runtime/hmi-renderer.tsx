@@ -1471,7 +1471,16 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
 
   const watchedTags = collectWatchedTags(next.object, next.renderContext);
   if (!watchedTags) {
-    return prev.tags === next.tags;
+    // For containers and indexed objects, skip full tags comparison.
+    // Container types (frame, libraryElementInstance) must re-render
+    // so children can see new tags. Check via own-tag comparison.
+    if (next.object.type === "libraryElementInstance" || next.object.type === "frame") {
+      return prev.tags === next.tags;
+    }
+    // Objects with tag indexing or no direct tag bindings: skip re-render.
+    // Their tag resolution uses an indexed cache (cleared in useEffect)
+    // that handles tag changes without re-render.
+    return true;
   }
   for (const tagName of watchedTags) {
     const left = prev.tags[tagName];

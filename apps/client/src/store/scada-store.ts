@@ -445,8 +445,6 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     set((state) => {
       let nextTags: TagMap | undefined;
       let tagsChanged = false;
-      const missing: TagValue[] = [];
-      let snapshotNames: Set<string> | undefined;
 
       for (const value of values) {
         const prev = state.tags[value.name];
@@ -459,41 +457,20 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
           continue;
         }
         if (!nextTags) {
+          // Build from scratch: the reference must change for Zustand subscribers
           nextTags = { ...state.tags };
         }
         tagsChanged = true;
         nextTags[value.name] = value;
-        if (!Object.prototype.hasOwnProperty.call(state.tags, value.name)) {
-          if (!snapshotNames) {
-            snapshotNames = new Set(state.tagSnapshots.map((item) => item.definition.name));
-          }
-          if (!snapshotNames.has(value.name)) {
-            missing.push(value);
-          }
-        }
       }
 
       if (!tagsChanged) {
         return state;
       }
 
-      const nextSnapshots = missing.length > 0
-        ? [
-            ...state.tagSnapshots,
-            ...missing.map((value) => ({
-              definition: {
-                name: value.name,
-                dataType: "REAL" as TagDataType,
-                writable: true,
-              },
-              value,
-            })),
-          ]
-        : state.tagSnapshots;
-
       return {
         tags: nextTags ?? state.tags,
-        tagSnapshots: nextSnapshots,
+        tagSnapshots: state.tagSnapshots,
       };
     });
   },

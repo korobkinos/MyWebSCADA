@@ -143,7 +143,10 @@ export function App() {
     if (!isRuntimeRoute) {
       return;
     }
-    const tagBatcher = createTagValueBatcher((values) => setTagValues(values));
+    const tagBatcher = createTagValueBatcher((values) => setTagValues(values), {
+      schedule: (callback) => requestAnimationFrame(callback),
+      cancel: (handle) => cancelAnimationFrame(handle as number),
+    });
     const socket = createRuntimeSocket({
       onTagValues: (values) => tagBatcher.push(values),
       onDriverStatuses: (statuses) => setDrivers(statuses),
