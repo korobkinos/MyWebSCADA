@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, startTransition, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   EditOutlined,
@@ -143,10 +143,13 @@ export function App() {
     if (!isRuntimeRoute) {
       return;
     }
-    const tagBatcher = createTagValueBatcher((values) => setTagValues(values), {
-      schedule: (callback) => requestIdleCallback(callback, { timeout: 50 }),
-      cancel: (handle) => cancelIdleCallback(handle as number),
-    });
+    const tagBatcher = createTagValueBatcher(
+      (values) => startTransition(() => setTagValues(values)),
+      {
+        schedule: (callback) => requestAnimationFrame(callback),
+        cancel: (handle) => cancelAnimationFrame(handle as number),
+      },
+    );
     const socket = createRuntimeSocket({
       onTagValues: (values) => tagBatcher.push(values),
       onDriverStatuses: (statuses) => setDrivers(statuses),
