@@ -349,4 +349,19 @@ describe("areObjectNodePropsEqual", () => {
     expect(areObjectNodePropsEqual(createNodeProps(1, 10) as never, createNodeProps(1, 11) as never)).toBe(false);
     expect(areObjectNodePropsEqual(createNodeProps(1, 10) as never, createNodeProps(1, 10, "Bad") as never)).toBe(false);
   });
+
+  it("rerenders indexed objects when runtime tags map changes", () => {
+    const indexedObject = {
+      ...object,
+      tagIndexing: {
+        enabled: true,
+        template: "ns=1;s=PV[1]",
+        bindings: [],
+      },
+    } as HmiObject;
+    const prev = createNodeProps(1, 10);
+    const next = createNodeProps(1, 11);
+
+    expect(areObjectNodePropsEqual({ ...prev, object: indexedObject } as never, { ...next, object: indexedObject } as never)).toBe(false);
+  });
 });

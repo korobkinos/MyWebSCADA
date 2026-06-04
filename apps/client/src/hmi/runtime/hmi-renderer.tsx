@@ -1514,12 +1514,10 @@ export function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps
     // For containers and indexed objects, skip full tags comparison.
     // Container types (frame, libraryElementInstance) must re-render
     // so children can see new tags. Check via own-tag comparison.
-    if (next.object.type === "libraryElementInstance" || next.object.type === "frame") {
+    if (next.object.type === "libraryElementInstance" || next.object.type === "frame" || hasObjectTagIndexing(next.object)) {
       return prev.tags === next.tags;
     }
-    // Objects with tag indexing or no direct tag bindings: skip re-render.
-    // Their tag resolution uses an indexed cache (cleared in useEffect)
-    // that handles tag changes without re-render.
+    // Objects with no direct tag bindings: skip tag-driven re-render.
     return true;
   }
   for (const tagName of watchedTags) {
@@ -1575,6 +1573,11 @@ function buildIndexedTagCacheKey(input: {
     stableJsonForCache(config),
     dependencySignature,
   ].join("\u001f");
+}
+
+function hasObjectTagIndexing(object: HmiObject): boolean {
+  return object.tagIndexing?.enabled === true
+    || Object.values(object.tagIndexingByField ?? {}).some((config) => config?.enabled === true);
 }
 
 function serializeTagValueForCache(value: TagValue | undefined): string {
