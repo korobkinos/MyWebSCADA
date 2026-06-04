@@ -365,12 +365,19 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     if (!project || !screen) {
       return null;
     }
-    return collectRuntimeTagSubscriptionPlan({
+    const startedAt = performance.now();
+    const plan = collectRuntimeTagSubscriptionPlan({
       project,
       libraries: activeLibraries,
       screen,
       popups: popupSubscriptionContexts,
     });
+    const durationMs = performance.now() - startedAt;
+    if (durationMs > 10) {
+      // eslint-disable-next-line no-console
+      console.debug(`[perf] collectRuntimeTagSubscriptionPlan took ${durationMs.toFixed(1)}ms, ${plan.subscriptionTags.length} subscriptionTags, ${plan.dependencyTags.length} dependencyTags`);
+    }
+    return plan;
   }, [activeLibraries, popupSubscriptionContexts, project, screen]);
 
   const runtimeDependencyTagSignature = useMemo(() => {
@@ -395,7 +402,12 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     if (dependencyTagCount === 0) {
       // Static screen: subscription list never changes at runtime
       // Use pre-computed plan to avoid expensive collectRuntimeTagSubscriptions
-      updateRuntimeTagSubscriptions(runtimeSubscriptionPlan?.subscriptionTags ?? []);
+      const nextTags = runtimeSubscriptionPlan?.subscriptionTags ?? [];
+      if (runtimePerfDebugEnabledRef.current) {
+        // eslint-disable-next-line no-console
+        console.debug(`[runtime-perf] subscription: ${nextTags.length} tags, static`);
+      }
+      updateRuntimeTagSubscriptions(nextTags);
       if (runtimePerfDebugEnabledRef.current) {
         runtimeSubscriptionRecalcCountRef.current += 1;
         // eslint-disable-next-line no-console
