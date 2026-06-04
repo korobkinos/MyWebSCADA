@@ -71,7 +71,13 @@ vi.mock("../../features/events/EventTableRuntimeWidget", async () => {
   };
 });
 
-import { HmiRenderer, RUNTIME_COLOR_TRANSITION_MS, computeRuntimeColorTransitionFrame } from "./hmi-renderer";
+import {
+  HmiRenderer,
+  RUNTIME_COLOR_TRANSITION_MS,
+  computeRuntimeColorTransitionFrame,
+  flushRuntimeAnimationLayerDraws,
+  requestRuntimeAnimationLayerDraw,
+} from "./hmi-renderer";
 
 const renderContext: RenderContext = {
   screenId: "screen-main",
@@ -245,5 +251,54 @@ describe("runtime color transition", () => {
       rgba: { r: 255, g: 255, b: 0, a: 1 },
       done: true,
     });
+  });
+});
+
+describe("runtime animation layer draw scheduler", () => {
+  function createLayer(attached = true) {
+    return {
+      batchDraw: vi.fn(),
+      getStage: vi.fn(() => attached ? {} : null),
+    };
+  }
+
+  it("flushes one draw for repeated requests to the same layer", () => {
+    const layer = createLayer();
+
+    requestRuntimeAnimationLayerDraw(layer as never);
+    requestRuntimeAnimationLayerDraw(layer as never);
+
+    expect(layer.batchDraw).not.toHaveBeenCalled();
+
+    flushRuntimeAnimationLayerDraws();
+
+    expect(layer.batchDraw).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes each dirty layer and allows drawing it again after flush", () => {
+    const firstLayer = createLayer();
+    const secondLayer = createLayer();
+
+    requestRuntimeAnimationLayerDraw(firstLayer as never);
+    requestRuntimeAnimationLayerDraw(secondLayer as never);
+    flushRuntimeAnimationLayerDraws();
+
+    expect(firstLayer.batchDraw).toHaveBeenCalledTimes(1);
+    expect(secondLayer.batchDraw).toHaveBeenCalledTimes(1);
+
+    requestRuntimeAnimationLayerDraw(firstLayer as never);
+    flushRuntimeAnimationLayerDraws();
+
+    expect(firstLayer.batchDraw).toHaveBeenCalledTimes(2);
+    expect(secondLayer.batchDraw).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips layers detached before flush", () => {
+    const layer = createLayer(false);
+
+    requestRuntimeAnimationLayerDraw(layer as never);
+    flushRuntimeAnimationLayerDraws();
+
+    expect(layer.batchDraw).not.toHaveBeenCalled();
   });
 });

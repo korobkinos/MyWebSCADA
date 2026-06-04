@@ -73,17 +73,23 @@ export const RUNTIME_COLOR_TRANSITION_MS = 250;
 
 type AnimationTickHandler = (time: number) => void;
 const globalAnimationTickHandlers = new Set<AnimationTickHandler>();
+const runtimeAnimationDirtyLayers = new Set<Konva.Layer>();
 let globalAnimationFrameId: number | null = null;
+let runtimeAnimationTickerRunning = false;
+let runtimeAnimationLayerDrawFlushScheduled = false;
 let runtimeAnimationDebugEnabled = false;
 let runtimeAnimationDebugFlagCheckedAt = 0;
 let runtimeAnimationLastFrameAt: number | null = null;
 let runtimeAnimationReportStartedAt = 0;
 let runtimeAnimationFrameCount = 0;
+let runtimeAnimationHandlerCount = 0;
 let runtimeAnimationLongFrame16Count = 0;
 let runtimeAnimationLongFrame33Count = 0;
 let runtimeAnimationLongFrame50Count = 0;
 let runtimeAnimationMaxTickDurationMs = 0;
 let runtimeAnimationLayerDrawRequests = 0;
+let runtimeAnimationLayerDrawFlushes = 0;
+let runtimeAnimationDirtyLayerCount = 0;
 let runtimeAnimationFlowMarkerUpdates = 0;
 
 function refreshRuntimeAnimationDebugFlag(time: number): void {
@@ -96,14 +102,46 @@ function refreshRuntimeAnimationDebugFlag(time: number): void {
     && window.localStorage.getItem("scada.debugRuntimePerf") === "1";
 }
 
-function recordRuntimeAnimationLayerDraw(layer: Konva.Layer | null | undefined): void {
+function scheduleRuntimeAnimationLayerDrawFlush(): void {
+  if (runtimeAnimationTickerRunning || runtimeAnimationLayerDrawFlushScheduled) {
+    return;
+  }
+  runtimeAnimationLayerDrawFlushScheduled = true;
+  queueMicrotask(() => {
+    runtimeAnimationLayerDrawFlushScheduled = false;
+    flushRuntimeAnimationLayerDraws();
+  });
+}
+
+export function requestRuntimeAnimationLayerDraw(layer: Konva.Layer | null | undefined): void {
   if (!layer) {
     return;
   }
+  runtimeAnimationDirtyLayers.add(layer);
   if (runtimeAnimationDebugEnabled) {
     runtimeAnimationLayerDrawRequests += 1;
   }
-  layer.batchDraw();
+  scheduleRuntimeAnimationLayerDrawFlush();
+}
+
+export function flushRuntimeAnimationLayerDraws(): void {
+  if (runtimeAnimationDirtyLayers.size === 0) {
+    return;
+  }
+  const dirtyLayers = Array.from(runtimeAnimationDirtyLayers);
+  runtimeAnimationDirtyLayers.clear();
+  if (runtimeAnimationDebugEnabled) {
+    runtimeAnimationDirtyLayerCount += dirtyLayers.length;
+  }
+  for (const layer of dirtyLayers) {
+    if (!layer.getStage()) {
+      continue;
+    }
+    layer.batchDraw();
+    if (runtimeAnimationDebugEnabled) {
+      runtimeAnimationLayerDrawFlushes += 1;
+    }
+  }
 }
 
 function recordRuntimeFlowMarkerUpdates(count: number): void {
@@ -120,6 +158,7 @@ function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCou
   const frameGapMs = runtimeAnimationLastFrameAt === null ? 0 : time - runtimeAnimationLastFrameAt;
   runtimeAnimationLastFrameAt = time;
   runtimeAnimationFrameCount += 1;
+  runtimeAnimationHandlerCount += handlerCount;
   runtimeAnimationLongFrame16Count += frameGapMs > 16 ? 1 : 0;
   runtimeAnimationLongFrame33Count += frameGapMs > 33 ? 1 : 0;
   runtimeAnimationLongFrame50Count += frameGapMs > 50 ? 1 : 0;
@@ -133,21 +172,26 @@ function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCou
   // eslint-disable-next-line no-console
   console.debug("[runtime-perf] animation", {
     frameCount: runtimeAnimationFrameCount,
-    handlerCount,
+    handlerCount: runtimeAnimationHandlerCount,
     longFramesOver16Ms: runtimeAnimationLongFrame16Count,
     longFramesOver33Ms: runtimeAnimationLongFrame33Count,
     longFramesOver50Ms: runtimeAnimationLongFrame50Count,
     maxTickDurationMs: Math.round(runtimeAnimationMaxTickDurationMs * 1000) / 1000,
     layerDrawRequests: runtimeAnimationLayerDrawRequests,
+    layerDrawFlushes: runtimeAnimationLayerDrawFlushes,
+    dirtyLayerCount: runtimeAnimationDirtyLayerCount,
     flowMarkerUpdates: runtimeAnimationFlowMarkerUpdates,
   });
   runtimeAnimationReportStartedAt = time;
   runtimeAnimationFrameCount = 0;
+  runtimeAnimationHandlerCount = 0;
   runtimeAnimationLongFrame16Count = 0;
   runtimeAnimationLongFrame33Count = 0;
   runtimeAnimationLongFrame50Count = 0;
   runtimeAnimationMaxTickDurationMs = 0;
   runtimeAnimationLayerDrawRequests = 0;
+  runtimeAnimationLayerDrawFlushes = 0;
+  runtimeAnimationDirtyLayerCount = 0;
   runtimeAnimationFlowMarkerUpdates = 0;
 }
 
@@ -155,8 +199,14 @@ function runGlobalAnimationTicker(time: number): void {
   refreshRuntimeAnimationDebugFlag(time);
   const startedAt = runtimeAnimationDebugEnabled ? performance.now() : 0;
   const handlers = Array.from(globalAnimationTickHandlers);
-  for (const handler of handlers) {
-    handler(time);
+  runtimeAnimationTickerRunning = true;
+  try {
+    for (const handler of handlers) {
+      handler(time);
+    }
+  } finally {
+    runtimeAnimationTickerRunning = false;
+    flushRuntimeAnimationLayerDraws();
   }
   recordRuntimeAnimationFrame(time, startedAt, handlers.length);
   if (globalAnimationTickHandlers.size > 0) {
@@ -2204,7 +2254,7 @@ function ObjectNode({
       return;
     }
     node.rotation(nextRotation);
-    recordRuntimeAnimationLayerDraw(node.getLayer());
+    requestRuntimeAnimationLayerDraw(node.getLayer());
   }, []);
 
   const applyFlowDashOffset = useCallback((offset: number) => {
@@ -2399,7 +2449,7 @@ function ObjectNode({
         ?? flowGradientLineRef.current?.getLayer()
         ?? flowDotRefs.current[0]?.getLayer()
         ?? flowArrowRefs.current[0]?.getLayer();
-      recordRuntimeAnimationLayerDraw(layer);
+      requestRuntimeAnimationLayerDraw(layer);
     }
   }, [applyFlowDashOffset, flowAnimationIsActive, flowAnimationSpeedPxPerSec, updateFlowMarkerNodes]);
 
@@ -2431,7 +2481,7 @@ function ObjectNode({
           ?? flowGradientLineRef.current?.getLayer()
           ?? flowDotRefs.current[0]?.getLayer()
           ?? flowArrowRefs.current[0]?.getLayer();
-        recordRuntimeAnimationLayerDraw(layer);
+        requestRuntimeAnimationLayerDraw(layer);
       }
     });
     return () => {
