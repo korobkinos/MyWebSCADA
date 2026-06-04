@@ -739,148 +739,10 @@ function samplePolylineAt(
     ny: last.ny,
   };
 }
-
-function parseHexColorToRgba(input: string): RgbaColor | null {
-  const value = input.trim().toLowerCase();
-  if (!value.startsWith("#")) {
-    return null;
-  }
-  const hex = value.slice(1);
-  if (hex.length === 3) {
-    const r = Number.parseInt(hex[0]! + hex[0], 16);
-    const g = Number.parseInt(hex[1]! + hex[1], 16);
-    const b = Number.parseInt(hex[2]! + hex[2], 16);
-    return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)
-      ? { r, g, b, a: 1 }
-      : null;
-  }
-  if (hex.length === 6 || hex.length === 8) {
-    const r = Number.parseInt(hex.slice(0, 2), 16);
-    const g = Number.parseInt(hex.slice(2, 4), 16);
-    const b = Number.parseInt(hex.slice(4, 6), 16);
-    const a = hex.length === 8 ? (Number.parseInt(hex.slice(6, 8), 16) / 255) : 1;
-    return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b) && Number.isFinite(a)
-      ? { r, g, b, a }
-      : null;
-  }
-  return null;
+function useAnimatedColor(targetColor: string | undefined, _options: { enabled: boolean; durationMs?: number }): string | undefined {
+  return targetColor;
 }
 
-function mixRgba(left: RgbaColor, right: RgbaColor, t: number): RgbaColor {
-  const k = Math.max(0, Math.min(1, t));
-  return {
-    r: Math.round(left.r + (right.r - left.r) * k),
-    g: Math.round(left.g + (right.g - left.g) * k),
-    b: Math.round(left.b + (right.b - left.b) * k),
-    a: left.a + (right.a - left.a) * k,
-  };
-}
-
-function rgbaToCss(color: RgbaColor): string {
-  const alpha = Math.max(0, Math.min(1, color.a));
-  return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
-}
-
-type RuntimeColorTransitionFrame = {
-  color: string;
-  rgba: RgbaColor;
-  done: boolean;
-};
-
-export function computeRuntimeColorTransitionFrame(args: {
-  fromColor: string | RgbaColor;
-  toColor: string;
-  startedAt: number;
-  now: number;
-  durationMs: number;
-}): RuntimeColorTransitionFrame | null {
-  const fromColor = typeof args.fromColor === "string" ? parseHexColorToRgba(args.fromColor) : args.fromColor;
-  const toColor = parseHexColorToRgba(args.toColor);
-  if (!fromColor || !toColor) {
-    return null;
-  }
-  const durationMs = Math.max(1, args.durationMs);
-  const progress = Math.max(0, Math.min(1, (args.now - args.startedAt) / durationMs));
-  if (progress >= 1) {
-    return {
-      color: args.toColor,
-      rgba: toColor,
-      done: true,
-    };
-  }
-  const rgba = mixRgba(fromColor, toColor, progress);
-  return {
-    color: rgbaToCss(rgba),
-    rgba,
-    done: false,
-  };
-}
-
-type RuntimeColorTransitionState = {
-  targetColor?: string;
-  currentColor?: string;
-  currentRgba?: RgbaColor;
-};
-
-function useAnimatedColor(targetColor: string | undefined, options: { enabled: boolean; durationMs?: number }): string | undefined {
-  const durationMs = options.durationMs ?? RUNTIME_COLOR_TRANSITION_MS;
-  const transitionRef = useRef<RuntimeColorTransitionState>({});
-  const [, forceUpdate] = useState(0);
-  const targetRgba = targetColor ? parseHexColorToRgba(targetColor) : null;
-  const canAnimate = options.enabled && Boolean(targetColor) && Boolean(targetRgba) && durationMs > 0;
-  const state = transitionRef.current;
-
-  if (!canAnimate) {
-    state.targetColor = targetColor;
-    state.currentColor = targetColor;
-    state.currentRgba = targetRgba ?? undefined;
-  } else if (state.currentColor === undefined || state.currentRgba === undefined || state.targetColor === undefined) {
-    state.targetColor = targetColor;
-    state.currentColor = targetColor;
-    state.currentRgba = targetRgba ?? undefined;
-  }
-
-  useEffect(() => {
-    const nextRgba = targetColor ? parseHexColorToRgba(targetColor) : null;
-    if (!canAnimate || !targetColor || !nextRgba) {
-      return;
-    }
-    const currentState = transitionRef.current;
-    if (currentState.targetColor === targetColor && currentState.currentRgba) {
-      return;
-    }
-    const startedAt = performance.now();
-    const fromColor = currentState.currentRgba ?? nextRgba;
-    currentState.targetColor = targetColor;
-
-    const unsubscribe = subscribeGlobalAnimationTick((time) => {
-      const frame = computeRuntimeColorTransitionFrame({
-        fromColor,
-        toColor: targetColor,
-        startedAt,
-        now: time,
-        durationMs,
-      });
-      if (!frame) {
-        currentState.currentColor = targetColor;
-        currentState.currentRgba = nextRgba;
-        forceUpdate((value) => value + 1);
-        unsubscribe();
-        return;
-      }
-      currentState.currentColor = frame.color;
-      currentState.currentRgba = frame.rgba;
-      forceUpdate((value) => value + 1);
-      if (frame.done) {
-        unsubscribe();
-      }
-    });
-
-    return unsubscribe;
-  }, [canAnimate, durationMs, targetColor]);
-
-  return canAnimate ? state.currentColor : targetColor;
-}
 
 type AnimatedColorProps = {
   runtimeMode: boolean;
@@ -888,104 +750,72 @@ type AnimatedColorProps = {
 };
 
 function RuntimeAnimatedRect({
-  runtimeMode,
-  colorTransitionDurationMs,
+  runtimeMode: _rm,
+  colorTransitionDurationMs: _cd,
   fill,
   stroke,
   ...props
 }: ComponentProps<typeof Rect> & AnimatedColorProps) {
-  const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
-  const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
   return (
     <Rect
       {...props}
-      fill={typeof fill === "string" ? animatedFill : fill}
-      stroke={typeof stroke === "string" ? animatedStroke : stroke}
+      fill={fill}
+      stroke={stroke}
     />
   );
 }
 
 function RuntimeAnimatedLine({
-  runtimeMode,
-  colorTransitionDurationMs,
+  runtimeMode: _rm,
+  colorTransitionDurationMs: _cd,
   fill,
   stroke,
   ...props
 }: ComponentProps<typeof Line> & AnimatedColorProps) {
-  const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
-  const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
   return (
     <Line
       {...props}
-      fill={typeof fill === "string" ? animatedFill : fill}
-      stroke={typeof stroke === "string" ? animatedStroke : stroke}
+      fill={fill}
+      stroke={stroke}
     />
   );
 }
 
 function RuntimeAnimatedPath({
-  runtimeMode,
-  colorTransitionDurationMs,
+  runtimeMode: _rm,
+  colorTransitionDurationMs: _cd,
   fill,
   stroke,
   ...props
 }: ComponentProps<typeof Path> & AnimatedColorProps) {
-  const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
-  const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
   return (
     <Path
       {...props}
-      fill={typeof fill === "string" ? animatedFill : fill}
-      stroke={typeof stroke === "string" ? animatedStroke : stroke}
+      fill={fill}
+      stroke={stroke}
     />
   );
 }
 
 function RuntimeAnimatedCircle({
-  runtimeMode,
-  colorTransitionDurationMs,
+  runtimeMode: _rm,
+  colorTransitionDurationMs: _cd,
   fill,
   stroke,
   ...props
 }: ComponentProps<typeof Circle> & AnimatedColorProps) {
-  const animatedFill = useAnimatedColor(typeof fill === "string" ? fill : undefined, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
-  const animatedStroke = useAnimatedColor(typeof stroke === "string" ? stroke : undefined, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
   return (
     <Circle
       {...props}
-      fill={typeof fill === "string" ? animatedFill : fill}
-      stroke={typeof stroke === "string" ? animatedStroke : stroke}
+      fill={fill}
+      stroke={stroke}
     />
   );
 }
 
 function RuntimeAnimatedShape({
-  runtimeMode,
-  colorTransitionDurationMs,
+  runtimeMode: _rm,
+  colorTransitionDurationMs: _cd,
   fillColor,
   strokeColor,
   sceneFunc,
@@ -995,24 +825,15 @@ function RuntimeAnimatedShape({
   strokeColor?: string;
   sceneFunc: (context: Konva.Context, colors: { fillColor?: string; strokeColor?: string }) => void;
 }) {
-  const animatedFill = useAnimatedColor(fillColor, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
-  const animatedStroke = useAnimatedColor(strokeColor, {
-    enabled: runtimeMode,
-    durationMs: colorTransitionDurationMs,
-  });
   return (
     <Shape
       {...props}
       sceneFunc={(context) => {
-        sceneFunc(context, { fillColor: animatedFill, strokeColor: animatedStroke });
+        sceneFunc(context, { fillColor, strokeColor });
       }}
     />
   );
 }
-
 function resolveFillGradientProps(args: {
   enabled: boolean;
   direction: GradientDirection;
