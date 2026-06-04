@@ -135,6 +135,7 @@ export class WebSocketGateway {
       return;
     }
 
+    // Send filtered values to each client based on their subscriptions
     for (const client of this.clients) {
       if (client.readyState !== client.OPEN) {
         continue;
