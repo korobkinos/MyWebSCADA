@@ -132,6 +132,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const runtimeSubscriptionRecalcCountRef = useRef(0);
   const runtimePerfDebugEnabledRef = useRef(false);
   const tagsRef = useRef(tags);
+  const runtimeSubscriptionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runtimeSubscriptionMinIntervalRef = useRef(0);
   const runtimeExecuteActionRef = useRef<(action: RuntimeAction, context: RenderContext) => Promise<void>>(
     async () => undefined,
   );
@@ -387,27 +389,65 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       return;
     }
     runtimePerfDebugEnabledRef.current = readRuntimePerfDebugFlag();
-    const startedAt = runtimePerfDebugEnabledRef.current ? performance.now() : 0;
+
     const dependencyTagCount = runtimeSubscriptionPlan?.dependencyTags.length ?? 0;
-    const shouldResolveFromRuntimeTags = dependencyTagCount > 0;
-    const subscriptionTags = collectRuntimeTagSubscriptions({
-      project,
-      libraries: activeLibraries,
-      screen,
-      tags: shouldResolveFromRuntimeTags ? tagsRef.current : undefined,
-      popups: popupSubscriptionContexts,
-    });
-    updateRuntimeTagSubscriptions(subscriptionTags);
-    if (runtimePerfDebugEnabledRef.current) {
-      runtimeSubscriptionRecalcCountRef.current += 1;
-      // eslint-disable-next-line no-console
-      console.debug("[runtime-perf] subscription-recalc", {
-        count: runtimeSubscriptionRecalcCountRef.current,
-        durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
-        subscriptionTagCount: subscriptionTags.length,
-        dependencyTagCount,
-      });
+
+    if (dependencyTagCount === 0) {
+      // Static screen: subscription list never changes at runtime
+      // Use pre-computed plan to avoid expensive collectRuntimeTagSubscriptions
+      updateRuntimeTagSubscriptions(runtimeSubscriptionPlan?.subscriptionTags ?? []);
+      if (runtimePerfDebugEnabledRef.current) {
+        runtimeSubscriptionRecalcCountRef.current += 1;
+        // eslint-disable-next-line no-console
+        console.debug("[runtime-perf] subscription-recalc (static)", {
+          count: runtimeSubscriptionRecalcCountRef.current,
+          subscriptionTagCount: runtimeSubscriptionPlan?.subscriptionTags.length ?? 0,
+        });
+      }
+      return;
     }
+
+    // Dynamic screen: throttle collectRuntimeTagSubscriptions
+    const now = Date.now();
+    if (now - runtimeSubscriptionMinIntervalRef.current >= 200) {
+      runtimeSubscriptionMinIntervalRef.current = now;
+      if (runtimeSubscriptionTimerRef.current) {
+        clearTimeout(runtimeSubscriptionTimerRef.current);
+        runtimeSubscriptionTimerRef.current = null;
+      }
+      const startedAt = runtimePerfDebugEnabledRef.current ? performance.now() : 0;
+      const subscriptionTags = collectRuntimeTagSubscriptions({
+        project,
+        libraries: activeLibraries,
+        screen,
+        tags: tagsRef.current,
+        popups: popupSubscriptionContexts,
+      });
+      updateRuntimeTagSubscriptions(subscriptionTags);
+      if (runtimePerfDebugEnabledRef.current) {
+        runtimeSubscriptionRecalcCountRef.current += 1;
+        // eslint-disable-next-line no-console
+        console.debug("[runtime-perf] subscription-recalc (dynamic)", {
+          count: runtimeSubscriptionRecalcCountRef.current,
+          durationMs: Math.round((performance.now() - startedAt) * 1000) / 1000,
+          subscriptionTagCount: subscriptionTags.length,
+          dependencyTagCount,
+        });
+      }
+    } else if (!runtimeSubscriptionTimerRef.current) {
+      runtimeSubscriptionTimerRef.current = setTimeout(() => {
+        runtimeSubscriptionTimerRef.current = null;
+        runtimeSubscriptionMinIntervalRef.current = 0;
+        // Will fire again via dependency change after we bump minInterval
+      }, 200 - (now - runtimeSubscriptionMinIntervalRef.current));
+    }
+
+    return () => {
+      if (runtimeSubscriptionTimerRef.current) {
+        clearTimeout(runtimeSubscriptionTimerRef.current);
+        runtimeSubscriptionTimerRef.current = null;
+      }
+    };
   }, [activeLibraries, popupSubscriptionContexts, project, runtimeDependencyTagSignature, runtimeSubscriptionPlan, screen]);
 
   useEffect(() => {
