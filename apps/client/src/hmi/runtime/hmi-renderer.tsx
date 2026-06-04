@@ -1742,13 +1742,12 @@ function ObjectNode({
       indexedTagCache.set(cacheKey, indexed);
     }
 
-    const indexedLookupTarget = indexed.resolvedTagName ?? indexed.resolvedAddress;
-    const lookupName = resolveRuntimeTagLookupName(indexedLookupTarget, tags, project);
+    const lookupName = resolveRuntimeTagLookupName(indexed.resolvedTagName, tags, project);
     return {
-      resolvedName: lookupName ?? indexedLookupTarget,
+      resolvedName: lookupName ?? indexed.resolvedTagName,
       value: lookupName ? tags[lookupName] : undefined,
       missingBindingReference,
-      missingIndexedTag: indexed.usedIndexedAddress && !indexedLookupTarget,
+      missingIndexedTag: indexed.usedIndexedAddress && !indexed.resolvedTagName,
       indexedAddress: indexed.resolvedAddress,
       indexedUsed: indexed.usedIndexedAddress,
       indexedErrors: indexed.errors,

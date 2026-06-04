@@ -685,12 +685,10 @@ function addResolvedFieldTag(
       out.add(internalAlias);
     }
   } else {
-    const resolvedAddress = indexed.resolvedAddress?.trim() ?? "";
     const resolvedRaw = resolveTagName(input.rawTagName, input.context)?.trim() ?? "";
-    const fallbackTagName = indexed.usedIndexedAddress && resolvedAddress ? resolvedAddress : resolvedRaw;
-    if (fallbackTagName) {
-      out.add(fallbackTagName);
-      const internalAlias = resolveInternalTagAlias(input.project, fallbackTagName);
+    if (resolvedRaw) {
+      out.add(resolvedRaw);
+      const internalAlias = resolveInternalTagAlias(input.project, resolvedRaw);
       if (internalAlias) {
         out.add(internalAlias);
       }
