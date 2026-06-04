@@ -8,13 +8,6 @@ export function startRuntimePerformanceDiagnostics(): () => void {
 
   const reportAndClear = () => {
     const measureCount = performance.getEntriesByType("measure").length;
-    const resourceCount = performance.getEntriesByType("resource").length;
-
-    // eslint-disable-next-line no-console
-    console.info("[PerformanceDiagnostics]", {
-      measures: measureCount,
-      resources: resourceCount,
-    });
     if (measureCount > PERFORMANCE_MEASURE_WARNING_LIMIT) {
       // eslint-disable-next-line no-console
       console.warn("[PerformanceDiagnostics] PerformanceMeasure entries exceed 10000", {

@@ -91,6 +91,9 @@ let runtimeAnimationLayerDrawRequests = 0;
 let runtimeAnimationLayerDrawFlushes = 0;
 let runtimeAnimationDirtyLayerCount = 0;
 let runtimeAnimationFlowMarkerUpdates = 0;
+let runtimeAnimationIndexedCacheHits = 0;
+let runtimeAnimationIndexedCacheMisses = 0;
+let runtimeAnimationIndexedCacheClears = 0;
 
 function refreshRuntimeAnimationDebugFlag(time: number): void {
   if (time - runtimeAnimationDebugFlagCheckedAt < 1000) {
@@ -181,6 +184,9 @@ function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCou
     layerDrawFlushes: runtimeAnimationLayerDrawFlushes,
     dirtyLayerCount: runtimeAnimationDirtyLayerCount,
     flowMarkerUpdates: runtimeAnimationFlowMarkerUpdates,
+    indexedCacheHits: runtimeAnimationIndexedCacheHits,
+    indexedCacheMisses: runtimeAnimationIndexedCacheMisses,
+    indexedCacheClears: runtimeAnimationIndexedCacheClears,
   });
   runtimeAnimationReportStartedAt = time;
   runtimeAnimationFrameCount = 0;
@@ -193,6 +199,9 @@ function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCou
   runtimeAnimationLayerDrawFlushes = 0;
   runtimeAnimationDirtyLayerCount = 0;
   runtimeAnimationFlowMarkerUpdates = 0;
+  runtimeAnimationIndexedCacheHits = 0;
+  runtimeAnimationIndexedCacheMisses = 0;
+  runtimeAnimationIndexedCacheClears = 0;
 }
 
 function runGlobalAnimationTicker(time: number): void {
@@ -1444,24 +1453,6 @@ export function HmiRenderer({
     }
     return index;
   }, [drivers]);
-  const debugPerformance =
-    import.meta.env.DEV &&
-    typeof window !== "undefined" &&
-    window.localStorage.getItem("debugPerformance") === "1";
-
-  useEffect(() => {
-    if (!debugPerformance) {
-      return;
-    }
-    // eslint-disable-next-line no-console
-    console.debug("[Render] HmiRenderer", {
-      screenId: screen.id,
-      mode,
-      objects: screen.objects.length,
-      selected: selectedObjectIds.length,
-    });
-  }, [debugPerformance, mode, screen.id, screen.objects.length, selectedObjectIds.length]);
-
   return (
     <>
       {sortedObjects
@@ -1721,20 +1712,6 @@ function stableJsonForCache(value: unknown): string {
   }
 }
 
-function logIndexedTagCachePerf(stats: { hits: number; misses: number; clears: number; lastLogAt: number }): void {
-  const now = Date.now();
-  if (now - stats.lastLogAt < 2000) {
-    return;
-  }
-  stats.lastLogAt = now;
-  // eslint-disable-next-line no-console
-  console.debug("[runtime-perf] indexed-tag-cache", {
-    hits: stats.hits,
-    misses: stats.misses,
-    clears: stats.clears,
-  });
-}
-
 function collectWatchedTags(object: HmiObject, context: RenderContext): string[] | null {
   if (object.type === "libraryElementInstance" || object.type === "frame") {
     return null;
@@ -1899,28 +1876,11 @@ function ObjectNode({
   const dragShadowSnapshotRef = useRef<DragShadowSnapshot[]>([]);
   const effectiveShadowDisabled = shadowDisabled;
   const editorVisualListening = interactive ? false : undefined;
-  const debugPerformance =
-    import.meta.env.DEV &&
-    typeof window !== "undefined" &&
-    window.localStorage.getItem("debugPerformance") === "1";
   const debugRuntimePerf =
     typeof window !== "undefined" &&
     window.localStorage.getItem("scada.debugRuntimePerf") === "1";
   const inheritedIndexRulesSignature = getFrameTagIndexRulesSignature(renderContext.inheritedIndexRules);
   const indexedTagCacheRef = useRef(new Map<string, IndexedTagCacheValue>());
-  const indexedTagCacheStatsRef = useRef({ hits: 0, misses: 0, clears: 0, lastLogAt: 0 });
-
-  useEffect(() => {
-    if (!debugPerformance) {
-      return;
-    }
-    // eslint-disable-next-line no-console
-    console.debug("[Render] HmiObjectNode", {
-      id: resolvedObject.id,
-      type: resolvedObject.type,
-      interactive,
-    });
-  }, [debugPerformance, interactive, resolvedObject.id, resolvedObject.type]);
 
   useEffect(() => {
     return () => {
@@ -1931,7 +1891,7 @@ function ObjectNode({
 
   useEffect(() => {
     if (debugRuntimePerf && indexedTagCacheRef.current.size > 0) {
-      indexedTagCacheStatsRef.current.clears += 1;
+      runtimeAnimationIndexedCacheClears += 1;
     }
     indexedTagCacheRef.current.clear();
   }, [
@@ -1968,7 +1928,7 @@ function ObjectNode({
     let indexed = indexedTagCache.get(cacheKey);
     if (!indexed) {
       if (debugRuntimePerf) {
-        indexedTagCacheStatsRef.current.misses += 1;
+        runtimeAnimationIndexedCacheMisses += 1;
       }
       indexed = resolveObjectTagField({
         object: resolvedObject,
@@ -1986,11 +1946,7 @@ function ObjectNode({
       }
       indexedTagCache.set(cacheKey, indexed);
     } else if (debugRuntimePerf) {
-      indexedTagCacheStatsRef.current.hits += 1;
-    }
-
-    if (debugRuntimePerf) {
-      logIndexedTagCachePerf(indexedTagCacheStatsRef.current);
+      runtimeAnimationIndexedCacheHits += 1;
     }
 
     const lookupName = resolveRuntimeTagLookupName(indexed.resolvedTagName, tags, project);
@@ -3213,28 +3169,6 @@ function ObjectNode({
         : value.quality === "Bad"
           ? resolvedObject.badQualityText ?? "BAD"
           : `${value.value ?? "---"}${resolvedObject.suffix ?? ""}`;
-
-    if (runtimeMode && isIndexedAddressDebugEnabled()) {
-      const rawTagName = resolvedObject.tag;
-      const resolvedTagName = resolvedTag?.resolvedName;
-      // eslint-disable-next-line no-console
-      console.debug("[indexed-address] renderer:value-display", {
-        objectId: resolvedObject.id,
-        objectName: resolvedObject.name,
-        rawTagName,
-        resolvedUsedIndexedAddress: resolvedTag?.indexedUsed,
-        resolvedAddress: resolvedTag?.indexedAddress,
-        resolvedTagName,
-        resolvedErrors: resolvedTag?.indexedErrors,
-        rawValue: rawTagName ? tags[rawTagName] : undefined,
-        resolvedValue: resolvedTagName ? tags[resolvedTagName] : undefined,
-        displayedValue: text,
-        tagValuesHasRaw: rawTagName ? Object.prototype.hasOwnProperty.call(tags, rawTagName) : false,
-        tagValuesHasResolved: resolvedTagName
-          ? Object.prototype.hasOwnProperty.call(tags, resolvedTagName)
-          : false,
-      });
-    }
 
     return (
       <Group {...commonGroupProps}>
@@ -5326,11 +5260,6 @@ function SliderObjectNode({
   );
 }
 
-function isIndexedAddressDebugEnabled(): boolean {
-  return typeof window !== "undefined" &&
-    window.localStorage.getItem("scada.debugIndexedAddress") === "1";
-}
-
 function isObjectVisibleByRole(object: HmiObject, mode: "editor" | "runtime", context: RenderContext): boolean {
   if (mode !== "runtime") {
     return true;
@@ -5839,7 +5768,7 @@ function LibraryInstanceNodeResolved({
       tagValues: tags,
       tags: project.tags,
       warn: (warning) => {
-        if (mode === "runtime") {
+        if (mode === "runtime" && shouldLogRuntimeWarnings()) {
           // eslint-disable-next-line no-console
           console.warn("[Runtime] Runtime value resolver warning", {
             instanceId: object.id,

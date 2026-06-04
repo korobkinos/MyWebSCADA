@@ -9,7 +9,7 @@ import {
 } from "./runtime-diagnostics";
 
 describe("runtime diagnostics polling loop registry", () => {
-  it("counts duplicate loop registrations and unregisters each handle", () => {
+  it("counts duplicate loop registrations without logging by default", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     try {
@@ -17,7 +17,8 @@ describe("runtime diagnostics polling loop registry", () => {
       const unregisterB = registerPollingLoop("trend-live-archive:widget-1");
 
       expect(getRuntimeDiagnosticsSnapshot().activePollingLoops).toBe(2);
-      expect(warn).toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+      expect(info).not.toHaveBeenCalled();
 
       unregisterA();
       expect(getRuntimeDiagnosticsSnapshot().activePollingLoops).toBe(1);

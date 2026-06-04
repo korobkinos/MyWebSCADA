@@ -45,6 +45,7 @@ export type TrendWidgetDiagnostics = {
 const POLLING_LOOP_IDS = new Map<string, PollingLoopMeta>();
 const TREND_WIDGETS = new Map<string, TrendWidgetDiagnostics>();
 const LISTENERS = new Set<RuntimeDiagnosticsListener>();
+const RUNTIME_DIAGNOSTICS_DEBUG_LOCAL_STORAGE_KEY = "scada.debugRuntimeDiagnostics";
 
 const SNAPSHOT: RuntimeDiagnosticsSnapshot = {
   activePollingLoops: 0,
@@ -66,6 +67,12 @@ const RATE_SNAPSHOT: RuntimeRateDiagnosticsSnapshot = {
 
 let rateReporterTimer: number | undefined;
 
+function isRuntimeDiagnosticsConsoleEnabled(): boolean {
+  return import.meta.env.DEV
+    && typeof window !== "undefined"
+    && window.localStorage.getItem(RUNTIME_DIAGNOSTICS_DEBUG_LOCAL_STORAGE_KEY) === "1";
+}
+
 function maybeStartRuntimeRateDiagnosticsReporter(): void {
   if (!import.meta.env.DEV || typeof window === "undefined" || rateReporterTimer) {
     return;
@@ -73,15 +80,18 @@ function maybeStartRuntimeRateDiagnosticsReporter(): void {
   rateReporterTimer = window.setInterval(() => {
     const snapshot = getRuntimeRateDiagnosticsSnapshot();
     if (
-      snapshot.webSocketTagPackets > 0
-      || snapshot.webSocketTagValues > 0
-      || snapshot.setTagValuesCalls > 0
-      || snapshot.setTagValuesValues > 0
+      isRuntimeDiagnosticsConsoleEnabled()
+      && (
+        snapshot.webSocketTagPackets > 0
+        || snapshot.webSocketTagValues > 0
+        || snapshot.setTagValuesCalls > 0
+        || snapshot.setTagValuesValues > 0
+      )
     ) {
       // eslint-disable-next-line no-console
       console.debug("[RuntimeDiagnostics] tag update rates/sec", snapshot);
     }
-    if (snapshot.setTagValuesCalls > 10) {
+    if (isRuntimeDiagnosticsConsoleEnabled() && snapshot.setTagValuesCalls > 10) {
       // eslint-disable-next-line no-console
       console.warn("[RuntimeDiagnostics] setTagValues called more than 10 times/sec", snapshot);
     }
@@ -156,14 +166,16 @@ export function registerPollingLoop(loopId: string): () => void {
   if (existing) {
     existing.count += 1;
     existing.duplicateCount += 1;
-    // eslint-disable-next-line no-console
-    console.warn("[RuntimeDiagnostics] duplicate polling loop registered", {
-      loopId,
-      count: existing.count,
-      duplicateCount: existing.duplicateCount,
-      activePollingLoops: getPollingLoopCount(),
-      activePollingLoopIds: [...POLLING_LOOP_IDS.keys()],
-    });
+    if (isRuntimeDiagnosticsConsoleEnabled()) {
+      // eslint-disable-next-line no-console
+      console.warn("[RuntimeDiagnostics] duplicate polling loop registered", {
+        loopId,
+        count: existing.count,
+        duplicateCount: existing.duplicateCount,
+        activePollingLoops: getPollingLoopCount(),
+        activePollingLoopIds: [...POLLING_LOOP_IDS.keys()],
+      });
+    }
   } else {
     POLLING_LOOP_IDS.set(loopId, {
       count: 1,
@@ -172,11 +184,13 @@ export function registerPollingLoop(loopId: string): () => void {
     });
   }
   syncPollingSnapshot();
-  // eslint-disable-next-line no-console
-  console.info("[RuntimeDiagnostics] activePollingLoops", {
-    activePollingLoops: SNAPSHOT.activePollingLoops,
-    activePollingLoopIds: SNAPSHOT.activePollingLoopIds,
-  });
+  if (isRuntimeDiagnosticsConsoleEnabled()) {
+    // eslint-disable-next-line no-console
+    console.info("[RuntimeDiagnostics] activePollingLoops", {
+      activePollingLoops: SNAPSHOT.activePollingLoops,
+      activePollingLoopIds: SNAPSHOT.activePollingLoopIds,
+    });
+  }
   emitDiagnostics();
   let disposed = false;
   return () => {
@@ -193,11 +207,13 @@ export function registerPollingLoop(loopId: string): () => void {
       POLLING_LOOP_IDS.delete(loopId);
     }
     syncPollingSnapshot();
-    // eslint-disable-next-line no-console
-    console.info("[RuntimeDiagnostics] activePollingLoops", {
-      activePollingLoops: SNAPSHOT.activePollingLoops,
-      activePollingLoopIds: SNAPSHOT.activePollingLoopIds,
-    });
+    if (isRuntimeDiagnosticsConsoleEnabled()) {
+      // eslint-disable-next-line no-console
+      console.info("[RuntimeDiagnostics] activePollingLoops", {
+        activePollingLoops: SNAPSHOT.activePollingLoops,
+        activePollingLoopIds: SNAPSHOT.activePollingLoopIds,
+      });
+    }
     emitDiagnostics();
   };
 }
@@ -207,7 +223,7 @@ export function setTrendWidgetDiagnostics(objectId: string, diagnostics: TrendWi
   const expectedPerMinute = Number.isFinite(diagnostics.expectedQueryCountPerMinute)
     ? Math.max(1, Number(diagnostics.expectedQueryCountPerMinute))
     : 60_000 / 2000 + 2;
-  if (diagnostics.queryCountPerMinute > expectedPerMinute) {
+  if (isRuntimeDiagnosticsConsoleEnabled() && diagnostics.queryCountPerMinute > expectedPerMinute) {
     // eslint-disable-next-line no-console
     console.warn("[RuntimeDiagnostics] excessive trend query rate", diagnostics);
   }
