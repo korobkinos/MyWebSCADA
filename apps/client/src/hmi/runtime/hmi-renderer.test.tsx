@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Konva as KonvaGlobal } from "konva/lib/Global";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HmiObject, HmiScreen, RenderContext, ScadaProject } from "@web-scada/shared";
+import type { DriverStatus, ElementLibrary, HmiObject, HmiScreen, RenderContext, ScadaProject, TagDefinition } from "@web-scada/shared";
 
 vi.mock("antd", () => ({
   message: {
@@ -74,6 +74,7 @@ vi.mock("../../features/events/EventTableRuntimeWidget", async () => {
 
 import {
   HmiRenderer,
+  areObjectNodePropsEqual,
   flushRuntimeAnimationLayerDraws,
   requestRuntimeAnimationLayerDraw,
   runRuntimeAnimationHandlers,
@@ -282,5 +283,70 @@ describe("runtime animation layer draw scheduler", () => {
     unsubscribe();
 
     expect(getItem).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("areObjectNodePropsEqual", () => {
+  const object = {
+    id: "value",
+    type: "value-display",
+    x: 0,
+    y: 0,
+    width: 40,
+    height: 20,
+    tag: "PV",
+  } as HmiObject;
+  const project: ScadaProject = {
+    version: 1,
+    name: "Test project",
+    drivers: [],
+    tags: [],
+    screens: [],
+  };
+  const drivers: DriverStatus[] = [];
+  const tagDefinitionsByName = new Map<string, TagDefinition>();
+  const driverStatusesById = new Map<string, DriverStatus>();
+  const libraries: ElementLibrary[] = [];
+  const frameStack: string[] = [];
+  const instanceStack: string[] = [];
+
+  function createNodeProps(timestamp: number, value: number, quality: "Good" | "Bad" = "Good") {
+    return {
+      object,
+      project,
+      mode: "runtime",
+      tags: {
+        PV: {
+          name: "PV",
+          value,
+          quality,
+          timestamp,
+          source: "test",
+        },
+      },
+      drivers,
+      tagDefinitionsByName,
+      driverStatusesById,
+      libraries,
+      renderContext,
+      frameStack,
+      instanceStack,
+      interactive: false,
+      inheritedDisabled: false,
+      selected: false,
+      selectedObjectCount: 0,
+      showObjectFrames: false,
+      shadowDisabled: false,
+      renderFlowMode: "all",
+    };
+  }
+
+  it("ignores tag timestamp changes for regular object memo comparison", () => {
+    expect(areObjectNodePropsEqual(createNodeProps(1, 10) as never, createNodeProps(2, 10) as never)).toBe(true);
+  });
+
+  it("keeps value and quality changes observable", () => {
+    expect(areObjectNodePropsEqual(createNodeProps(1, 10) as never, createNodeProps(1, 11) as never)).toBe(false);
+    expect(areObjectNodePropsEqual(createNodeProps(1, 10) as never, createNodeProps(1, 10, "Bad") as never)).toBe(false);
   });
 });

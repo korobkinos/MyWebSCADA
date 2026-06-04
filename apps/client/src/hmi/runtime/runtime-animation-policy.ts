@@ -6,8 +6,18 @@ export function shouldRunRuntimeAnimationTick(
   return configActive && animationActive && Number.isFinite(speed) && speed !== 0;
 }
 
-const HEAVY_FLOW_MARKER_COUNT = 120;
-const HEAVY_FLOW_FRAME_INTERVAL_MS = 1000 / 30;
+function getFlowMarkerFrameIntervalMs(markerCount: number): number {
+  if (markerCount >= 300) {
+    return 1000 / 5;
+  }
+  if (markerCount >= 150) {
+    return 1000 / 10;
+  }
+  if (markerCount >= 50) {
+    return 1000 / 15;
+  }
+  return 1000 / 30;
+}
 
 export function shouldUpdateRuntimeFlowFrame(
   time: number,
@@ -15,8 +25,8 @@ export function shouldUpdateRuntimeFlowFrame(
   usesMarkerNodes: boolean,
   markerCount: number,
 ): boolean {
-  if (!usesMarkerNodes || markerCount < HEAVY_FLOW_MARKER_COUNT || previousFrameTime === null) {
+  if (!usesMarkerNodes || previousFrameTime === null) {
     return true;
   }
-  return time - previousFrameTime >= HEAVY_FLOW_FRAME_INTERVAL_MS;
+  return time - previousFrameTime >= getFlowMarkerFrameIntervalMs(markerCount);
 }

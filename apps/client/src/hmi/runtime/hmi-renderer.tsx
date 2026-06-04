@@ -76,7 +76,9 @@ const ROTATION_TAG_SMOOTHING_MS = 500;
 export const RUNTIME_COLOR_TRANSITION_MS = 250;
 
 type AnimationTickHandler = (time: number) => void;
+type AnimationTickHandlerKind = "flow" | "rotation" | "rotationSmoothing" | "other";
 const globalAnimationTickHandlers = new Set<AnimationTickHandler>();
+const globalAnimationTickHandlerKinds = new Map<AnimationTickHandler, AnimationTickHandlerKind>();
 const runtimeAnimationDirtyLayers = new Set<Konva.Layer>();
 let globalAnimationFrameId: number | null = null;
 let runtimeAnimationTickerRunning = false;
@@ -85,7 +87,7 @@ let runtimeAnimationDebugEnabled = false;
 let runtimeAnimationLastFrameAt: number | null = null;
 let runtimeAnimationReportStartedAt = 0;
 let runtimeAnimationFrameCount = 0;
-let runtimeAnimationHandlerCount = 0;
+let runtimeAnimationHandlerInvocations = 0;
 let runtimeAnimationLongFrame16Count = 0;
 let runtimeAnimationLongFrame33Count = 0;
 let runtimeAnimationLongFrame50Count = 0;
@@ -97,6 +99,7 @@ let runtimeAnimationFlowMarkerUpdates = 0;
 let runtimeAnimationIndexedCacheHits = 0;
 let runtimeAnimationIndexedCacheMisses = 0;
 let runtimeAnimationIndexedCacheClears = 0;
+let runtimeCommunicationOverlayEnabled: boolean | null = null;
 
 function readRuntimeAnimationDebugFlag(): boolean {
   if (typeof window === "undefined") {
@@ -107,6 +110,22 @@ function readRuntimeAnimationDebugFlag(): boolean {
   } catch {
     return false;
   }
+}
+
+function readRuntimeCommunicationOverlayEnabled(): boolean {
+  if (runtimeCommunicationOverlayEnabled !== null) {
+    return runtimeCommunicationOverlayEnabled;
+  }
+  if (typeof window === "undefined") {
+    runtimeCommunicationOverlayEnabled = false;
+    return runtimeCommunicationOverlayEnabled;
+  }
+  try {
+    runtimeCommunicationOverlayEnabled = window.localStorage.getItem("scada.enableRuntimeCommunicationOverlay") === "1";
+  } catch {
+    runtimeCommunicationOverlayEnabled = false;
+  }
+  return runtimeCommunicationOverlayEnabled;
 }
 
 function scheduleRuntimeAnimationLayerDrawFlush(): void {
@@ -157,6 +176,19 @@ function recordRuntimeFlowMarkerUpdates(count: number): void {
   }
 }
 
+function countRuntimeAnimationHandlersByKind(): Record<AnimationTickHandlerKind, number> {
+  const counts: Record<AnimationTickHandlerKind, number> = {
+    flow: 0,
+    rotation: 0,
+    rotationSmoothing: 0,
+    other: 0,
+  };
+  for (const handler of globalAnimationTickHandlers) {
+    counts[globalAnimationTickHandlerKinds.get(handler) ?? "other"] += 1;
+  }
+  return counts;
+}
+
 function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCount: number): void {
   if (!runtimeAnimationDebugEnabled) {
     runtimeAnimationLastFrameAt = time;
@@ -165,7 +197,7 @@ function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCou
   const frameGapMs = runtimeAnimationLastFrameAt === null ? 0 : time - runtimeAnimationLastFrameAt;
   runtimeAnimationLastFrameAt = time;
   runtimeAnimationFrameCount += 1;
-  runtimeAnimationHandlerCount += handlerCount;
+  runtimeAnimationHandlerInvocations += handlerCount;
   runtimeAnimationLongFrame16Count += frameGapMs > 16 ? 1 : 0;
   runtimeAnimationLongFrame33Count += frameGapMs > 33 ? 1 : 0;
   runtimeAnimationLongFrame50Count += frameGapMs > 50 ? 1 : 0;
@@ -176,10 +208,15 @@ function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCou
   if (time - runtimeAnimationReportStartedAt < 2000) {
     return;
   }
+  const handlerKinds = countRuntimeAnimationHandlersByKind();
   // eslint-disable-next-line no-console
   console.debug("[runtime-perf] animation", {
     frameCount: runtimeAnimationFrameCount,
-    handlerCount: runtimeAnimationHandlerCount,
+    handlerCount: globalAnimationTickHandlers.size,
+    handlerInvocations: runtimeAnimationHandlerInvocations,
+    rotationHandlers: handlerKinds.rotation,
+    flowHandlers: handlerKinds.flow,
+    rotationSmoothingHandlers: handlerKinds.rotationSmoothing,
     longFramesOver16Ms: runtimeAnimationLongFrame16Count,
     longFramesOver33Ms: runtimeAnimationLongFrame33Count,
     longFramesOver50Ms: runtimeAnimationLongFrame50Count,
@@ -194,7 +231,7 @@ function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCou
   });
   runtimeAnimationReportStartedAt = time;
   runtimeAnimationFrameCount = 0;
-  runtimeAnimationHandlerCount = 0;
+  runtimeAnimationHandlerInvocations = 0;
   runtimeAnimationLongFrame16Count = 0;
   runtimeAnimationLongFrame33Count = 0;
   runtimeAnimationLongFrame50Count = 0;
@@ -235,8 +272,9 @@ function runGlobalAnimationTicker(time: number): void {
   }
 }
 
-export function subscribeGlobalAnimationTick(handler: AnimationTickHandler): () => void {
+export function subscribeGlobalAnimationTick(handler: AnimationTickHandler, kind: AnimationTickHandlerKind = "other"): () => void {
   globalAnimationTickHandlers.add(handler);
+  globalAnimationTickHandlerKinds.set(handler, kind);
   if (globalAnimationFrameId === null) {
     runtimeAnimationDebugEnabled = readRuntimeAnimationDebugFlag();
     runtimeAnimationLastFrameAt = null;
@@ -245,6 +283,7 @@ export function subscribeGlobalAnimationTick(handler: AnimationTickHandler): () 
   }
   return () => {
     globalAnimationTickHandlers.delete(handler);
+    globalAnimationTickHandlerKinds.delete(handler);
     if (globalAnimationTickHandlers.size === 0 && globalAnimationFrameId !== null) {
       cancelAnimationFrame(globalAnimationFrameId);
       globalAnimationFrameId = null;
@@ -1097,7 +1136,7 @@ type ResolvedTagValue = {
   indexedErrors?: string[];
 };
 type IndexedTagCacheValue = ReturnType<typeof resolveObjectTagField>;
-const MAX_INDEXED_TAG_CACHE_ENTRIES = 128;
+const MAX_INDEXED_TAG_CACHE_ENTRIES = 2048;
 
 export type ObjectSelectPayload = {
   objectId: string;
@@ -1287,6 +1326,7 @@ export function HmiRenderer({
     }
     return index;
   }, [drivers]);
+  const showRuntimeCommunicationOverlay = mode === "runtime" && renderFlowMode !== "only" && readRuntimeCommunicationOverlayEnabled();
   return (
     <>
       {sortedObjects
@@ -1328,7 +1368,7 @@ export function HmiRenderer({
             nodeIdPrefix={nodeIdPrefix}
             renderFlowMode={renderFlowMode}
           />
-          <MemoObjectCommunicationOverlayNode
+          {showRuntimeCommunicationOverlay ? <MemoObjectCommunicationOverlayNode
             object={object}
             project={project}
             mode={mode}
@@ -1362,7 +1402,7 @@ export function HmiRenderer({
             shadowDisabled={shadowDisabled}
             nodeIdPrefix={nodeIdPrefix}
             renderFlowMode={renderFlowMode}
-          />
+          /> : null}
         </Fragment>
       ))}
     </>
@@ -1439,7 +1479,7 @@ function ObjectCommunicationOverlayNode({
   );
 }
 
-function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): boolean {
+export function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): boolean {
   if (prev.object !== next.object) return false;
   if (prev.drivers !== next.drivers) return false;
   if (prev.tagDefinitionsByName !== next.tagDefinitionsByName) return false;
@@ -1491,7 +1531,7 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
     if (!left || !right) {
       return false;
     }
-    if (left.value !== right.value || left.quality !== right.quality || left.timestamp !== right.timestamp) {
+    if (left.value !== right.value || left.quality !== right.quality) {
       return false;
     }
   }
@@ -2054,26 +2094,41 @@ function ObjectNode({
     requestRuntimeAnimationLayerDraw(node.getLayer());
   }, []);
 
-  const applyFlowDashOffset = useCallback((offset: number) => {
+  const applyFlowDashOffset = useCallback((offset: number): boolean => {
+    let changed = false;
     if (flowDashLineRef.current) {
-      flowDashLineRef.current.dashOffset(offset);
+      if (Math.abs(flowDashLineRef.current.dashOffset() - offset) >= 1e-6) {
+        flowDashLineRef.current.dashOffset(offset);
+        changed = true;
+      }
     }
     if (flowGradientLineRef.current) {
-      flowGradientLineRef.current.dashOffset(-offset);
+      if (Math.abs(flowGradientLineRef.current.dashOffset() + offset) >= 1e-6) {
+        flowGradientLineRef.current.dashOffset(-offset);
+        changed = true;
+      }
     }
+    return changed;
   }, []);
 
   const updateFlowMarkerNodes = useCallback((phase: number) => {
+    let changedMarkerCount = 0;
     if (!lineFlowRuntimeData || !(lineFlowRuntimeData.flowPath.totalLength > 0)) {
       for (const node of flowDotRefs.current) {
-        node?.visible(false);
+        if (node?.visible()) {
+          node.visible(false);
+          changedMarkerCount += 1;
+        }
       }
       for (const node of flowArrowRefs.current) {
-        node?.visible(false);
+        if (node?.visible()) {
+          node.visible(false);
+          changedMarkerCount += 1;
+        }
       }
-      return false;
+      recordRuntimeFlowMarkerUpdates(changedMarkerCount);
+      return changedMarkerCount > 0;
     }
-    recordRuntimeFlowMarkerUpdates(lineFlowRuntimeData.markerCount);
 
     const isFlowMarkerInsideOpenBounds = (distance: number, padding: number): boolean => {
       if (lineFlowRuntimeData.flowPathIsClosed || !(lineFlowRuntimeData.flowPath.totalLength > 0)) {
@@ -2090,11 +2145,16 @@ function ObjectNode({
         if (!node) {
           continue;
         }
+        let markerChanged = false;
         const distance = markerIndex * flowSpacing + phase;
         if (!isFlowMarkerInsideOpenBounds(distance, lineFlowRuntimeData.dotRadius)) {
           if (node.visible()) {
             node.visible(false);
+            markerChanged = true;
+          }
+          if (markerChanged) {
             changed = true;
+            changedMarkerCount += 1;
           }
           continue;
         }
@@ -2102,16 +2162,28 @@ function ObjectNode({
         if (!sample) {
           if (node.visible()) {
             node.visible(false);
+            markerChanged = true;
+          }
+          if (markerChanged) {
             changed = true;
+            changedMarkerCount += 1;
           }
           continue;
         }
-        node.position({ x: sample.x, y: sample.y });
+        if (Math.abs(node.x() - sample.x) >= 1e-6 || Math.abs(node.y() - sample.y) >= 1e-6) {
+          node.position({ x: sample.x, y: sample.y });
+          markerChanged = true;
+        }
         if (!node.visible()) {
           node.visible(true);
+          markerChanged = true;
         }
-        changed = true;
+        if (markerChanged) {
+          changed = true;
+          changedMarkerCount += 1;
+        }
       }
+      recordRuntimeFlowMarkerUpdates(changedMarkerCount);
       return changed;
     }
 
@@ -2121,11 +2193,16 @@ function ObjectNode({
         if (!node) {
           continue;
         }
+        let markerChanged = false;
         const distance = markerIndex * flowSpacing + phase;
         if (!isFlowMarkerInsideOpenBounds(distance, lineFlowRuntimeData.arrowLength)) {
           if (node.visible()) {
             node.visible(false);
+            markerChanged = true;
+          }
+          if (markerChanged) {
             changed = true;
+            changedMarkerCount += 1;
           }
           continue;
         }
@@ -2133,7 +2210,11 @@ function ObjectNode({
         if (!sample) {
           if (node.visible()) {
             node.visible(false);
+            markerChanged = true;
+          }
+          if (markerChanged) {
             changed = true;
+            changedMarkerCount += 1;
           }
           continue;
         }
@@ -2145,12 +2226,25 @@ function ObjectNode({
         const leftY = baseY + sample.ny * lineFlowRuntimeData.arrowHalfWidth;
         const rightX = baseX - sample.nx * lineFlowRuntimeData.arrowHalfWidth;
         const rightY = baseY - sample.ny * lineFlowRuntimeData.arrowHalfWidth;
-        node.points([tipX, tipY, leftX, leftY, rightX, rightY]);
+        const nextPoints = [tipX, tipY, leftX, leftY, rightX, rightY];
+        const currentPoints = node.points();
+        if (
+          currentPoints.length !== nextPoints.length
+          || nextPoints.some((value, index) => Math.abs((currentPoints[index] ?? 0) - value) >= 1e-6)
+        ) {
+          node.points(nextPoints);
+          markerChanged = true;
+        }
         if (!node.visible()) {
           node.visible(true);
+          markerChanged = true;
         }
-        changed = true;
+        if (markerChanged) {
+          changed = true;
+          changedMarkerCount += 1;
+        }
       }
+      recordRuntimeFlowMarkerUpdates(changedMarkerCount);
       return changed;
     }
 
@@ -2158,14 +2252,17 @@ function ObjectNode({
       if (node?.visible()) {
         node.visible(false);
         changed = true;
+        changedMarkerCount += 1;
       }
     }
     for (const node of flowArrowRefs.current) {
       if (node?.visible()) {
         node.visible(false);
         changed = true;
+        changedMarkerCount += 1;
       }
     }
+    recordRuntimeFlowMarkerUpdates(changedMarkerCount);
     return changed;
   }, [flowEffectType, flowSpacing, lineFlowRuntimeData]);
 
@@ -2199,7 +2296,7 @@ function ObjectNode({
       if (progress >= 1) {
         unsubscribe();
       }
-    });
+    }, "rotationSmoothing");
 
     return unsubscribe;
   }, [applyRotationNode, baseRotation, hasRuntimeRotationTag]);
@@ -2229,7 +2326,7 @@ function ObjectNode({
         rotationAnimationOffsetRef.current = normalizedOffset;
       }
       applyRotationNode(rotationAnimationOffsetRef.current);
-    });
+    }, "rotation");
     return () => {
       unsubscribe();
       rotationLastFrameRef.current = null;
@@ -2239,16 +2336,18 @@ function ObjectNode({
   useEffect(() => {
     flowActiveRef.current = flowAnimationIsActive;
     flowSpeedRef.current = Number.isFinite(flowAnimationSpeedPxPerSec) ? flowAnimationSpeedPxPerSec : 0;
-    applyFlowDashOffset(flowAnimationPhaseRef.current);
-    const changed = updateFlowMarkerNodes(flowAnimationPhaseRef.current);
-    if (changed) {
+    const dashChanged = applyFlowDashOffset(flowAnimationPhaseRef.current);
+    const markerChanged = flowUsesMarkerNodes && flowAnimationIsActive && flowSpeedRef.current !== 0
+      ? updateFlowMarkerNodes(flowAnimationPhaseRef.current)
+      : false;
+    if (dashChanged || markerChanged) {
       const layer = flowDashLineRef.current?.getLayer()
         ?? flowGradientLineRef.current?.getLayer()
         ?? flowDotRefs.current[0]?.getLayer()
         ?? flowArrowRefs.current[0]?.getLayer();
       requestRuntimeAnimationLayerDraw(layer);
     }
-  }, [applyFlowDashOffset, flowAnimationIsActive, flowAnimationSpeedPxPerSec, updateFlowMarkerNodes]);
+  }, [applyFlowDashOffset, flowAnimationIsActive, flowAnimationSpeedPxPerSec, flowUsesMarkerNodes, updateFlowMarkerNodes]);
 
   useEffect(() => {
     flowAnimationLastFrameRef.current = null;
@@ -2271,16 +2370,18 @@ function ObjectNode({
       if (deltaSeconds > 0 && flowActiveRef.current && flowSpeedRef.current !== 0) {
         flowAnimationPhaseRef.current += flowSpeedRef.current * deltaSeconds;
       }
-      applyFlowDashOffset(flowAnimationPhaseRef.current);
-      const markerChanged = flowUsesMarkerNodes ? updateFlowMarkerNodes(flowAnimationPhaseRef.current) : false;
-      if (flowDashLineRef.current || flowGradientLineRef.current || markerChanged) {
+      const dashChanged = applyFlowDashOffset(flowAnimationPhaseRef.current);
+      const markerChanged = flowUsesMarkerNodes && flowActiveRef.current && flowSpeedRef.current !== 0
+        ? updateFlowMarkerNodes(flowAnimationPhaseRef.current)
+        : false;
+      if (dashChanged || markerChanged) {
         const layer = flowDashLineRef.current?.getLayer()
           ?? flowGradientLineRef.current?.getLayer()
           ?? flowDotRefs.current[0]?.getLayer()
           ?? flowArrowRefs.current[0]?.getLayer();
         requestRuntimeAnimationLayerDraw(layer);
       }
-    });
+    }, "flow");
     return () => {
       unsubscribe();
       flowAnimationLastFrameRef.current = null;
