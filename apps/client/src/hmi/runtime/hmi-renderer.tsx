@@ -2284,6 +2284,12 @@ function ObjectNode({
       return;
     }
 
+    // Cache the group so children aren't redrawn on every smoothing frame
+    const smoothGroup = groupNodeRef.current;
+    if (smoothGroup && !smoothGroup.isCached()) {
+      smoothGroup.cache();
+    }
+
     let startTime: number | null = null;
     let smoothingFrameCount = 0;
     const unsubscribe = subscribeGlobalAnimationTick((time) => {
@@ -2311,7 +2317,13 @@ function ObjectNode({
       }
     }, "rotationSmoothing");
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      const smoothGroup = groupNodeRef.current;
+      if (smoothGroup?.isCached()) {
+        smoothGroup.clearCache();
+      }
+    };
   }, [applyRotationNode, baseRotation, hasRuntimeRotationTag]);
 
   useEffect(() => {
@@ -2329,6 +2341,10 @@ function ObjectNode({
     if (!rotationAnimationShouldTick) {
       return;
     }
+    const group = groupNodeRef.current;
+    if (group && !group.isCached()) {
+      group.cache();
+    }
     const unsubscribe = subscribeGlobalAnimationTick((time) => {
       const previousTime = rotationLastFrameRef.current ?? time;
       const deltaSeconds = Math.max(0, (time - previousTime) / 1000);
@@ -2343,6 +2359,10 @@ function ObjectNode({
     return () => {
       unsubscribe();
       rotationLastFrameRef.current = null;
+      const group = groupNodeRef.current;
+      if (group?.isCached()) {
+        group.clearCache();
+      }
     };
   }, [applyRotationNode, rotationAnimationShouldTick]);
 
