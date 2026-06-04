@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { Konva as KonvaGlobal } from "konva/lib/Global";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HmiObject, HmiScreen, RenderContext, ScadaProject } from "@web-scada/shared";
 
 vi.mock("antd", () => ({
@@ -77,7 +78,13 @@ import {
   computeRuntimeColorTransitionFrame,
   flushRuntimeAnimationLayerDraws,
   requestRuntimeAnimationLayerDraw,
+  runRuntimeAnimationHandlers,
+  subscribeGlobalAnimationTick,
 } from "./hmi-renderer";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const renderContext: RenderContext = {
   screenId: "screen-main",
@@ -300,5 +307,38 @@ describe("runtime animation layer draw scheduler", () => {
     flushRuntimeAnimationLayerDraws();
 
     expect(layer.batchDraw).not.toHaveBeenCalled();
+  });
+
+  it("disables Konva auto draw while animation handlers mutate nodes", () => {
+    const layer = createLayer();
+    KonvaGlobal.autoDrawEnabled = true;
+
+    runRuntimeAnimationHandlers([
+      () => {
+        expect(KonvaGlobal.autoDrawEnabled).toBe(false);
+        requestRuntimeAnimationLayerDraw(layer as never);
+      },
+    ], 1000);
+
+    expect(KonvaGlobal.autoDrawEnabled).toBe(true);
+    expect(layer.batchDraw).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the runtime debug flag only when the global ticker starts", () => {
+    const callbacks: FrameRequestCallback[] = [];
+    const getItem = vi.fn(() => "1");
+    vi.stubGlobal("window", { localStorage: { getItem } });
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    const unsubscribe = subscribeGlobalAnimationTick(() => undefined);
+    callbacks[0]?.(1000);
+    callbacks[1]?.(2000);
+    unsubscribe();
+
+    expect(getItem).toHaveBeenCalledTimes(1);
   });
 });

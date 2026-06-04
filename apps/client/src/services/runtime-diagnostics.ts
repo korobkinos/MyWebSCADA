@@ -74,7 +74,7 @@ function isRuntimeDiagnosticsConsoleEnabled(): boolean {
 }
 
 function maybeStartRuntimeRateDiagnosticsReporter(): void {
-  if (!import.meta.env.DEV || typeof window === "undefined" || rateReporterTimer) {
+  if (!isRuntimeDiagnosticsConsoleEnabled() || rateReporterTimer) {
     return;
   }
   rateReporterTimer = window.setInterval(() => {

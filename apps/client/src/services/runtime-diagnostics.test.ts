@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getRuntimeDiagnosticsSnapshot,
   getRuntimeRateDiagnosticsSnapshot,
@@ -7,6 +7,10 @@ import {
   registerPollingLoop,
   resetRuntimeRateDiagnosticsForTest,
 } from "./runtime-diagnostics";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("runtime diagnostics polling loop registry", () => {
   it("counts duplicate loop registrations without logging by default", () => {
@@ -33,6 +37,18 @@ describe("runtime diagnostics polling loop registry", () => {
 });
 
 describe("runtime diagnostics rate counters", () => {
+  it("does not start the periodic reporter when console diagnostics are disabled", () => {
+    const setInterval = vi.fn(() => 1);
+    vi.stubGlobal("window", {
+      localStorage: { getItem: vi.fn(() => null) },
+      setInterval,
+    });
+
+    recordWebSocketTagPacket(1);
+
+    expect(setInterval).not.toHaveBeenCalled();
+  });
+
   it("counts websocket packets, tag values, and setTagValues calls", () => {
     resetRuntimeRateDiagnosticsForTest();
 

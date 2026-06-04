@@ -1,6 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Shape, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
+import { Konva as KonvaGlobal } from "konva/lib/Global";
 import type Konva from "konva";
 import { message } from "antd";
 import {
@@ -78,7 +79,6 @@ let globalAnimationFrameId: number | null = null;
 let runtimeAnimationTickerRunning = false;
 let runtimeAnimationLayerDrawFlushScheduled = false;
 let runtimeAnimationDebugEnabled = false;
-let runtimeAnimationDebugFlagCheckedAt = 0;
 let runtimeAnimationLastFrameAt: number | null = null;
 let runtimeAnimationReportStartedAt = 0;
 let runtimeAnimationFrameCount = 0;
@@ -95,14 +95,15 @@ let runtimeAnimationIndexedCacheHits = 0;
 let runtimeAnimationIndexedCacheMisses = 0;
 let runtimeAnimationIndexedCacheClears = 0;
 
-function refreshRuntimeAnimationDebugFlag(time: number): void {
-  if (time - runtimeAnimationDebugFlagCheckedAt < 1000) {
-    return;
+function readRuntimeAnimationDebugFlag(): boolean {
+  if (typeof window === "undefined") {
+    return false;
   }
-  runtimeAnimationDebugFlagCheckedAt = time;
-  runtimeAnimationDebugEnabled =
-    typeof window !== "undefined"
-    && window.localStorage.getItem("scada.debugRuntimePerf") === "1";
+  try {
+    return window.localStorage.getItem("scada.debugRuntimePerf") === "1";
+  } catch {
+    return false;
+  }
 }
 
 function scheduleRuntimeAnimationLayerDrawFlush(): void {
@@ -204,19 +205,25 @@ function recordRuntimeAnimationFrame(time: number, startedAt: number, handlerCou
   runtimeAnimationIndexedCacheClears = 0;
 }
 
-function runGlobalAnimationTicker(time: number): void {
-  refreshRuntimeAnimationDebugFlag(time);
-  const startedAt = runtimeAnimationDebugEnabled ? performance.now() : 0;
-  const handlers = Array.from(globalAnimationTickHandlers);
+export function runRuntimeAnimationHandlers(handlers: AnimationTickHandler[], time: number): void {
+  const previousAutoDrawEnabled = KonvaGlobal.autoDrawEnabled;
   runtimeAnimationTickerRunning = true;
+  KonvaGlobal.autoDrawEnabled = false;
   try {
     for (const handler of handlers) {
       handler(time);
     }
   } finally {
+    KonvaGlobal.autoDrawEnabled = previousAutoDrawEnabled;
     runtimeAnimationTickerRunning = false;
     flushRuntimeAnimationLayerDraws();
   }
+}
+
+function runGlobalAnimationTicker(time: number): void {
+  const startedAt = runtimeAnimationDebugEnabled ? performance.now() : 0;
+  const handlers = Array.from(globalAnimationTickHandlers);
+  runRuntimeAnimationHandlers(handlers, time);
   recordRuntimeAnimationFrame(time, startedAt, handlers.length);
   if (globalAnimationTickHandlers.size > 0) {
     globalAnimationFrameId = requestAnimationFrame(runGlobalAnimationTicker);
@@ -225,9 +232,12 @@ function runGlobalAnimationTicker(time: number): void {
   }
 }
 
-function subscribeGlobalAnimationTick(handler: AnimationTickHandler): () => void {
+export function subscribeGlobalAnimationTick(handler: AnimationTickHandler): () => void {
   globalAnimationTickHandlers.add(handler);
   if (globalAnimationFrameId === null) {
+    runtimeAnimationDebugEnabled = readRuntimeAnimationDebugFlag();
+    runtimeAnimationLastFrameAt = null;
+    runtimeAnimationReportStartedAt = 0;
     globalAnimationFrameId = requestAnimationFrame(runGlobalAnimationTicker);
   }
   return () => {
@@ -1876,9 +1886,7 @@ function ObjectNode({
   const dragShadowSnapshotRef = useRef<DragShadowSnapshot[]>([]);
   const effectiveShadowDisabled = shadowDisabled;
   const editorVisualListening = interactive ? false : undefined;
-  const debugRuntimePerf =
-    typeof window !== "undefined" &&
-    window.localStorage.getItem("scada.debugRuntimePerf") === "1";
+  const debugRuntimePerf = runtimeAnimationDebugEnabled;
   const inheritedIndexRulesSignature = getFrameTagIndexRulesSignature(renderContext.inheritedIndexRules);
   const indexedTagCacheRef = useRef(new Map<string, IndexedTagCacheValue>());
 
