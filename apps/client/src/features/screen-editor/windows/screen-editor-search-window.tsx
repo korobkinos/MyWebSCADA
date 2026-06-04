@@ -234,6 +234,11 @@ function collectSearchStrings(object: HmiObject): SearchString[] {
   if (object.type === "button" || object.type === "image" || object.type === "stateImage" || object.type === "libraryElementInstance") {
     collectActionStrings(object.action, `${object.type}.action`, result);
   }
+  if (object.type === "button") {
+    for (const step of object.actions ?? []) {
+      collectActionStrings(step.action, `${object.type}.actions.${step.id}.action`, result);
+    }
+  }
 
   return result;
 }

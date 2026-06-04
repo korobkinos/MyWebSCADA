@@ -7,6 +7,7 @@ import { message } from "antd";
 import {
   clampAccessRoleLevel,
   combineTagPrefix,
+  getButtonActionSteps,
   getEnabledFrameTagIndexRules,
   getFrameTagIndexRulesSignature,
   hasRoleAccess,
@@ -20,6 +21,7 @@ import {
   resolveParameters,
   resolveTagName,
   type Asset,
+  type ButtonActionStep,
   type ElementLibrary,
   type FrameObject,
   type GroupObject,
@@ -52,6 +54,7 @@ import { collectRuntimeObjectResolvedTags } from "./runtime-tag-subscriptions";
 import { diagnoseOpcUaCommunication } from "./runtime-opcua-communication";
 import { intersectsScreenBounds } from "./offscreen-filter";
 import { shouldRunRuntimeAnimationTick, shouldUpdateRuntimeFlowFrame } from "./runtime-animation-policy";
+import { executeButtonActionQueue } from "./button-action-queue";
 
 const HMI_CONTROL_COLORS = {
   text: "#cccccc",
@@ -5292,6 +5295,7 @@ function resolveRuntimeActionTagsWithObjectIndexing(
   project: ScadaProject,
   tags: TagMap,
   context: RenderContext,
+  fieldName = "action.tag",
 ): RuntimeAction {
   const resolvedAction = resolveRuntimeAction(action, context);
   if (
@@ -5305,7 +5309,7 @@ function resolveRuntimeActionTagsWithObjectIndexing(
   }
   const indexed = resolveObjectTagField({
     object,
-    fieldName: "action.tag",
+    fieldName,
     project,
     context,
     tagValues: tags,
@@ -6112,7 +6116,10 @@ function ButtonNode({
   const buttonGroupProps = { ...groupProps };
   delete buttonGroupProps.opacity;
   const visualOpacity = object.opacity ?? 1;
-  const isDisabled = runtimeDisabled || (!interactive && !onAction) || executing;
+  const actionSteps = getButtonActionSteps(object);
+  const enabledActionSteps = actionSteps.filter((step) => step.enabled !== false);
+  const singleActionStep = enabledActionSteps.length === 1 ? enabledActionSteps[0] : undefined;
+  const isDisabled = runtimeDisabled || (!interactive && (!onAction || enabledActionSteps.length === 0)) || executing;
   const normalSrc = resolveAssetUrl(object.backgroundAssetId, {
     projectAssets: project.assets ?? [],
     scopedAssets,
@@ -6149,22 +6156,68 @@ function ButtonNode({
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, "stretch"),
     [image?.height, image?.width, object.height, object.width],
   );
-  const isHoldRuntimeAction = object.action.type === "hold" || object.action.type === "momentary";
+  const isHoldRuntimeAction = singleActionStep?.action.type === "hold" || singleActionStep?.action.type === "momentary";
 
-  const runButtonAction = (phase?: "start" | "release", keepalive = false): Promise<void> | void => {
-    const resolvedAction = resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, renderContext);
-    const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
-      __runtimeActionIndex: 0,
+  const resolveButtonStepAction = (step: ButtonActionStep): RuntimeAction => {
+    const fieldName = step.id === "legacy-action" ? "action.tag" : `actions.${step.id}.action.tag`;
+    return resolveRuntimeActionTagsWithObjectIndexing(step.action, object, project, tags, renderContext, fieldName);
+  };
+
+  const buildButtonActionContext = (
+    resolvedAction: RuntimeAction,
+    step: ButtonActionStep,
+    actionIndex: number,
+    logOperatorAction: boolean,
+    phase?: "start" | "release",
+    keepalive = false,
+  ): RenderContext => {
+    const fieldName = step.id === "legacy-action" ? "action.tag" : `actions.${step.id}.action.tag`;
+    return withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
+      __runtimeActionIndex: actionIndex,
+      __runtimeActionFieldName: fieldName,
+      __buttonActionQueueStepId: step.id,
       __operatorActionKind: "button",
-      __operatorActionLogOnThisCommand: phase !== "release",
+      __operatorActionLogOnThisCommand: logOperatorAction,
       __operatorActionDetails: {
         buttonActionType: resolvedAction.type,
+        buttonActionQueue: enabledActionSteps.map((item) => item.action.type),
         pulseDurationMs: resolvedAction.type === "pulse" ? resolvedAction.durationMs : undefined,
       },
       ...(phase ? { __runtimeHoldPhase: phase } : {}),
       ...(keepalive ? { __runtimeHoldKeepalive: true } : {}),
     });
-    return onAction?.(withActionRoleLevel(resolvedAction, object.requiredActionRole), nextContext);
+  };
+
+  const runButtonAction = (phase?: "start" | "release", keepalive = false): Promise<void> | void => {
+    if (phase && singleActionStep) {
+      const resolvedAction = resolveButtonStepAction(singleActionStep);
+      return onAction?.(
+        withActionRoleLevel(resolvedAction, object.requiredActionRole),
+        buildButtonActionContext(resolvedAction, singleActionStep, 0, phase !== "release", phase, keepalive),
+      );
+    }
+
+    let operatorActionLogged = false;
+    return executeButtonActionQueue({
+      steps: actionSteps,
+      execute: async (step, index) => {
+        if ((step.action.type === "hold" || step.action.type === "momentary") && enabledActionSteps.length > 1) {
+          throw new Error("Hold actions require a single-action button");
+        }
+        const resolvedAction = resolveButtonStepAction(step);
+        const nextContext = buildButtonActionContext(resolvedAction, step, index, !operatorActionLogged);
+        operatorActionLogged = true;
+        await Promise.resolve(onAction?.(withActionRoleLevel(resolvedAction, object.requiredActionRole), nextContext));
+      },
+      onShowError: (error, step, index) => {
+        const label = step.name?.trim() || `${index + 1}: ${step.action.type}`;
+        void message.error(`Button action ${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+      },
+      onWarn: (error, step, index) => {
+        const label = step.name?.trim() || `${index + 1}: ${step.action.type}`;
+        console.warn(`Button action ${label} failed`, error);
+      },
+    });
   };
 
   const releaseHold = (keepalive = false): void => {
@@ -6216,16 +6269,11 @@ function ButtonNode({
         setPressed(true);
         holdActiveRef.current = true;
         holdStartPendingRef.current = true;
-        const resolvedAction = resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, renderContext);
-        const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
-          __runtimeActionIndex: 0,
-          __runtimeHoldPhase: "start",
-          __operatorActionKind: "button",
-          __operatorActionLogOnThisCommand: true,
-          __operatorActionDetails: {
-            buttonActionType: resolvedAction.type,
-          },
-        });
+        if (!singleActionStep) {
+          return;
+        }
+        const resolvedAction = resolveButtonStepAction(singleActionStep);
+        const nextContext = buildButtonActionContext(resolvedAction, singleActionStep, 0, true, "start");
         const guardedAction = withActionRoleLevel(resolvedAction, object.requiredActionRole);
         holdActionRef.current = { action: guardedAction, context: nextContext };
         setExecuting(true);
@@ -6488,6 +6536,11 @@ function collectMissingBindingReferencesFromObjects(
     collectMissingBindingReference(object.disabledTag, resolvedBindings, output);
     if ("action" in object && object.action) {
       collectMissingBindingReferencesFromAction(object.action, resolvedBindings, output);
+    }
+    if (object.type === "button") {
+      for (const step of object.actions ?? []) {
+        collectMissingBindingReferencesFromAction(step.action, resolvedBindings, output);
+      }
     }
     if (object.type === "group") {
       collectMissingBindingReferencesFromObjects(object.objects, resolvedBindings, output);

@@ -359,6 +359,13 @@ function listObjectTagFields(
   if ("action" in object && object.action && (object.action.type === "write" || object.action.type === "pulse" || object.action.type === "hold" || object.action.type === "momentary" || object.action.type === "toggle")) {
     fields.push({ fieldPath: "action.tag", rawTag: object.action.tag, runtimeSupport: "full" });
   }
+  if (object.type === "button") {
+    for (const step of object.actions ?? []) {
+      if (step.action.type === "write" || step.action.type === "pulse" || step.action.type === "hold" || step.action.type === "momentary" || step.action.type === "toggle") {
+        fields.push({ fieldPath: `actions.${step.id}.action.tag`, rawTag: step.action.tag, runtimeSupport: "full" });
+      }
+    }
+  }
 
   switch (object.type) {
     case "text":

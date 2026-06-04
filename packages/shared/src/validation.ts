@@ -299,6 +299,15 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
   }),
 ]).and(runtimeActionAccessSchema);
 
+const buttonActionStepSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  enabled: z.boolean().optional(),
+  action: runtimeActionSchema,
+  onError: z.enum(["showErrorAndStop", "stopQueue", "continueQueue"]).optional(),
+  timeoutMs: z.number().int().min(100).optional(),
+});
+
 const textObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   type: z.literal("text"),
   text: z.string(),
@@ -412,7 +421,8 @@ const buttonObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
   gradientEndColor: z.string().optional(),
   gradientDirection: z.enum(["horizontal", "vertical", "diagonal", "center-outward", "outside-inward"]).optional(),
   textStyle: textStyleSchema,
-  action: runtimeActionSchema,
+  action: runtimeActionSchema.optional(),
+  actions: z.array(buttonActionStepSchema).optional(),
 });
 
 const switchObjectSchema = hmiBaseSchema.merge(textLayoutSchema).extend({
@@ -1117,7 +1127,15 @@ export const hmiObjectSchema: z.ZodType<HmiObject> = z.lazy(() =>
     numericImageIndicatorObjectSchema,
     trendChartObjectSchema,
     eventTableObjectSchema,
-  ]) as z.ZodType<HmiObject>,
+  ]).superRefine((object, context) => {
+    if (object.type === "button" && !object.action && !(object.actions?.length)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Button requires action or actions",
+        path: ["actions"],
+      });
+    }
+  }) as z.ZodType<HmiObject>,
 );
 
 const groupObjectSchema = hmiBaseSchema.extend({

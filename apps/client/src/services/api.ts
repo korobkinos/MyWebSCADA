@@ -1149,7 +1149,7 @@ export const api = {
       body: JSON.stringify({ value, commandMeta: options?.commandMeta, operatorActionContext: options?.operatorActionContext }),
     }),
   startRuntimePulseLease: (
-    payload: RuntimeActionLeaseRequest & { durationMs: number },
+    payload: RuntimeActionLeaseRequest & { durationMs: number; waitForReset?: boolean },
     options?: { signal?: AbortSignal },
   ) =>
     request<{ ok: boolean }>("/api/runtime-actions/pulse/start", {

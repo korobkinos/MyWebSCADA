@@ -202,6 +202,13 @@ function collectObjectMacroIds(object: HmiObject, out: Set<string>): void {
   ) {
     out.add(object.action.macroId);
   }
+  if (object.type === "button") {
+    for (const step of object.actions ?? []) {
+      if (step.action.type === "runMacro" && step.action.macroId) {
+        out.add(step.action.macroId);
+      }
+    }
+  }
   if (object.type === "group") {
     for (const child of object.objects) {
       collectObjectMacroIds(child, out);

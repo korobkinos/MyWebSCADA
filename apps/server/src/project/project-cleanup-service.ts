@@ -339,6 +339,11 @@ function collectKnownObjectRefs(object: HmiObject, refs: ProjectRefs, options?: 
   if ("action" in object) {
     collectRuntimeActionRefs((object as { action?: unknown }).action, refs);
   }
+  if (object.type === "button") {
+    for (const step of object.actions ?? []) {
+      collectRuntimeActionRefs(step.action, refs);
+    }
+  }
 
   switch (object.type) {
     case "group":

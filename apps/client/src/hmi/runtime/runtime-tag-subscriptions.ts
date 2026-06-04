@@ -207,6 +207,20 @@ function collectObjectTags(
       dependencyOut,
     });
   }
+  if (resolvedObject.type === "button") {
+    for (const step of resolvedObject.actions ?? []) {
+      collectActionTags({
+        action: step.action,
+        actionFieldName: `actions.${step.id}.action.tag`,
+        object: resolvedObject,
+        project,
+        context,
+        runtimeTagValues,
+        out,
+        dependencyOut,
+      });
+    }
+  }
 
   switch (resolvedObject.type) {
     case "group":
@@ -584,6 +598,7 @@ function collectObjectTags(
 
 function collectActionTags(input: {
   action: RuntimeAction;
+  actionFieldName?: string;
   object: HmiObject;
   project: ScadaProject;
   context: RenderContext;
@@ -591,13 +606,13 @@ function collectActionTags(input: {
   out: Set<string>;
   dependencyOut: Set<string>;
 }): void {
-  const { action, object, project, context, runtimeTagValues, out, dependencyOut } = input;
+  const { action, actionFieldName = "action.tag", object, project, context, runtimeTagValues, out, dependencyOut } = input;
   const resolved = resolveRuntimeAction(action, context);
   if (resolved.type === "write" || resolved.type === "pulse" || resolved.type === "hold" || resolved.type === "momentary" || resolved.type === "toggle") {
     addResolvedFieldTag(out, {
       project,
       object,
-      fieldName: "action.tag",
+      fieldName: actionFieldName,
       rawTagName: resolved.tag,
       context,
       runtimeTagValues,

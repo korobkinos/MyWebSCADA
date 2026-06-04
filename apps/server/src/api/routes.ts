@@ -190,6 +190,7 @@ const runtimeActionLeaseSchema = z.object({
 });
 const runtimeActionPulseStartSchema = runtimeActionLeaseSchema.extend({
   durationMs: z.number().int().positive(),
+  waitForReset: z.boolean().optional(),
 });
 const runtimeActionHoldLeaseSchema = runtimeActionLeaseSchema.extend({
   ttlMs: z.number().int().positive(),

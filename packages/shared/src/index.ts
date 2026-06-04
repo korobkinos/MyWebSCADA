@@ -1,5 +1,6 @@
 export * from "./tag-types";
 export * from "./hmi-object-types";
+export * from "./button-actions";
 export * from "./project-types";
 export * from "./validation";
 export * from "./transport-types";

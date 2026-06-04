@@ -286,6 +286,12 @@ export function getObjectIoFields(object: HmiObject): ObjectIoFieldDefinition[] 
 
   if (object.type === "button") {
     fields.push(...actionIoFields(object.action));
+    for (const [index, step] of (object.actions ?? []).entries()) {
+      fields.push(...actionIoFields(step.action).map((field) => ({
+        ...field,
+        fieldPath: `actions.${index}.${field.fieldPath}`,
+      })));
+    }
     return fields;
   }
 

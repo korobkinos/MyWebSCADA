@@ -5,6 +5,7 @@ import type {
   AccessRoleLevel,
   AppRole,
   Asset,
+  ButtonActionStep,
   CheckboxWriteMode,
   ElementBindingDefinition,
   ElementLibrary,
@@ -17,12 +18,14 @@ import type {
   TextStyle,
 } from "@web-scada/shared";
 import {
+  DEFAULT_BUTTON_ACTION_TIMEOUT_MS,
   DEFAULT_OPERATOR_ACTION_BUTTON_TEMPLATE,
   DEFAULT_OPERATOR_ACTION_CHECKBOX_TEMPLATE,
   DEFAULT_OPERATOR_ACTION_NUMERIC_INPUT_TEMPLATE,
   DEFAULT_OPERATOR_ACTION_SLIDER_TEMPLATE,
   DEFAULT_OPERATOR_ACTION_VALUE_CHANGE_TEMPLATE,
   extractIndexedAddressSlots,
+  getButtonActionSteps,
   getLibraryConnectedTagIndexFieldName,
   isOperatorActionEnabledForObject,
   resolveIndexedAddress,
@@ -1121,18 +1124,26 @@ function renderOperatorActionPreviewTemplate(template: string, values: Record<st
   });
 }
 
+function resolveOperatorActionPreviewButtonActions(object: OperatorActionPreviewObject): RuntimeAction[] {
+  if (object.type !== "button") {
+    return [];
+  }
+  return getButtonActionSteps(object).filter((step) => step.enabled !== false).map((step) => step.action);
+}
+
 function resolveOperatorActionPreviewKind(object: OperatorActionPreviewObject): string {
   if (object.type === "button") {
-    if (object.action.type === "pulse") {
+    const action = resolveOperatorActionPreviewButtonActions(object)[0];
+    if (action?.type === "pulse") {
       return "pulse";
     }
-    if (object.action.type === "hold" || object.action.type === "momentary") {
+    if (action?.type === "hold" || action?.type === "momentary") {
       return "button";
     }
-    if (object.action.type === "toggle") {
+    if (action?.type === "toggle") {
       return "toggle";
     }
-    if (object.action.type === "runMacro") {
+    if (action?.type === "runMacro") {
       return "macro";
     }
     return "button";
@@ -1162,13 +1173,17 @@ function resolveOperatorActionPreviewKind(object: OperatorActionPreviewObject): 
 }
 
 function resolveOperatorActionPreviewActionType(object: OperatorActionPreviewObject, kind: string): string {
+  const buttonActions = resolveOperatorActionPreviewButtonActions(object);
+  if (buttonActions.length > 1) {
+    return `queue: ${buttonActions.map((action) => action.type).join(" -> ")}`;
+  }
+  const buttonAction = buttonActions[0];
   if (
     kind === "pulse"
-    && object.type === "button"
-    && object.action.type === "pulse"
-    && Number.isFinite(object.action.durationMs)
+    && buttonAction?.type === "pulse"
+    && Number.isFinite(buttonAction.durationMs)
   ) {
-    return `pulse ${Math.max(1, Math.floor(object.action.durationMs))}ms`;
+    return `pulse ${Math.max(1, Math.floor(buttonAction.durationMs))}ms`;
   }
   return kind;
 }
@@ -1195,17 +1210,21 @@ function resolveOperatorActionPreviewTemplate(object: OperatorActionPreviewObjec
 
 function resolveOperatorActionPreviewTarget(object: OperatorActionPreviewObject): string {
   if (object.type === "button") {
-    if (object.action.type === "write" || object.action.type === "pulse" || object.action.type === "hold" || object.action.type === "momentary" || object.action.type === "toggle") {
-      return object.action.tag?.trim() || "Tag.Name";
+    const action = resolveOperatorActionPreviewButtonActions(object)[0];
+    if (!action) {
+      return "Tag.Name";
     }
-    if (object.action.type === "writeConst" || object.action.type === "setInternalVar") {
-      return object.action.name?.trim() || "Tag.Name";
+    if (action.type === "write" || action.type === "pulse" || action.type === "hold" || action.type === "momentary" || action.type === "toggle") {
+      return action.tag?.trim() || "Tag.Name";
     }
-    if (object.action.type === "setLW") {
-      return `LW${Math.max(0, Math.floor(object.action.address))}`;
+    if (action.type === "writeConst" || action.type === "setInternalVar") {
+      return action.name?.trim() || "Tag.Name";
     }
-    if (object.action.type === "runMacro") {
-      return object.action.macroId?.trim() || "Tag.Name";
+    if (action.type === "setLW") {
+      return `LW${Math.max(0, Math.floor(action.address))}`;
+    }
+    if (action.type === "runMacro") {
+      return action.macroId?.trim() || "Tag.Name";
     }
     return "Tag.Name";
   }
@@ -1452,7 +1471,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     rawTagName?: string;
   } | null>(null);
   const [frameIndexesEditorOpen, setFrameIndexesEditorOpen] = useState(false);
-  const [popupIndexesEditorOpen, setPopupIndexesEditorOpen] = useState(false);
+  const [popupIndexesEditorTarget, setPopupIndexesEditorTarget] = useState<{ stepId?: string } | null>(null);
   const [trendTagPickerOpen, setTrendTagPickerOpen] = useState(false);
   const [trendSettingsOpen, setTrendSettingsOpen] = useState(false);
   const [trendSettingsInitialTab, setTrendSettingsInitialTab] = useState<"appearance" | "performance" | "axes" | "series" | "table" | "toolbar">("appearance");
@@ -1485,7 +1504,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
   useEffect(() => {
     setIndexedEditorTarget(null);
     setFrameIndexesEditorOpen(false);
-    setPopupIndexesEditorOpen(false);
+    setPopupIndexesEditorTarget(null);
     setTrendTagPickerOpen(false);
     setTrendSettingsOpen(false);
     setTrendSettingsInitialTab("appearance");
@@ -1738,7 +1757,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
       elementBindings={elementBindings}
       buildIndexControl={buildIndexControl}
       onOpenFrameIndexes={() => setFrameIndexesEditorOpen(true)}
-      onOpenPopupIndexes={() => setPopupIndexesEditorOpen(true)}
+      onOpenPopupIndexes={(stepId) => setPopupIndexesEditorTarget({ stepId })}
       onOpenTrendTagPicker={() => setTrendTagPickerOpen(true)}
       onOpenTrendSettings={(tab) => {
         setTrendSettingsInitialTab(tab ?? "appearance");
@@ -1987,7 +2006,14 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
         { key: "runtime", label: "Runtime", children: runtimeStateContent },
         { key: "access", label: "Access", children: accessContent },
       ];
-  const popupIndexesAction = "action" in object && object.action?.type === "openPopup" ? object.action : undefined;
+  const popupIndexesStep = object.type === "button" && popupIndexesEditorTarget?.stepId
+    ? getButtonActionSteps(object).find((step) => step.id === popupIndexesEditorTarget.stepId)
+    : undefined;
+  const popupIndexesAction = popupIndexesStep?.action.type === "openPopup"
+    ? popupIndexesStep.action
+    : "action" in object && object.action?.type === "openPopup"
+      ? object.action
+      : undefined;
 
   return (
     <div className="object-property-panel object-property-panel--workbench">
@@ -2024,7 +2050,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
       ) : null}
       {popupIndexesAction ? (
         <FrameIndexesEditorWindow
-          open={popupIndexesEditorOpen}
+          open
           project={project}
           libraries={libraries}
           frame={{
@@ -2039,15 +2065,29 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
           emptyScreenMessage="Select popup screen first."
           missingScreenMessage="Popup screen not found."
           runtimePreviewValues={editorRuntimeValues}
-          onApplyRules={(nextRules) =>
+          onApplyRules={(nextRules) => {
+            if (object.type === "button" && popupIndexesStep) {
+              onPatch({
+                actions: getButtonActionSteps(object).map((step) => step.id === popupIndexesStep.id
+                  ? {
+                      ...step,
+                      action: {
+                        ...popupIndexesAction,
+                        tagIndexRules: nextRules.length > 0 ? nextRules : undefined,
+                      },
+                    }
+                  : step),
+              } as Partial<HmiObject>);
+              return;
+            }
             onPatch({
               action: {
                 ...popupIndexesAction,
                 tagIndexRules: nextRules.length > 0 ? nextRules : undefined,
               },
-            } as Partial<HmiObject>)
-          }
-          onClose={() => setPopupIndexesEditorOpen(false)}
+            } as Partial<HmiObject>);
+          }}
+          onClose={() => setPopupIndexesEditorTarget(null)}
         />
       ) : null}
       {object.type === "trendChart" ? (
@@ -2083,6 +2123,185 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
   );
 }
 
+const BUTTON_ACTION_TYPE_OPTIONS = [
+  { label: "write", value: "write" },
+  { label: "pulse", value: "pulse" },
+  { label: "hold", value: "hold" },
+  { label: "toggle", value: "toggle" },
+  { label: "openScreen", value: "openScreen" },
+  { label: "openPopup", value: "openPopup" },
+  { label: "runMacro", value: "runMacro" },
+  { label: "setInternalVar", value: "setInternalVar" },
+  { label: "setLW", value: "setLW" },
+] satisfies Array<{ label: string; value: RuntimeAction["type"] }>;
+
+function createButtonActionStepId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `action_${crypto.randomUUID()}`;
+  }
+  return `action_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createDefaultRuntimeAction(type: RuntimeAction["type"], project: ScadaProject): RuntimeAction {
+  if (type === "pulse") return { type, tag: "", value: true, durationMs: 500 };
+  if (type === "hold") return { type, tag: "" };
+  if (type === "toggle") return { type, tag: "" };
+  if (type === "openScreen") return { type, screenId: project.screens[0]?.id ?? "" };
+  if (type === "openPopup") return { type, popupScreenId: project.screens.find((screen) => screen.kind === "popup")?.id ?? "" };
+  if (type === "runMacro") return { type, macroId: "" };
+  if (type === "setInternalVar") return { type, name: "selectedBurnerPrefix", value: "_1" };
+  if (type === "setLW") return { type, address: 20, value: 0 };
+  return { type: "write", tag: "", value: true };
+}
+
+function RuntimeActionEditor({
+  project,
+  action,
+  templateBindings,
+  fieldNamePrefix,
+  buildIndexControl,
+  onChange,
+  onOpenPopupIndexes,
+}: {
+  project: ScadaProject;
+  action: RuntimeAction;
+  templateBindings: ElementBindingDefinition[];
+  fieldNamePrefix: string;
+  buildIndexControl: (fieldName: string, fieldLabel: string, rawTagName: string | undefined) => {
+    enabled: boolean;
+    status: string;
+    configureDisabled: boolean;
+    onConfigure: () => void;
+    onToggleEnabled: (checked: boolean) => void;
+  };
+  onChange: (nextAction: RuntimeAction) => void;
+  onOpenPopupIndexes?: (stepId?: string) => void;
+}) {
+  const tagAction = action.type === "write" || action.type === "pulse" || action.type === "hold" || action.type === "toggle"
+    ? action
+    : undefined;
+
+  return (
+    <>
+      <Form.Item label="Action Type">
+        <Select
+          value={action.type}
+          options={BUTTON_ACTION_TYPE_OPTIONS}
+          onChange={(value) => onChange(createDefaultRuntimeAction(value, project))}
+        />
+      </Form.Item>
+      <ActionAccessFields action={action} onChange={onChange} />
+      {tagAction ? (
+        <TagFieldWithBindingSource
+          project={project}
+          bindings={templateBindings}
+          value={tagAction.tag}
+          bindingLabel="Action Binding"
+          tagLabel="Action Tag"
+          indexControl={buildIndexControl(`${fieldNamePrefix}.tag`, "Action Tag", tagAction.tag)}
+          onChange={(tag) => onChange({ ...tagAction, tag })}
+        />
+      ) : null}
+      {action.type === "write" || action.type === "pulse" ? (
+        <Form.Item label={action.type === "pulse" ? "Pulse Value" : "Write Value"}>
+          <Input
+            value={stringifyRuntimeActionValue(action.value)}
+            onChange={(event) => onChange({ ...action, value: parseRuntimeActionValue(event.target.value) })}
+          />
+        </Form.Item>
+      ) : null}
+      {action.type === "pulse" ? (
+        <Form.Item label="Duration (ms)">
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1}
+            value={action.durationMs}
+            onChange={(value) => onChange({ ...action, durationMs: Math.max(1, Number(value ?? 1)) })}
+          />
+        </Form.Item>
+      ) : null}
+      {action.type === "openScreen" ? (
+        <Form.Item label="Screen">
+          <Select
+            value={action.screenId}
+            options={project.screens.map((screen) => ({ label: `${screen.name} (${screen.kind})`, value: screen.id }))}
+            onChange={(screenId) => onChange({ ...action, screenId })}
+          />
+        </Form.Item>
+      ) : null}
+      {action.type === "openPopup" ? (
+        <>
+          <Form.Item label="Popup">
+            <Select
+              value={action.popupScreenId}
+              options={project.screens.filter((screen) => screen.kind === "popup").map((screen) => ({ label: screen.name, value: screen.id }))}
+              onChange={(popupScreenId) => onChange({ ...action, popupScreenId })}
+            />
+          </Form.Item>
+          <Form.Item label="Popup Title">
+            <Input value={action.title ?? ""} onChange={(event) => onChange({ ...action, title: event.target.value })} />
+          </Form.Item>
+          <Form.Item label="Popup Tag Prefix">
+            <Input value={action.tagPrefix ?? ""} onChange={(event) => onChange({ ...action, tagPrefix: event.target.value })} />
+          </Form.Item>
+          <Form.Item label="Popup Indexes">
+            <Button size="small" onClick={() => onOpenPopupIndexes?.()} disabled={!action.popupScreenId}>
+              Popup Indexes...
+            </Button>
+          </Form.Item>
+          <Form.Item label="Popup Args (JSON)">
+            <Input.TextArea
+              rows={3}
+              value={JSON.stringify(action.args ?? {}, null, 2)}
+              onChange={(event) => {
+                try {
+                  onChange({ ...action, args: JSON.parse(event.target.value) as Record<string, unknown> });
+                } catch {
+                  // Keep the previous valid value while editing invalid JSON.
+                }
+              }}
+            />
+          </Form.Item>
+        </>
+      ) : null}
+      {action.type === "runMacro" ? (
+        <Form.Item label="Macro">
+          <Select
+            value={action.macroId}
+            options={(project.macros ?? []).map((macro) => ({ label: macro.name, value: macro.id }))}
+            onChange={(macroId) => onChange({ ...action, macroId })}
+          />
+        </Form.Item>
+      ) : null}
+      {action.type === "setInternalVar" ? (
+        <>
+          <Form.Item label="Variable Name">
+            <Input value={action.name} onChange={(event) => onChange({ ...action, name: event.target.value })} />
+          </Form.Item>
+          <Form.Item label="Value">
+            <Input value={stringifyRuntimeActionValue(action.value)} onChange={(event) => onChange({ ...action, value: parseRuntimeActionValue(event.target.value) })} />
+          </Form.Item>
+        </>
+      ) : null}
+      {action.type === "setLW" ? (
+        <>
+          <Form.Item label="LW Address">
+            <InputNumber
+              style={{ width: "100%" }}
+              min={0}
+              value={action.address}
+              onChange={(value) => onChange({ ...action, address: Math.max(0, Math.floor(Number(value ?? 0))) })}
+            />
+          </Form.Item>
+          <Form.Item label="Value">
+            <Input value={stringifyRuntimeActionValue(action.value)} onChange={(event) => onChange({ ...action, value: parseRuntimeActionValue(event.target.value) })} />
+          </Form.Item>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function SpecificPropertyFields({
   project,
   assets,
@@ -2111,7 +2330,7 @@ function SpecificPropertyFields({
     };
   numericInputSection?: "value" | "appearance" | "error" | "dialog";
   onOpenFrameIndexes?: () => void;
-  onOpenPopupIndexes?: () => void;
+  onOpenPopupIndexes?: (stepId?: string) => void;
   onOpenTrendTagPicker?: () => void;
   onOpenTrendSettings?: (tab?: "appearance" | "performance" | "axes" | "series" | "table" | "toolbar") => void;
   onPatch: (patch: Partial<HmiObject>) => void;
@@ -2638,15 +2857,17 @@ function SpecificPropertyFields({
   }
 
   if (object.type === "button") {
-    const runMacroAction = object.action.type === "runMacro" ? object.action : undefined;
-    const writeAction = object.action.type === "write" ? object.action : undefined;
-    const pulseAction = object.action.type === "pulse" ? object.action : undefined;
-    const holdAction = object.action.type === "hold" || object.action.type === "momentary" ? object.action : undefined;
-    const toggleAction = object.action.type === "toggle" ? object.action : undefined;
-    const openScreenAction = object.action.type === "openScreen" ? object.action : undefined;
-    const openPopupAction = object.action.type === "openPopup" ? object.action : undefined;
-    const setInternalVarAction = object.action.type === "setInternalVar" ? object.action : undefined;
-    const setLwAction = object.action.type === "setLW" ? object.action : undefined;
+    const buttonActionSteps = getButtonActionSteps(object);
+    const objectAction = object.action ?? buttonActionSteps[0]?.action ?? createDefaultRuntimeAction("write", project);
+    const runMacroAction = objectAction.type === "runMacro" ? objectAction : undefined;
+    const writeAction = objectAction.type === "write" ? objectAction : undefined;
+    const pulseAction = objectAction.type === "pulse" ? objectAction : undefined;
+    const holdAction = objectAction.type === "hold" || objectAction.type === "momentary" ? objectAction : undefined;
+    const toggleAction = objectAction.type === "toggle" ? objectAction : undefined;
+    const openScreenAction = objectAction.type === "openScreen" ? objectAction : undefined;
+    const openPopupAction = objectAction.type === "openPopup" ? objectAction : undefined;
+    const setInternalVarAction = objectAction.type === "setInternalVar" ? objectAction : undefined;
+    const setLwAction = objectAction.type === "setLW" ? objectAction : undefined;
     const macro = runMacroAction
       ? (project.macros ?? []).find((item) => item.id === runMacroAction.macroId)
       : undefined;
@@ -2687,9 +2908,134 @@ function SpecificPropertyFields({
             onChange={(v) => onPatch({ borderWidth: Math.max(0, Number(v ?? 0)) } as Partial<HmiObject>)}
           />
         </Form.Item>
+        <Divider orientation="left" plain>Actions Queue</Divider>
+        <Button
+          size="small"
+          type="primary"
+          style={{ marginBottom: 8 }}
+          onClick={() => onPatch({
+            actions: [
+              ...buttonActionSteps,
+              {
+                id: createButtonActionStepId(),
+                name: "",
+                enabled: true,
+                action: createDefaultRuntimeAction("write", project),
+                onError: "showErrorAndStop",
+                timeoutMs: DEFAULT_BUTTON_ACTION_TIMEOUT_MS,
+              },
+            ],
+          } as Partial<HmiObject>)}
+        >
+          + Add action
+        </Button>
+        {buttonActionSteps.map((step, index) => {
+          const updateStep = (patch: Partial<ButtonActionStep>) => onPatch({
+            actions: buttonActionSteps.map((item) => item.id === step.id ? { ...item, ...patch } : item),
+          } as Partial<HmiObject>);
+          const moveStep = (offset: number) => {
+            const target = index + offset;
+            if (target < 0 || target >= buttonActionSteps.length) return;
+            const next = [...buttonActionSteps];
+            [next[index], next[target]] = [next[target]!, next[index]!];
+            onPatch({ actions: next } as Partial<HmiObject>);
+          };
+          const duplicateStep = () => {
+            const duplicateId = createButtonActionStepId();
+            const sourceField = step.id === "legacy-action" ? "action.tag" : `actions.${step.id}.action.tag`;
+            const duplicateField = `actions.${duplicateId}.action.tag`;
+            const sourceIndexedConfig = object.tagIndexingByField?.[sourceField];
+            onPatch({
+              actions: [
+                ...buttonActionSteps.slice(0, index + 1),
+                { ...step, id: duplicateId, action: { ...step.action } },
+                ...buttonActionSteps.slice(index + 1),
+              ],
+              ...(sourceIndexedConfig
+                ? {
+                    tagIndexingByField: {
+                      ...(object.tagIndexingByField ?? {}),
+                      [duplicateField]: structuredClone(sourceIndexedConfig),
+                    },
+                  }
+                : {}),
+            } as Partial<HmiObject>);
+          };
+          const deleteStep = () => {
+            const fieldName = `actions.${step.id}.action.tag`;
+            const tagIndexingByField = { ...(object.tagIndexingByField ?? {}) };
+            delete tagIndexingByField[fieldName];
+            onPatch({
+              actions: buttonActionSteps.filter((item) => item.id !== step.id),
+              tagIndexingByField,
+            } as Partial<HmiObject>);
+          };
+          return (
+            <div key={step.id} style={{ border: "1px solid #434343", padding: 8, marginBottom: 8, borderRadius: 2 }}>
+              <Space wrap style={{ marginBottom: 8 }}>
+                <Typography.Text strong>#{index + 1} {step.name?.trim() || step.action.type}</Typography.Text>
+                <Button size="small" onClick={() => moveStep(-1)} disabled={index === 0}>Up</Button>
+                <Button size="small" onClick={() => moveStep(1)} disabled={index === buttonActionSteps.length - 1}>Down</Button>
+                <Button size="small" onClick={duplicateStep}>
+                  Duplicate
+                </Button>
+                <Button size="small" danger onClick={deleteStep}>
+                  Delete
+                </Button>
+              </Space>
+              <Form.Item label="Name">
+                <Input value={step.name ?? ""} onChange={(event) => updateStep({ name: event.target.value })} />
+              </Form.Item>
+              <Space style={{ marginBottom: 8 }}>
+                <span>Enabled</span>
+                <Switch checked={step.enabled !== false} onChange={(enabled) => updateStep({ enabled })} />
+              </Space>
+              {object.actions?.length ? (
+                <RuntimeActionEditor
+                  project={project}
+                  action={step.action}
+                  templateBindings={templateBindings}
+                  fieldNamePrefix={`actions.${step.id}.action`}
+                  buildIndexControl={(fieldName, fieldLabel, rawTagName) => {
+                    const control = buildIndexControl(fieldName, fieldLabel, rawTagName);
+                    return { ...control, configureDisabled: control.configureDisabled ?? false };
+                  }}
+                  onChange={(action) => updateStep({ action })}
+                  onOpenPopupIndexes={() => onOpenPopupIndexes?.(step.id)}
+                />
+              ) : null}
+              <Form.Item label="On error">
+                <Select
+                  value={step.onError ?? "showErrorAndStop"}
+                  options={[
+                    { label: "Show error and stop", value: "showErrorAndStop" },
+                    { label: "Stop queue", value: "stopQueue" },
+                    { label: "Continue queue", value: "continueQueue" },
+                  ]}
+                  onChange={(onError) => updateStep({ onError })}
+                />
+              </Form.Item>
+              <Form.Item label="Timeout (ms)">
+                <InputNumber
+                  style={{ width: "100%" }}
+                  min={100}
+                  value={step.timeoutMs ?? DEFAULT_BUTTON_ACTION_TIMEOUT_MS}
+                  onChange={(value) => updateStep({ timeoutMs: Math.max(100, Number(value ?? DEFAULT_BUTTON_ACTION_TIMEOUT_MS)) })}
+                />
+              </Form.Item>
+            </div>
+          );
+        })}
+        {buttonActionSteps.length === 0 ? (
+          <Typography.Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+            No actions configured.
+          </Typography.Text>
+        ) : null}
+        {!object.actions?.length && object.action ? (
+          <>
         <Form.Item label="Action Type">
           <Select
-            value={object.action.type}
+            value={objectAction.type}
             options={[
               { label: "write", value: "write" },
               { label: "pulse", value: "pulse" },
@@ -2740,7 +3086,7 @@ function SpecificPropertyFields({
           />
         </Form.Item>
         <ActionAccessFields
-          action={object.action}
+          action={objectAction}
           onChange={(nextAction) => onPatch({ action: nextAction } as Partial<HmiObject>)}
         />
         {writeAction ? (
@@ -3037,6 +3383,8 @@ function SpecificPropertyFields({
                 }
               />
             </Form.Item>
+          </>
+        ) : null}
           </>
         ) : null}
         <OperatorActionLogSection project={project} object={object} onPatch={onPatch} />

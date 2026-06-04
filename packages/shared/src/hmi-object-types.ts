@@ -373,6 +373,20 @@ export type RuntimeAction = {
     }
 );
 
+export type ButtonActionErrorPolicy =
+  | "showErrorAndStop"
+  | "stopQueue"
+  | "continueQueue";
+
+export type ButtonActionStep = {
+  id: string;
+  name?: string;
+  enabled?: boolean;
+  action: RuntimeAction;
+  onError?: ButtonActionErrorPolicy;
+  timeoutMs?: number;
+};
+
 export type ButtonObject = HmiObjectBase & {
   type: "button";
   text?: string;
@@ -389,7 +403,8 @@ export type ButtonObject = HmiObjectBase & {
   gradientStartColor?: string;
   gradientEndColor?: string;
   gradientDirection?: "horizontal" | "vertical" | "diagonal" | "center-outward" | "outside-inward";
-  action: RuntimeAction;
+  action?: RuntimeAction;
+  actions?: ButtonActionStep[];
   textStyle: TextStyle;
 } & TextLayout;
 

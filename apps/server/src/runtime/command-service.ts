@@ -24,6 +24,7 @@ type RuntimeActionLeaseBase = {
 
 type RuntimePulseLeaseInput = RuntimeActionLeaseBase & {
   durationMs: number;
+  waitForReset?: boolean;
 };
 
 type RuntimeHoldLeaseInput = RuntimeActionLeaseBase & {
@@ -98,6 +99,11 @@ export class CommandService {
     }
     if (lease.timeout) {
       clearTimeout(lease.timeout);
+    }
+    if (input.waitForReset) {
+      await new Promise<void>((resolve) => setTimeout(resolve, durationMs));
+      await this.removeRuntimeLease(leaseKey);
+      return;
     }
     lease.timeout = setTimeout(() => {
       void this.removeRuntimeLease(leaseKey).catch(() => undefined);

@@ -761,34 +761,38 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       return finalActionTag;
     };
 
+    const actionTagFieldName = typeof context.parameters?.__runtimeActionFieldName === "string"
+      ? context.parameters.__runtimeActionFieldName
+      : "action.tag";
+
     if (action.type === "write") {
       return {
         ...action,
-        tag: resolveIndexedTagField("action.tag", action.tag),
+        tag: resolveIndexedTagField(actionTagFieldName, action.tag),
       };
     }
     if (action.type === "pulse") {
       return {
         ...action,
-        tag: resolveIndexedTagField("action.tag", action.tag),
+        tag: resolveIndexedTagField(actionTagFieldName, action.tag),
       };
     }
     if (action.type === "hold") {
       return {
         ...action,
-        tag: resolveIndexedTagField("action.tag", action.tag),
+        tag: resolveIndexedTagField(actionTagFieldName, action.tag),
       };
     }
     if (action.type === "momentary") {
       return {
         ...action,
-        tag: resolveIndexedTagField("action.tag", action.tag),
+        tag: resolveIndexedTagField(actionTagFieldName, action.tag),
       };
     }
     if (action.type === "toggle") {
       return {
         ...action,
-        tag: resolveIndexedTagField("action.tag", action.tag),
+        tag: resolveIndexedTagField(actionTagFieldName, action.tag),
       };
     }
     if (action.type === "writeConst" && action.target === "tag") {
@@ -1571,12 +1575,15 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       const toastText = params.macroId
         ? `Macro failed: ${parsed.messageText}`
         : `Command failed: ${parsed.messageText}`;
-      if (shouldShowManualCommandToast(parsed.reason, params.context)) {
+      if (shouldShowManualCommandToast(parsed.reason, params.context) && !isButtonActionQueueStep(params.context)) {
         if (parsed.reason === "busy") {
           void message.warning(toastText);
         } else {
           void message.error(toastText);
         }
+      }
+      if (isButtonActionQueueStep(params.context)) {
+        throw new Error(parsed.messageText);
       }
       return undefined;
     } finally {
@@ -1606,12 +1613,16 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     const actorRoleLevel = guestRuntimeControlAllowed ? 1 : getUserRoleLevel(actor);
     const requiredRoleLevel = resolveRequiredRoleLevel(action);
     const requiresAuth = action.requireAuth === true;
+    const queuedButtonAction = isButtonActionQueueStep(context);
 
     if (requiresAuth && !actor) {
       openAccessWindow({
         requiredRole: Math.max(requiredRoleLevel, 1) as AccessRoleLevel,
         currentRole: 0,
       });
+      if (queuedButtonAction) {
+        throw new Error("Authorization is required");
+      }
       return;
     }
 
@@ -1620,10 +1631,16 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         requiredRole: requiredRoleLevel,
         currentRole: actorRoleLevel,
       });
+      if (queuedButtonAction) {
+        throw new Error("Access denied");
+      }
       return;
     }
 
     if ("confirm" in action && action.confirm) {
+      if (queuedButtonAction) {
+        throw new Error("Confirmed actions are not supported inside a button action queue");
+      }
       setConfirmState({
         open: true,
         text: action.confirmText ?? "Confirm action?",
@@ -1634,6 +1651,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "write") {
+      if (!action.tag.trim()) {
+        throw new Error("Tag is required");
+      }
       const operatorActionContext = buildOperatorActionContext(action, context);
       await runGuardedManualCommand({
         action,
@@ -1647,6 +1667,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "pulse") {
+      if (!action.tag.trim()) {
+        throw new Error("Tag is required");
+      }
       const operatorActionContext = buildOperatorActionContext(action, context);
       const pulseDurationMs = typeof action.durationMs === "number" && Number.isFinite(action.durationMs)
         ? Math.max(1, Math.floor(action.durationMs))
@@ -1660,6 +1683,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         run: (signal, commandMeta) => api.startRuntimePulseLease({
           ...buildRuntimeActionLeasePayload(action, context, operatorActionContext, commandMeta),
           durationMs: pulseDurationMs,
+          waitForReset: queuedButtonAction,
         }, { signal }),
       });
       return;
@@ -1711,7 +1735,13 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "toggle") {
+      if (!action.tag.trim()) {
+        throw new Error("Tag is required");
+      }
       const current = tags[action.tag];
+      if (!current) {
+        throw new Error(`Tag ${action.tag} has no current value`);
+      }
       const operatorActionContext = buildOperatorActionContext(action, context);
       await runGuardedManualCommand({
         action,
@@ -1791,8 +1821,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             reason: "invalid_macro_id",
           }),
         );
-        void message.error("Macro id is invalid");
-        return;
+        if (!queuedButtonAction) {
+          void message.error("Macro id is invalid");
+          return;
+        }
+        throw new Error("Macro id is invalid");
       }
       const selectedMacro = macros.find((macro) => macro.id === macroId);
       const macroExists = Boolean(selectedMacro);
@@ -1808,8 +1841,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             reason: "macro_not_found",
           }),
         );
-        void message.error(`Macro ${macroId} not found`);
-        return;
+        if (!queuedButtonAction) {
+          void message.error(`Macro ${macroId} not found`);
+          return;
+        }
+        throw new Error(`Macro ${macroId} not found`);
       }
       const internalOnlyMacro = isInternalOnlyMacroCode(selectedMacro?.code);
       const allowRepeatedMacroRun = action.allowRepeat === true || macroId === "inc_counter" || internalOnlyMacro;
@@ -1874,6 +1910,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         statusFromResult: (value) => value.status === "skipped" ? `skipped:${value.reason ?? "unknown"}` : (value.status ?? "ok"),
       });
       if (!result) {
+        if (queuedButtonAction) {
+          throw new Error(`Macro "${selectedMacro?.name ?? macroId}" is disabled`);
+        }
         return;
       }
       if (result.status === "skipped" && result.reason === "disabled") {
@@ -1972,6 +2011,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "setLW") {
+      if (!Number.isFinite(action.address) || action.address < 0) {
+        throw new Error("LW address is invalid");
+      }
       const operatorActionContext = buildOperatorActionContext(action, context);
       await runGuardedManualCommand({
         action,
@@ -1986,6 +2028,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "setInternalVar") {
+      if (!action.name.trim()) {
+        throw new Error("Variable name is required");
+      }
       const operatorActionContext = buildOperatorActionContext(action, context);
       await runGuardedManualCommand({
         action,
@@ -1999,6 +2044,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     }
 
     if (action.type === "openScreen") {
+      if (!project.screens.some((screen) => screen.id === action.screenId)) {
+        throw new Error("Screen not found");
+      }
       setCurrentScreen(action.screenId);
       return;
     }
@@ -2006,6 +2054,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     if (action.type === "openPopup") {
       const popupScreen = project.screens.find((s) => s.id === action.popupScreenId && s.kind === "popup");
       if (!popupScreen) {
+        if (queuedButtonAction) {
+          throw new Error("Popup screen not found");
+        }
         return;
       }
       const popupKey = getPopupKey(action);
@@ -2690,6 +2741,10 @@ function toManualCommandRejectReason(reason: string | undefined, status: number 
     return "expired";
   }
   return "error";
+}
+
+function isButtonActionQueueStep(context: RenderContext): boolean {
+  return typeof context.parameters?.__buttonActionQueueStepId === "string";
 }
 
 function isGuestRuntimeControlAction(action: RuntimeAction): boolean {

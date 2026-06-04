@@ -48,6 +48,26 @@ describe("CommandService runtime action leases", () => {
     expect(tagStore.getValue("Cmd")?.value).toBe(false);
   });
 
+  it("can wait until the pulse reset completes", async () => {
+    vi.useFakeTimers();
+    const { commandService, tagStore } = createCommandService();
+    let completed = false;
+
+    const result = commandService.startPulseLease(lease({ waitForReset: true })).then(() => {
+      completed = true;
+    });
+    await vi.advanceTimersByTimeAsync(99);
+
+    expect(completed).toBe(false);
+    expect(tagStore.getValue("Cmd")?.value).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+
+    expect(completed).toBe(true);
+    expect(tagStore.getValue("Cmd")?.value).toBe(false);
+  });
+
   it("repeated pulse restarts timer", async () => {
     vi.useFakeTimers();
     const { commandService, tagStore } = createCommandService();

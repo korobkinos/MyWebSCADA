@@ -175,6 +175,25 @@ function findMacroReferences(project: ScadaProject, macroId: string): MacroRefer
           details: "RuntimeAction.runMacro",
         });
       }
+      if (object.type === "button") {
+        for (const step of object.actions ?? []) {
+          if (step.action.type !== "runMacro" || step.action.macroId !== macroId) {
+            continue;
+          }
+          refs.push({
+            macroId,
+            macroName: macro?.name,
+            sourceType: "objectAction",
+            screenKey: screen.id,
+            screenName: screen.name,
+            objectId: object.id,
+            objectName: object.name,
+            objectType: object.type,
+            path: `screens.${screen.id}.objects.${object.id}.actions.${step.id}`,
+            details: "ButtonActionStep.action.runMacro",
+          });
+        }
+      }
     });
   }
 

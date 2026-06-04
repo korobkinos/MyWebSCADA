@@ -170,7 +170,15 @@ export function createObjectByType(type: HmiObject["type"]): HmiObject {
         gradientEnabled: false,
         gradientDirection: "horizontal",
         textStyle: { ...defaultTextStyle },
-        action: { type: "pulse", tag: "", value: true, durationMs: 500 },
+        actions: [
+          {
+            id: id("action"),
+            enabled: true,
+            action: { type: "pulse", tag: "", value: true, durationMs: 500 },
+            onError: "showErrorAndStop",
+            timeoutMs: 5000,
+          },
+        ],
       };
     case "switch":
       return {

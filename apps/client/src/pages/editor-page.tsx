@@ -1696,15 +1696,7 @@ function applyTagRule(tag: string, options: CloneOptions, index: number): string
 function remapTagFields(object: HmiObject, map: (tag: string) => string): HmiObject {
   const cloned = structuredClone(object) as HmiObject;
 
-  const remapAction = (action: RuntimeAction): RuntimeAction => {
-    if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
-      return { ...action, tag: map(action.tag) };
-    }
-    if ((action.type === "writeConst" || action.type === "writeNumberPrompt") && action.target === "tag") {
-      return { ...action, name: map(action.name) };
-    }
-    return action;
-  };
+  const remapAction = (action: RuntimeAction): RuntimeAction => remapActionBinding(action, map);
 
   if (cloned.type === "value-display" || cloned.type === "value-input" || cloned.type === "state-indicator" || cloned.type === "switch") {
     cloned.tag = map(cloned.tag);
@@ -1727,7 +1719,12 @@ function remapTagFields(object: HmiObject, map: (tag: string) => string): HmiObj
   }
 
   if (cloned.type === "button") {
-    cloned.action = remapAction(cloned.action);
+    if (cloned.action) {
+      cloned.action = remapAction(cloned.action);
+    }
+    if (cloned.actions) {
+      cloned.actions = cloned.actions.map((step) => ({ ...step, action: remapAction(step.action) }));
+    }
   }
 
   if (cloned.type === "valueSelect" && cloned.target.type === "tag") {
@@ -1757,6 +1754,16 @@ function remapTagFields(object: HmiObject, map: (tag: string) => string): HmiObj
   }
 
   return cloned;
+}
+
+function remapActionBinding(action: RuntimeAction, map: (tag: string) => string): RuntimeAction {
+  if (action.type === "write" || action.type === "pulse" || action.type === "hold" || action.type === "momentary" || action.type === "toggle") {
+    return { ...action, tag: map(action.tag) };
+  }
+  if ((action.type === "writeConst" || action.type === "writeNumberPrompt") && action.target === "tag") {
+    return { ...action, name: map(action.name) };
+  }
+  return action;
 }
 
 async function copySelectionAssetsToLibrary(
@@ -1880,6 +1887,13 @@ function collectMacroReferenceIds(objects: HmiObject[]): string[] {
     if ("action" in object && object.action && object.action.type === "runMacro" && object.action.macroId.trim()) {
       macroIds.add(object.action.macroId.trim());
     }
+    if (object.type === "button") {
+      for (const step of object.actions ?? []) {
+        if (step.action.type === "runMacro" && step.action.macroId.trim()) {
+          macroIds.add(step.action.macroId.trim());
+        }
+      }
+    }
     if (object.type === "group") {
       for (const child of object.objects) {
         visit(child);
@@ -1968,6 +1982,9 @@ function clearTagBindingsInObject(object: HmiObject): void {
     if ((action.type === "writeConst" || action.type === "writeNumberPrompt") && action.target === "tag") {
       action.name = preserveBindingOrClear(action.name);
     }
+  }
+  if (object.type === "button" && object.actions) {
+    object.actions = object.actions.map((step) => ({ ...step, action: remapActionBinding(step.action, preserveBindingOrClear) }));
   }
 
   if (object.type === "group") {
@@ -2117,6 +2134,14 @@ function resolveBindingRefsInObject(object: HmiObject, resolvedBindings: Record<
       const bindingKey = action.name.slice(9);
       action.name = resolvedBindings[bindingKey] || "";
     }
+  }
+  if (object.type === "button" && object.actions) {
+    object.actions = object.actions.map((step) => ({ ...step, action: remapActionBinding(step.action, (tag) => {
+      if (!tag.startsWith("$binding.")) {
+        return tag;
+      }
+      return resolvedBindings[tag.slice(9)] || "";
+    }) }));
   }
 
   if (object.type === "group") {
