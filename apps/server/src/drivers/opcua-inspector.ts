@@ -8,7 +8,7 @@ import {
   UserTokenType,
   type ClientSession,
 } from "node-opcua";
-import type { OpcUaDriverConfig, TagDataType, TagScalarValue } from "@web-scada/shared";
+import type { ExtendedTagDataType, OpcUaDriverConfig, TagScalarValue } from "@web-scada/shared";
 
 export type OpcUaBrowseItem = {
   nodeId: string;
@@ -42,6 +42,10 @@ export type OpcUaImportCandidate = {
 export type OpcUaSubtreeImportResult = {
   candidates: OpcUaImportCandidate[];
   scannedNodes: number;
+};
+
+export type CollectOpcUaSubtreeOptions = {
+  includeParentArrayTags?: boolean;
 };
 
 const OPCUA_BROWSE_RESULT_MASK_ALL_FIELDS = 0x3f;
@@ -279,6 +283,10 @@ async function readOpcUaBrowseItemMetadata(session: ClientSession, nodeId: strin
       : NodeClass.Unspecified;
     const valueRank = typeof valueRankAttr?.value?.value === "number" ? valueRankAttr.value.value : undefined;
     const arrayDimensions = toNumberArray(arrayDimensionsAttr?.value?.value);
+    const rawArrayLength = nodeClassNumeric === NodeClass.Variable && !isArrayNode(valueRank, arrayDimensions)
+      ? getArrayLength(await readOpcUaRawValue(session, nodeId))
+      : undefined;
+    const resolvedArrayDimensions = rawArrayLength !== undefined && !arrayDimensions?.length ? [rawArrayLength] : arrayDimensions;
     const access = accessLevelAttr?.value?.value;
     const userAccess = userAccessLevelAttr?.value?.value;
     return {
@@ -288,8 +296,8 @@ async function readOpcUaBrowseItemMetadata(session: ClientSession, nodeId: strin
       nodeClass: NodeClass[nodeClassNumeric] ?? String(nodeClassNumeric),
       dataType: dataTypeAttr?.value?.value?.toString?.(),
       valueRank,
-      arrayDimensions,
-      isArray: isArrayNode(valueRank, arrayDimensions),
+      arrayDimensions: resolvedArrayDimensions,
+      isArray: isArrayNode(valueRank, resolvedArrayDimensions),
       writable: nodeClassNumeric === NodeClass.Variable ? isOpcUaWritable(access, userAccess) : undefined,
       hasChildren: false,
     };
@@ -395,6 +403,7 @@ export async function browseOpcUaNode(
       let writable: boolean | undefined;
       let valueRank: number | undefined;
       let arrayDimensions: number[] | undefined;
+      let rawArrayLength: number | undefined;
 
       if (needsMetadataRead || nodeClassNumeric === NodeClass.Variable) {
         const [
@@ -436,6 +445,9 @@ export async function browseOpcUaNode(
         writable = nodeClassNumeric === NodeClass.Variable ? isOpcUaWritable(access, userAccess) : undefined;
         valueRank = typeof valueRankAttr?.value?.value === "number" ? valueRankAttr.value.value : undefined;
         arrayDimensions = toNumberArray(arrayDimensionsAttr?.value?.value);
+        if (nodeClassNumeric === NodeClass.Variable && !isArrayNode(valueRank, arrayDimensions)) {
+          rawArrayLength = getArrayLength(await readOpcUaRawValue(session, refNodeId));
+        }
       }
 
       return {
@@ -445,7 +457,7 @@ export async function browseOpcUaNode(
         nodeClassNumeric: nodeClassNumeric ?? NodeClass.Unspecified,
         dataType,
         valueRank,
-        arrayDimensions,
+        arrayDimensions: rawArrayLength !== undefined && !arrayDimensions?.length ? [rawArrayLength] : arrayDimensions,
         writable,
       };
     }),
@@ -533,6 +545,7 @@ export async function collectOpcUaSubtreeVariables(
   nodeId: string,
   rootBrowsePath?: string,
   maxNodes = 10_000,
+  options: CollectOpcUaSubtreeOptions = {},
 ): Promise<OpcUaSubtreeImportResult> {
   const visited = new Set<string>();
   const output: OpcUaImportCandidate[] = [];
@@ -545,7 +558,19 @@ export async function collectOpcUaSubtreeVariables(
     return true;
   };
   const addVariableCandidate = async (child: OpcUaBrowseItem, browsePath: string): Promise<void> => {
-    if (!pushCandidate({
+    const rawValue = await readOpcUaRawValue(session, child.nodeId);
+    const rawValueLength = getArrayLength(rawValue);
+    const isArray = child.isArray || rawValueLength !== undefined;
+    if (!isArray) {
+      pushCandidate({
+        nodeId: child.nodeId,
+        browsePath: toTagNameFromBrowsePath(browsePath),
+        dataType: child.dataType,
+        writable: child.writable,
+      });
+      return;
+    }
+    if (options.includeParentArrayTags && !pushCandidate({
       nodeId: child.nodeId,
       browsePath: toTagNameFromBrowsePath(browsePath),
       dataType: child.dataType,
@@ -553,14 +578,9 @@ export async function collectOpcUaSubtreeVariables(
     })) {
       return;
     }
-    if (!child.isArray) {
-      return;
-    }
-    const rawValue = await readOpcUaRawValue(session, child.nodeId);
     const dimensionLength = child.arrayDimensions?.find((dimension) => dimension > 0);
-    const valueLength = getArrayLength(rawValue);
     const arrayLength = Math.min(
-      dimensionLength ?? valueLength ?? 0,
+      dimensionLength ?? rawValueLength ?? 0,
       OPCUA_ARRAY_IMPORT_HARD_LIMIT,
       Math.max(0, maxNodes - output.length),
     );
@@ -670,18 +690,53 @@ export async function readOpcUaNode(session: ClientSession, nodeId: string): Pro
   };
 }
 
-export function opcUaDataTypeToTagDataType(dataTypeNodeId: string | undefined): TagDataType {
+export function opcUaDataTypeToTagDataType(dataTypeNodeId: string | undefined): ExtendedTagDataType {
   if (!dataTypeNodeId) {
     return "STRING";
   }
   const normalized = dataTypeNodeId.toLowerCase();
-  if (normalized.includes("bool")) {
+  const match = /i=(\d+)/i.exec(dataTypeNodeId);
+  const id = match ? Number(match[1]) : Number.NaN;
+  if (id === 1) {
     return "BOOL";
   }
-  if (normalized.includes("uint") || normalized.includes("int32") || normalized.includes("dint")) {
+  if (id === 2 || normalized.includes("sbyte")) {
+    return "INT";
+  }
+  if (id === 3 || normalized.includes("byte")) {
+    return "UINT";
+  }
+  if (id === 4) {
+    return "INT";
+  }
+  if (id === 5) {
+    return "UINT";
+  }
+  if (id === 6) {
     return "DINT";
   }
-  if (normalized.includes("int") || normalized.includes("short")) {
+  if (id === 7) {
+    return "UDINT";
+  }
+  if (id === 8 || id === 9 || id === 10 || id === 11) {
+    return "REAL";
+  }
+  if (id === 12) {
+    return "STRING";
+  }
+  if (normalized.includes("boolean") || normalized.includes("bool")) {
+    return "BOOL";
+  }
+  if (normalized.includes("uint32") || normalized.includes("udint")) {
+    return "UDINT";
+  }
+  if (normalized.includes("uint16") || normalized.includes("ushort") || normalized.includes("uint")) {
+    return "UINT";
+  }
+  if (normalized.includes("int32") || normalized.includes("dint")) {
+    return "DINT";
+  }
+  if (normalized.includes("int16") || normalized.includes("short") || normalized.includes("integer") || normalized.includes("int")) {
     return "INT";
   }
   if (normalized.includes("double") || normalized.includes("float") || normalized.includes("real")) {
@@ -689,23 +744,6 @@ export function opcUaDataTypeToTagDataType(dataTypeNodeId: string | undefined): 
   }
   if (normalized.includes("string") || normalized.includes("text")) {
     return "STRING";
-  }
-  const match = /i=(\d+)/i.exec(dataTypeNodeId);
-  const id = match ? Number(match[1]) : Number.NaN;
-  if (Number.isNaN(id)) {
-    return "STRING";
-  }
-  if (id === 1) {
-    return "BOOL";
-  }
-  if (id === 2 || id === 3 || id === 4 || id === 5) {
-    return "INT";
-  }
-  if (id === 6 || id === 7) {
-    return "DINT";
-  }
-  if (id === 8 || id === 9 || id === 10 || id === 11) {
-    return "REAL";
   }
   return "STRING";
 }

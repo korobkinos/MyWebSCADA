@@ -75,7 +75,7 @@ const BULK_SIMULATION_MIN_WIDTH = 760;
 const BULK_SIMULATION_MIN_HEIGHT = 560;
 const BULK_SIMULATION_DEFAULT_RECT: WorkbenchWindowRect = { x: 200, y: 100, width: 880, height: 700 };
 const OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES = 20_000;
-const OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE = 500;
+const OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE = 1000;
 
 function createDefaultColumnVisibility(): TagColumnVisibility {
   return TAG_COLUMNS.reduce<TagColumnVisibility>(
@@ -625,9 +625,44 @@ function getOpcUaParentNodeId(nodeId: string): string | null {
 
 function mapOpcUaDataTypeToTagDataType(dataType?: string): TagDefinition["dataType"] {
   const normalized = (dataType ?? "").toLowerCase();
+  const match = /i=(\d+)/i.exec(dataType ?? "");
+  const id = match ? Number(match[1]) : Number.NaN;
 
+  if (id === 1) {
+    return "BOOL";
+  }
+  if (id === 2) {
+    return "INT";
+  }
+  if (id === 3) {
+    return "UINT";
+  }
+  if (id === 4) {
+    return "INT";
+  }
+  if (id === 5) {
+    return "UINT";
+  }
+  if (id === 6) {
+    return "DINT";
+  }
+  if (id === 7) {
+    return "UDINT";
+  }
+  if (id === 8 || id === 9 || id === 10 || id === 11) {
+    return "REAL";
+  }
+  if (id === 12) {
+    return "STRING";
+  }
   if (normalized.includes("boolean") || normalized.includes("bool")) {
     return "BOOL";
+  }
+  if (normalized.includes("sbyte")) {
+    return "INT";
+  }
+  if (normalized.includes("byte")) {
+    return "UINT";
   }
   if (normalized.includes("udint") || normalized.includes("uint32")) {
     return "UDINT";
@@ -654,14 +689,27 @@ function mapOpcUaDataTypeToTagDataType(dataType?: string): TagDefinition["dataTy
     return "STRING";
   }
 
-  return "REAL";
+  return "STRING";
+}
+
+function getOpcUaStringNodePath(nodeId: string | undefined): string | undefined {
+  if (!nodeId) {
+    return undefined;
+  }
+  const markerIndex = nodeId.indexOf(";s=");
+  if (markerIndex < 0) {
+    return undefined;
+  }
+  const path = nodeId.slice(markerIndex + 3).trim();
+  return path.length > 0 ? path : undefined;
 }
 
 function makeTagNameFromOpcNode(node: OpcUaBrowseItem): string {
-  const raw = node.displayName || node.browseName || node.nodeId;
-  const normalized = raw
-    .replace(/^.*[:/]/, "")
-    .replace(/[^\w.]+/g, "_")
+  const stringNodePath = getOpcUaStringNodePath(node.nodeId);
+  const raw = stringNodePath || node.displayName || node.browseName || node.nodeId;
+  const source = stringNodePath ? raw.replace(/[\\/]+/g, ".") : raw.replace(/^.*[:/]/, "");
+  const normalized = source
+    .replace(/[^\w.[\]-]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return normalized || "opcua_tag";
 }
@@ -1756,6 +1804,12 @@ export function ScreenEditorTagsWindow() {
     const maxNodes = toOptionalNumber(opcImportSubtreeMaxNodes) ?? OPC_UA_IMPORT_SUBTREE_DEFAULT_MAX_NODES;
     const scanRateMs = toOptionalNumber(opcImportSubtreeScanRateMs) ?? OPC_UA_IMPORT_SUBTREE_DEFAULT_SCAN_RATE;
     const rootName = opcImportSubtreeRootName.trim() || (importableNodes.length === 1 ? importableNodes[0]!.browseName || importableNodes[0]!.displayName : "");
+    if (scanRateMs <= 500 && maxNodes > 1000) {
+      const accepted = window.confirm("500 ms scan rate for thousands of tags may overload runtime.");
+      if (!accepted) {
+        return;
+      }
+    }
 
     setOpcImportSubtreeElapsedMs(0);
     setOpcImportSubtreeBusy(true);

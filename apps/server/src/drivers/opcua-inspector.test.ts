@@ -1,6 +1,6 @@
 import { AttributeIds, NodeClass } from "node-opcua";
 import { describe, expect, it } from "vitest";
-import { browseOpcUaNode, collectOpcUaSubtreeVariables } from "./opcua-inspector";
+import { browseOpcUaNode, collectOpcUaSubtreeVariables, opcUaDataTypeToTagDataType } from "./opcua-inspector";
 
 type FakeNode = {
   nodeId: string;
@@ -122,7 +122,6 @@ describe("collectOpcUaSubtreeVariables", () => {
       memberPath: item.memberPath,
       writable: item.writable,
     }))).toEqual([
-      { browsePath: "Application.SomeArray", indexRange: undefined, memberPath: undefined, writable: true },
       { browsePath: "Application.SomeArray[0]", indexRange: "0", memberPath: undefined, writable: true },
       { browsePath: "Application.SomeArray[1]", indexRange: "1", memberPath: undefined, writable: true },
       { browsePath: "Application.SomeArray[2]", indexRange: "2", memberPath: undefined, writable: true },
@@ -155,7 +154,6 @@ describe("collectOpcUaSubtreeVariables", () => {
       memberPath: item.memberPath,
       writable: item.writable,
     }))).toEqual([
-      { browsePath: "Application.GVL_REGULATOR.pid_control", indexRange: undefined, memberPath: undefined, writable: true },
       { browsePath: "Application.GVL_REGULATOR.pid_control[0].down_out", indexRange: "0", memberPath: ["down_out"], writable: true },
       { browsePath: "Application.GVL_REGULATOR.pid_control[0].up_out", indexRange: "0", memberPath: ["up_out"], writable: true },
       { browsePath: "Application.GVL_REGULATOR.pid_control[0].nested.gain", indexRange: "0", memberPath: ["nested", "gain"], writable: true },
@@ -163,6 +161,80 @@ describe("collectOpcUaSubtreeVariables", () => {
       { browsePath: "Application.GVL_REGULATOR.pid_control[1].up_out", indexRange: "1", memberPath: ["up_out"], writable: true },
       { browsePath: "Application.GVL_REGULATOR.pid_control[1].nested.gain", indexRange: "1", memberPath: ["nested", "gain"], writable: true },
     ]);
+  });
+
+  it("can include parent array tags when explicitly requested", async () => {
+    const session = makeSession({
+      root: { nodeId: "root", browseName: "Root", nodeClass: NodeClass.Object, children: ["arr"] },
+      arr: {
+        nodeId: "arr",
+        browseName: "SomeArray",
+        nodeClass: NodeClass.Variable,
+        dataType: "ns=0;i=11",
+        valueRank: 1,
+        arrayDimensions: [1],
+        value: [10],
+      },
+    });
+
+    const result = await collectOpcUaSubtreeVariables(
+      session as never,
+      "root",
+      "Application",
+      10_000,
+      { includeParentArrayTags: true },
+    );
+
+    expect(result.candidates.map((item) => item.browsePath)).toEqual([
+      "Application.SomeArray",
+      "Application.SomeArray[0]",
+    ]);
+  });
+
+  it("expands arrays detected from raw value when metadata is scalar", async () => {
+    const session = makeSession({
+      root: { nodeId: "root", browseName: "Root", nodeClass: NodeClass.Object, children: ["arr"] },
+      arr: {
+        nodeId: "arr",
+        browseName: "DimensionInfoArray",
+        nodeClass: NodeClass.Variable,
+        dataType: "UInt16",
+        valueRank: -1,
+        arrayDimensions: [],
+        value: new Uint16Array([7, 8]),
+      },
+    });
+
+    const result = await collectOpcUaSubtreeVariables(session as never, "root", "Application");
+
+    expect(result.candidates.map((item) => ({
+      browsePath: item.browsePath,
+      indexRange: item.indexRange,
+      dataType: item.dataType,
+    }))).toEqual([
+      { browsePath: "Application.DimensionInfoArray[0]", indexRange: "0", dataType: "UInt16" },
+      { browsePath: "Application.DimensionInfoArray[1]", indexRange: "1", dataType: "UInt16" },
+    ]);
+  });
+});
+
+describe("opcUaDataTypeToTagDataType", () => {
+  it("maps OPC UA integer widths and byte types without unsigned loss", () => {
+    expect(opcUaDataTypeToTagDataType("Boolean")).toBe("BOOL");
+    expect(opcUaDataTypeToTagDataType("UInt16")).toBe("UINT");
+    expect(opcUaDataTypeToTagDataType("UShort")).toBe("UINT");
+    expect(opcUaDataTypeToTagDataType("ns=0;i=5")).toBe("UINT");
+    expect(opcUaDataTypeToTagDataType("UInt32")).toBe("UDINT");
+    expect(opcUaDataTypeToTagDataType("UDInt")).toBe("UDINT");
+    expect(opcUaDataTypeToTagDataType("ns=0;i=7")).toBe("UDINT");
+    expect(opcUaDataTypeToTagDataType("Int16")).toBe("INT");
+    expect(opcUaDataTypeToTagDataType("Short")).toBe("INT");
+    expect(opcUaDataTypeToTagDataType("ns=0;i=4")).toBe("INT");
+    expect(opcUaDataTypeToTagDataType("Int32")).toBe("DINT");
+    expect(opcUaDataTypeToTagDataType("DInt")).toBe("DINT");
+    expect(opcUaDataTypeToTagDataType("ns=0;i=6")).toBe("DINT");
+    expect(opcUaDataTypeToTagDataType("Byte")).toBe("UINT");
+    expect(opcUaDataTypeToTagDataType("SByte")).toBe("INT");
   });
 });
 
