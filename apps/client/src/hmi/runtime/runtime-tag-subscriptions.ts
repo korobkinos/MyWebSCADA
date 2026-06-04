@@ -19,7 +19,7 @@ import {
   type ScadaProject,
   type TagValue,
 } from "@web-scada/shared";
-import { resolveObjectTagField } from "../tags/indexed-address";
+import { resolveInternalTagAlias, resolveObjectTagField } from "../tags/indexed-address";
 import { intersectsScreenBounds } from "./offscreen-filter";
 
 type TagMap = Record<string, TagValue>;
@@ -831,19 +831,6 @@ function toLwRuntimeTag(address: number): string {
 }
 
 const LW_ADDRESS_NAME = /^LW\d+$/i;
-
-function resolveInternalTagAlias(project: ScadaProject, tagName: string): string | undefined {
-  const trimmed = tagName.trim();
-  if (!trimmed || trimmed.startsWith("LW.") || LW_ADDRESS_NAME.test(trimmed)) {
-    return undefined;
-  }
-  const normalized = toInternalRuntimeTag(trimmed);
-  const hasMatchingInternalVariable = (project.variables ?? []).some((variable) => {
-    const variableName = variable.name.trim();
-    return variableName === trimmed || toInternalRuntimeTag(variableName) === normalized;
-  });
-  return hasMatchingInternalVariable ? normalized : undefined;
-}
 
 function resolveObjectParameters<T>(value: T, parameters: Record<string, unknown>): T {
   if (!Object.keys(parameters).length) {

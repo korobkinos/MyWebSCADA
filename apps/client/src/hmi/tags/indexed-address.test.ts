@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HmiObject, RenderContext, ScadaProject, TagDefinition } from "@web-scada/shared";
-import { findTagByAddress, getTagAddressTemplate, resolveObjectTagField } from "./indexed-address";
+import { findTagByAddress, getTagAddressTemplate, resolveInternalTagAlias, resolveObjectTagField } from "./indexed-address";
 
 function createProject(tags: string[]): ScadaProject {
   return {
@@ -24,6 +24,17 @@ function createBaseObject(id: string): Pick<HmiObject, "id" | "x" | "y" | "width
     width: 100,
     height: 30,
   };
+}
+
+function tagValuesWithoutEnumeration(values: Record<string, { value: unknown }>): Record<string, { value: unknown }> {
+  return new Proxy(values, {
+    ownKeys() {
+      throw new Error("tagValues enumeration is not allowed");
+    },
+    getOwnPropertyDescriptor(target, prop) {
+      return Object.getOwnPropertyDescriptor(target, prop);
+    },
+  });
 }
 
 describe("resolveObjectTagField with frame inherited index rules", () => {
@@ -353,5 +364,114 @@ describe("resolveObjectTagField with frame inherited index rules", () => {
     });
 
     expect(resolved.resolvedTagName).toBe("Burner[3].Pressure");
+  });
+
+  it("resolves local indexed tag binding without enumerating tagValues", () => {
+    const object: HmiObject = {
+      ...createBaseObject("text-local-indexed"),
+      type: "text",
+      text: "Value",
+      tag: "Application.GVL_BURNER_VALVE.open_state[0]",
+      tagIndexing: {
+        enabled: true,
+        template: "Application.GVL_BURNER_VALVE.open_state[0]",
+        bindings: [{
+          key: "INDEX_1",
+          slotIndex: 0,
+          baseValue: 0,
+          source: "tag",
+          sourceName: "Counter",
+          constantValue: 0,
+          offset: 0,
+        }],
+      },
+      textStyle: {
+        fontFamily: "Arial",
+        fontSize: 12,
+        color: "#fff",
+        horizontalAlign: "left",
+        verticalAlign: "middle",
+      },
+    };
+
+    const resolved = resolveObjectTagField({
+      object,
+      fieldName: "tag",
+      project: createProject([
+        "Application.GVL_BURNER_VALVE.open_state[0]",
+        "Application.GVL_BURNER_VALVE.open_state[1]",
+      ]),
+      context: {},
+      tagValues: tagValuesWithoutEnumeration({
+        Counter: { value: 1 },
+        Unrelated: { value: 999 },
+      }) as never,
+      rawTagName: object.tag,
+    });
+
+    expect(resolved.resolvedTagName).toBe("Application.GVL_BURNER_VALVE.open_state[1]");
+    expect(resolved.dependencyTags).toEqual(["Counter"]);
+  });
+
+  it("resolves inherited frame index source without enumerating tagValues", () => {
+    const object: HmiObject = {
+      ...createBaseObject("text-inherited-indexed"),
+      type: "text",
+      text: "Value",
+      tag: "Burner[0].Pressure",
+      textStyle: {
+        fontFamily: "Arial",
+        fontSize: 12,
+        color: "#fff",
+        horizontalAlign: "left",
+        verticalAlign: "middle",
+      },
+    };
+    const context: RenderContext = {
+      inheritedIndexRules: [{
+        id: "frame-rule-tag-source",
+        enabled: true,
+        indexOffset: 0,
+        indexOffsetSource: {
+          type: "tag",
+          tag: "SelectedBurnerIndex",
+        },
+        indexMode: {
+          type: "arrayIndex",
+          occurrence: 0,
+          operation: "add",
+          valueFrom: "indexOffset",
+        },
+        conflictMode: "skipLocal",
+      }],
+    };
+
+    const resolved = resolveObjectTagField({
+      object,
+      fieldName: "tag",
+      project: createProject(["Burner[0].Pressure", "Burner[2].Pressure"]),
+      context,
+      tagValues: tagValuesWithoutEnumeration({
+        SelectedBurnerIndex: { value: 2 },
+        Unrelated: { value: 999 },
+      }) as never,
+      rawTagName: object.tag,
+    });
+
+    expect(resolved.resolvedTagName).toBe("Burner[2].Pressure");
+    expect(resolved.dependencyTags).toEqual(["SelectedBurnerIndex"]);
+  });
+
+  it("resolves internal variable aliases from project cache", () => {
+    const project = createProject([]);
+    project.variables = [{
+      name: "Counter",
+      dataType: "INT",
+      initialValue: 0,
+      currentValue: 3,
+    }];
+
+    expect(resolveInternalTagAlias(project, "Counter")).toBe("LW.Counter");
+    expect(resolveInternalTagAlias(project, "LW.Counter")).toBeUndefined();
   });
 });

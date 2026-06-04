@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ElementLibrary, HmiScreen, ScadaProject } from "@web-scada/shared";
-import { collectRuntimeTagSubscriptions } from "./runtime-tag-subscriptions";
+import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "./runtime-tag-subscriptions";
 
 describe("collectRuntimeTagSubscriptions", () => {
   it("collects expression dependencies and resolved binding tags for library element instances", () => {
@@ -909,5 +909,92 @@ describe("collectRuntimeTagSubscriptions", () => {
 
     expect(subscriptions).toContain("Application.GVL_BURNER_VALVE.open_state[1]");
     expect(subscriptions).not.toContain("Application.GVL_BURNER_VALVE.open_state[0]");
+  });
+
+  it("collects indexed subscription and dependency tags without unrelated tags", () => {
+    const screen: HmiScreen = {
+      id: "screen-indexed-dependency",
+      name: "Indexed dependency",
+      kind: "screen",
+      width: 800,
+      height: 600,
+      background: "#1e1e1e",
+      objects: [{
+        id: "text-indexed",
+        type: "text",
+        text: "Value",
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 30,
+        tag: "Application.GVL_BURNER_VALVE.open_state[0]",
+        tagIndexing: {
+          enabled: true,
+          template: "Application.GVL_BURNER_VALVE.open_state[0]",
+          bindings: [{
+            key: "INDEX_1",
+            slotIndex: 0,
+            baseValue: 0,
+            source: "tag",
+            sourceName: "SelectedValveIndex",
+            constantValue: 0,
+            offset: 0,
+          }],
+        },
+        textStyle: {
+          fontFamily: "Arial",
+          fontSize: 14,
+          color: "#fff",
+          horizontalAlign: "left",
+          verticalAlign: "middle",
+        },
+      }],
+    };
+    const project: ScadaProject = {
+      version: 1,
+      name: "Indexed dependency project",
+      drivers: [],
+      tags: [
+        {
+          name: "Application.GVL_BURNER_VALVE.open_state[0]",
+          dataType: "BOOL",
+          address: { nodeId: "Application.GVL_BURNER_VALVE.open_state[0]" },
+        },
+        {
+          name: "Application.GVL_BURNER_VALVE.open_state[1]",
+          dataType: "BOOL",
+          address: { nodeId: "Application.GVL_BURNER_VALVE.open_state[1]" },
+        },
+        {
+          name: "Unrelated.Project.Tag",
+          dataType: "INT",
+          address: { nodeId: "Unrelated.Project.Tag" },
+        },
+      ],
+      screens: [screen],
+      startScreenId: screen.id,
+    };
+
+    const plan = collectRuntimeTagSubscriptionPlan({
+      project,
+      libraries: [],
+      screen,
+      tags: {
+        SelectedValveIndex: {
+          name: "SelectedValveIndex",
+          value: 1,
+          quality: "Good",
+          timestamp: 1,
+          source: "test",
+        },
+      },
+      popups: [],
+    });
+
+    expect(plan.subscriptionTags).toContain("Application.GVL_BURNER_VALVE.open_state[1]");
+    expect(plan.subscriptionTags).toContain("SelectedValveIndex");
+    expect(plan.dependencyTags).toEqual(["SelectedValveIndex"]);
+    expect(plan.subscriptionTags).not.toContain("Application.GVL_BURNER_VALVE.open_state[0]");
+    expect(plan.subscriptionTags).not.toContain("Unrelated.Project.Tag");
   });
 });

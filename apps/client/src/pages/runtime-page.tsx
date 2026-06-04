@@ -29,7 +29,7 @@ import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime/numeric-input-dialog";
 import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
-import { resolveObjectTagField } from "../hmi/tags/indexed-address";
+import { readIndexedAddressPerfCounters, resolveObjectTagField } from "../hmi/tags/indexed-address";
 import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
 import { api, isAbortError } from "../services/api";
 import { getConnectionSnapshot, markEndpointFailure, subscribeConnectionState } from "../services/connection-state";
@@ -373,9 +373,17 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       popups: popupSubscriptionContexts,
     });
     const durationMs = performance.now() - startedAt;
-    if (durationMs > 10) {
+    const debugRuntimePerf = readRuntimePerfDebugFlag();
+    if (durationMs > 10 || debugRuntimePerf) {
+      const indexedPerf = debugRuntimePerf ? readIndexedAddressPerfCounters(true) : undefined;
       // eslint-disable-next-line no-console
-      console.debug(`[perf] collectRuntimeTagSubscriptionPlan took ${durationMs.toFixed(1)}ms, ${plan.subscriptionTags.length} subscriptionTags, ${plan.dependencyTags.length} dependencyTags`);
+      console.debug("[runtime-perf] collectRuntimeTagSubscriptionPlan", {
+        durationMs: Math.round(durationMs * 1000) / 1000,
+        screenId: screen.id,
+        subscriptionTagCount: plan.subscriptionTags.length,
+        dependencyTagCount: plan.dependencyTags.length,
+        indexedPerf,
+      });
     }
     return plan;
   }, [activeLibraries, popupSubscriptionContexts, project, screen]);

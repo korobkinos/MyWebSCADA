@@ -37,7 +37,13 @@ import {
   type TextStyle,
 } from "@web-scada/shared";
 import { applyElementStateRules } from "./element-state-rules";
-import { resolveObjectTagField } from "../tags/indexed-address";
+import {
+  collectBindingTagDependencies,
+  collectFrameRuleDependencyTags,
+  getObjectIndexedConfigForField,
+  resolveInternalTagAlias,
+  resolveObjectTagField,
+} from "../tags/indexed-address";
 import { sortObjectsByZIndex } from "../editor/z-order";
 import { TrendRuntimeWidget } from "../../features/trends/TrendRuntimeWidget";
 import { EventTableRuntimeWidget } from "../../features/events/EventTableRuntimeWidget";
@@ -1117,6 +1123,8 @@ type ResolvedTagValue = {
   indexedUsed?: boolean;
   indexedErrors?: string[];
 };
+type IndexedTagCacheValue = ReturnType<typeof resolveObjectTagField>;
+const MAX_INDEXED_TAG_CACHE_ENTRIES = 128;
 
 export type ObjectSelectPayload = {
   objectId: string;
@@ -1526,6 +1534,76 @@ function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps): bool
   return true;
 }
 
+function buildIndexedTagCacheKey(input: {
+  object: HmiObject;
+  fieldName: string;
+  rawName: string | undefined;
+  resolvedName: string | undefined;
+  context: RenderContext;
+  tags: TagMap;
+}): string {
+  const config = getObjectIndexedConfigForField(input.object, input.fieldName);
+  const dependencyTags = new Set<string>();
+  for (const tag of collectBindingTagDependencies(config, input.context)) {
+    dependencyTags.add(tag);
+  }
+  if (config?.enabled !== true) {
+    for (const rule of getEnabledFrameTagIndexRules(input.context.inheritedIndexRules)) {
+      for (const tag of collectFrameRuleDependencyTags(rule, input.context)) {
+        dependencyTags.add(tag);
+      }
+    }
+  }
+  const dependencySignature = [...dependencyTags]
+    .sort((left, right) => left.localeCompare(right))
+    .map((tagName) => `${tagName}=${serializeTagValueForCache(input.tags[tagName])}`)
+    .join("|");
+
+  return [
+    input.object.id,
+    input.fieldName,
+    input.rawName ?? "",
+    input.resolvedName ?? "",
+    input.context.tagPrefix ?? "",
+    getFrameTagIndexRulesSignature(input.context.inheritedIndexRules),
+    stableJsonForCache(input.context.bindings),
+    stableJsonForCache(input.context.parameters),
+    stableJsonForCache(config),
+    dependencySignature,
+  ].join("\u001f");
+}
+
+function serializeTagValueForCache(value: TagValue | undefined): string {
+  if (!value) {
+    return "null";
+  }
+  return `${String(value.value)}:${value.quality}:${value.timestamp}`;
+}
+
+function stableJsonForCache(value: unknown): string {
+  if (value === undefined) {
+    return "";
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function logIndexedTagCachePerf(stats: { hits: number; misses: number; lastLogAt: number }): void {
+  const now = Date.now();
+  if (now - stats.lastLogAt < 2000) {
+    return;
+  }
+  stats.lastLogAt = now;
+  // eslint-disable-next-line no-console
+  console.debug("[runtime-perf] indexed-tag-cache", {
+    hits: stats.hits,
+    misses: stats.misses,
+  });
+}
+
 function collectWatchedTags(object: HmiObject, context: RenderContext): string[] | null {
   if (object.type === "libraryElementInstance" || object.type === "frame") {
     return null;
@@ -1694,6 +1772,12 @@ function ObjectNode({
     import.meta.env.DEV &&
     typeof window !== "undefined" &&
     window.localStorage.getItem("debugPerformance") === "1";
+  const debugRuntimePerf =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("scada.debugRuntimePerf") === "1";
+  const inheritedIndexRulesSignature = getFrameTagIndexRulesSignature(renderContext.inheritedIndexRules);
+  const indexedTagCacheRef = useRef(new Map<string, IndexedTagCacheValue>());
+  const indexedTagCacheStatsRef = useRef({ hits: 0, misses: 0, lastLogAt: 0 });
 
   useEffect(() => {
     if (!debugPerformance) {
@@ -1714,7 +1798,17 @@ function ObjectNode({
     };
   }, []);
 
-  const indexedTagCache = new Map<string, ReturnType<typeof resolveObjectTagField>>();
+  useEffect(() => {
+    indexedTagCacheRef.current.clear();
+  }, [
+    project,
+    resolvedObject,
+    renderContext.bindings,
+    renderContext.parameters,
+    renderContext.tagPrefix,
+    inheritedIndexRulesSignature,
+  ]);
+
   const tagValue = (name: string | undefined, options?: { useObjectIndexing?: boolean; fieldName?: string }): ResolvedTagValue => {
     const resolved = resolveTagName(name, renderContext);
     const missingBindingReference = isBindingReference(name) && !resolved;
@@ -1728,9 +1822,20 @@ function ObjectNode({
       };
     }
 
-    const cacheKey = `${fieldName}|${name ?? ""}|${resolved ?? ""}`;
+    const cacheKey = buildIndexedTagCacheKey({
+      object: resolvedObject,
+      fieldName,
+      rawName: name,
+      resolvedName: resolved,
+      context: renderContext,
+      tags,
+    });
+    const indexedTagCache = indexedTagCacheRef.current;
     let indexed = indexedTagCache.get(cacheKey);
     if (!indexed) {
+      if (debugRuntimePerf) {
+        indexedTagCacheStatsRef.current.misses += 1;
+      }
       indexed = resolveObjectTagField({
         object: resolvedObject,
         fieldName,
@@ -1739,7 +1844,19 @@ function ObjectNode({
         tagValues: tags,
         rawTagName: name,
       });
+      if (indexedTagCache.size >= MAX_INDEXED_TAG_CACHE_ENTRIES) {
+        const oldestKey = indexedTagCache.keys().next().value;
+        if (oldestKey) {
+          indexedTagCache.delete(oldestKey);
+        }
+      }
       indexedTagCache.set(cacheKey, indexed);
+    } else if (debugRuntimePerf) {
+      indexedTagCacheStatsRef.current.hits += 1;
+    }
+
+    if (debugRuntimePerf) {
+      logIndexedTagCachePerf(indexedTagCacheStatsRef.current);
     }
 
     const lookupName = resolveRuntimeTagLookupName(indexed.resolvedTagName, tags, project);
@@ -2227,9 +2344,15 @@ function ObjectNode({
 
   const selectable = interactive;
   const visibleByRole = isObjectVisibleByRole(resolvedObject, mode, renderContext);
-  const visibleByRuntimeState = mode !== "runtime" || resolveObjectVisible(resolvedObject, tags, renderContext, project);
+  const visibleTagValue = mode === "runtime" && hasRuntimeStateTag(resolvedObject.visibleTag)
+    ? tagValue(resolvedObject.visibleTag, { useObjectIndexing: true, fieldName: "visibleTag" })
+    : undefined;
+  const visibleByRuntimeState = mode !== "runtime" || resolveObjectVisibleFromTagValue(resolvedObject, visibleTagValue);
   const shouldHideInRuntime = mode === "runtime" && (!visibleByRole || !visibleByRuntimeState);
-  const disabledByRuntimeState = mode === "runtime" && resolveObjectDisabled(resolvedObject, tags, renderContext, project);
+  const disabledTagValue = mode === "runtime" && hasRuntimeStateTag(resolvedObject.disabledTag)
+    ? tagValue(resolvedObject.disabledTag, { useObjectIndexing: true, fieldName: "disabledTag" })
+    : undefined;
+  const disabledByRuntimeState = mode === "runtime" && resolveObjectDisabledFromTagValue(resolvedObject, disabledTagValue);
   const hasOwnDisabledBinding = hasRuntimeStateTag(resolvedObject.disabledTag);
   const runtimeDisabled = mode === "runtime" && (inheritedDisabled ? (hasOwnDisabledBinding ? disabledByRuntimeState : true) : disabledByRuntimeState);
   const triggerObjectMacroEvent = (eventName: "press" | "release") => {
@@ -6591,19 +6714,6 @@ function resolveRuntimeTagLookupName(
   return trimmed;
 }
 
-function resolveInternalTagAlias(project: ScadaProject, tagName: string): string | undefined {
-  const trimmed = tagName.trim();
-  if (!trimmed || trimmed.startsWith("LW.") || LW_ADDRESS_NAME.test(trimmed)) {
-    return undefined;
-  }
-  const normalized = toInternalRuntimeTag(trimmed);
-  const hasMatchingInternalVariable = (project.variables ?? []).some((variable) => {
-    const variableName = variable.name.trim();
-    return variableName === trimmed || toInternalRuntimeTag(variableName) === normalized;
-  });
-  return hasMatchingInternalVariable ? normalized : undefined;
-}
-
 function readValueSelectTargetValue(
   object: Extract<HmiObject, { type: "valueSelect" }>,
   project: ScadaProject,
@@ -6759,6 +6869,17 @@ function resolveObjectVisible(object: HmiObject, tags: TagMap, context: RenderCo
   return object.visibleInvert ? !visible : visible;
 }
 
+function resolveObjectVisibleFromTagValue(object: HmiObject, resolvedTag: ResolvedTagValue | undefined): boolean {
+  if (!hasRuntimeStateTag(object.visibleTag)) {
+    return true;
+  }
+  if (!resolvedTag || resolvedTag.missingBindingReference || resolvedTag.missingIndexedTag) {
+    return false;
+  }
+  const visible = runtimeValueToBoolean(resolvedTag.value?.value);
+  return object.visibleInvert ? !visible : visible;
+}
+
 function resolveObjectDisabled(object: HmiObject, tags: TagMap, context: RenderContext, project: ScadaProject): boolean {
   if (!hasRuntimeStateTag(object.disabledTag)) {
     return false;
@@ -6777,6 +6898,17 @@ function resolveObjectDisabled(object: HmiObject, tags: TagMap, context: RenderC
   }
   const value = resolvedTag ? tags[resolvedTag]?.value : undefined;
   const disabled = runtimeValueToBoolean(value);
+  return object.disabledInvert ? !disabled : disabled;
+}
+
+function resolveObjectDisabledFromTagValue(object: HmiObject, resolvedTag: ResolvedTagValue | undefined): boolean {
+  if (!hasRuntimeStateTag(object.disabledTag)) {
+    return false;
+  }
+  if (!resolvedTag || resolvedTag.missingBindingReference || resolvedTag.missingIndexedTag) {
+    return true;
+  }
+  const disabled = runtimeValueToBoolean(resolvedTag.value?.value);
   return object.disabledInvert ? !disabled : disabled;
 }
 

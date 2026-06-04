@@ -31,6 +31,8 @@ type IndexedRuntimeSources = {
   variables?: ScadaProject["variables"];
 };
 
+type ProjectVariable = NonNullable<ScadaProject["variables"]>[number];
+
 export type ResolvedIndexedObjectTag = {
   usedIndexedAddress: boolean;
   rawTagName?: string;
@@ -49,6 +51,29 @@ export type FrameRuleOffsetResolution = {
 };
 
 const tagAddressMapCache = new WeakMap<ScadaProject, Map<string, TagDefinition>>();
+const tagNameMapCache = new WeakMap<ScadaProject, Map<string, TagDefinition>>();
+const variableMapCache = new WeakMap<NonNullable<ScadaProject["variables"]>, Map<string, ProjectVariable>>();
+const LW_ADDRESS_NAME = /^LW\d+$/i;
+
+const indexedAddressPerfCounters = {
+  resolveObjectTagFieldCalls: 0,
+  lightweightRuntimeValuesBuilds: 0,
+  fullRuntimeValuesBuilds: 0,
+  fullTagValuesEnumerations: 0,
+  tagNameLookupCacheBuilds: 0,
+};
+
+export function readIndexedAddressPerfCounters(reset = false): typeof indexedAddressPerfCounters {
+  const snapshot = { ...indexedAddressPerfCounters };
+  if (reset) {
+    indexedAddressPerfCounters.resolveObjectTagFieldCalls = 0;
+    indexedAddressPerfCounters.lightweightRuntimeValuesBuilds = 0;
+    indexedAddressPerfCounters.fullRuntimeValuesBuilds = 0;
+    indexedAddressPerfCounters.fullTagValuesEnumerations = 0;
+    indexedAddressPerfCounters.tagNameLookupCacheBuilds = 0;
+  }
+  return snapshot;
+}
 
 export function getTagAddressTemplate(tag: TagDefinition | undefined): string {
   if (!tag) {
@@ -102,6 +127,25 @@ export function findTagByAddress(project: ScadaProject, address: string): TagDef
   return cache.get(normalizedAddress);
 }
 
+export function findTagByName(project: ScadaProject, name: string): TagDefinition | undefined {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  let cache = tagNameMapCache.get(project);
+  if (!cache) {
+    indexedAddressPerfCounters.tagNameLookupCacheBuilds += 1;
+    cache = new Map<string, TagDefinition>();
+    for (const tag of project.tags ?? []) {
+      cache.set(tag.name, tag);
+    }
+    tagNameMapCache.set(project, cache);
+  }
+
+  return cache.get(trimmed);
+}
+
 export function findTagByAddressInTags(tags: TagDefinition[], address: string): TagDefinition | undefined {
   const normalizedAddress = normalizeAddress(address)?.toLowerCase();
   if (!normalizedAddress) {
@@ -119,6 +163,7 @@ export function findTagByAddressInTags(tags: TagDefinition[], address: string): 
 }
 
 export function buildIndexedAddressRuntimeValues(input: RuntimeValueInput): Record<string, unknown> {
+  indexedAddressPerfCounters.fullRuntimeValuesBuilds += 1;
   const values: Record<string, unknown> = {};
 
   if (input.context) {
@@ -138,12 +183,12 @@ export function buildIndexedAddressRuntimeValues(input: RuntimeValueInput): Reco
     values[`LW.${trimmedName}`] = value;
   }
 
+  if (input.tagValues) {
+    indexedAddressPerfCounters.fullTagValuesEnumerations += 1;
+  }
   for (const [tagName, payload] of Object.entries(input.tagValues ?? {})) {
     const value = extractRuntimeTagValue(payload);
-    values[tagName] = value;
-    if (tagName.startsWith("LW.") && tagName.length > 3) {
-      values[tagName.slice(3)] = value;
-    }
+    setRuntimeValueAliases(values, tagName, value);
   }
 
   debugIndexedAddress("runtimeValues:built", {
@@ -156,6 +201,62 @@ export function buildIndexedAddressRuntimeValues(input: RuntimeValueInput): Reco
       tagPrefix: values.tagPrefix,
     },
   });
+
+  return values;
+}
+
+function buildIndexedAddressRuntimeValuesForDependencies(input: RuntimeValueInput & {
+  tagDependencies?: string[];
+  variableDependencies?: string[];
+  bindings?: IndexedAddressBinding[];
+}): Record<string, unknown> {
+  indexedAddressPerfCounters.lightweightRuntimeValuesBuilds += 1;
+  const values = buildRuntimeValuesBase(input.context);
+  const tagDependencies = new Set(input.tagDependencies ?? []);
+  const variableDependencies = new Set(input.variableDependencies ?? []);
+
+  for (const binding of input.bindings ?? []) {
+    const sourceName = binding.sourceName?.trim();
+    if (!sourceName) {
+      continue;
+    }
+    if (binding.source === "tag") {
+      tagDependencies.add(sourceName);
+    } else if (binding.source === "internalVariable") {
+      variableDependencies.add(sourceName);
+    }
+  }
+
+  for (const tagName of tagDependencies) {
+    addTagRuntimeValue(values, input.tagValues, tagName);
+  }
+  for (const variableName of variableDependencies) {
+    addInternalVariableRuntimeValue(values, input.variables, input.tagValues, variableName);
+  }
+
+  return values;
+}
+
+function buildFrameRuleRuntimeValues(
+  rule: FrameTagIndexRule,
+  input: RuntimeValueInput,
+): Record<string, unknown> {
+  indexedAddressPerfCounters.lightweightRuntimeValuesBuilds += 1;
+  const values = buildRuntimeValuesBase(input.context);
+  const context = input.context ?? {};
+
+  for (const dependency of getRuntimeValueSourceDependencies(rule.indexOffsetSource)) {
+    if (dependency.type === "tag") {
+      const tagName = normalizeRuntimeDependencyTag(dependency, context);
+      if (tagName) {
+        addTagRuntimeValue(values, input.tagValues, tagName);
+      }
+    } else if (dependency.type === "lw") {
+      addTagRuntimeValue(values, input.tagValues, `LW${Math.max(0, Math.floor(dependency.address))}`);
+    } else {
+      addInternalVariableRuntimeValue(values, input.variables, input.tagValues, dependency.name);
+    }
+  }
 
   return values;
 }
@@ -238,6 +339,55 @@ function extractRuntimeTagValue(payload: unknown): unknown {
   return payload;
 }
 
+function buildRuntimeValuesBase(context?: RenderContext): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  if (context) {
+    Object.assign(values, context);
+    if (context.parameters) {
+      Object.assign(values, context.parameters);
+    }
+  }
+  return values;
+}
+
+function addTagRuntimeValue(values: Record<string, unknown>, tagValues: TagMap | undefined, tagName: string): void {
+  const trimmed = tagName.trim();
+  if (!trimmed) {
+    return;
+  }
+  setRuntimeValueAliases(values, trimmed, extractRuntimeTagValue((tagValues as Record<string, unknown> | undefined)?.[trimmed]));
+}
+
+function addInternalVariableRuntimeValue(
+  values: Record<string, unknown>,
+  variables: ScadaProject["variables"] | undefined,
+  tagValues: TagMap | undefined,
+  name: string,
+): void {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return;
+  }
+  const value = findInternalVariableValue(variables, trimmed);
+  if (value !== undefined) {
+    setRuntimeValueAliases(values, trimmed, value);
+    setRuntimeValueAliases(values, toInternalRuntimeTag(trimmed), value);
+    return;
+  }
+  addTagRuntimeValue(values, tagValues, toInternalRuntimeTag(trimmed));
+}
+
+function setRuntimeValueAliases(values: Record<string, unknown>, name: string, value: unknown): void {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return;
+  }
+  values[trimmed] = value;
+  if (trimmed.startsWith("LW.") && trimmed.length > 3) {
+    values[trimmed.slice(3)] = value;
+  }
+}
+
 function normalizeRuntimeDependencyTag(dependency: RuntimeDependency, context: RenderContext): string | undefined {
   if (dependency.type === "tag") {
     const resolved = resolveTagName(dependency.tag, context) ?? dependency.tag;
@@ -255,6 +405,17 @@ function normalizeRuntimeDependencyTag(dependency: RuntimeDependency, context: R
     return raw.toUpperCase();
   }
   return raw.startsWith("LW.") ? raw : `LW.${raw}`;
+}
+
+function toInternalRuntimeTag(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  if (LW_ADDRESS_NAME.test(trimmed)) {
+    return trimmed.toUpperCase();
+  }
+  return trimmed.startsWith("LW.") ? trimmed : `LW.${trimmed}`;
 }
 
 function getIndexedBindingRuntimeValue(
@@ -291,18 +452,46 @@ function findInternalVariableValue(
   variables: ScadaProject["variables"] | undefined,
   name: string,
 ): unknown {
+  const variable = findInternalVariable(variables, name);
+  return variable?.currentValue ?? variable?.initialValue;
+}
+
+function findInternalVariable(
+  variables: ScadaProject["variables"] | undefined,
+  name: string,
+): ProjectVariable | undefined {
   const trimmed = name.trim();
-  if (!trimmed) {
+  if (!trimmed || !variables) {
     return undefined;
   }
 
-  const variable = (variables ?? []).find((item) => (
-    item.name === trimmed
-    || `LW.${item.name}` === trimmed
-    || (typeof item.lwAddress === "number" && `LW${item.lwAddress}` === trimmed)
-  ));
+  let cache = variableMapCache.get(variables);
+  if (!cache) {
+    cache = new Map<string, ProjectVariable>();
+    for (const variable of variables) {
+      const variableName = variable.name.trim();
+      if (!variableName) {
+        continue;
+      }
+      cache.set(variableName, variable);
+      cache.set(toInternalRuntimeTag(variableName), variable);
+      if (typeof variable.lwAddress === "number") {
+        cache.set(`LW${Math.max(0, Math.floor(variable.lwAddress))}`, variable);
+      }
+    }
+    variableMapCache.set(variables, cache);
+  }
 
-  return variable?.currentValue ?? variable?.initialValue;
+  return cache.get(trimmed) ?? cache.get(toInternalRuntimeTag(trimmed));
+}
+
+export function resolveInternalTagAlias(project: ScadaProject, tagName: string): string | undefined {
+  const trimmed = tagName.trim();
+  if (!trimmed || trimmed.startsWith("LW.") || LW_ADDRESS_NAME.test(trimmed)) {
+    return undefined;
+  }
+  const normalized = toInternalRuntimeTag(trimmed);
+  return findInternalVariable(project.variables, trimmed) ? normalized : undefined;
 }
 
 export function resolveIndexedObjectMainTag(params: {
@@ -326,11 +515,13 @@ export function resolveObjectTagField(params: {
   tagValues?: TagMap;
   rawTagName?: string;
 }): ResolvedIndexedObjectTag {
+  indexedAddressPerfCounters.resolveObjectTagFieldCalls += 1;
   const rawTagName = resolveTagName(params.rawTagName, params.context);
   const config = getObjectIndexedConfigForField(params.object, params.fieldName);
   const localIndexedEnabled = config?.enabled === true;
+  const debugEnabled = localIndexedEnabled && isIndexedAddressDebugEnabled();
 
-  if (localIndexedEnabled) {
+  if (debugEnabled) {
     debugIndexedAddress("resolveObjectTagField:start", {
       objectId: params.object.id,
       objectName: params.object.name,
@@ -343,7 +534,6 @@ export function resolveObjectTagField(params: {
       template: config.template,
       bindings: config.bindings,
       context: params.context,
-      tagValuesKeys: Object.keys(params.tagValues ?? {}).slice(0, 50),
       tagValuesHasCounter: Object.prototype.hasOwnProperty.call(params.tagValues ?? {}, "Counter"),
       tagValueCounterRaw: (params.tagValues as Record<string, unknown> | undefined)?.Counter,
     });
@@ -371,14 +561,14 @@ export function resolveObjectTagField(params: {
       };
     }
 
-    const runtimeValues = buildIndexedAddressRuntimeValues({
-      context: params.context,
-      tagValues: params.tagValues,
-      variables: params.project.variables,
-    });
     let resolvedTagName = rawTagName;
     const dependencyTags = new Set<string>();
     for (const rule of inheritedRules) {
+      const runtimeValues = buildFrameRuleRuntimeValues(rule, {
+        context: params.context,
+        tagValues: params.tagValues,
+        variables: params.project.variables,
+      });
       const offset = resolveFrameRuleOffset(rule, {
         context: params.context,
         runtimeValues,
@@ -397,7 +587,7 @@ export function resolveObjectTagField(params: {
     };
   }
 
-  const rawTagDefinition = params.project.tags.find((tag) => tag.name === rawTagName);
+  const rawTagDefinition = findTagByName(params.project, rawTagName);
   const template = normalizeAddress(config.template) ?? getTagAddressTemplate(rawTagDefinition);
   const slotCount = extractIndexedAddressSlots(template).length;
   if (slotCount === 0) {
@@ -414,12 +604,14 @@ export function resolveObjectTagField(params: {
     ...config,
     template,
   }, params.context);
-  const values = buildIndexedAddressRuntimeValues({
+  const dependencyTags = collectBindingTagDependencies(config, params.context);
+  const scopedValues = buildIndexedAddressRuntimeValuesForDependencies({
     context: params.context,
     tagValues: params.tagValues,
     variables: params.project.variables,
+    tagDependencies: dependencyTags,
+    bindings: normalizedConfig.bindings,
   });
-  const scopedValues: Record<string, unknown> = { ...values };
   const bindingSourceValues = new Map<string, unknown>();
 
   for (const binding of normalizedConfig.bindings) {
@@ -447,47 +639,48 @@ export function resolveObjectTagField(params: {
     }
   }
 
-  debugIndexedAddress("resolveObjectTagField:values", {
-    fieldName: params.fieldName,
-    template,
-    valuesForBindings: normalizedConfig.bindings.map((binding) => {
-      const sourceName = binding.sourceName?.trim();
-      const flatValue = sourceName ? values[sourceName] : undefined;
-      const sourceSpecificValue = bindingSourceValues.get(binding.key);
-      const numericDebug = toIndexedDebugNumber(sourceSpecificValue);
-      return {
-        key: binding.key,
-        source: binding.source,
-        sourceName: binding.sourceName,
-        flatValue,
-        sourceSpecificValue,
-        extractedValue: numericDebug.extracted,
-        numericValue: numericDebug.value,
-        ok: numericDebug.ok,
-        constantValue: binding.constantValue,
-        offset: binding.offset,
-        baseValue: binding.baseValue,
-        slotIndex: binding.slotIndex,
-      };
-    }),
-  });
+  if (debugEnabled) {
+    debugIndexedAddress("resolveObjectTagField:values", {
+      fieldName: params.fieldName,
+      template,
+      valuesForBindings: normalizedConfig.bindings.map((binding) => {
+        const sourceName = binding.sourceName?.trim();
+        const flatValue = sourceName ? scopedValues[sourceName] : undefined;
+        const sourceSpecificValue = bindingSourceValues.get(binding.key);
+        const numericDebug = toIndexedDebugNumber(sourceSpecificValue);
+        return {
+          key: binding.key,
+          source: binding.source,
+          sourceName: binding.sourceName,
+          flatValue,
+          sourceSpecificValue,
+          extractedValue: numericDebug.extracted,
+          numericValue: numericDebug.value,
+          ok: numericDebug.ok,
+          constantValue: binding.constantValue,
+          offset: binding.offset,
+          baseValue: binding.baseValue,
+          slotIndex: binding.slotIndex,
+        };
+      }),
+    });
 
-  debugIndexedAddress("resolveObjectTagField:beforeResolveCall", {
-    fieldName: params.fieldName,
-    template: normalizedConfig.template,
-    bindings: normalizedConfig.bindings,
-    valuesCounterFlat: values.Counter,
-    valuesCounterScoped: scopedValues.Counter,
-    valuesCounterType: typeof scopedValues.Counter,
-    valuesHasCounter: Object.prototype.hasOwnProperty.call(scopedValues, "Counter"),
-    valuesKeysIncludesCounter: Object.keys(scopedValues).includes("Counter"),
-    tagValueCounterRaw: (params.tagValues as Record<string, unknown> | undefined)?.Counter,
-    variableCounter: findInternalVariableValue(params.project.variables, "Counter"),
-    directManualExpectedAddress:
-      typeof scopedValues.Counter === "number"
-        ? normalizedConfig.template.replace("[0]", `[${scopedValues.Counter}]`)
-        : undefined,
-  });
+    debugIndexedAddress("resolveObjectTagField:beforeResolveCall", {
+      fieldName: params.fieldName,
+      template: normalizedConfig.template,
+      bindings: normalizedConfig.bindings,
+      valuesCounterScoped: scopedValues.Counter,
+      valuesCounterType: typeof scopedValues.Counter,
+      valuesHasCounter: Object.prototype.hasOwnProperty.call(scopedValues, "Counter"),
+      valuesKeysIncludesCounter: Object.keys(scopedValues).includes("Counter"),
+      tagValueCounterRaw: (params.tagValues as Record<string, unknown> | undefined)?.Counter,
+      variableCounter: findInternalVariableValue(params.project.variables, "Counter"),
+      directManualExpectedAddress:
+        typeof scopedValues.Counter === "number"
+          ? normalizedConfig.template.replace("[0]", `[${scopedValues.Counter}]`)
+          : undefined,
+    });
+  }
 
   if (isIndexedAddressDebugEnabled()) {
     const testResolved = resolveIndexedAddress({
@@ -532,13 +725,15 @@ export function resolveObjectTagField(params: {
     errors: resolved.errors,
   });
   const matchingTag = findTagByAddress(params.project, resolved.address);
-  debugIndexedAddress("resolveObjectTagField:matchingTag", {
-    resolvedAddress: resolved.address,
-    found: Boolean(matchingTag),
-    matchingTagName: matchingTag?.name,
-    matchingTagNodeId: matchingTag?.nodeId,
-    similarAddresses: matchingTag ? undefined : findSimilarAddressCandidates(params.project, resolved.address),
-  });
+  if (debugEnabled) {
+    debugIndexedAddress("resolveObjectTagField:matchingTag", {
+      resolvedAddress: resolved.address,
+      found: Boolean(matchingTag),
+      matchingTagName: matchingTag?.name,
+      matchingTagNodeId: matchingTag?.nodeId,
+      similarAddresses: matchingTag ? undefined : findSimilarAddressCandidates(params.project, resolved.address),
+    });
+  }
   if (!matchingTag) {
     return {
       usedIndexedAddress: true,
@@ -546,7 +741,7 @@ export function resolveObjectTagField(params: {
       resolvedAddress: resolved.address,
       resolvedTagName: undefined,
       errors: [...resolved.errors, `Indexed tag not found: ${resolved.address}`],
-      dependencyTags: collectBindingTagDependencies(config, params.context),
+      dependencyTags,
     };
   }
 
@@ -557,7 +752,7 @@ export function resolveObjectTagField(params: {
     resolvedTagName: matchingTag.name,
     matchingTag,
     errors: resolved.errors,
-    dependencyTags: collectBindingTagDependencies(config, params.context),
+    dependencyTags,
   };
 }
 
