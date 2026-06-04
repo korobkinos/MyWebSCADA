@@ -112,6 +112,18 @@ export type SimulatedDriverSettingsInput = {
   defaultStep?: number;
 };
 
+type RuntimeActionLeaseRequest = {
+  clientId: string;
+  screenInstanceId: string;
+  objectId: string;
+  actionIndex: number;
+  tag: string;
+  activeValue: boolean | number | string | null;
+  resetValue: boolean | number | string | null;
+  commandMeta?: ManualCommandMeta;
+  operatorActionContext?: OperatorActionContext;
+};
+
 export type DriverMacroImpact = {
   macroId: string;
   macroName: string;
@@ -1135,6 +1147,43 @@ export const api = {
       method: "POST",
       signal: options?.signal,
       body: JSON.stringify({ value, commandMeta: options?.commandMeta, operatorActionContext: options?.operatorActionContext }),
+    }),
+  startRuntimePulseLease: (
+    payload: RuntimeActionLeaseRequest & { durationMs: number },
+    options?: { signal?: AbortSignal },
+  ) =>
+    request<{ ok: boolean }>("/api/runtime-actions/pulse/start", {
+      method: "POST",
+      signal: options?.signal,
+      body: JSON.stringify(payload),
+    }),
+  startRuntimeHoldLease: (
+    payload: RuntimeActionLeaseRequest & { ttlMs: number },
+    options?: { signal?: AbortSignal },
+  ) =>
+    request<{ ok: boolean }>("/api/runtime-actions/hold/start", {
+      method: "POST",
+      signal: options?.signal,
+      body: JSON.stringify(payload),
+    }),
+  refreshRuntimeHoldLease: (
+    payload: RuntimeActionLeaseRequest & { ttlMs: number },
+  ) =>
+    request<{ ok: boolean }>("/api/runtime-actions/hold/refresh", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  releaseRuntimeHoldLease: (
+    payload: RuntimeActionLeaseRequest,
+    options?: { keepalive?: boolean },
+  ) =>
+    request<{ ok: boolean }>("/api/runtime-actions/hold/release", {
+      method: "POST",
+      keepalive: options?.keepalive,
+      body: JSON.stringify(payload),
+    }, {
+      replaceInFlight: false,
+      inFlightKey: null,
     }),
   startRuntime: () => request<RuntimeState>("/api/runtime/start", { method: "POST" }),
   stopRuntime: () => request<RuntimeState>("/api/runtime/stop", { method: "POST" }),

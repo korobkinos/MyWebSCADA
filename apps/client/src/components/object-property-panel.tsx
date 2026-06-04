@@ -1125,6 +1125,9 @@ function resolveOperatorActionPreviewKind(object: OperatorActionPreviewObject): 
     if (object.action.type === "pulse") {
       return "pulse";
     }
+    if (object.action.type === "hold" || object.action.type === "momentary") {
+      return "button";
+    }
     if (object.action.type === "toggle") {
       return "toggle";
     }
@@ -1191,7 +1194,7 @@ function resolveOperatorActionPreviewTemplate(object: OperatorActionPreviewObjec
 
 function resolveOperatorActionPreviewTarget(object: OperatorActionPreviewObject): string {
   if (object.type === "button") {
-    if (object.action.type === "write" || object.action.type === "pulse" || object.action.type === "toggle") {
+    if (object.action.type === "write" || object.action.type === "pulse" || object.action.type === "hold" || object.action.type === "momentary" || object.action.type === "toggle") {
       return object.action.tag?.trim() || "Tag.Name";
     }
     if (object.action.type === "writeConst" || object.action.type === "setInternalVar") {
@@ -2637,6 +2640,7 @@ function SpecificPropertyFields({
     const runMacroAction = object.action.type === "runMacro" ? object.action : undefined;
     const writeAction = object.action.type === "write" ? object.action : undefined;
     const pulseAction = object.action.type === "pulse" ? object.action : undefined;
+    const holdAction = object.action.type === "hold" || object.action.type === "momentary" ? object.action : undefined;
     const toggleAction = object.action.type === "toggle" ? object.action : undefined;
     const openScreenAction = object.action.type === "openScreen" ? object.action : undefined;
     const openPopupAction = object.action.type === "openPopup" ? object.action : undefined;
@@ -2688,6 +2692,7 @@ function SpecificPropertyFields({
             options={[
               { label: "write", value: "write" },
               { label: "pulse", value: "pulse" },
+              { label: "hold", value: "hold" },
               { label: "toggle", value: "toggle" },
               { label: "openScreen", value: "openScreen" },
               { label: "openPopup", value: "openPopup" },
@@ -2702,6 +2707,10 @@ function SpecificPropertyFields({
               }
               if (value === "pulse") {
                 onPatch({ action: { type: "pulse", tag: "", value: true, durationMs: 500 } } as Partial<HmiObject>);
+                return;
+              }
+              if (value === "hold") {
+                onPatch({ action: { type: "hold", tag: "" } } as Partial<HmiObject>);
                 return;
               }
               if (value === "toggle") {
@@ -2826,6 +2835,24 @@ function SpecificPropertyFields({
               onPatch({
                 action: {
                   ...toggleAction,
+                  tag: nextValue,
+                },
+              } as Partial<HmiObject>)
+            }
+          />
+        ) : null}
+        {holdAction ? (
+          <TagFieldWithBindingSource
+            project={project}
+            bindings={templateBindings}
+            value={holdAction.tag}
+            bindingLabel="Action Binding"
+            tagLabel="Action Tag"
+            indexControl={buildIndexControl("action.tag", "Action Tag", holdAction.tag)}
+            onChange={(nextValue) =>
+              onPatch({
+                action: {
+                  ...holdAction,
                   tag: nextValue,
                 },
               } as Partial<HmiObject>)

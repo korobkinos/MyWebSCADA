@@ -878,7 +878,10 @@ function describeRuntimeAction(action: RuntimeAction): string {
   if (action.type === "setLW") {
     return `setLW ${action.address}`;
   }
-  return `setInternalVar ${action.name}`;
+  if (action.type === "hold" || action.type === "momentary") {
+    return `${action.type} ${action.tag}`;
+  }
+  return `setInternalVar ${"name" in action ? action.name : ""}`;
 }
 
 type EventSoundWarning = {

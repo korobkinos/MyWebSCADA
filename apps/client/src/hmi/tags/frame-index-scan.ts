@@ -356,7 +356,7 @@ function listObjectTagFields(
     { fieldPath: "rotationAnimation.speedTag", rawTag: object.rotationAnimation?.speedTag, runtimeSupport: "full" },
   ];
 
-  if ("action" in object && object.action && (object.action.type === "write" || object.action.type === "pulse" || object.action.type === "toggle")) {
+  if ("action" in object && object.action && (object.action.type === "write" || object.action.type === "pulse" || object.action.type === "hold" || object.action.type === "momentary" || object.action.type === "toggle")) {
     fields.push({ fieldPath: "action.tag", rawTag: object.action.tag, runtimeSupport: "full" });
   }
 

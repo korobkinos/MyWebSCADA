@@ -591,7 +591,7 @@ function collectActionTags(input: {
 }): void {
   const { action, object, project, context, runtimeTagValues, out, dependencyOut } = input;
   const resolved = resolveRuntimeAction(action, context);
-  if (resolved.type === "write" || resolved.type === "pulse" || resolved.type === "toggle") {
+  if (resolved.type === "write" || resolved.type === "pulse" || resolved.type === "hold" || resolved.type === "momentary" || resolved.type === "toggle") {
     addResolvedFieldTag(out, {
       project,
       object,

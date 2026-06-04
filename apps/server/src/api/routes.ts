@@ -171,10 +171,28 @@ const operatorActionContextSchema = z.object({
   requestedValue: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
   details: z.record(z.unknown()).optional(),
 }).strict();
+const tagScalarValueSchema = z.union([z.boolean(), z.number(), z.string(), z.null()]);
 const writeSchema = z.object({
-  value: z.union([z.boolean(), z.number(), z.string(), z.null()]),
+  value: tagScalarValueSchema,
   commandMeta: commandMetaSchema.optional(),
   operatorActionContext: operatorActionContextSchema.optional(),
+});
+const runtimeActionLeaseSchema = z.object({
+  clientId: z.string().trim().min(1),
+  screenInstanceId: z.string().trim().min(1),
+  objectId: z.string().trim().min(1),
+  actionIndex: z.number().int().nonnegative(),
+  tag: z.string().trim().min(1),
+  activeValue: tagScalarValueSchema,
+  resetValue: tagScalarValueSchema,
+  commandMeta: commandMetaSchema.optional(),
+  operatorActionContext: operatorActionContextSchema.optional(),
+});
+const runtimeActionPulseStartSchema = runtimeActionLeaseSchema.extend({
+  durationMs: z.number().int().positive(),
+});
+const runtimeActionHoldLeaseSchema = runtimeActionLeaseSchema.extend({
+  ttlMs: z.number().int().positive(),
 });
 const archiveSamplesQuerySchema = z.object({
   from: z.coerce.date(),
@@ -1838,6 +1856,138 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       });
       throw error;
     }
+  });
+
+  app.post("/api/runtime-actions/pulse/start", async (request, reply) => {
+    const rawContext = (
+      typeof request.body === "object"
+      && request.body
+      && "operatorActionContext" in request.body
+    ) ? (request.body as { operatorActionContext?: unknown }).operatorActionContext : undefined;
+    const parsedOperatorActionContext = operatorActionContextSchema.safeParse(rawContext);
+    const auth = await requirePermissionWithOperatorActionContext(
+      request,
+      reply,
+      deps,
+      "tags.write",
+      parsedOperatorActionContext.success ? parsedOperatorActionContext.data : undefined,
+    );
+    if (!auth) {
+      return;
+    }
+    const payload = runtimeActionPulseStartSchema.parse(request.body ?? {});
+    const serverOldValue = deps.tagStore.getValue(payload.tag)?.value as string | number | boolean | null | undefined;
+    try {
+      await deps.commandService.startPulseLease(payload, {
+        manual: true,
+        commandMeta: payload.commandMeta,
+      });
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "success",
+        oldValue: serverOldValue,
+        newValue: payload.activeValue,
+      });
+      return reply.send({ ok: true });
+    } catch (error) {
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "failed",
+        oldValue: serverOldValue,
+        newValue: payload.activeValue,
+        errorText: error instanceof Error ? error.message : String(error),
+      });
+      if (error instanceof ManualCommandError) {
+        return reply.code(toManualCommandStatusCode(error.reason)).send({
+          ok: false,
+          reason: error.reason,
+          message: error.message,
+        });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/api/runtime-actions/hold/start", async (request, reply) => {
+    const rawContext = (
+      typeof request.body === "object"
+      && request.body
+      && "operatorActionContext" in request.body
+    ) ? (request.body as { operatorActionContext?: unknown }).operatorActionContext : undefined;
+    const parsedOperatorActionContext = operatorActionContextSchema.safeParse(rawContext);
+    const auth = await requirePermissionWithOperatorActionContext(
+      request,
+      reply,
+      deps,
+      "tags.write",
+      parsedOperatorActionContext.success ? parsedOperatorActionContext.data : undefined,
+    );
+    if (!auth) {
+      return;
+    }
+    const payload = runtimeActionHoldLeaseSchema.parse(request.body ?? {});
+    const serverOldValue = deps.tagStore.getValue(payload.tag)?.value as string | number | boolean | null | undefined;
+    try {
+      await deps.commandService.startHoldLease(payload, {
+        manual: true,
+        commandMeta: payload.commandMeta,
+      });
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "success",
+        oldValue: serverOldValue,
+        newValue: payload.activeValue,
+      });
+      return reply.send({ ok: true });
+    } catch (error) {
+      await tryCreateRuntimeOperatorAction({
+        deps,
+        request,
+        auth,
+        context: payload.operatorActionContext,
+        result: "failed",
+        oldValue: serverOldValue,
+        newValue: payload.activeValue,
+        errorText: error instanceof Error ? error.message : String(error),
+      });
+      if (error instanceof ManualCommandError) {
+        return reply.code(toManualCommandStatusCode(error.reason)).send({
+          ok: false,
+          reason: error.reason,
+          message: error.message,
+        });
+      }
+      throw error;
+    }
+  });
+
+  app.post("/api/runtime-actions/hold/refresh", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    const payload = runtimeActionHoldLeaseSchema.parse(request.body ?? {});
+    deps.commandService.refreshHoldLease(payload);
+    return reply.send({ ok: true });
+  });
+
+  app.post("/api/runtime-actions/hold/release", async (request, reply) => {
+    const auth = await requirePermission(request, reply, deps, "tags.write");
+    if (!auth) {
+      return;
+    }
+    const payload = runtimeActionLeaseSchema.parse(request.body ?? {});
+    await deps.commandService.releaseHoldLease(payload);
+    return reply.send({ ok: true });
   });
 
   app.get("/api/events/active", async (request, reply) => {

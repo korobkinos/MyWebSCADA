@@ -12,11 +12,43 @@ type CommandExecutionOptions = {
   commandMeta?: ManualCommandMeta;
 };
 
+type RuntimeActionLeaseBase = {
+  clientId: string;
+  screenInstanceId: string;
+  objectId: string;
+  actionIndex: number;
+  tag: string;
+  activeValue: TagScalarValue;
+  resetValue: TagScalarValue;
+};
+
+type RuntimePulseLeaseInput = RuntimeActionLeaseBase & {
+  durationMs: number;
+};
+
+type RuntimeHoldLeaseInput = RuntimeActionLeaseBase & {
+  ttlMs: number;
+};
+
+type RuntimeLease = {
+  outputKey: string;
+  timeout?: ReturnType<typeof setTimeout>;
+};
+
+type RuntimeOutput = {
+  tag: string;
+  activeValue: TagScalarValue;
+  resetValue: TagScalarValue;
+  leaseKeys: Set<string>;
+};
+
 export class CommandService {
   private readonly driverWriteTimeoutMs = COMMAND_TIMEOUT_MS;
   private readonly slowWriteWarnMs = 250;
   private readonly manualInFlight = new Map<string, number>();
   private readonly staleManualInFlightMs = COMMAND_TIMEOUT_MS * 4;
+  private readonly runtimeLeases = new Map<string, RuntimeLease>();
+  private readonly runtimeOutputs = new Map<string, RuntimeOutput>();
 
   public constructor(
     private readonly tagStore: TagStore,
@@ -53,6 +85,42 @@ export class CommandService {
     setTimeout(() => {
       void this.writeTag(name, false).catch(() => undefined);
     }, durationMs);
+  }
+
+  public async startPulseLease(input: RuntimePulseLeaseInput, options?: CommandExecutionOptions): Promise<void> {
+    const leaseKey = this.getRuntimeLeaseKey(input);
+    const outputKey = this.getRuntimeOutputKey(input);
+    const durationMs = Math.max(1, Math.floor(input.durationMs));
+    await this.activateRuntimeLease(leaseKey, outputKey, input, options);
+    const lease = this.runtimeLeases.get(leaseKey);
+    if (!lease) {
+      return;
+    }
+    if (lease.timeout) {
+      clearTimeout(lease.timeout);
+    }
+    lease.timeout = setTimeout(() => {
+      void this.removeRuntimeLease(leaseKey).catch(() => undefined);
+    }, durationMs);
+  }
+
+  public async startHoldLease(input: RuntimeHoldLeaseInput, options?: CommandExecutionOptions): Promise<void> {
+    const leaseKey = this.getRuntimeLeaseKey(input);
+    const outputKey = this.getRuntimeOutputKey(input);
+    await this.activateRuntimeLease(leaseKey, outputKey, input, options);
+    this.scheduleHoldLeaseExpiry(leaseKey, input.ttlMs);
+  }
+
+  public refreshHoldLease(input: RuntimeHoldLeaseInput): void {
+    const leaseKey = this.getRuntimeLeaseKey(input);
+    if (!this.runtimeLeases.has(leaseKey)) {
+      return;
+    }
+    this.scheduleHoldLeaseExpiry(leaseKey, input.ttlMs);
+  }
+
+  public async releaseHoldLease(input: RuntimeActionLeaseBase): Promise<void> {
+    await this.removeRuntimeLease(this.getRuntimeLeaseKey(input));
   }
 
   public async toggleTag(name: string): Promise<void> {
@@ -152,6 +220,93 @@ export class CommandService {
       durationMs: Date.now() - startedAt,
       status: "ok",
     });
+  }
+
+  private async activateRuntimeLease(
+    leaseKey: string,
+    outputKey: string,
+    input: RuntimeActionLeaseBase,
+    options?: CommandExecutionOptions,
+  ): Promise<void> {
+    const existing = this.runtimeLeases.get(leaseKey);
+    if (existing && existing.outputKey !== outputKey) {
+      if (existing.timeout) {
+        clearTimeout(existing.timeout);
+      }
+      this.runtimeLeases.delete(leaseKey);
+      await this.removeRuntimeLeaseFromOutput(leaseKey, existing.outputKey);
+    }
+
+    await this.writeTag(input.tag, input.activeValue, options);
+
+    const current = this.runtimeLeases.get(leaseKey);
+    if (current?.timeout) {
+      clearTimeout(current.timeout);
+    }
+    let output = this.runtimeOutputs.get(outputKey);
+    if (!output) {
+      output = {
+        tag: input.tag,
+        activeValue: input.activeValue,
+        resetValue: input.resetValue,
+        leaseKeys: new Set(),
+      };
+      this.runtimeOutputs.set(outputKey, output);
+    }
+    output.leaseKeys.add(leaseKey);
+    this.runtimeLeases.set(leaseKey, { outputKey });
+  }
+
+  private scheduleHoldLeaseExpiry(leaseKey: string, ttlMs: number): void {
+    const lease = this.runtimeLeases.get(leaseKey);
+    if (!lease) {
+      return;
+    }
+    if (lease.timeout) {
+      clearTimeout(lease.timeout);
+    }
+    lease.timeout = setTimeout(() => {
+      void this.removeRuntimeLease(leaseKey).catch(() => undefined);
+    }, Math.max(1, Math.floor(ttlMs)));
+  }
+
+  private async removeRuntimeLease(leaseKey: string): Promise<void> {
+    const lease = this.runtimeLeases.get(leaseKey);
+    if (!lease) {
+      return;
+    }
+    if (lease.timeout) {
+      clearTimeout(lease.timeout);
+    }
+    this.runtimeLeases.delete(leaseKey);
+    await this.removeRuntimeLeaseFromOutput(leaseKey, lease.outputKey);
+  }
+
+  private async removeRuntimeLeaseFromOutput(leaseKey: string, outputKey: string): Promise<void> {
+    const output = this.runtimeOutputs.get(outputKey);
+    if (!output) {
+      return;
+    }
+    output.leaseKeys.delete(leaseKey);
+    if (output.leaseKeys.size > 0) {
+      return;
+    }
+    this.runtimeOutputs.delete(outputKey);
+    await this.writeTag(output.tag, output.resetValue);
+  }
+
+  private getRuntimeLeaseKey(input: Pick<RuntimeActionLeaseBase, "clientId" | "screenInstanceId" | "objectId" | "actionIndex" | "tag">): string {
+    return [
+      input.clientId.trim(),
+      input.screenInstanceId.trim(),
+      input.objectId.trim(),
+      Math.max(0, Math.floor(input.actionIndex)),
+      input.tag.trim(),
+    ].join("\u001f");
+  }
+
+  private getRuntimeOutputKey(input: RuntimeActionLeaseBase): string {
+    return JSON.stringify([input.tag, input.activeValue, input.resetValue]);
   }
 
   private getCommandKey(meta: ManualCommandMeta | undefined, fallback: string): string {

@@ -302,7 +302,20 @@ export type RuntimeAction = {
       type: "pulse";
       tag: string;
       value: boolean | number | string | null;
+      resetValue?: boolean | number | string | null;
       durationMs: number;
+      confirm?: boolean;
+      confirmText?: string;
+    }
+  | {
+      type: "hold";
+      tag: string;
+      confirm?: boolean;
+      confirmText?: string;
+    }
+  | {
+      type: "momentary";
+      tag: string;
       confirm?: boolean;
       confirmText?: string;
     }

@@ -5083,6 +5083,8 @@ function resolveRuntimeActionTagsWithObjectIndexing(
   if (
     resolvedAction.type !== "write"
     && resolvedAction.type !== "pulse"
+    && resolvedAction.type !== "hold"
+    && resolvedAction.type !== "momentary"
     && resolvedAction.type !== "toggle"
   ) {
     return resolvedAction;
@@ -5888,6 +5890,10 @@ function ButtonNode({
 }) {
   const [pressed, setPressed] = useState(false);
   const [executing, setExecuting] = useState(false);
+  const holdActiveRef = useRef(false);
+  const holdStartPendingRef = useRef(false);
+  const holdActionRef = useRef<{ action: RuntimeAction; context: RenderContext } | null>(null);
+  const releaseHoldRef = useRef<(keepalive?: boolean) => void>(() => undefined);
   const buttonGroupProps = { ...groupProps };
   delete buttonGroupProps.opacity;
   const visualOpacity = object.opacity ?? 1;
@@ -5928,10 +5934,111 @@ function ButtonNode({
     () => computeImagePlacement(object.width, object.height, image?.width, image?.height, "stretch"),
     [image?.height, image?.width, object.height, object.width],
   );
+  const isHoldRuntimeAction = object.action.type === "hold" || object.action.type === "momentary";
+
+  const runButtonAction = (phase?: "start" | "release", keepalive = false): Promise<void> | void => {
+    const resolvedAction = resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, renderContext);
+    const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
+      __runtimeActionIndex: 0,
+      __operatorActionKind: "button",
+      __operatorActionLogOnThisCommand: phase !== "release",
+      __operatorActionDetails: {
+        buttonActionType: resolvedAction.type,
+        pulseDurationMs: resolvedAction.type === "pulse" ? resolvedAction.durationMs : undefined,
+      },
+      ...(phase ? { __runtimeHoldPhase: phase } : {}),
+      ...(keepalive ? { __runtimeHoldKeepalive: true } : {}),
+    });
+    return onAction?.(withActionRoleLevel(resolvedAction, object.requiredActionRole), nextContext);
+  };
+
+  const releaseHold = (keepalive = false): void => {
+    if (!holdActiveRef.current && !holdStartPendingRef.current) {
+      return;
+    }
+    holdActiveRef.current = false;
+    setPressed(false);
+    const held = holdActionRef.current;
+    if (!held) {
+      return;
+    }
+    const releaseContext: RenderContext = {
+      ...held.context,
+      parameters: {
+        ...(held.context.parameters ?? {}),
+        __runtimeHoldPhase: "release",
+        ...(keepalive ? { __runtimeHoldKeepalive: true } : {}),
+      },
+    };
+    void onAction?.(held.action, releaseContext);
+    if (!holdStartPendingRef.current) {
+      holdActionRef.current = null;
+    }
+  };
+  releaseHoldRef.current = releaseHold;
+
+  useEffect(() => {
+    if (!isHoldRuntimeAction) {
+      return;
+    }
+    const release = () => releaseHoldRef.current(true);
+    window.addEventListener("blur", release);
+    window.addEventListener("pagehide", release);
+    return () => {
+      release();
+      window.removeEventListener("blur", release);
+      window.removeEventListener("pagehide", release);
+    };
+  }, [isHoldRuntimeAction]);
 
   return (
     <Group
       {...buttonGroupProps}
+      onPointerDown={(evt: KonvaEventObject<PointerEvent>) => {
+        if (!isPrimaryPointerButton(evt.evt) || interactive || !isHoldRuntimeAction || isDisabled) {
+          return;
+        }
+        setPressed(true);
+        holdActiveRef.current = true;
+        holdStartPendingRef.current = true;
+        const resolvedAction = resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, renderContext);
+        const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
+          __runtimeActionIndex: 0,
+          __runtimeHoldPhase: "start",
+          __operatorActionKind: "button",
+          __operatorActionLogOnThisCommand: true,
+          __operatorActionDetails: {
+            buttonActionType: resolvedAction.type,
+          },
+        });
+        const guardedAction = withActionRoleLevel(resolvedAction, object.requiredActionRole);
+        holdActionRef.current = { action: guardedAction, context: nextContext };
+        setExecuting(true);
+        const result = onAction?.(guardedAction, nextContext);
+        if (result && typeof (result as Promise<void>).finally === "function") {
+          void (result as Promise<void>).finally(() => {
+            holdStartPendingRef.current = false;
+            setExecuting(false);
+            if (!holdActiveRef.current) {
+              releaseHoldRef.current(false);
+              holdActionRef.current = null;
+            }
+          });
+        } else {
+          holdStartPendingRef.current = false;
+          setExecuting(false);
+        }
+      }}
+      onPointerUp={() => {
+        if (isHoldRuntimeAction) {
+          releaseHold(false);
+        }
+      }}
+      onPointerCancel={() => {
+        if (isHoldRuntimeAction) {
+          releaseHold(false);
+        }
+      }}
       onMouseDown={(evt: KonvaEventObject<MouseEvent>) => {
         const baseOnMouseDown = groupProps.onMouseDown as ((event: KonvaEventObject<MouseEvent>) => void) | undefined;
         baseOnMouseDown?.(evt);
@@ -5964,6 +6071,9 @@ function ButtonNode({
         if (!isPrimaryPointerButton(evt.evt)) {
           return;
         }
+        if (isHoldRuntimeAction) {
+          return;
+        }
         if (interactive) {
           onSelectObject?.({
             objectId: object.id,
@@ -5972,17 +6082,8 @@ function ButtonNode({
           return;
         }
         if (!isDisabled) {
-          const resolvedAction = resolveRuntimeActionTagsWithObjectIndexing(object.action, object, project, tags, renderContext);
-          const nextContext = withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
-            __operatorActionKind: "button",
-            __operatorActionLogOnThisCommand: true,
-            __operatorActionDetails: {
-              buttonActionType: resolvedAction.type,
-              pulseDurationMs: resolvedAction.type === "pulse" ? resolvedAction.durationMs : undefined,
-            },
-          });
           setExecuting(true);
-          const result = onAction?.(withActionRoleLevel(resolvedAction, object.requiredActionRole), nextContext);
+          const result = runButtonAction();
           if (result && typeof (result as Promise<void>).finally === "function") {
             void (result as Promise<void>).finally(() => {
               setExecuting(false);
@@ -6153,7 +6254,7 @@ function collectMissingBindingReferencesFromAction(
   if (!action) {
     return;
   }
-  if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+  if (action.type === "write" || action.type === "pulse" || action.type === "hold" || action.type === "momentary" || action.type === "toggle") {
     collectMissingBindingReference(action.tag, resolvedBindings, output);
     return;
   }

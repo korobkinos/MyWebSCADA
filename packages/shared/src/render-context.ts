@@ -159,7 +159,7 @@ export function resolveRuntimeAction(action: RuntimeAction, context: RenderConte
     };
   }
 
-  if (action.type === "pulse") {
+  if (action.type === "pulse" || action.type === "hold" || action.type === "momentary") {
     return {
       ...action,
       tag: resolveTagName(action.tag, context) ?? action.tag,

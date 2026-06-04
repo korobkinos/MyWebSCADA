@@ -75,6 +75,20 @@ const COMMAND_WARNING_MAP_MAX_SIZE = 2000;
 const COMMAND_WARNING_RETENTION_MS = 30_000;
 const FAST_INTERNAL_MACRO_TIMEOUT_MS = 1000;
 const RUNTIME_HEARTBEAT_INTERVAL_MS = 2000;
+const RUNTIME_HOLD_HEARTBEAT_INTERVAL_MS = 1000;
+const RUNTIME_HOLD_TTL_MS = 4000;
+
+type RuntimeActionLeasePayload = {
+  clientId: string;
+  screenInstanceId: string;
+  objectId: string;
+  actionIndex: number;
+  tag: string;
+  activeValue: boolean | number | string | null;
+  resetValue: boolean | number | string | null;
+  commandMeta?: ManualCommandMeta;
+  operatorActionContext?: OperatorActionContext;
+};
 
 export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const location = useLocation();
@@ -108,6 +122,11 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   }>());
   const commandWarningTimestampsRef = useRef(new Map<string, number>());
   const runtimeRootRef = useRef<HTMLDivElement | null>(null);
+  const runtimeClientIdRef = useRef(`runtime_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+  const activeHoldLeasesRef = useRef(new Map<string, {
+    payload: RuntimeActionLeasePayload & { ttlMs: number };
+    timerId: ReturnType<typeof setInterval>;
+  }>());
   const indexedAddressDebugCounterRef = useRef<unknown>(Symbol("init"));
   const runtimeSubscriptionRecalcCountRef = useRef(0);
   const runtimePerfDebugEnabledRef = useRef(false);
@@ -223,6 +242,14 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   useEffect(() => subscribeConnectionState((snapshot) => {
     setConnectionSnapshot(snapshot);
   }), []);
+
+  useEffect(() => () => {
+    for (const item of activeHoldLeasesRef.current.values()) {
+      clearInterval(item.timerId);
+      void api.releaseRuntimeHoldLease(item.payload, { keepalive: true }).catch(() => undefined);
+    }
+    activeHoldLeasesRef.current.clear();
+  }, []);
 
   useEffect(() => {
     if (!fullscreen) {
@@ -624,11 +651,18 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const resolveActionTargetMeta = (
     action: RuntimeAction,
   ): { targetType?: OperatorActionTargetType; targetName?: string; requestedValue?: string | number | boolean | null } => {
-    if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+    if (action.type === "write" || action.type === "pulse" || action.type === "hold" || action.type === "momentary" || action.type === "toggle") {
+      const requestedValue = action.type === "toggle"
+        ? undefined
+        : action.type === "hold" || action.type === "momentary"
+          ? true
+          : "value" in action
+            ? action.value
+            : undefined;
       return {
         targetType: "tag",
         targetName: action.tag,
-        requestedValue: action.type === "toggle" ? undefined : action.value,
+        requestedValue,
       };
     }
     if (action.type === "writeConst") {
@@ -957,6 +991,54 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     commandKey,
     createdAt: Date.now(),
     ttlMs,
+  });
+
+  const resolveRuntimeActionLeaseIdentity = (action: Extract<RuntimeAction, { type: "pulse" | "hold" | "momentary" }>, context: RenderContext) => {
+    const objectId = getRuntimeActionObjectScope(context) || getRuntimeActionObjectId(context) || "object";
+    const screenInstanceId = typeof context.popupInstanceId === "string" && context.popupInstanceId.trim()
+      ? context.popupInstanceId.trim()
+      : typeof context.screenId === "string" && context.screenId.trim()
+        ? context.screenId.trim()
+        : "screen";
+    const actionIndex = typeof context.parameters?.__runtimeActionIndex === "number" && Number.isFinite(context.parameters.__runtimeActionIndex)
+      ? Math.max(0, Math.floor(context.parameters.__runtimeActionIndex))
+      : 0;
+    return {
+      clientId: runtimeClientIdRef.current,
+      screenInstanceId,
+      objectId,
+      actionIndex,
+      tag: action.tag,
+    };
+  };
+
+  const getRuntimeActionLeaseCommandKey = (action: Extract<RuntimeAction, { type: "pulse" | "hold" | "momentary" }>, context: RenderContext): string => {
+    const identity = resolveRuntimeActionLeaseIdentity(action, context);
+    return [
+      "lease",
+      identity.clientId,
+      identity.screenInstanceId,
+      identity.objectId,
+      identity.actionIndex,
+      identity.tag,
+    ].join(":");
+  };
+
+  const resolvePulseResetValue = (action: Extract<RuntimeAction, { type: "pulse" }>): boolean | number | string | null => (
+    action.resetValue !== undefined ? action.resetValue : !action.value
+  );
+
+  const buildRuntimeActionLeasePayload = (
+    action: Extract<RuntimeAction, { type: "pulse" | "hold" | "momentary" }>,
+    context: RenderContext,
+    operatorActionContext?: OperatorActionContext,
+    commandMeta?: ManualCommandMeta,
+  ): RuntimeActionLeasePayload => ({
+    ...resolveRuntimeActionLeaseIdentity(action, context),
+    activeValue: action.type === "pulse" ? action.value : true,
+    resetValue: action.type === "pulse" ? resolvePulseResetValue(action) : false,
+    commandMeta,
+    operatorActionContext,
   });
 
   const shouldShowCommandWarning = (commandKey: string): boolean => {
@@ -1406,26 +1488,65 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
     if (action.type === "pulse") {
       const operatorActionContext = buildOperatorActionContext(action, context);
-      const result = await runGuardedManualCommand({
+      const pulseDurationMs = typeof action.durationMs === "number" && Number.isFinite(action.durationMs)
+        ? Math.max(1, Math.floor(action.durationMs))
+        : 500;
+      await runGuardedManualCommand({
         action,
         actionId: action.tag,
         context,
         clickTs,
-        commandKey: getRuntimeActionCommandKey(action, context),
-        run: (signal, commandMeta) => writeTag(action.tag, action.value, { signal, commandMeta, operatorActionContext }),
+        commandKey: getRuntimeActionLeaseCommandKey(action, context),
+        run: (signal, commandMeta) => api.startRuntimePulseLease({
+          ...buildRuntimeActionLeasePayload(action, context, operatorActionContext, commandMeta),
+          durationMs: pulseDurationMs,
+        }, { signal }),
       });
-      if (result === undefined) {
+      return;
+    }
+
+    if (action.type === "hold" || action.type === "momentary") {
+      const phase = context.parameters?.__runtimeHoldPhase === "release" ? "release" : "start";
+      const keepalive = context.parameters?.__runtimeHoldKeepalive === true;
+      const operatorActionContext = buildOperatorActionContext(action, context);
+      const payload = {
+        ...buildRuntimeActionLeasePayload(action, context, phase === "start" ? operatorActionContext : undefined),
+        ttlMs: RUNTIME_HOLD_TTL_MS,
+      };
+      const leaseKey = getRuntimeActionLeaseCommandKey(action, context);
+
+      if (phase === "release") {
+        const active = activeHoldLeasesRef.current.get(leaseKey);
+        if (active) {
+          clearInterval(active.timerId);
+          activeHoldLeasesRef.current.delete(leaseKey);
+        }
+        await api.releaseRuntimeHoldLease(payload, { keepalive }).catch(() => undefined);
         return;
       }
-      const pulseDurationMs = typeof action.durationMs === "number" && Number.isFinite(action.durationMs)
-        ? Math.max(1, Math.floor(action.durationMs))
-        : 500;
-      const resetValue = action.resetValue !== undefined ? action.resetValue : !action.value;
-      setTimeout(() => {
-        writeTag(action.tag, resetValue).catch((error) => {
-          console.error(`[Pulse] Failed to reset tag ${action.tag}:`, error);
-        });
-      }, pulseDurationMs);
+
+      await runGuardedManualCommand({
+        action,
+        actionId: action.tag,
+        context,
+        clickTs,
+        commandKey: leaseKey,
+        run: async (signal, commandMeta) => {
+          const startPayload = {
+            ...payload,
+            commandMeta,
+          };
+          await api.startRuntimeHoldLease(startPayload, { signal });
+          const existing = activeHoldLeasesRef.current.get(leaseKey);
+          if (existing) {
+            clearInterval(existing.timerId);
+          }
+          const timerId = setInterval(() => {
+            void api.refreshRuntimeHoldLease(startPayload).catch(() => undefined);
+          }, RUNTIME_HOLD_HEARTBEAT_INTERVAL_MS);
+          activeHoldLeasesRef.current.set(leaseKey, { payload: startPayload, timerId });
+        },
+      });
       return;
     }
 
@@ -2371,7 +2492,7 @@ function getRuntimeActionCommandKey(action: RuntimeAction, context: RenderContex
       `object:${objectScope || objectId || "none"}`,
     ].join(":");
   }
-  if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+  if (action.type === "write" || action.type === "pulse" || action.type === "hold" || action.type === "momentary" || action.type === "toggle") {
     const allowConcurrentWrite = action.type === "write" && context.parameters?.__allowConcurrentWrite === true;
     if (allowConcurrentWrite) {
       const objectScope = typeof context.parameters?.__runtimeObjectScope === "string"
@@ -2431,6 +2552,8 @@ function isGuestRuntimeControlAction(action: RuntimeAction): boolean {
   return action.type === "runMacro"
     || action.type === "write"
     || action.type === "pulse"
+    || action.type === "hold"
+    || action.type === "momentary"
     || action.type === "toggle"
     || action.type === "writeConst"
     || action.type === "writeNumberPrompt"

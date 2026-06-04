@@ -11,6 +11,8 @@ export type ObjectIoActionMode =
   | "none"
   | "write"
   | "pulse"
+  | "hold"
+  | "momentary"
   | "toggle"
   | "writeConstTag"
   | "writeNumberPromptTag"
@@ -100,6 +102,11 @@ function actionIoFields(action: RuntimeAction | undefined): ObjectIoFieldDefinit
       { fieldPath: "action.durationMs", label: "Pulse Duration (ms)", direction: "action", dataTypeHint: "INT", control: "number", min: 1 },
     ];
   }
+  if (action.type === "hold" || action.type === "momentary") {
+    return [
+      { fieldPath: "action.tag", label: "Action Tag", direction: "action", dataTypeHint: "BOOL", control: "tag" },
+    ];
+  }
   if (action.type === "toggle") {
     return [
       { fieldPath: "action.tag", label: "Action Tag", direction: "action", dataTypeHint: "BOOL", control: "tag" },
@@ -129,7 +136,7 @@ export function getObjectIoActionMode(action: RuntimeAction | undefined): Object
   if (!action) {
     return "none";
   }
-  if (action.type === "write" || action.type === "pulse" || action.type === "toggle") {
+  if (action.type === "write" || action.type === "pulse" || action.type === "hold" || action.type === "momentary" || action.type === "toggle") {
     return action.type;
   }
   if (action.type === "writeConst" && action.target === "tag") {
@@ -156,6 +163,12 @@ export function createObjectIoAction(mode: ObjectIoActionMode, previousAction?: 
       return previousAction;
     }
     return { type: "pulse", tag: "", value: true, durationMs: 300 };
+  }
+  if (mode === "hold" || mode === "momentary") {
+    if (previousAction?.type === mode) {
+      return previousAction;
+    }
+    return { type: mode, tag: "" };
   }
   if (mode === "toggle") {
     if (previousAction?.type === "toggle") {
