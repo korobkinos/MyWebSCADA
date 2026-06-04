@@ -966,6 +966,11 @@ describe("collectRuntimeTagSubscriptions", () => {
           address: { nodeId: "Application.GVL_BURNER_VALVE.open_state[1]" },
         },
         {
+          name: "Application.GVL_BURNER_VALVE.open_state[2]",
+          dataType: "BOOL",
+          address: { nodeId: "Application.GVL_BURNER_VALVE.open_state[2]" },
+        },
+        {
           name: "Unrelated.Project.Tag",
           dataType: "INT",
           address: { nodeId: "Unrelated.Project.Tag" },
@@ -996,5 +1001,25 @@ describe("collectRuntimeTagSubscriptions", () => {
     expect(plan.dependencyTags).toEqual(["SelectedValveIndex"]);
     expect(plan.subscriptionTags).not.toContain("Application.GVL_BURNER_VALVE.open_state[0]");
     expect(plan.subscriptionTags).not.toContain("Unrelated.Project.Tag");
+
+    const nextPlan = collectRuntimeTagSubscriptionPlan({
+      project,
+      libraries: [],
+      screen,
+      tags: {
+        SelectedValveIndex: {
+          name: "SelectedValveIndex",
+          value: 2,
+          quality: "Good",
+          timestamp: 2,
+          source: "test",
+        },
+      },
+      popups: [],
+    });
+
+    expect(nextPlan.subscriptionTags).toContain("Application.GVL_BURNER_VALVE.open_state[2]");
+    expect(nextPlan.subscriptionTags).toContain("SelectedValveIndex");
+    expect(nextPlan.subscriptionTags).not.toContain("Application.GVL_BURNER_VALVE.open_state[1]");
   });
 });

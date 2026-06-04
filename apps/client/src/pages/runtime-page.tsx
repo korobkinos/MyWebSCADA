@@ -34,6 +34,7 @@ import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/
 import { api, isAbortError } from "../services/api";
 import { getConnectionSnapshot, markEndpointFailure, subscribeConnectionState } from "../services/connection-state";
 import { useScadaStore } from "../store/scada-store";
+import { createRuntimeSubscriptionScheduler } from "./runtime-subscription-scheduler";
 import {
   AUTH_INTENT_REDIRECT_EDITOR,
   readAuthIntentFromLocationState,
@@ -132,8 +133,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   const runtimeSubscriptionRecalcCountRef = useRef(0);
   const runtimePerfDebugEnabledRef = useRef(false);
   const tagsRef = useRef(tags);
-  const runtimeSubscriptionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const runtimeSubscriptionMinIntervalRef = useRef(0);
+  const runtimeSubscriptionSchedulerRef = useRef<ReturnType<typeof createRuntimeSubscriptionScheduler> | null>(null);
   const runtimeExecuteActionRef = useRef<(action: RuntimeAction, context: RenderContext) => Promise<void>>(
     async () => undefined,
   );
@@ -400,6 +400,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
 
   useEffect(() => {
     if (!project || !screen) {
+      runtimeSubscriptionSchedulerRef.current?.reset();
       updateRuntimeTagSubscriptions([]);
       return;
     }
@@ -408,6 +409,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
     const dependencyTagCount = runtimeSubscriptionPlan?.dependencyTags.length ?? 0;
 
     if (dependencyTagCount === 0) {
+      runtimeSubscriptionSchedulerRef.current?.reset();
       // Static screen: subscription list never changes at runtime
       // Use pre-computed plan to avoid expensive collectRuntimeTagSubscriptions
       const nextTags = runtimeSubscriptionPlan?.subscriptionTags ?? [];
@@ -427,14 +429,9 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       return;
     }
 
-    // Dynamic screen: throttle collectRuntimeTagSubscriptions
-    const now = Date.now();
-    if (now - runtimeSubscriptionMinIntervalRef.current >= 200) {
-      runtimeSubscriptionMinIntervalRef.current = now;
-      if (runtimeSubscriptionTimerRef.current) {
-        clearTimeout(runtimeSubscriptionTimerRef.current);
-        runtimeSubscriptionTimerRef.current = null;
-      }
+    const scheduler = runtimeSubscriptionSchedulerRef.current ?? createRuntimeSubscriptionScheduler();
+    runtimeSubscriptionSchedulerRef.current = scheduler;
+    scheduler.request(() => {
       const startedAt = runtimePerfDebugEnabledRef.current ? performance.now() : 0;
       const subscriptionTags = collectRuntimeTagSubscriptions({
         project,
@@ -454,21 +451,12 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
           dependencyTagCount,
         });
       }
-    } else if (!runtimeSubscriptionTimerRef.current) {
-      runtimeSubscriptionTimerRef.current = setTimeout(() => {
-        runtimeSubscriptionTimerRef.current = null;
-        runtimeSubscriptionMinIntervalRef.current = 0;
-        // Will fire again via dependency change after we bump minInterval
-      }, 200 - (now - runtimeSubscriptionMinIntervalRef.current));
-    }
-
-    return () => {
-      if (runtimeSubscriptionTimerRef.current) {
-        clearTimeout(runtimeSubscriptionTimerRef.current);
-        runtimeSubscriptionTimerRef.current = null;
-      }
-    };
+    });
   }, [activeLibraries, popupSubscriptionContexts, project, runtimeDependencyTagSignature, runtimeSubscriptionPlan, screen]);
+
+  useEffect(() => () => {
+    runtimeSubscriptionSchedulerRef.current?.reset();
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
