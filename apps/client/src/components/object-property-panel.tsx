@@ -23,6 +23,7 @@ import {
   DEFAULT_OPERATOR_ACTION_SLIDER_TEMPLATE,
   DEFAULT_OPERATOR_ACTION_VALUE_CHANGE_TEMPLATE,
   extractIndexedAddressSlots,
+  getLibraryConnectedTagIndexFieldName,
   isOperatorActionEnabledForObject,
   resolveIndexedAddress,
   resolveLibraryElementInstanceBindingsDetailed,
@@ -3903,6 +3904,7 @@ function SpecificPropertyFields({
     const editorTagValues = buildEditorRuntimeTagValues(project);
     const runtimeResolveContext: RuntimeResolveContext = {
       tagValues: editorTagValues,
+      tags: project.tags,
     };
     const bindingDebug = selectedElement
       ? resolveLibraryElementInstanceBindingsDetailed(selectedElement, object, runtimeResolveContext)
@@ -3968,8 +3970,8 @@ function SpecificPropertyFields({
                 };
                 const status = getConnectedTagStatus(binding);
                 const debug = bindingDebug?.debug[binding.key];
-                const indexEnabled = assignment.indexMode?.type === "arrayIndex" || assignment.indexMode?.type === "arrayIndexBySegment";
-                const hasArrayIndexInTag = /\[-?\d+\]/.test(assignment.baseTag || "");
+                const indexFieldName = getLibraryConnectedTagIndexFieldName(binding.key);
+                const tagLabel = getBindingTagLabel(binding.kind);
 
                 return (
                   <Space key={binding.id} direction="vertical" style={{ width: "100%", border: "1px solid #303030", borderRadius: 8, padding: 8 }}>
@@ -3984,56 +3986,10 @@ function SpecificPropertyFields({
                       project={project}
                       bindings={[]}
                       value={assignment.baseTag}
-                      tagLabel={getBindingTagLabel(binding.kind)}
-                      indexControl={{
-                        enabled: indexEnabled,
-                        status: indexEnabled ? (hasArrayIndexInTag ? "OK" : "Not found") : "Not configured",
-                        configureDisabled: !(assignment.baseTag?.trim()),
-                        onConfigure: () => {
-                          if (!indexEnabled) {
-                            patchBindingAssignment(binding.key, {
-                              indexMode: {
-                                type: "arrayIndex",
-                                occurrence: 0,
-                                operation: "add",
-                                valueFrom: "indexOffset",
-                              },
-                              indexOffset: assignment.indexOffset ?? 0,
-                            });
-                          }
-                        },
-                        onToggleEnabled: (checked: boolean) => {
-                          if (!checked) {
-                            patchBindingAssignment(binding.key, { indexMode: { type: "none" } });
-                            return;
-                          }
-                          patchBindingAssignment(binding.key, {
-                            indexMode: {
-                              type: "arrayIndex",
-                              occurrence: 0,
-                              operation: "add",
-                              valueFrom: "indexOffset",
-                            },
-                            indexOffset: assignment.indexOffset ?? 0,
-                          });
-                        },
-                      }}
+                      tagLabel={tagLabel}
+                      indexControl={buildIndexControl(indexFieldName, tagLabel, assignment.baseTag)}
                       onChange={(nextValue) => patchBindingAssignment(binding.key, { baseTag: nextValue })}
                     />
-                    {indexEnabled ? (
-                      <Form.Item label="Index offset">
-                        <InputNumber
-                          style={{ width: "100%" }}
-                          value={assignment.indexOffset ?? 0}
-                          onChange={(value) => patchBindingAssignment(binding.key, { indexOffset: Number(value ?? 0) })}
-                        />
-                      </Form.Item>
-                    ) : null}
-                    {indexEnabled && !hasArrayIndexInTag ? (
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        Index offset is enabled, but base tag has no array token like [0].
-                      </Typography.Text>
-                    ) : null}
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       Resolved: {debug?.resolvedTag?.trim() ? debug.resolvedTag : "—"}
                     </Typography.Text>
@@ -5780,7 +5736,7 @@ function findTagByName(project: ScadaProject, tagName: string | undefined) {
   if (!normalized) {
     return undefined;
   }
-  return project.tags.find((tag) => tag.name === normalized);
+  return project.tags.find((tag) => tag.name === normalized) ?? findTagByAddress(project, normalized);
 }
 
 function normalizeTemplate(currentTemplate: string, project: ScadaProject, tagName: string | undefined): string {

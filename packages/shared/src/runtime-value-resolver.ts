@@ -3,6 +3,7 @@
 // Заменить файл целиком.
 
 import type { RuntimeValueSource } from "./asset-library-types";
+import type { TagDefinition } from "./tag-types";
 
 export type RuntimeDependency =
   | { type: "tag"; tag: string }
@@ -26,6 +27,7 @@ export type RuntimeResolveContext = {
     get: (name: string) => unknown;
   };
   tagValues?: Record<string, unknown>;
+  tags?: TagDefinition[];
   warn?: (warning: RuntimeValueResolverWarning) => void;
 };
 

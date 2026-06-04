@@ -74,6 +74,7 @@ export function collectRuntimeObjectResolvedTags(input: RuntimeObjectTagCollecti
   const frameGuard = new Set<string>();
   const runtimeResolveContext: RuntimeResolveContext = {
     tagValues: input.tags,
+    tags: input.project.tags,
   };
   collectObjectTags(
     input.project,
@@ -94,6 +95,7 @@ export function collectRuntimeTagSubscriptionPlan(input: RuntimeTagSubscriptionI
   const frameGuard = new Set<string>();
   const runtimeResolveContext: RuntimeResolveContext = {
     tagValues: input.tags,
+    tags: input.project.tags,
   };
 
   collectScreenTags(

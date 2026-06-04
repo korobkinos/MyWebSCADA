@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { HmiObject, RenderContext, ScadaProject } from "@web-scada/shared";
-import { resolveObjectTagField } from "./indexed-address";
+import type { HmiObject, RenderContext, ScadaProject, TagDefinition } from "@web-scada/shared";
+import { getTagAddressTemplate, resolveObjectTagField } from "./indexed-address";
 
 function createProject(tags: string[]): ScadaProject {
   return {
@@ -27,6 +27,19 @@ function createBaseObject(id: string): Pick<HmiObject, "id" | "x" | "y" | "width
 }
 
 describe("resolveObjectTagField with frame inherited index rules", () => {
+  it("prefers indexed address candidates for tag address templates", () => {
+    const tag = {
+      name: "Application.GVL_BURNER_VALVE.open",
+      nodeId: "Application.GVL_BURNER_VALVE.open",
+      addressRaw: "Application.GVL_BURNER_VALVE.open[0]",
+      address: { nodeId: "Application.GVL_BURNER_VALVE.open[0]" },
+      dataType: "BOOL",
+    } as TagDefinition & { addressRaw: string };
+    const template = getTagAddressTemplate(tag);
+
+    expect(template).toBe("Application.GVL_BURNER_VALVE.open[0]");
+  });
+
   it("applies inherited arrayIndex rule when local indexing is absent", () => {
     const object: HmiObject = {
       ...createBaseObject("text-1"),

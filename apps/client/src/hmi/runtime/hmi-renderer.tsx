@@ -5560,6 +5560,7 @@ function LibraryInstanceNodeResolved({
   const runtimeResolveContext: RuntimeResolveContext = useMemo(
     () => ({
       tagValues: tags,
+      tags: project.tags,
       warn: (warning) => {
         if (mode === "runtime") {
           // eslint-disable-next-line no-console
@@ -5572,7 +5573,7 @@ function LibraryInstanceNodeResolved({
         }
       },
     }),
-    [element.id, library.id, mergedParameters, mode, object.id, tags],
+    [element.id, library.id, mergedParameters, mode, object.id, project.tags, tags],
   );
   const bindingResolution = useMemo(
     () => resolveLibraryElementInstanceBindingsDetailed(element, object, runtimeResolveContext),

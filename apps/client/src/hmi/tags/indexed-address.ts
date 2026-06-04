@@ -58,21 +58,28 @@ export function getTagAddressTemplate(tag: TagDefinition | undefined): string {
   const raw = tag as TagDefinition & { addressRaw?: unknown };
   const fromAddress = raw.address && typeof raw.address === "object" ? raw.address as Record<string, unknown> : undefined;
   const candidates = [
-    tag.nodeId,
-    typeof fromAddress?.nodeId === "string" ? fromAddress.nodeId : undefined,
     typeof raw.addressRaw === "string" ? raw.addressRaw : undefined,
     typeof tag.address === "string" ? tag.address : undefined,
+    tag.nodeId,
+    typeof fromAddress?.nodeId === "string" ? fromAddress.nodeId : undefined,
     tag.name,
-  ];
+  ]
+    .map((item) => normalizeAddress(item))
+    .filter((item): item is string => Boolean(item));
 
+  const uniqueCandidates: string[] = [];
+  const seen = new Set<string>();
   for (const candidate of candidates) {
-    const normalized = normalizeAddress(candidate);
-    if (normalized) {
-      return normalized;
+    if (seen.has(candidate)) {
+      continue;
     }
+    seen.add(candidate);
+    uniqueCandidates.push(candidate);
   }
 
-  return tag.name;
+  return uniqueCandidates.find((candidate) => extractIndexedAddressSlots(candidate).length > 0)
+    ?? uniqueCandidates[0]
+    ?? tag.name;
 }
 
 export function findTagByAddress(project: ScadaProject, address: string): TagDefinition | undefined {

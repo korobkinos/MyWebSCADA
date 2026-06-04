@@ -127,7 +127,11 @@ export function IndexedAddressEditorWindow({
                 if (!template) {
                   return;
                 }
-                setDraft((prev) => ({ ...prev, template }));
+                setDraft((prev) => ({
+                  ...prev,
+                  template,
+                  bindings: createBindingsFromSlots(extractIndexedAddressSlots(template), prev.bindings),
+                }));
               }}
               disabled={!selectedTag}
             >
@@ -171,7 +175,14 @@ export function IndexedAddressEditorWindow({
               <textarea
                 className="indexed-address-editor-template"
                 value={draft.template}
-                onChange={(event) => setDraft((prev) => ({ ...prev, template: event.target.value }))}
+                onChange={(event) => {
+                  const template = event.target.value;
+                  setDraft((prev) => ({
+                    ...prev,
+                    template,
+                    bindings: createBindingsFromSlots(extractIndexedAddressSlots(template), prev.bindings),
+                  }));
+                }}
                 spellCheck={false}
               />
               <div className="indexed-address-editor-hint">

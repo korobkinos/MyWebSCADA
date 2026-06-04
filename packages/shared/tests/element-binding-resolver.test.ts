@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyTagIndexTransform,
   applyTagPrefixTransform,
+  getLibraryConnectedTagIndexFieldName,
   resolveLibraryElementInstanceBindingsDetailed,
   resolveLibraryElementInstanceBindings,
 } from "../src/element-binding-resolver";
@@ -144,6 +145,39 @@ describe("resolveLibraryElementInstanceBindings", () => {
     });
 
     expect(resolved.fault).toBe("GVL_VALVE[32].Fault");
+  });
+
+  it("uses tagIndexingByField for connected tag bindings", () => {
+    const resolved = resolveLibraryElementInstanceBindings(
+      element,
+      {
+        bindingAssignments: {
+          fault: {
+            baseTag: "Application.GVL_BURNER_VALVE.open_state[0]",
+          },
+        },
+        tagIndexingByField: {
+          [getLibraryConnectedTagIndexFieldName("fault")]: {
+            enabled: true,
+            template: "Application.GVL_BURNER_VALVE.open_state[0]",
+            bindings: [
+              { key: "INDEX_1", slotIndex: 0, baseValue: 0, source: "constant", constantValue: 1 },
+            ],
+          },
+        },
+      },
+      {
+        tags: [
+          {
+            name: "open_state_1",
+            dataType: "BOOL",
+            address: { nodeId: "Application.GVL_BURNER_VALVE.open_state[1]" },
+          },
+        ],
+      },
+    );
+
+    expect(resolved.fault).toBe("open_state_1");
   });
 
   it("uses defaultBaseTag when assignment is missing", () => {

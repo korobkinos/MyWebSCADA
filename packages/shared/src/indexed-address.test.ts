@@ -2,6 +2,72 @@ import { describe, expect, it } from "vitest";
 import { extractIndexedAddressSlots, resolveIndexedAddress, type IndexedTagAddress } from "./indexed-address";
 
 describe("indexed-address", () => {
+  it("finds an index in a simple array address", () => {
+    const slots = extractIndexedAddressSlots("Application.GVL_BURNER_VALVE.open[0]");
+
+    expect(slots).toHaveLength(1);
+    expect(slots[0]).toMatchObject({ key: "INDEX_1", slotIndex: 0, baseValue: 0 });
+  });
+
+  it("resolves a simple array address", () => {
+    const result = resolveIndexedAddress({
+      config: {
+        enabled: true,
+        template: "Application.GVL_BURNER_VALVE.open[0]",
+        bindings: [
+          { key: "INDEX_1", slotIndex: 0, baseValue: 0, source: "constant", constantValue: 1 },
+        ],
+      },
+      values: {},
+    });
+
+    expect(result.address).toBe("Application.GVL_BURNER_VALVE.open[1]");
+  });
+
+  it("resolves a structure array address", () => {
+    const result = resolveIndexedAddress({
+      config: {
+        enabled: true,
+        template: "Application.GVL_BURNER_VALVE[0].open_state",
+        bindings: [
+          { key: "INDEX_1", slotIndex: 0, baseValue: 0, source: "constant", constantValue: 2 },
+        ],
+      },
+      values: {},
+    });
+
+    expect(result.address).toBe("Application.GVL_BURNER_VALVE[2].open_state");
+  });
+
+  it("resolves multiple indexes independently", () => {
+    const result = resolveIndexedAddress({
+      config: {
+        enabled: true,
+        template: "Application.A[0].B[0].C",
+        bindings: [
+          { key: "INDEX_1", slotIndex: 0, baseValue: 0, source: "constant", constantValue: 1 },
+          { key: "INDEX_2", slotIndex: 1, baseValue: 0, source: "constant", constantValue: 5 },
+        ],
+      },
+      values: {},
+    });
+
+    expect(result.address).toBe("Application.A[1].B[5].C");
+  });
+
+  it("keeps non-indexed addresses unchanged", () => {
+    const result = resolveIndexedAddress({
+      config: {
+        enabled: true,
+        template: "Application.SETTINGS.boiler_simulation",
+        bindings: [],
+      },
+      values: {},
+    });
+
+    expect(result.address).toBe("Application.SETTINGS.boiler_simulation");
+  });
+
   it("extracts numeric slots by occurrence", () => {
     const slots = extractIndexedAddressSlots("a[1].b[1].c[i].d[12]");
     expect(slots.map((slot) => ({ key: slot.key, slotIndex: slot.slotIndex, baseValue: slot.baseValue }))).toEqual([

@@ -6,7 +6,13 @@ import type {
   PrefixApplyMode,
 } from "./asset-library-types";
 import type { LibraryElementInstanceObject } from "./hmi-object-types";
+import { extractIndexedAddressSlots, resolveIndexedAddress, type IndexedTagAddress } from "./indexed-address";
 import { resolveRuntimeValueSync, type RuntimeResolveContext } from "./runtime-value-resolver";
+import type { TagDefinition } from "./tag-types";
+
+export function getLibraryConnectedTagIndexFieldName(bindingKey: string): string {
+  return `connectedTags.${bindingKey}`;
+}
 
 function getSegmentName(segment: string): string {
   const indexStart = segment.indexOf("[");
@@ -215,7 +221,7 @@ export function resolveElementBindingAssignment(
 
 export function resolveLibraryElementInstanceBindings(
   element: Pick<LibraryElement, "bindings">,
-  instance: Pick<LibraryElementInstanceObject, "bindingAssignments">,
+  instance: Pick<LibraryElementInstanceObject, "bindingAssignments" | "tagIndexingByField">,
   runtimeContext?: RuntimeResolveContext,
 ): Record<string, string> {
   return resolveLibraryElementInstanceBindingsDetailed(element, instance, runtimeContext).resolvedBindings;
@@ -304,7 +310,7 @@ function resolveBindingDefinition(
 
 export function resolveLibraryElementInstanceBindingsDetailed(
   element: Pick<LibraryElement, "bindings">,
-  instance: Pick<LibraryElementInstanceObject, "bindingAssignments">,
+  instance: Pick<LibraryElementInstanceObject, "bindingAssignments" | "tagIndexingByField">,
   runtimeContext?: RuntimeResolveContext,
 ): BindingResolutionResult {
   const resolvedBindings: Record<string, string> = {};
@@ -318,9 +324,11 @@ export function resolveLibraryElementInstanceBindingsDetailed(
       continue;
     }
     if (result.tag) {
-      resolvedBindings[definition.key] = result.tag;
+      const indexed = resolveConnectedTagIndexedAddress(definition.key, result.tag, instance, runtimeContext);
+      const resolvedTag = indexed.resolvedTag ?? result.tag;
+      resolvedBindings[definition.key] = resolvedTag;
       if (result.debug) {
-        const tagRaw = runtimeContext?.tagValues?.[result.tag];
+        const tagRaw = runtimeContext?.tagValues?.[resolvedTag];
         let tagValue: unknown = undefined;
         let tagQuality: string | undefined;
         if (tagRaw && typeof tagRaw === "object") {
@@ -331,7 +339,8 @@ export function resolveLibraryElementInstanceBindingsDetailed(
         }
         debug[definition.key] = {
           ...result.debug,
-          tagExists: runtimeContext?.tagValues ? result.tag in runtimeContext.tagValues : undefined,
+          resolvedTag,
+          tagExists: runtimeContext?.tagValues ? resolvedTag in runtimeContext.tagValues : undefined,
           tagValue,
           tagQuality,
         };
@@ -344,6 +353,135 @@ export function resolveLibraryElementInstanceBindingsDetailed(
   }
 
   return { resolvedBindings, issues, debug };
+}
+
+function resolveConnectedTagIndexedAddress(
+  bindingKey: string,
+  rawTagName: string,
+  instance: Pick<LibraryElementInstanceObject, "tagIndexingByField">,
+  runtimeContext?: RuntimeResolveContext,
+): { resolvedTag?: string } {
+  const fieldName = getLibraryConnectedTagIndexFieldName(bindingKey);
+  const config = instance.tagIndexingByField?.[fieldName];
+  if (config?.enabled !== true) {
+    return {};
+  }
+
+  const template = normalizeAddress(config.template) || getTagAddressTemplate(findTagByNameOrAddress(runtimeContext?.tags, rawTagName)) || rawTagName;
+  if (!extractIndexedAddressSlots(template).length) {
+    return {};
+  }
+
+  const resolved = resolveIndexedAddress({
+    config: normalizeIndexedAddressConfig({ ...config, template }),
+    values: buildIndexedAddressValues(config, runtimeContext),
+  });
+  const matchingTag = findTagByAddress(runtimeContext?.tags, resolved.address);
+  return {
+    resolvedTag: matchingTag?.name ?? resolved.address,
+  };
+}
+
+function buildIndexedAddressValues(config: IndexedTagAddress, runtimeContext?: RuntimeResolveContext): Record<string, unknown> {
+  const values: Record<string, unknown> = {
+    ...(runtimeContext?.tagValues ?? {}),
+  };
+  for (const binding of config.bindings ?? []) {
+    const sourceName = binding.sourceName?.trim();
+    if (!sourceName) {
+      continue;
+    }
+    if (binding.source === "tag") {
+      values[sourceName] = resolveRuntimeValueSync({ type: "tag", tag: sourceName }, runtimeContext ?? {});
+      continue;
+    }
+    if (binding.source === "internalVariable") {
+      values[sourceName] = resolveRuntimeValueSync({ type: "internal", name: sourceName }, runtimeContext ?? {});
+    }
+  }
+  return values;
+}
+
+function normalizeIndexedAddressConfig(config: IndexedTagAddress): IndexedTagAddress {
+  const slots = extractIndexedAddressSlots(config.template);
+  const existingBySlot = new Map((config.bindings ?? []).map((binding) => [binding.slotIndex, binding]));
+  return {
+    ...config,
+    bindings: slots.map((slot) => {
+      const previous = existingBySlot.get(slot.slotIndex);
+      return {
+        key: slot.key,
+        slotIndex: slot.slotIndex,
+        baseValue: slot.baseValue,
+        source: previous?.source ?? "constant",
+        sourceName: previous?.sourceName,
+        constantValue: previous?.constantValue ?? 0,
+        offset: previous?.offset ?? 0,
+      };
+    }),
+  };
+}
+
+function findTagByNameOrAddress(tags: TagDefinition[] | undefined, rawTagName: string): TagDefinition | undefined {
+  const normalizedRaw = normalizeAddress(rawTagName);
+  if (!normalizedRaw) {
+    return undefined;
+  }
+  return tags?.find((tag) => tag.name === normalizedRaw)
+    ?? findTagByAddress(tags, normalizedRaw);
+}
+
+function findTagByAddress(tags: TagDefinition[] | undefined, address: string): TagDefinition | undefined {
+  const normalizedAddress = normalizeAddress(address)?.toLowerCase();
+  if (!normalizedAddress) {
+    return undefined;
+  }
+  return tags?.find((tag) => collectAddressCandidates(tag).some((candidate) => candidate.toLowerCase() === normalizedAddress));
+}
+
+function getTagAddressTemplate(tag: TagDefinition | undefined): string {
+  if (!tag) {
+    return "";
+  }
+  const candidates = collectAddressCandidates(tag, true);
+  return candidates.find((candidate) => extractIndexedAddressSlots(candidate).length > 0)
+    ?? candidates[0]
+    ?? tag.name;
+}
+
+function collectAddressCandidates(tag: TagDefinition, includeName = false): string[] {
+  const raw = tag as TagDefinition & { addressRaw?: unknown };
+  const fromAddress = raw.address && typeof raw.address === "object" ? raw.address as Record<string, unknown> : undefined;
+  const candidates = [
+    typeof raw.addressRaw === "string" ? raw.addressRaw : undefined,
+    typeof tag.address === "string" ? tag.address : undefined,
+    tag.nodeId,
+    typeof fromAddress?.nodeId === "string" ? fromAddress.nodeId : undefined,
+    includeName ? tag.name : undefined,
+  ].map((item) => normalizeAddress(item)).filter((item): item is string => Boolean(item));
+
+  const seen = new Set<string>();
+  const uniqueCandidates: string[] = [];
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    uniqueCandidates.push(candidate);
+  }
+  return uniqueCandidates;
+}
+
+function normalizeAddress(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const nodeIdPrefix = "ns=2;s=";
+  return trimmed.startsWith(nodeIdPrefix) ? trimmed.slice(nodeIdPrefix.length) : trimmed;
 }
 
 export function resolveBindingReferenceTag(
