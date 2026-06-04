@@ -29,6 +29,7 @@ import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime/numeric-input-dialog";
 import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
+import { resolveObjectTagField } from "../hmi/tags/indexed-address";
 import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
 import { api, isAbortError } from "../services/api";
 import { getConnectionSnapshot, markEndpointFailure, subscribeConnectionState } from "../services/connection-state";
@@ -646,6 +647,105 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       }
     }
     return null;
+  };
+
+  const isRuntimeIndexedActionTargetDebugEnabled = (): boolean => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem(INDEXED_ADDRESS_DEBUG_LOCAL_STORAGE_KEY) === "1"
+      || window.localStorage.getItem(RUNTIME_COMMAND_DEBUG_LOCAL_STORAGE_KEY) === "1";
+  };
+
+  const debugRuntimeIndexedActionTarget = (payload: Record<string, unknown>): void => {
+    if (!isRuntimeIndexedActionTargetDebugEnabled()) {
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.debug("[indexed-address] runtime-action-target", {
+      timestamp: new Date().toISOString(),
+      ...payload,
+    });
+  };
+
+  const resolveRuntimeActionIndexedTarget = (
+    action: RuntimeAction,
+    context: RenderContext,
+  ): RuntimeAction => {
+    const meta = resolveRuntimeObjectMeta(context);
+    if (!meta) {
+      return action;
+    }
+
+    const resolveIndexedTagField = (fieldName: string, rawTagName: string): string => {
+      const resolved = resolveObjectTagField({
+        object: meta.object,
+        fieldName,
+        project,
+        context,
+        tagValues: tags,
+        rawTagName,
+      });
+      const finalActionTag = resolved.resolvedTagName
+        ?? resolved.resolvedAddress
+        ?? rawTagName;
+
+      debugRuntimeIndexedActionTarget({
+        objectId: meta.object.id,
+        rawActionTag: rawTagName,
+        fieldName,
+        resolvedAddress: resolved.resolvedAddress,
+        resolvedTagName: resolved.resolvedTagName,
+        finalActionTag,
+      });
+
+      return finalActionTag;
+    };
+
+    if (action.type === "write") {
+      return {
+        ...action,
+        tag: resolveIndexedTagField("action.tag", action.tag),
+      };
+    }
+    if (action.type === "pulse") {
+      return {
+        ...action,
+        tag: resolveIndexedTagField("action.tag", action.tag),
+      };
+    }
+    if (action.type === "hold") {
+      return {
+        ...action,
+        tag: resolveIndexedTagField("action.tag", action.tag),
+      };
+    }
+    if (action.type === "momentary") {
+      return {
+        ...action,
+        tag: resolveIndexedTagField("action.tag", action.tag),
+      };
+    }
+    if (action.type === "toggle") {
+      return {
+        ...action,
+        tag: resolveIndexedTagField("action.tag", action.tag),
+      };
+    }
+    if (action.type === "writeConst" && action.target === "tag") {
+      return {
+        ...action,
+        name: resolveIndexedTagField("action.name", action.name),
+      };
+    }
+    if (action.type === "writeNumberPrompt" && action.target === "tag") {
+      return {
+        ...action,
+        name: resolveIndexedTagField("action.name", action.name),
+      };
+    }
+
+    return action;
   };
 
   const resolveActionTargetMeta = (
@@ -1438,7 +1538,8 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
   };
 
   const executeAction = async (inputAction: RuntimeAction, context: RenderContext): Promise<void> => {
-    const action = resolveRuntimeAction(inputAction, context);
+    const resolvedBaseAction = resolveRuntimeAction(inputAction, context);
+    const action = resolveRuntimeActionIndexedTarget(resolvedBaseAction, context);
     const clickTs = getActionClickTimestamp(context);
     const actor = useScadaStore.getState().authUser;
     const guestRuntimeActionsEnabled = project.runtimeSettings?.allowGuestRuntimeActions !== false;
