@@ -2011,7 +2011,7 @@ function ObjectPropertyEditorContent({ project, assets, libraries, object, eleme
     : undefined;
   const popupIndexesAction = popupIndexesStep?.action.type === "openPopup"
     ? popupIndexesStep.action
-    : "action" in object && object.action?.type === "openPopup"
+    : popupIndexesEditorTarget && "action" in object && object.action?.type === "openPopup"
       ? object.action
       : undefined;
 
