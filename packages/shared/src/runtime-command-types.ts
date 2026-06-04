@@ -1,4 +1,4 @@
-export const COMMAND_TIMEOUT_MS = 10000;
+export const COMMAND_TIMEOUT_MS = 30000;
 
 export type ManualCommandMeta = {
   commandId: string;
