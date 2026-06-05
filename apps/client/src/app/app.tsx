@@ -16,12 +16,14 @@ import {
 } from "./auth-intent";
 import { startRuntimePerformanceDiagnostics } from "../services/performance-diagnostics";
 import { createTagValueBatcher } from "../services/tag-value-batcher";
+import { createRuntimeProjectPoller, getRuntimeProjectSignature } from "../services/runtime-project-sync";
 import { createRuntimeSocket } from "../services/ws";
-import { isAbortError } from "../services/api";
+import { api, isAbortError } from "../services/api";
 import { useScadaStore } from "../store/scada-store";
 const RuntimePage = lazy(() => import("../pages/runtime-page").then((m) => ({ default: m.RuntimePage })));
 const EditorPage = lazy(() => import("../pages/editor-page").then((m) => ({ default: m.EditorPage })));
 const RUNTIME_FULLSCREEN_PREF_KEY = "scada.runtime.fullscreenPreferred";
+const RUNTIME_PROJECT_POLL_INTERVAL_MS = 1500;
 
 function readRuntimeFullscreenPreferred(): boolean {
   if (typeof window === "undefined") {
@@ -71,6 +73,7 @@ export function App() {
   const isProtectedRoute = isEditorRoute;
   const [bootError, setBootError] = useState<string | null>(null);
   const bootstrapRunIdRef = useRef(0);
+  const runtimeProjectSignatureRef = useRef<string | null>(null);
   const [uiTheme, setUiTheme] = useState<ProjectTheme>(() => {
     if (typeof window === "undefined") {
       return "light";
@@ -141,6 +144,10 @@ export function App() {
   useEffect(() => startRuntimePerformanceDiagnostics(), []);
 
   useEffect(() => {
+    runtimeProjectSignatureRef.current = getRuntimeProjectSignature(project);
+  }, [project]);
+
+  useEffect(() => {
     if (!isRuntimeRoute) {
       return;
     }
@@ -157,6 +164,22 @@ export function App() {
       tagBatcher.close();
     };
   }, [isRuntimeRoute, setDrivers, setTagValues, updateProjectJson]);
+
+  useEffect(() => {
+    if (!isRuntimeRoute) {
+      return;
+    }
+    const poller = createRuntimeProjectPoller({
+      fetchProject: () => api.getProject({ replaceInFlight: true, skipConnectivityGate: true }),
+      applyProject: (nextProject) => startTransition(() => updateProjectJson(nextProject)),
+      getCurrentProjectSignature: () => runtimeProjectSignatureRef.current,
+      setCurrentProjectSignature: (signature) => {
+        runtimeProjectSignatureRef.current = signature;
+      },
+      intervalMs: RUNTIME_PROJECT_POLL_INTERVAL_MS,
+    });
+    return () => poller.close();
+  }, [isRuntimeRoute, updateProjectJson]);
 
   useEffect(() => {
     if (!isRuntimeRoute || typeof document === "undefined") {
