@@ -2394,10 +2394,8 @@ function ObjectNode({
 
     return () => {
       unsubscribe();
-      const smoothGroup = groupNodeRef.current;
-      if (smoothGroup?.isCached()) {
-        smoothGroup.clearCache();
-      }
+      // Don't clear cache on effect re-run — the cached bitmap is still valid
+      // for the rotation transform applied by the next smoothing cycle.
     };
   }, [applyRotationNode, baseRotation, hasRuntimeRotationTag]);
 
@@ -2434,12 +2432,21 @@ function ObjectNode({
     return () => {
       unsubscribe();
       rotationLastFrameRef.current = null;
+      // Don't clear cache on effect re-run — rotation transform is applied
+      // to the cached bitmap via matrix transform, so cache stays valid.
+      // Cache is only cleared when animation stops completely (next mount).
+    };
+  }, [applyRotationNode, rotationAnimationShouldTick]);
+
+  // Clean up Konva cache when rotation animation is completely disabled
+  useEffect(() => {
+    return () => {
       const group = groupNodeRef.current;
       if (group?.isCached()) {
         group.clearCache();
       }
     };
-  }, [applyRotationNode, rotationAnimationShouldTick]);
+  }, []);
 
   useEffect(() => {
     flowActiveRef.current = flowAnimationIsActive;
