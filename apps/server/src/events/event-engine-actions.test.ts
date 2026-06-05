@@ -365,6 +365,44 @@ describe("event engine actions", () => {
     await engine.stop();
   });
 
+  it("emits live event updates when archive service is unavailable", async () => {
+    const tagStore = createTagStore();
+    const wsGateway = new RecordingWebSocketGateway();
+    const engine = new EventEngine(
+      tagStore,
+      undefined,
+      wsGateway as unknown as any,
+      undefined,
+      { evaluationIntervalMs: 250 },
+    );
+
+    await engine.start(createProject({ message: "Live message" }));
+
+    tagStore.upsertValue({
+      name: "Tag1",
+      value: true,
+      quality: "Good",
+      timestamp: Date.now(),
+      source: "test",
+    });
+
+    await waitFor(() => wsGateway.broadcasts.some((item) => item.kind === "active"));
+    expect(wsGateway.broadcasts[0]?.occurrence.messageTextSnapshot).toBe("Live message");
+
+    tagStore.upsertValue({
+      name: "Tag1",
+      value: false,
+      quality: "Good",
+      timestamp: Date.now() + 1,
+      source: "test",
+    });
+
+    await waitFor(() => wsGateway.broadcasts.some((item) => item.kind === "cleared"));
+    expect(wsGateway.broadcasts.find((item) => item.kind === "cleared")?.occurrence.clearedAt).toBeTruthy();
+
+    await engine.stop();
+  });
+
   it("does not execute onActive actions during startup hydration", async () => {
     const tagStore = createTagStore();
     tagStore.upsertValue({

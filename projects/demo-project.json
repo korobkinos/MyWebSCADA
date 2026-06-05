@@ -89273,8 +89273,8 @@
         {
           "id": "sldr_tn18oh",
           "type": "slider",
-          "x": 511.5555583884927,
-          "y": 110.4444345479236,
+          "x": 547.1111148157213,
+          "y": 117.1111014946805,
           "width": 220,
           "height": 44,
           "minWidth": 100,
@@ -89313,6 +89313,27 @@
           "disabledColor": "#3d3d3d",
           "disabledTextColor": "#8c8c8c",
           "transparentBackground": false
+        },
+        {
+          "id": "text_pu7qso",
+          "type": "text",
+          "x": 609.3333380730555,
+          "y": 182.4444374888708,
+          "width": 180,
+          "height": 40,
+          "minWidth": 60,
+          "minHeight": 24,
+          "text": "Text",
+          "tag": "Counter2",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "left",
+            "verticalAlign": "middle",
+            "padding": 4
+          }
         }
       ]
     },

@@ -38,6 +38,27 @@ type AcknowledgeEventsResult = {
   }>;
 };
 
+type CreateEventOccurrenceInput = {
+  eventDefinitionId: string;
+  occurredAt: Date;
+  clearedAt?: Date | null;
+  acknowledgedAt?: Date | null;
+  acknowledgedBy?: string | null;
+  state: EventOccurrence["state"];
+  sourceTagNameSnapshot?: string | null;
+  categoryIdSnapshot?: string | null;
+  categoryNameSnapshot?: string | null;
+  prioritySnapshot?: number | null;
+  messageTextSnapshot?: string | null;
+  valueAtTrigger?: EventOccurrence["valueAtTrigger"];
+  valueAtClear?: EventOccurrence["valueAtClear"];
+  quality?: string | null;
+  runtimeSource?: string | null;
+  serviceData?: Record<string, unknown> | null;
+  requireAck?: boolean;
+  soundId?: string | null;
+};
+
 export class EventEngine {
   private readonly logger: EventEngineLogger;
   private readonly evaluationIntervalMs: number;
@@ -51,6 +72,8 @@ export class EventEngine {
   private evaluationChain = Promise.resolve();
   private running = false;
   private archiveEnabled = true;
+  private readonly liveOccurrences = new Map<string, EventOccurrence>();
+  private liveOccurrenceSequence = 1;
 
   public constructor(
     private readonly tagStore: TagStore,
@@ -110,7 +133,7 @@ export class EventEngine {
   public async configureProject(project: ScadaProject, options?: ConfigureProjectOptions): Promise<void> {
     this.archiveEnabled = await this.resolveArchiveEnabled(project);
     this.rebuildDefinitions(project);
-    if (this.archiveService?.isEnabled()) {
+    if (this.archiveEnabled && this.archiveService?.isEnabled()) {
       const updatedOccurrences = await this.archiveService.syncOnlineEventDefinitionSnapshots(project.events ?? []);
       if (options?.broadcastSnapshotUpdates === true) {
         for (const occurrence of updatedOccurrences) {
@@ -133,13 +156,8 @@ export class EventEngine {
     ids: Array<string | number>,
     acknowledgedBy?: string,
   ): Promise<AcknowledgeEventsResult> {
-    if (!this.archiveService?.isEnabled()) {
-      return {
-        acknowledged: [],
-        alreadyAcknowledgedIds: [],
-        notFoundIds: ids.map((item) => String(item)),
-        ackTagWriteFailures: [],
-      };
+    if (!this.archiveEnabled || !this.archiveService?.isEnabled()) {
+      return this.acknowledgeLiveOccurrences(ids, acknowledgedBy);
     }
 
     const normalizedIds = [...new Set(ids.map((item) => String(item).trim()).filter(Boolean))];
@@ -226,7 +244,7 @@ export class EventEngine {
   }
 
   private async evaluateAll(nowMs: number): Promise<void> {
-    if (!this.running || !this.isRuntimeRunning() || !this.archiveEnabled || this.definitions.size === 0) {
+    if (!this.running || !this.isRuntimeRunning() || this.definitions.size === 0) {
       return;
     }
 
@@ -236,7 +254,7 @@ export class EventEngine {
   }
 
   private async evaluateByTag(tagName: string, nowMs: number): Promise<void> {
-    if (!this.running || !this.isRuntimeRunning() || !this.archiveEnabled) {
+    if (!this.running || !this.isRuntimeRunning()) {
       return;
     }
 
@@ -252,7 +270,7 @@ export class EventEngine {
 
   private async evaluateDefinition(definitionId: string, nowMs: number): Promise<void> {
     const definition = this.definitions.get(definitionId);
-    if (!definition || !this.archiveService?.isEnabled()) {
+    if (!definition) {
       return;
     }
 
@@ -339,7 +357,7 @@ export class EventEngine {
         return;
       }
 
-      const created = await this.archiveService.createEventOccurrence({
+      const created = await this.createOccurrence({
         eventDefinitionId: definition.id,
         occurredAt: new Date(nowMs),
         state: "active",
@@ -352,6 +370,8 @@ export class EventEngine {
         quality: sourceValue.quality,
         runtimeSource: sourceValue.source,
         serviceData: this.buildServiceData(definition, false),
+        requireAck: definition.requireAck,
+        soundId: definition.soundEnabled && definition.soundId ? definition.soundId : null,
       });
 
       next.activeOccurrenceId = created.id;
@@ -380,7 +400,7 @@ export class EventEngine {
         return;
       }
 
-      const cleared = await this.archiveService.clearEventOccurrence(
+      const cleared = await this.clearOccurrence(
         previous.activeOccurrenceId,
         new Date(nowMs),
         sourceValue.value,
@@ -412,17 +432,13 @@ export class EventEngine {
     sourceValue: TagValue,
     nowMs: number,
   ): Promise<EventOccurrence | null> {
-    if (!this.archiveService?.isEnabled()) {
-      return null;
-    }
-
     const occurredAt = new Date(nowMs);
     const clearImmediately = !definition.requireAck;
 
     // Edge events are instantaneous.
     // - requireAck=false: persist directly as cleared.
     // - requireAck=true: persist as active with clearedAt set, then keep until ack.
-    return this.archiveService.createEventOccurrence({
+    return this.createOccurrence({
       eventDefinitionId: definition.id,
       occurredAt,
       clearedAt: occurredAt,
@@ -437,7 +453,70 @@ export class EventEngine {
       quality: sourceValue.quality,
       runtimeSource: sourceValue.source,
       serviceData: this.buildServiceData(definition, true),
+      requireAck: definition.requireAck,
+      soundId: definition.soundEnabled && definition.soundId ? definition.soundId : null,
     });
+  }
+
+  private async createOccurrence(input: CreateEventOccurrenceInput): Promise<EventOccurrence> {
+    if (this.archiveEnabled && this.archiveService?.isEnabled()) {
+      return this.archiveService.createEventOccurrence(input);
+    }
+    return this.createLiveOccurrence(input);
+  }
+
+  private async clearOccurrence(
+    id: string,
+    clearedAt: Date,
+    valueAtClear: EventOccurrence["valueAtClear"],
+  ): Promise<EventOccurrence | null> {
+    if (this.archiveEnabled && this.archiveService?.isEnabled()) {
+      return this.archiveService.clearEventOccurrence(id, clearedAt, valueAtClear);
+    }
+
+    const current = this.liveOccurrences.get(id);
+    if (!current) {
+      return null;
+    }
+    const next: EventOccurrence = {
+      ...current,
+      state: "cleared",
+      clearedAt: clearedAt.toISOString(),
+      valueAtClear,
+      updatedAt: clearedAt.toISOString(),
+    };
+    this.liveOccurrences.set(id, next);
+    return next;
+  }
+
+  private createLiveOccurrence(input: CreateEventOccurrenceInput): EventOccurrence {
+    const timestamp = input.occurredAt.toISOString();
+    const id = `live_${Date.now().toString(36)}_${this.liveOccurrenceSequence++}`;
+    const occurrence: EventOccurrence = {
+      id,
+      eventDefinitionId: input.eventDefinitionId,
+      occurredAt: timestamp,
+      clearedAt: input.clearedAt ? input.clearedAt.toISOString() : null,
+      acknowledgedAt: input.acknowledgedAt ? input.acknowledgedAt.toISOString() : null,
+      acknowledgedBy: input.acknowledgedBy ?? null,
+      state: input.state,
+      sourceTagNameSnapshot: input.sourceTagNameSnapshot ?? null,
+      categoryIdSnapshot: input.categoryIdSnapshot ?? null,
+      categoryNameSnapshot: input.categoryNameSnapshot ?? null,
+      prioritySnapshot: input.prioritySnapshot ?? null,
+      messageTextSnapshot: input.messageTextSnapshot ?? null,
+      valueAtTrigger: input.valueAtTrigger,
+      valueAtClear: input.valueAtClear,
+      quality: input.quality ?? null,
+      runtimeSource: input.runtimeSource ?? null,
+      soundId: input.soundId ?? null,
+      requireAck: input.requireAck,
+      serviceData: input.serviceData ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.liveOccurrences.set(id, occurrence);
+    return occurrence;
   }
 
   private buildServiceData(
@@ -504,6 +583,11 @@ export class EventEngine {
     for (const key of this.eventStates.keys()) {
       if (!validIds.has(key)) {
         this.eventStates.delete(key);
+      }
+    }
+    for (const [id, occurrence] of this.liveOccurrences.entries()) {
+      if (!validIds.has(occurrence.eventDefinitionId)) {
+        this.liveOccurrences.delete(id);
       }
     }
 
@@ -583,5 +667,75 @@ export class EventEngine {
     state.activeOccurrenceId = undefined;
     state.activeSince = undefined;
     this.eventStates.set(occurrence.eventDefinitionId, state);
+  }
+
+  private async acknowledgeLiveOccurrences(
+    ids: Array<string | number>,
+    acknowledgedBy?: string,
+  ): Promise<AcknowledgeEventsResult> {
+    const normalizedIds = [...new Set(ids.map((item) => String(item).trim()).filter(Boolean))];
+    const acknowledged: EventOccurrence[] = [];
+    const alreadyAcknowledgedIds: string[] = [];
+    const notFoundIds: string[] = [];
+    const ackTagWriteFailures: Array<{ occurrenceId: string; tagName: string; message: string }> = [];
+    const acknowledgedAt = new Date();
+
+    for (const id of normalizedIds) {
+      const current = this.liveOccurrences.get(id);
+      if (!current) {
+        notFoundIds.push(id);
+        continue;
+      }
+      if (current.acknowledgedAt) {
+        alreadyAcknowledgedIds.push(id);
+        continue;
+      }
+
+      const updated: EventOccurrence = {
+        ...current,
+        acknowledgedAt: acknowledgedAt.toISOString(),
+        acknowledgedBy: acknowledgedBy ?? null,
+        state: current.clearedAt ? "acknowledged" : current.state,
+        updatedAt: acknowledgedAt.toISOString(),
+      };
+      this.liveOccurrences.set(id, updated);
+      acknowledged.push(updated);
+
+      const definition = this.definitions.get(updated.eventDefinitionId);
+      const clientActions = await executeEventActions({
+        trigger: "ack",
+        eventDefinitionId: updated.eventDefinitionId,
+        occurrenceId: updated.id,
+        actions: definition?.onAckActions,
+        commandService: this.commandService,
+        logger: this.logger,
+      });
+      this.websocketGateway.broadcastEventUpdate("acknowledged", updated, {
+        actionsToRun: clientActions.length > 0 ? clientActions : undefined,
+        actionTrigger: clientActions.length > 0 ? "ack" : undefined,
+      });
+      this.releaseActiveStateAfterAck(updated);
+
+      const ackTagName = definition?.ackTagName?.trim();
+      if (!ackTagName || definition?.ackValue === undefined || !this.commandService) {
+        continue;
+      }
+      try {
+        await this.commandService.writeTag(ackTagName, definition.ackValue);
+      } catch (error) {
+        ackTagWriteFailures.push({
+          occurrenceId: updated.id,
+          tagName: ackTagName,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return {
+      acknowledged,
+      alreadyAcknowledgedIds,
+      notFoundIds,
+      ackTagWriteFailures,
+    };
   }
 }
