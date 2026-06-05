@@ -1847,9 +1847,20 @@ function ObjectNode({
 
   // Clear indexed tag cache only when indexing configuration changes,
   // not on every re-render. tagValue() handles invalidation via cache key.
-  // renderContext.parameters is NOT a dep — it's recreated by parent frames
-  // on each render, but indexed resolution doesn't depend on it.
+  // renderContext.parameters / resolvedObject removed from deps — they're
+  // recreated on every frame re-render, causing excessive cache clears.
+  const indexedCacheClearsRef = useRef(0);
   useEffect(() => {
+    const changedIdx = indexedCacheClearsRef.current + 1;
+    indexedCacheClearsRef.current = changedIdx;
+    if (debugRuntimePerf && changedIdx > 1) {
+      // Only report from second clear onward (first is mount)
+      // eslint-disable-next-line no-console
+      console.debug("[runtime-perf] indexed-cache-clear", {
+        objectId: object.id,
+        clearCount: changedIdx,
+      });
+    }
     if (debugRuntimePerf && indexedTagCacheRef.current.size > 0) {
       runtimeAnimationIndexedCacheClears += 1;
     }
