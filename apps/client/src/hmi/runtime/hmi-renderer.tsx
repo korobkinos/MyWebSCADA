@@ -1847,6 +1847,8 @@ function ObjectNode({
 
   // Clear indexed tag cache only when indexing configuration changes,
   // not on every re-render. tagValue() handles invalidation via cache key.
+  // renderContext.parameters is NOT a dep — it's recreated by parent frames
+  // on each render, but indexed resolution doesn't depend on it.
   useEffect(() => {
     if (debugRuntimePerf && indexedTagCacheRef.current.size > 0) {
       runtimeAnimationIndexedCacheClears += 1;
@@ -1855,7 +1857,6 @@ function ObjectNode({
   }, [
     project,
     renderContext.bindings,
-    renderContext.parameters,
     renderContext.tagPrefix,
     inheritedIndexRulesSignature,
   ]);
