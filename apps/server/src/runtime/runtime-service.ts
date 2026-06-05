@@ -271,15 +271,11 @@ export class RuntimeService {
         .map((driver) => [driver.id, driver] as const),
     );
     for (const tag of tags) {
-      // Only add persistent-active tags at startup.
-      // Runtime screen tags are added lazily via activateTagForPolling().
-      if (!this.persistentActiveTagNames.has(tag.name)) {
-        continue;
-      }
-
       if (!tag.driverId && tag.sourceType !== "simulated") {
         continue;
       }
+      // Subscription-mode OPC UA: include all tags (server push is efficient).
+      // Polling mode: only include persistent-active tags at startup (others added lazily).
       if (tag.sourceType === "opcua" && tag.driverId) {
         const driver = opcById.get(tag.driverId);
         const readMode = driver?.readMode ?? "subscription";
@@ -292,6 +288,9 @@ export class RuntimeService {
           }
           continue;
         }
+      }
+      if (!this.persistentActiveTagNames.has(tag.name)) {
+        continue;
       }
       const scanRateMs = Math.max(100, tag.scanRateMs ?? 1000);
       const group = this.pollGroups.get(scanRateMs);
