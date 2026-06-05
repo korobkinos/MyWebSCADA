@@ -1,5 +1,6 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -162,6 +163,28 @@ function startStaticServer() {
       "cache-control": filePath === indexFile ? "no-cache" : "public, max-age=31536000, immutable",
     });
     createReadStream(filePath).pipe(res);
+  });
+  staticServer.on("upgrade", (req, socket, head) => {
+    if (!req.url?.startsWith("/ws")) {
+      socket.destroy();
+      return;
+    }
+    const backendSocket = net.connect(serverPort, "127.0.0.1", () => {
+      const headers = [
+        `${req.method ?? "GET"} ${req.url} HTTP/${req.httpVersion}`,
+        ...Object.entries(req.headers).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value ?? ""}`),
+        "",
+        "",
+      ].join("\r\n");
+      backendSocket.write(headers);
+      if (head.length > 0) {
+        backendSocket.write(head);
+      }
+      socket.pipe(backendSocket);
+      backendSocket.pipe(socket);
+    });
+    backendSocket.once("error", () => socket.destroy());
+    socket.once("error", () => backendSocket.destroy());
   });
   staticServer.listen(clientPort, clientHost, () => {
     process.stdout.write(`Runtime UI: http://127.0.0.1:${clientPort}\n`);

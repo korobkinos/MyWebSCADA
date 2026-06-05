@@ -445,4 +445,110 @@ describe("areObjectNodePropsEqual", () => {
 
     expect(areObjectNodePropsEqual(prev as never, next as never)).toBe(true);
   });
+
+  it("rerenders library element instances when resolved connected state tag changes", () => {
+    const instanceObject = {
+      id: "libraryElementInstance_nd8f1f",
+      type: "libraryElementInstance",
+      x: 0,
+      y: 0,
+      width: 60,
+      height: 40,
+      libraryId: "lib",
+      elementId: "valve",
+      bindingAssignments: {
+        move: {
+          baseTag: "Application.GVL_BURNER_VALVE.control_out[0]",
+          prefixMode: { type: "none" },
+          indexMode: { type: "none" },
+        },
+      },
+      tagIndexingByField: {
+        "connectedTags.move": {
+          enabled: true,
+          template: "Application.GVL_BURNER_VALVE.control_out[0]",
+          bindings: [{
+            key: "INDEX_1",
+            slotIndex: 0,
+            baseValue: 0,
+            source: "constant",
+            constantValue: 2,
+            offset: 0,
+          }],
+        },
+      },
+    } as HmiObject;
+    const libraryProject = {
+      ...project,
+      tags: [
+        { name: "Application.GVL_BURNER_VALVE.control_out[2]", dataType: "BOOL", sourceType: "simulated" },
+      ] as TagDefinition[],
+    };
+    const libraryList: ElementLibrary[] = [{
+      id: "lib",
+      version: "1",
+      name: "Library",
+      assets: [],
+      elements: [{
+        id: "valve",
+        libraryId: "lib",
+        name: "Valve",
+        width: 60,
+        height: 40,
+        objects: [],
+        bindings: [{
+          id: "binding_move",
+          key: "move",
+          displayName: "move",
+          kind: "state",
+          dataType: "BOOL",
+          required: false,
+        }],
+        stateRules: [{
+          id: "rule_move",
+          name: "move",
+          source: { type: "tag", value: "$binding.move" },
+          cases: [{
+            id: "case_move",
+            name: "when",
+            condition: { type: "equals", value: true },
+            actions: [],
+          }],
+        }],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }];
+    const prev = {
+      ...createNodeProps(1, 10),
+      object: instanceObject,
+      project: libraryProject,
+      libraries: libraryList,
+      tags: {
+        "Application.GVL_BURNER_VALVE.control_out[2]": {
+          name: "Application.GVL_BURNER_VALVE.control_out[2]",
+          value: true,
+          quality: "Good",
+          timestamp: 1,
+          source: "test",
+        },
+      },
+    };
+    const next = {
+      ...prev,
+      tags: {
+        "Application.GVL_BURNER_VALVE.control_out[2]": {
+          name: "Application.GVL_BURNER_VALVE.control_out[2]",
+          value: false,
+          quality: "Good",
+          timestamp: 2,
+          source: "test",
+        },
+      },
+    };
+
+    expect(areObjectNodePropsEqual(prev as never, next as never)).toBe(false);
+  });
 });
