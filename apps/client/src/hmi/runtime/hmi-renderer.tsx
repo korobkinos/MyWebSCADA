@@ -2359,9 +2359,13 @@ function ObjectNode({
       return;
     }
 
-    // Cache the group so children aren't redrawn on every smoothing frame
+    // Invalidate and re-cache the group so children aren't redrawn on every smoothing frame.
+    // Clear first to pick up any visual changes from tag updates, then cache for bitmap rotation.
     const smoothGroup = groupNodeRef.current;
-    if (smoothGroup && !smoothGroup.isCached()) {
+    if (smoothGroup) {
+      if (smoothGroup.isCached()) {
+        smoothGroup.clearCache();
+      }
       smoothGroup.cache();
     }
 
@@ -2415,7 +2419,12 @@ function ObjectNode({
       return;
     }
     const group = groupNodeRef.current;
-    if (group && !group.isCached()) {
+    // Invalidate stale cache (children may have changed from tag updates)
+    // then re-cache so rotation frames use the bitmap instead of redrawing children.
+    if (group) {
+      if (group.isCached()) {
+        group.clearCache();
+      }
       group.cache();
     }
     const unsubscribe = subscribeGlobalAnimationTick((time) => {
