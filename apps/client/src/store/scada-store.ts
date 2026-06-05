@@ -457,8 +457,8 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
           continue;
         }
         if (!nextTags) {
-          // Build from scratch: the reference must change for Zustand subscribers
-          nextTags = { ...state.tags };
+          // Object.assign is faster than spread for large objects (6000+ tags)
+          nextTags = Object.assign({}, state.tags);
         }
         tagsChanged = true;
         nextTags[value.name] = value;
