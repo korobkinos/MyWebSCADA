@@ -8161,6 +8161,30 @@ select.workbench-select:not(.ant-select) {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   max-height: 200px;
   overflow-y: auto;
+  scrollbar-color: var(--hmi-select-scrollbar-thumb, #424242) var(--hmi-select-scrollbar-track, #1e1e1e);
+  scrollbar-width: thin;
+}
+
+.hmi-select-overlay::-webkit-scrollbar {
+  width: 10px;
+}
+
+.hmi-select-overlay::-webkit-scrollbar-track {
+  background: var(--hmi-select-scrollbar-track, #1e1e1e);
+}
+
+.hmi-select-overlay::-webkit-scrollbar-thumb {
+  background: var(--hmi-select-scrollbar-thumb, #424242);
+  border: 2px solid var(--hmi-select-scrollbar-track, #1e1e1e);
+  border-radius: 8px;
+}
+
+.hmi-select-overlay::-webkit-scrollbar-thumb:hover {
+  background: var(--hmi-select-scrollbar-thumb-hover, #555555);
+}
+
+.hmi-select-overlay::-webkit-scrollbar-corner {
+  background: var(--hmi-select-scrollbar-track, #1e1e1e);
 }
 
 .hmi-select-overlay__option {

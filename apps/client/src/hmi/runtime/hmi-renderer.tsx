@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ComponentProps, type ReactNode } from "react";
 import { Circle, Group, Image as KonvaImage, Line, Path, Rect, Shape, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { Konva as KonvaGlobal } from "konva/lib/Global";
@@ -54,6 +54,8 @@ import { EventTableRuntimeWidget } from "../../features/events/EventTableRuntime
 import { collectRuntimeObjectResolvedTags } from "./runtime-tag-subscriptions";
 import { diagnoseOpcUaCommunication } from "./runtime-opcua-communication";
 import { shouldRenderObjectForScreenBounds } from "./screen-bounds-culling";
+import { getSelectArrowPoints } from "./select-arrow";
+import { getRuntimeOverlayObjectId, isRuntimeOverlayContainerObject, isRuntimeOverlayOpenForObject } from "./runtime-overlay-id";
 import { shouldRunRuntimeAnimationTick, shouldUpdateRuntimeFlowFrame } from "./runtime-animation-policy";
 import { executeButtonActionQueue } from "./button-action-queue";
 
@@ -1509,6 +1511,19 @@ export function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps
   if (prev.renderContext.isAuthenticated !== next.renderContext.isAuthenticated) return false;
   if (prev.renderContext.userRoleLevel !== next.renderContext.userRoleLevel) return false;
   if (prev.nodeIdPrefix !== next.nodeIdPrefix) return false;
+  if (prev.overlayState?.objectId !== next.overlayState?.objectId) {
+    if (isRuntimeOverlayContainerObject(prev.object) || isRuntimeOverlayContainerObject(next.object)) {
+      return false;
+    }
+    const prevObjectOverlayId = getRuntimeOverlayObjectId(prev.object.id, prev.nodeIdPrefix);
+    const nextObjectOverlayId = getRuntimeOverlayObjectId(next.object.id, next.nodeIdPrefix);
+    if (
+      prev.overlayState?.objectId === prevObjectOverlayId
+      || next.overlayState?.objectId === nextObjectOverlayId
+    ) {
+      return false;
+    }
+  }
   const prevRoles = prev.renderContext.userRoles?.join("|") ?? "";
   const nextRoles = next.renderContext.userRoles?.join("|") ?? "";
   if (prevRoles !== nextRoles) return false;
@@ -4079,7 +4094,8 @@ function ObjectNode({
     const selectBadBorderColor = resolvedObject.badBorderColor ?? "#a03030";
     const selectDisabledBackgroundColor = resolvedObject.disabledBackgroundColor ?? HMI_CONTROL_COLORS.fieldDisabledBg;
     const selectDisabledTextColor = resolvedObject.disabledTextColor ?? "#8c8c8c";
-    const isSelectDropdownOpen = overlayState?.objectId === resolvedObject.id;
+    const selectOverlayObjectId = getRuntimeOverlayObjectId(resolvedObject.id, nodeIdPrefix);
+    const isSelectDropdownOpen = isRuntimeOverlayOpenForObject(overlayState, resolvedObject.id, nodeIdPrefix);
     const renderBackground = runtimeDisabled
       ? selectDisabledBackgroundColor
       : (selectBad ? selectBadBackgroundColor : selectBackgroundColor);
@@ -4148,7 +4164,7 @@ function ObjectNode({
           onShowOverlay?.({
             x: overlayX,
             y: overlayY,
-            objectId: resolvedObject.id,
+            objectId: selectOverlayObjectId,
             content: (
               <div className="hmi-select-overlay" style={{
                 minWidth: Math.max(resolvedObject.width * scaleX, 100),
@@ -4158,7 +4174,10 @@ function ObjectNode({
                 borderRadius: selectCornerRadius,
                 fontFamily: selectFontFamily,
                 fontSize: selectFontSize,
-              }}>
+                "--hmi-select-scrollbar-track": selectDropdownBackground,
+                "--hmi-select-scrollbar-thumb": "#424242",
+                "--hmi-select-scrollbar-thumb-hover": "#555555",
+              } as CSSProperties}>
                 {options.map((opt, idx) => (
                   <div
                     key={idx}
@@ -4265,14 +4284,11 @@ function ObjectNode({
         />
         <RuntimeAnimatedLine
           runtimeMode={runtimeMode}
-          points={[
-            resolvedObject.width - selectArrowAreaWidth / 2 - 5,
-            resolvedObject.height / 2 - 2,
+          points={getSelectArrowPoints(
             resolvedObject.width - selectArrowAreaWidth / 2,
-            resolvedObject.height / 2 + 3,
-            resolvedObject.width - selectArrowAreaWidth / 2 + 5,
-            resolvedObject.height / 2 - 2,
-          ]}
+            resolvedObject.height / 2,
+            isSelectDropdownOpen,
+          )}
           stroke={renderArrowColor}
           strokeWidth={1.8}
           lineCap="round"
