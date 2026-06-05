@@ -1,4 +1,4 @@
-import type { DriverConfig, TagDefinition, TagScalarValue, TagValue } from "@web-scada/shared";
+import { COMMAND_TIMEOUT_MS, type DriverConfig, type TagDefinition, type TagScalarValue, type TagValue } from "@web-scada/shared";
 import { logPerf } from "../runtime/perf-logger.js";
 import type { Driver, DriverStatus } from "./driver.js";
 import { OpcUaDriver } from "./opcua-driver.js";
@@ -30,7 +30,7 @@ export class DriverManager {
   private readonly statuses = new Map<string, DriverStatus>();
   private defaultSimulatedDriverId: string | null = null;
   private readonly driverReadTimeoutMs = 2000;
-  private readonly driverWriteTimeoutMs = 2000;
+  private readonly driverWriteTimeoutMs = COMMAND_TIMEOUT_MS;
   private readonly opcUaReadBatchSize = 100;
   private readonly slowBatchWarnMs = 500;
   private readonly unavailableLogThrottleMs = 10000;
