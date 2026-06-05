@@ -47,6 +47,7 @@ type HmiStageProps = {
   onEmptySpaceMouseDown?: (event: MouseEvent) => void;
   showObjectFrames?: boolean;
   fullscreenRuntime?: boolean;
+  fitRuntimeToContainer?: boolean;
   editorZoom?: number;
   showEditorGrid?: boolean;
   editorGridColor?: string;
@@ -99,6 +100,7 @@ export function HmiStage({
   onEmptySpaceMouseDown,
   showObjectFrames = false,
   fullscreenRuntime = false,
+  fitRuntimeToContainer = false,
   editorZoom = 1,
   showEditorGrid = false,
   editorGridColor = "rgba(255, 255, 255, 0.08)",
@@ -214,8 +216,17 @@ export function HmiStage({
     if (mode !== "runtime") {
       return 1;
     }
-    return Math.min(1, Math.min(viewport.width / screen.width, viewport.height / screen.height));
-  }, [mode, screen.height, screen.width, viewport.height, viewport.width]);
+    if (!fullscreenRuntime && !fitRuntimeToContainer) {
+      return 1;
+    }
+    const containerWidth = fitRuntimeToContainer
+      ? (wrapRef.current?.clientWidth ?? screen.width)
+      : viewport.width;
+    const containerHeight = fitRuntimeToContainer
+      ? (wrapRef.current?.clientHeight ?? screen.height)
+      : viewport.height;
+    return Math.min(1, Math.min(containerWidth / screen.width, containerHeight / screen.height));
+  }, [fitRuntimeToContainer, fullscreenRuntime, mode, screen.height, screen.width, viewport.height, viewport.width]);
 
   const effectiveEditorZoom = mode === "editor" ? editorZoom : 1;
   const editorOffscreenPad = mode === "editor" ? getEditorOffscreenPad(effectiveEditorZoom) : 0;
@@ -533,7 +544,7 @@ export function HmiStage({
           : (mode === "runtime" && fullscreenRuntime ? "100%" : undefined),
         minWidth: mode === "editor" ? `${editorLogicalWidth * effectiveEditorZoom}px` : undefined,
         minHeight: mode === "editor" ? `${editorLogicalHeight * effectiveEditorZoom}px` : undefined,
-        overflow: mode === "editor" ? "visible" : (fullscreenRuntime ? "hidden" : "auto"),
+        overflow: mode === "editor" ? "visible" : (fullscreenRuntime || fitRuntimeToContainer ? "hidden" : "auto"),
         display: mode === "editor" ? "inline-block" : "block",
         border: mode === "runtime" ? "none" : undefined,
         maxWidth: mode === "runtime" ? "100%" : undefined,

@@ -45,6 +45,7 @@ import {
   collectFrameRuleDependencyTags,
   getObjectIndexedConfigForField,
   resolveInternalTagAlias,
+  resolveObjectTagFieldNameForAction,
   resolveObjectTagField,
 } from "../tags/indexed-address";
 import { sortObjectsByZIndex } from "../editor/z-order";
@@ -6153,7 +6154,7 @@ function ButtonNode({
   const isHoldRuntimeAction = singleActionStep?.action.type === "hold" || singleActionStep?.action.type === "momentary";
 
   const resolveButtonStepAction = (step: ButtonActionStep): RuntimeAction => {
-    const fieldName = step.id === "legacy-action" ? "action.tag" : `actions.${step.id}.action.tag`;
+    const fieldName = resolveObjectTagFieldNameForAction({ object, stepId: step.id });
     return resolveRuntimeActionTagsWithObjectIndexing(step.action, object, project, tags, renderContext, fieldName);
   };
 
@@ -6165,7 +6166,7 @@ function ButtonNode({
     phase?: "start" | "release",
     keepalive = false,
   ): RenderContext => {
-    const fieldName = step.id === "legacy-action" ? "action.tag" : `actions.${step.id}.action.tag`;
+    const fieldName = resolveObjectTagFieldNameForAction({ object, stepId: step.id });
     return withRuntimeActionContext(renderContext, object.id, performance.now(), object.name, {
       __runtimeActionIndex: actionIndex,
       __runtimeActionFieldName: fieldName,

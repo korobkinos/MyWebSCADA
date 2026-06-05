@@ -8,6 +8,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:workspace": "pnpm -r --parallel dev",
     "dev:kill": "node scripts/kill-dev-ports.mjs",
+    "start:runtime": "node scripts/start-runtime.mjs",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",

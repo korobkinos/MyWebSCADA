@@ -28,7 +28,7 @@ import { HmiStage } from "../hmi/runtime/hmi-stage";
 import { NumericInputDialog, type NumericInputDialogState } from "../hmi/runtime/numeric-input-dialog";
 import type { NumericInputOpenPayload } from "../hmi/runtime/hmi-renderer";
 import { collectRuntimeTagSubscriptionPlan, collectRuntimeTagSubscriptions } from "../hmi/runtime/runtime-tag-subscriptions";
-import { readIndexedAddressPerfCounters, resolveObjectTagField } from "../hmi/tags/indexed-address";
+import { readIndexedAddressPerfCounters, resolveObjectTagField, resolveObjectTagFieldNameForAction } from "../hmi/tags/indexed-address";
 import { createRuntimeSocket, updateRuntimeTagSubscriptions } from "../services/ws";
 import { api, isAbortError } from "../services/api";
 import { getConnectionSnapshot, markEndpointFailure, subscribeConnectionState } from "../services/connection-state";
@@ -761,9 +761,15 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
       return finalActionTag;
     };
 
-    const actionTagFieldName = typeof context.parameters?.__runtimeActionFieldName === "string"
-      ? context.parameters.__runtimeActionFieldName
-      : "action.tag";
+    const actionTagFieldName = resolveObjectTagFieldNameForAction({
+      object: meta.object,
+      stepId: typeof context.parameters?.__buttonActionQueueStepId === "string"
+        ? context.parameters.__buttonActionQueueStepId
+        : undefined,
+      fallback: typeof context.parameters?.__runtimeActionFieldName === "string"
+        ? context.parameters.__runtimeActionFieldName
+        : "action.tag",
+    });
 
     if (action.type === "write") {
       return {
@@ -2280,6 +2286,7 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
             drivers={drivers}
             libraries={activeLibraries}
             fullscreenRuntime={false}
+            fitRuntimeToContainer
             currentUserRoleLevel={userRoleLevel}
             renderContext={{
               popupInstanceId: item.id,

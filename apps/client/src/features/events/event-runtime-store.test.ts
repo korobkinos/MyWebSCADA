@@ -89,4 +89,31 @@ describe("eventRuntimeStore initializeOnline", () => {
     expect(snapshot.activeEvents).toEqual([]);
     expect(getActiveEvents).toHaveBeenCalledTimes(1);
   });
+
+  it("can start online socket without archive hydration request", async () => {
+    const getActiveEvents = vi.fn();
+    const createRuntimeSocket = vi.fn(() => ({
+      close: vi.fn(),
+      writeTag: vi.fn(),
+      subscribeTags: vi.fn(),
+    }));
+
+    vi.doMock("../../services/api", () => ({
+      api: {
+        getActiveEvents,
+      },
+    }));
+    vi.doMock("../../services/ws", () => ({
+      createRuntimeSocket,
+    }));
+
+    const { eventRuntimeStore } = await import("./event-runtime-store");
+    await eventRuntimeStore.initializeOnline({ hydrateFromArchive: false });
+
+    const snapshot = eventRuntimeStore.getSnapshot();
+    expect(createRuntimeSocket).toHaveBeenCalledTimes(1);
+    expect(getActiveEvents).not.toHaveBeenCalled();
+    expect(snapshot.onlineLoading).toBe(false);
+    expect(snapshot.onlineError).toBeNull();
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HmiObject, RenderContext, ScadaProject, TagDefinition } from "@web-scada/shared";
-import { findTagByAddress, getTagAddressTemplate, resolveInternalTagAlias, resolveObjectTagField } from "./indexed-address";
+import { findTagByAddress, getTagAddressTemplate, resolveInternalTagAlias, resolveObjectTagField, resolveObjectTagFieldNameForAction } from "./indexed-address";
 
 function createProject(tags: string[]): ScadaProject {
   return {
@@ -272,6 +272,74 @@ describe("resolveObjectTagField with frame inherited index rules", () => {
 
     expect(resolved.resolvedTagName).toBe("Burner[3].Cmd");
     expect(resolved.usedIndexedAddress).toBe(true);
+  });
+
+  it("uses legacy action.tag indexing for single legacy button steps", () => {
+    const object: HmiObject = {
+      ...createBaseObject("button-legacy"),
+      type: "button",
+      text: "Write",
+      showText: true,
+      tagIndexingByField: {
+        "action.tag": {
+          enabled: true,
+          template: "Application.GVL_BURNER_VALVE.open[0]",
+          bindings: [{
+            key: "INDEX_1",
+            slotIndex: 0,
+            baseValue: 0,
+            source: "constant",
+            constantValue: 1,
+            offset: 0,
+          }],
+        },
+      },
+      actions: [{
+        id: "legacy-action",
+        enabled: true,
+        action: {
+          type: "pulse",
+          tag: "Application.GVL_BURNER_VALVE.open[0]",
+          value: true,
+          durationMs: 1,
+        },
+      }],
+      textStyle: {
+        fontFamily: "Arial",
+        fontSize: 12,
+        color: "#fff",
+        horizontalAlign: "center",
+        verticalAlign: "middle",
+      },
+    };
+
+    const fieldName = resolveObjectTagFieldNameForAction({ object, stepId: "legacy-action" });
+    const resolved = resolveObjectTagField({
+      object,
+      fieldName,
+      project: createProject([
+        "Application.GVL_BURNER_VALVE.open[1]",
+        "Application.GVL_BURNER_VALVE.open[2]",
+      ]),
+      context: {
+        inheritedIndexRules: [{
+          id: "popup-rule",
+          enabled: true,
+          indexOffset: 1,
+          indexMode: {
+            type: "arrayIndex",
+            occurrence: 0,
+            operation: "add",
+            valueFrom: "indexOffset",
+          },
+          conflictMode: "skipLocal",
+        }],
+      },
+      rawTagName: "Application.GVL_BURNER_VALVE.open[0]",
+    });
+
+    expect(fieldName).toBe("action.tag");
+    expect(resolved.resolvedTagName).toBe("Application.GVL_BURNER_VALVE.open[1]");
   });
 
   it("uses indexOffsetSource static value for inherited rule", () => {

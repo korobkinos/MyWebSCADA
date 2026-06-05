@@ -756,6 +756,27 @@ export function resolveObjectTagField(params: {
   };
 }
 
+export function resolveObjectTagFieldNameForAction(params: {
+  object: HmiObject;
+  stepId?: string;
+  fallback?: string;
+}): string {
+  const fallback = params.fallback ?? "action.tag";
+  if (params.stepId && params.stepId !== "legacy-action") {
+    const fieldName = `actions.${params.stepId}.action.tag`;
+    if (getObjectIndexedConfigForField(params.object, fieldName)?.enabled === true) {
+      return fieldName;
+    }
+  }
+  if (getObjectIndexedConfigForField(params.object, "action.tag")?.enabled === true) {
+    return "action.tag";
+  }
+  if (params.stepId && params.stepId !== "legacy-action") {
+    return `actions.${params.stepId}.action.tag`;
+  }
+  return fallback;
+}
+
 export function getObjectIndexedConfigForField(object: HmiObject, fieldName: string): IndexedTagAddress | undefined {
   const byField = object.tagIndexingByField?.[fieldName];
   if (byField) {

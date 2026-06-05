@@ -48,7 +48,7 @@ const MIN_RECENT_BUFFER_LIMIT = 100;
 const MAX_RECENT_BUFFER_LIMIT = 1000;
 const MIN_ONLINE_RETENTION_LIMIT = 200;
 const MAX_ONLINE_RETENTION_LIMIT = 2000;
-const ONLINE_SNAPSHOT_FLUSH_INTERVAL_MS = 300;
+const ONLINE_SNAPSHOT_FLUSH_INTERVAL_MS = 50;
 const DEBUG_LOG_INTERVAL_MS = 5000;
 const ARCHIVE_STATUS_REFRESH_MIN_INTERVAL_MS = 30_000;
 
@@ -401,12 +401,19 @@ export const eventRuntimeStore = {
     emit();
   },
 
-  async initializeOnline(): Promise<void> {
+  async initializeOnline(options?: { hydrateFromArchive?: boolean }): Promise<void> {
     ensureSocket();
     if (started) {
       return;
     }
     started = true;
+    if (options?.hydrateFromArchive === false) {
+      patchState({
+        onlineLoading: false,
+        onlineError: null,
+      });
+      return;
+    }
     patchState({
       onlineLoading: true,
       onlineError: null,

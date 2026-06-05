@@ -88539,6 +88539,7 @@
           "opacity": 0,
           "minWidth": 60,
           "minHeight": 24,
+          "tagIndexingByField": {},
           "text": "Start",
           "showText": true,
           "backgroundColor": "#0958d9",
@@ -88583,18 +88584,6 @@
           },
           "actions": [
             {
-              "id": "action_szb3mn0l",
-              "name": "idx_set",
-              "enabled": true,
-              "action": {
-                "type": "write",
-                "tag": "burner_valve_index",
-                "value": 0
-              },
-              "onError": "showErrorAndStop",
-              "timeoutMs": 5000
-            },
-            {
               "id": "legacy-action",
               "enabled": true,
               "action": {
@@ -88608,8 +88597,8 @@
                     "name": "r1",
                     "indexOffset": 0,
                     "indexOffsetSource": {
-                      "type": "tag",
-                      "tag": "burner_valve_index"
+                      "type": "static",
+                      "value": 0
                     },
                     "indexMode": {
                       "type": "arrayIndex",
@@ -89034,6 +89023,7 @@
           "opacity": 0,
           "minWidth": 60,
           "minHeight": 24,
+          "tagIndexingByField": {},
           "text": "Start",
           "showText": true,
           "backgroundColor": "#0958d9",
@@ -89078,18 +89068,6 @@
           },
           "actions": [
             {
-              "id": "action_szb3mn0l",
-              "name": "idx_set",
-              "enabled": true,
-              "action": {
-                "type": "write",
-                "tag": "burner_valve_index",
-                "value": 1
-              },
-              "onError": "showErrorAndStop",
-              "timeoutMs": 5000
-            },
-            {
               "id": "legacy-action",
               "name": "window",
               "enabled": true,
@@ -89102,10 +89080,10 @@
                     "id": "frame-index-rule-1780570270247-bs7vbp",
                     "enabled": true,
                     "name": "r1",
-                    "indexOffset": 0,
+                    "indexOffset": 1,
                     "indexOffsetSource": {
-                      "type": "tag",
-                      "tag": "burner_valve_index"
+                      "type": "static",
+                      "value": 1
                     },
                     "indexMode": {
                       "type": "arrayIndex",

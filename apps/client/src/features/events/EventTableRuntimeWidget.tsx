@@ -1050,7 +1050,7 @@ export function EventTableRuntimeWidget({
     if (mode !== "online") {
       return;
     }
-    void eventRuntimeStore.initializeOnline();
+    void eventRuntimeStore.initializeOnline({ hydrateFromArchive: false });
   }, [mode]);
 
   const historyQuery = useMemo(
