@@ -57,6 +57,24 @@ export function createInitialPopupState(): PopupState {
 
 export function popupReducer(state: PopupState, action: PopupReducerAction): PopupState {
   if (action.type === "open") {
+    if (action.payload.popupKey) {
+      const existing = state.items.find((item) => item.popupKey === action.payload.popupKey);
+      if (existing) {
+        return {
+          items: state.items.map((item) =>
+            item.id === existing.id
+              ? {
+                  ...action.payload,
+                  id: existing.id,
+                  zIndex: state.nextZIndex,
+                }
+              : item,
+          ),
+          nextZIndex: state.nextZIndex + 1,
+        };
+      }
+    }
+
     const next: PopupInstance = {
       ...action.payload,
       zIndex: state.nextZIndex,

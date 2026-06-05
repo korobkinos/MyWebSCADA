@@ -206,6 +206,7 @@ const runtimeActionSchema = z.discriminatedUnion("type", [
     title: z.string().optional(),
     x: z.number().optional(),
     y: z.number().optional(),
+    popupOpenMode: z.enum(["reuseByPopup", "newInstance"]).optional(),
     tagPrefix: z.string().optional(),
     tagIndexRules: z
       .array(z.unknown())

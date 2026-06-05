@@ -2066,13 +2066,6 @@ export function RuntimePage({ fullscreen = false }: RuntimePageProps) {
         return;
       }
       const popupKey = getPopupKey(action);
-      if (popupKey) {
-        const existing = popupState.items.find((item) => item.popupKey === popupKey);
-        if (existing) {
-          dispatchPopup({ type: "focus", payload: { id: existing.id } });
-          return;
-        }
-      }
       const popupOptions = popupScreen.popupOptions ?? {};
       const inheritedIndexRules = [
         ...(context.inheritedIndexRules ?? []),
@@ -2768,15 +2761,10 @@ function isGuestRuntimeControlAction(action: RuntimeAction): boolean {
 }
 
 function getPopupKey(action: Extract<RuntimeAction, { type: "openPopup" }>): string | undefined {
-  const valveId = typeof action.args?.valveId === "string" ? action.args.valveId.trim() : "";
-  if (valveId) {
-    return `${action.popupScreenId}::${valveId}`;
+  if (action.popupOpenMode === "newInstance") {
+    return undefined;
   }
-  const prefix = typeof action.tagPrefix === "string" ? action.tagPrefix.trim() : "";
-  if (prefix) {
-    return `${action.popupScreenId}::prefix::${prefix}`;
-  }
-  return undefined;
+  return `screen:${action.popupScreenId}`;
 }
 
 function RuntimeDialogs({

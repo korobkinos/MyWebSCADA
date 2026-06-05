@@ -115,4 +115,52 @@ describe("popupReducer", () => {
     expect(state.items[0]?.args).toEqual({ valveName: "ПЗК-1" });
     expect(state.items[1]?.args).toEqual({ valveName: "ПЗК-2" });
   });
+
+  it("updates and focuses an existing keyed popup instead of adding a duplicate", () => {
+    const first = popupReducer(createInitialPopupState(), {
+      type: "open",
+      payload: {
+        id: "popup_1",
+        popupKey: "screen:ValvePopup",
+        popupScreenId: "ValvePopup",
+        title: "Valve 1",
+        x: 100,
+        y: 120,
+        tagPrefix: "VALVE.1",
+        args: { valve: 1 },
+        modal: false,
+        draggable: true,
+        closable: true,
+        resizable: false,
+      },
+    });
+
+    const second = popupReducer(first, {
+      type: "open",
+      payload: {
+        id: "popup_2",
+        popupKey: "screen:ValvePopup",
+        popupScreenId: "ValvePopup",
+        title: "Valve 2",
+        x: 200,
+        y: 220,
+        tagPrefix: "VALVE.2",
+        args: { valve: 2 },
+        modal: false,
+        draggable: true,
+        closable: true,
+        resizable: false,
+      },
+    });
+
+    expect(second.items).toHaveLength(1);
+    expect(second.items[0]).toMatchObject({
+      id: "popup_1",
+      popupKey: "screen:ValvePopup",
+      title: "Valve 2",
+      tagPrefix: "VALVE.2",
+      args: { valve: 2 },
+    });
+    expect(second.items[0]?.zIndex).toBeGreaterThan(first.items[0]?.zIndex ?? 0);
+  });
 });

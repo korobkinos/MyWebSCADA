@@ -88531,8 +88531,8 @@
         {
           "id": "btn_qfa8iw",
           "type": "button",
-          "x": 192.5053447691207,
-          "y": 230.77614142626243,
+          "x": 178.06089997055915,
+          "y": 225.22058563729848,
           "width": 125.29259479079795,
           "height": 59.22673037539251,
           "rotation": 0,
@@ -88583,6 +88583,18 @@
             ]
           },
           "actions": [
+            {
+              "id": "action_fa4486d5-b57b-40c0-90ea-dbfb25efdc6b",
+              "name": "",
+              "enabled": true,
+              "action": {
+                "type": "write",
+                "tag": "burner_valve_index",
+                "value": 0
+              },
+              "onError": "showErrorAndStop",
+              "timeoutMs": 5000
+            },
             {
               "id": "legacy-action",
               "enabled": true,
@@ -88687,13 +88699,60 @@
         {
           "id": "libraryElementInstance_zj53nw",
           "type": "libraryElementInstance",
-          "x": 228.74056600951042,
-          "y": 229.75859313289982,
+          "x": 215.40723234929976,
+          "y": 221.9808150283502,
           "width": 59.39748140627506,
           "height": 56.594961781873565,
           "shadowEnabled": false,
           "minWidth": 60,
           "minHeight": 40,
+          "tagIndexingByField": {
+            "connectedTags.open": {
+              "enabled": false,
+              "template": "Application.GVL_BURNER_VALVE.open_state[0]",
+              "bindings": [
+                {
+                  "key": "INDEX_1",
+                  "slotIndex": 0,
+                  "baseValue": 0,
+                  "source": "internalVariable",
+                  "sourceName": "burner_valve_index",
+                  "constantValue": 0,
+                  "offset": 0
+                }
+              ]
+            },
+            "connectedTags.closed": {
+              "enabled": false,
+              "template": "Application.GVL_BURNER_VALVE.closed_state[0]",
+              "bindings": [
+                {
+                  "key": "INDEX_1",
+                  "slotIndex": 0,
+                  "baseValue": 0,
+                  "source": "internalVariable",
+                  "sourceName": "burner_valve_index",
+                  "constantValue": 0,
+                  "offset": 0
+                }
+              ]
+            },
+            "connectedTags.move": {
+              "enabled": false,
+              "template": "Application.GVL_BURNER_VALVE.control_out[0]",
+              "bindings": [
+                {
+                  "key": "INDEX_1",
+                  "slotIndex": 0,
+                  "baseValue": 0,
+                  "source": "internalVariable",
+                  "sourceName": "burner_valve_index",
+                  "constantValue": 0,
+                  "offset": 0
+                }
+              ]
+            }
+          },
           "libraryId": "amaks-basic-equipment",
           "elementId": "element_uw0svd",
           "bindingAssignments": {
@@ -89068,6 +89127,18 @@
           },
           "actions": [
             {
+              "id": "action_0de902de-0eb9-4dc4-b5a1-bda1dbc3d2a2",
+              "name": "",
+              "enabled": true,
+              "action": {
+                "type": "write",
+                "tag": "burner_valve_index",
+                "value": 1
+              },
+              "onError": "showErrorAndStop",
+              "timeoutMs": 5000
+            },
+            {
               "id": "legacy-action",
               "name": "window",
               "enabled": true,
@@ -89084,6 +89155,105 @@
                     "indexOffsetSource": {
                       "type": "static",
                       "value": 1
+                    },
+                    "indexMode": {
+                      "type": "arrayIndex",
+                      "occurrence": 0,
+                      "operation": "add",
+                      "valueFrom": "indexOffset"
+                    },
+                    "conflictMode": "skipLocal"
+                  }
+                ]
+              },
+              "onError": "showErrorAndStop",
+              "timeoutMs": 5000
+            }
+          ]
+        },
+        {
+          "id": "button_k1uqde",
+          "type": "button",
+          "x": 168.060899235085,
+          "y": 79.66502312616927,
+          "width": 125.29259479079795,
+          "height": 59.22673037539251,
+          "rotation": 0,
+          "opacity": 0,
+          "minWidth": 60,
+          "minHeight": 24,
+          "tagIndexingByField": {},
+          "text": "Start",
+          "showText": true,
+          "backgroundColor": "#0958d9",
+          "pressedBackgroundColor": "#0747b3",
+          "disabledBackgroundColor": "#434343",
+          "borderColor": "#0958d9",
+          "borderWidth": 1,
+          "gradientEnabled": false,
+          "gradientDirection": "horizontal",
+          "textStyle": {
+            "fontFamily": "Arial",
+            "fontSize": 16,
+            "fontStyle": "normal",
+            "color": "#ffffff",
+            "horizontalAlign": "center",
+            "verticalAlign": "middle",
+            "padding": 4
+          },
+          "action": {
+            "type": "openPopup",
+            "popupScreenId": "popup_5",
+            "title": "Управление ПЗК-1",
+            "tagIndexRules": [
+              {
+                "id": "frame-index-rule-1780570270247-bs7vbp",
+                "enabled": true,
+                "name": "r1",
+                "indexOffset": 0,
+                "indexOffsetSource": {
+                  "type": "tag",
+                  "tag": "burner_valve_index"
+                },
+                "indexMode": {
+                  "type": "arrayIndex",
+                  "occurrence": 0,
+                  "operation": "add",
+                  "valueFrom": "indexOffset"
+                },
+                "conflictMode": "skipLocal"
+              }
+            ]
+          },
+          "actions": [
+            {
+              "id": "action_fa4486d5-b57b-40c0-90ea-dbfb25efdc6b",
+              "name": "",
+              "enabled": true,
+              "action": {
+                "type": "write",
+                "tag": "burner_valve_index",
+                "value": 2
+              },
+              "onError": "showErrorAndStop",
+              "timeoutMs": 5000
+            },
+            {
+              "id": "legacy-action",
+              "enabled": true,
+              "action": {
+                "type": "openPopup",
+                "popupScreenId": "popup_5",
+                "title": "Управление клапаном",
+                "tagIndexRules": [
+                  {
+                    "id": "frame-index-rule-1780570270247-bs7vbp",
+                    "enabled": true,
+                    "name": "r1",
+                    "indexOffset": 0,
+                    "indexOffsetSource": {
+                      "type": "static",
+                      "value": 0
                     },
                     "indexMode": {
                       "type": "arrayIndex",
@@ -89119,6 +89289,23 @@
           "height": 44,
           "minWidth": 60,
           "minHeight": 24,
+          "tagIndexingByField": {
+            "action.tag": {
+              "enabled": true,
+              "template": "Application.GVL_BURNER_VALVE.open[0]",
+              "bindings": [
+                {
+                  "key": "INDEX_1",
+                  "slotIndex": 0,
+                  "baseValue": 0,
+                  "source": "tag",
+                  "sourceName": "burner_valve_index",
+                  "constantValue": 0,
+                  "offset": 0
+                }
+              ]
+            }
+          },
           "text": "OPEN",
           "showText": true,
           "backgroundColor": "#0958d9",
@@ -89142,7 +89329,7 @@
             "tag": "Application.GVL_BURNER_VALVE.open[0]",
             "value": true,
             "durationMs": 1,
-            "requireAuth": true
+            "requireAuth": false
           }
         },
         {
@@ -89154,6 +89341,23 @@
           "height": 44,
           "minWidth": 60,
           "minHeight": 24,
+          "tagIndexingByField": {
+            "action.tag": {
+              "enabled": true,
+              "template": "Application.GVL_BURNER_VALVE.closed[0]",
+              "bindings": [
+                {
+                  "key": "INDEX_1",
+                  "slotIndex": 0,
+                  "baseValue": 0,
+                  "source": "tag",
+                  "sourceName": "burner_valve_index",
+                  "constantValue": 0,
+                  "offset": 0
+                }
+              ]
+            }
+          },
           "text": "CLOSED",
           "showText": true,
           "backgroundColor": "#0958d9",
@@ -89182,15 +89386,15 @@
         {
           "id": "sel_p8803k",
           "type": "select",
-          "x": 91.88505411558683,
-          "y": 32.125765711051216,
+          "x": 92.44606392583907,
+          "y": 29.320716533989255,
           "width": 271.39488310514673,
           "height": 31.999999999999947,
           "rotation": 0,
           "minWidth": 80,
           "minHeight": 24,
-          "visibleTag": "burner_valve_index",
-          "disabledTag": "burner_valve_index",
+          "visibleTag": "",
+          "disabledTag": "",
           "tag": "burner_valve_index",
           "writeTag": "burner_valve_index",
           "options": [

@@ -2147,7 +2147,13 @@ function createDefaultRuntimeAction(type: RuntimeAction["type"], project: ScadaP
   if (type === "hold") return { type, tag: "" };
   if (type === "toggle") return { type, tag: "" };
   if (type === "openScreen") return { type, screenId: project.screens[0]?.id ?? "" };
-  if (type === "openPopup") return { type, popupScreenId: project.screens.find((screen) => screen.kind === "popup")?.id ?? "" };
+  if (type === "openPopup") {
+    return {
+      type,
+      popupScreenId: project.screens.find((screen) => screen.kind === "popup")?.id ?? "",
+      popupOpenMode: "reuseByPopup",
+    };
+  }
   if (type === "runMacro") return { type, macroId: "" };
   if (type === "setInternalVar") return { type, name: "selectedBurnerPrefix", value: "_1" };
   if (type === "setLW") return { type, address: 20, value: 0 };
@@ -2240,6 +2246,16 @@ function RuntimeActionEditor({
           </Form.Item>
           <Form.Item label="Popup Title">
             <Input value={action.title ?? ""} onChange={(event) => onChange({ ...action, title: event.target.value })} />
+          </Form.Item>
+          <Form.Item label="Open Mode">
+            <Select
+              value={action.popupOpenMode ?? "reuseByPopup"}
+              options={[
+                { label: "Reuse popup", value: "reuseByPopup" },
+                { label: "Open copy", value: "newInstance" },
+              ]}
+              onChange={(popupOpenMode) => onChange({ ...action, popupOpenMode })}
+            />
           </Form.Item>
           <Form.Item label="Popup Tag Prefix">
             <Input value={action.tagPrefix ?? ""} onChange={(event) => onChange({ ...action, tagPrefix: event.target.value })} />
@@ -3070,7 +3086,7 @@ function SpecificPropertyFields({
               }
               if (value === "openPopup") {
                 const popup = project.screens.find((s) => s.kind === "popup");
-                onPatch({ action: { type: "openPopup", popupScreenId: popup?.id ?? "" } } as Partial<HmiObject>);
+                onPatch({ action: { type: "openPopup", popupScreenId: popup?.id ?? "", popupOpenMode: "reuseByPopup" } } as Partial<HmiObject>);
                 return;
               }
               if (value === "setInternalVar") {
@@ -3249,6 +3265,23 @@ function SpecificPropertyFields({
                     action: {
                       ...openPopupAction,
                       title: event.target.value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Open Mode">
+              <Select
+                value={openPopupAction.popupOpenMode ?? "reuseByPopup"}
+                options={[
+                  { label: "Reuse popup", value: "reuseByPopup" },
+                  { label: "Open copy", value: "newInstance" },
+                ]}
+                onChange={(popupOpenMode) =>
+                  onPatch({
+                    action: {
+                      ...openPopupAction,
+                      popupOpenMode,
                     },
                   } as Partial<HmiObject>)
                 }
@@ -3621,7 +3654,7 @@ function SpecificPropertyFields({
               }
               if (value === "openPopup") {
                 const popup = project.screens.find((s) => s.kind === "popup");
-                onPatch({ action: { type: "openPopup", popupScreenId: popup?.id ?? "" } } as Partial<HmiObject>);
+                onPatch({ action: { type: "openPopup", popupScreenId: popup?.id ?? "", popupOpenMode: "reuseByPopup" } } as Partial<HmiObject>);
                 return;
               }
               onPatch({ action: { type: "runMacro", macroId: "" } } as Partial<HmiObject>);
@@ -3773,6 +3806,23 @@ function SpecificPropertyFields({
                     action: {
                       ...imageOpenPopupAction,
                       title: event.target.value,
+                    },
+                  } as Partial<HmiObject>)
+                }
+              />
+            </Form.Item>
+            <Form.Item label="Open Mode">
+              <Select
+                value={imageOpenPopupAction.popupOpenMode ?? "reuseByPopup"}
+                options={[
+                  { label: "Reuse popup", value: "reuseByPopup" },
+                  { label: "Open copy", value: "newInstance" },
+                ]}
+                onChange={(popupOpenMode) =>
+                  onPatch({
+                    action: {
+                      ...imageOpenPopupAction,
+                      popupOpenMode,
                     },
                   } as Partial<HmiObject>)
                 }

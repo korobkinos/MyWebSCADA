@@ -283,6 +283,7 @@ export type RuntimeAction = {
       title?: string;
       x?: number;
       y?: number;
+      popupOpenMode?: "reuseByPopup" | "newInstance";
       tagPrefix?: string;
       tagIndexRules?: FrameTagIndexRule[];
       args?: Record<string, unknown>;
