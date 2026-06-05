@@ -146,6 +146,7 @@ async function bootstrap(): Promise<void> {
     authService,
     archiveService,
     eventEngine,
+    wsGateway,
   });
 
   await wsGateway.register(app);

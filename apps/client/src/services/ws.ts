@@ -6,6 +6,7 @@ import {
   type RuntimeAction,
   type RuntimeWsClientMessage,
   type RuntimeWsServerMessage,
+  type ScadaProject,
   type TagValue,
 } from "@web-scada/shared";
 import {
@@ -20,6 +21,7 @@ import { incrementRuntimeDiagnosticMetric, recordWebSocketTagPacket } from "./ru
 type WsCallbacks = {
   onTagValues: (values: TagValue[]) => void;
   onDriverStatuses?: (statuses: DriverStatus[]) => void;
+  onProjectUpdate?: (project: ScadaProject) => void;
   onEventUpdate?: (payload: {
     kind: "active" | "cleared" | "acknowledged";
     occurrence: EventOccurrence;
@@ -214,36 +216,7 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
   };
 
   const onSocketMessage = (event: MessageEvent<string>) => {
-    const parsed = JSON.parse(event.data) as RuntimeWsServerMessage;
-
-    if (parsed.type === "tag-update") {
-      recordWebSocketTagPacket(1);
-      callbacks.onTagValues([
-        {
-          ...parsed.payload,
-          source: parsed.payload.source ?? "ws",
-        },
-      ]);
-      return;
-    }
-
-    if (parsed.type === "tag-batch") {
-      recordWebSocketTagPacket(parsed.payload.updates.length);
-      callbacks.onTagValues(parsed.payload.updates.map((update) => ({
-        ...update,
-        source: update.source ?? "ws",
-      })));
-      return;
-    }
-
-    if (parsed.type === "event-update") {
-      callbacks.onEventUpdate?.(parsed.payload);
-      return;
-    }
-
-    if (parsed.type === "driver-statuses") {
-      callbacks.onDriverStatuses?.(parsed.payload.statuses);
-    }
+    handleRuntimeWsServerMessage(JSON.parse(event.data) as RuntimeWsServerMessage, callbacks);
   };
 
   const connect = async () => {
@@ -371,6 +344,42 @@ export function createRuntimeSocket(callbacks: WsCallbacks, options?: RuntimeSoc
     controller.subscribeTags(pendingGlobalSubscriptions);
   }
   return controller;
+}
+
+export function handleRuntimeWsServerMessage(parsed: RuntimeWsServerMessage, callbacks: WsCallbacks): void {
+  if (parsed.type === "tag-update") {
+    recordWebSocketTagPacket(1);
+    callbacks.onTagValues([
+      {
+        ...parsed.payload,
+        source: parsed.payload.source ?? "ws",
+      },
+    ]);
+    return;
+  }
+
+  if (parsed.type === "tag-batch") {
+    recordWebSocketTagPacket(parsed.payload.updates.length);
+    callbacks.onTagValues(parsed.payload.updates.map((update) => ({
+      ...update,
+      source: update.source ?? "ws",
+    })));
+    return;
+  }
+
+  if (parsed.type === "event-update") {
+    callbacks.onEventUpdate?.(parsed.payload);
+    return;
+  }
+
+  if (parsed.type === "driver-statuses") {
+    callbacks.onDriverStatuses?.(parsed.payload.statuses);
+    return;
+  }
+
+  if (parsed.type === "project-update") {
+    callbacks.onProjectUpdate?.(parsed.payload.project);
+  }
 }
 
 export function updateRuntimeTagSubscriptions(tags: string[]): void {

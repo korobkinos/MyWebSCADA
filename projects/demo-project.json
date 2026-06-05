@@ -89178,6 +89178,89 @@
             "value": true,
             "durationMs": 500
           }
+        },
+        {
+          "id": "sel_p8803k",
+          "type": "select",
+          "x": 86.83596582331663,
+          "y": 24.271628015277724,
+          "width": 271.39488310514673,
+          "height": 31.999999999999947,
+          "rotation": 0,
+          "minWidth": 80,
+          "minHeight": 24,
+          "visibleTag": "burner_valve_index",
+          "disabledTag": "burner_valve_index",
+          "tag": "burner_valve_index",
+          "writeTag": "burner_valve_index",
+          "options": [
+            {
+              "label": "ПЗК-1",
+              "value": 0
+            },
+            {
+              "label": "ПЗК-2",
+              "value": 1
+            },
+            {
+              "label": "Клапан безопасности",
+              "value": 2
+            },
+            {
+              "label": "Клапан опрессовки",
+              "value": 3
+            },
+            {
+              "label": "Клапан запальника",
+              "value": 4
+            },
+            {
+              "label": "Запальник",
+              "value": 5
+            },
+            {
+              "label": "ШВ",
+              "value": 6
+            },
+            {
+              "label": "ЗГ",
+              "value": 7
+            },
+            {
+              "label": "Пламя",
+              "value": 9
+            },
+            {
+              "label": "Искра",
+              "value": 10
+            }
+          ],
+          "placeholder": "Выбор задвижки...",
+          "backgroundColor": "#1e1e1e",
+          "borderColor": "#3c3c3c",
+          "borderWidth": 1,
+          "cornerRadius": 4,
+          "textColor": "#cccccc",
+          "placeholderColor": "#8c8c8c",
+          "fontFamily": "Consolas",
+          "fontSize": 12,
+          "padding": 8,
+          "arrowColor": "#cccccc",
+          "dropdownBackgroundColor": "#252526",
+          "dropdownBorderColor": "#3c3c3c",
+          "optionTextColor": "#cccccc",
+          "optionHoverColor": "#2d2d2d",
+          "optionSelectedColor": "rgba(14, 99, 156, 0.3)",
+          "optionSelectedTextColor": "#ffffff",
+          "dropdownMaxHeight": 200,
+          "dropdownOffsetY": 2,
+          "optionHeight": 28,
+          "arrowAreaWidth": 24,
+          "badTextColor": "#f14c4c",
+          "badBackgroundColor": "#2b1a1a",
+          "badBorderColor": "#a03030",
+          "disabledBackgroundColor": "#3d3d3d",
+          "disabledTextColor": "#8c8c8c"
         }
       ],
       "popupOptions": {

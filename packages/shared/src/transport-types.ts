@@ -1,7 +1,7 @@
 import type { ManualCommandMeta } from "./runtime-command-types";
 import type { EventOccurrence } from "./event-types";
 import type { RuntimeAction } from "./hmi-object-types";
-import type { DriverStatus } from "./project-types";
+import type { DriverStatus, ScadaProject } from "./project-types";
 
 export type TagUpdateMessage = {
   type: "tag-update";
@@ -38,6 +38,13 @@ export type DriverStatusesMessage = {
   };
 };
 
+export type ProjectUpdateMessage = {
+  type: "project-update";
+  payload: {
+    project: ScadaProject;
+  };
+};
+
 export type WriteTagMessage = {
   type: "write-tag";
   payload: {
@@ -54,5 +61,10 @@ export type SubscribeTagsMessage = {
   };
 };
 
-export type RuntimeWsServerMessage = TagUpdateMessage | TagBatchUpdateMessage | EventUpdateMessage | DriverStatusesMessage;
+export type RuntimeWsServerMessage =
+  | TagUpdateMessage
+  | TagBatchUpdateMessage
+  | EventUpdateMessage
+  | DriverStatusesMessage
+  | ProjectUpdateMessage;
 export type RuntimeWsClientMessage = WriteTagMessage | SubscribeTagsMessage;

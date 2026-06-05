@@ -829,6 +829,7 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     set({
       project: next,
       assets: next.assets ?? [],
+      macros: next.macros ?? get().macros,
       currentScreenId: nextCurrentScreenId,
       selection: { selectedObjectIds: [] },
     });

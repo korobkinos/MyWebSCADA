@@ -69,6 +69,7 @@ import { MacroService } from "../runtime/macro-service.js";
 import { RuntimeService } from "../runtime/runtime-service.js";
 import { TagStore } from "../tags/tag-store.js";
 import { ManualCommandError, toManualCommandStatusCode } from "../runtime/manual-command-error.js";
+import type { WebSocketGateway } from "../websocket/websocket-gateway.js";
 
 type ApiDeps = {
   projectService: ProjectService;
@@ -86,6 +87,7 @@ type ApiDeps = {
   authService: AuthService;
   archiveService?: ArchiveService;
   eventEngine?: EventEngine;
+  wsGateway?: WebSocketGateway;
 };
 
 type LibraryElementUsage = {
@@ -1302,6 +1304,7 @@ async function persistProjectUpdate(deps: ApiDeps, nextProject: ScadaProject): P
     await deps.eventEngine?.start(saved);
   }
 
+  deps.wsGateway?.broadcastProjectUpdate(saved);
   return saved;
 }
 
