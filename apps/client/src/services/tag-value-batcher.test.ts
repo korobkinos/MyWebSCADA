@@ -1,5 +1,5 @@
 import type { TagValue } from "@web-scada/shared";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTagValueBatcher } from "./tag-value-batcher";
 
 function tag(name: string, value: TagValue["value"]): TagValue {
@@ -13,6 +13,10 @@ function tag(name: string, value: TagValue["value"]): TagValue {
 }
 
 describe("createTagValueBatcher", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("merges packets by tag name and flushes only the latest value", () => {
     const scheduled: Array<() => void> = [];
     const flushed: TagValue[][] = [];
@@ -57,5 +61,17 @@ describe("createTagValueBatcher", () => {
     scheduled[0]!();
 
     expect(flushed).toEqual([]);
+  });
+
+  it("flushes small default batches without a fixed 100ms delay", () => {
+    vi.useFakeTimers();
+    const flushed: TagValue[][] = [];
+    const batcher = createTagValueBatcher((values) => flushed.push(values));
+
+    batcher.push([tag("A", 1)]);
+    vi.advanceTimersByTime(50);
+
+    expect(flushed).toHaveLength(1);
+    batcher.close();
   });
 });

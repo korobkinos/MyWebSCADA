@@ -1997,7 +1997,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiDeps): Pr
       return;
     }
     if (!deps.archiveService?.isEnabled()) {
-      return reply.code(503).send({ message: "Event archive database is not configured" });
+      return reply.send([]);
     }
     const parsed = eventActiveQuerySchema.parse(request.query ?? {});
     const limit = parsed.limit ?? 200;

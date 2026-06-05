@@ -68,6 +68,7 @@ export type OpcUaDriverConfig = DriverBaseConfig & {
   securityPolicy?: "None" | "Basic256Sha256";
   securityMode?: "None" | "Sign" | "SignAndEncrypt";
   readMode?: "polling" | "subscription";
+  subscriptionScope?: "all" | "active";
   publishingIntervalMs?: number;
   samplingIntervalMs?: number;
   queueSize?: number;

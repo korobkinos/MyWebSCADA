@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ScadaProject } from "@web-scada/shared";
-import { collectAlwaysActiveEventTags } from "./runtime-service.js";
+import type { OpcUaDriverConfig, ScadaProject, TagDefinition } from "@web-scada/shared";
+import { collectAlwaysActiveEventTags, shouldSubscribeOpcUaTagAtStartup } from "./runtime-service.js";
 
 function createProject(events: NonNullable<ScadaProject["events"]>): Pick<ScadaProject, "events"> {
   return { events };
@@ -64,6 +64,32 @@ describe("collectAlwaysActiveEventTags", () => {
     ]));
 
     expect(tags).toEqual(["Tag.Common"]);
+  });
+});
+
+describe("shouldSubscribeOpcUaTagAtStartup", () => {
+  const tag: TagDefinition = {
+    name: "PV",
+    dataType: "REAL",
+    sourceType: "opcua",
+    driverId: "opc",
+    nodeId: "ns=1;s=PV",
+  };
+  const driver: OpcUaDriverConfig = {
+    id: "opc",
+    type: "opcua",
+    enabled: true,
+    endpointUrl: "opc.tcp://localhost:4840",
+    readMode: "subscription",
+  };
+
+  it("keeps all-tags subscription as the default", () => {
+    expect(shouldSubscribeOpcUaTagAtStartup(tag, driver, false)).toBe(true);
+  });
+
+  it("limits startup subscription to persistent active tags when configured", () => {
+    expect(shouldSubscribeOpcUaTagAtStartup(tag, { ...driver, subscriptionScope: "active" }, false)).toBe(false);
+    expect(shouldSubscribeOpcUaTagAtStartup(tag, { ...driver, subscriptionScope: "active" }, true)).toBe(true);
   });
 });
 

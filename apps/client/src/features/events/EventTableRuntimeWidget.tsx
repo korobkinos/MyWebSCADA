@@ -1051,8 +1051,7 @@ export function EventTableRuntimeWidget({
       return;
     }
     void eventRuntimeStore.initializeOnline();
-    void eventRuntimeStore.reloadOnline(Math.min(1000, Math.max(200, maxRows * 2)));
-  }, [maxRows, mode]);
+  }, [mode]);
 
   const historyQuery = useMemo(
     () => buildEventTableHistoryQuery({ object, page: historyPage, pageSize, maxRows }),

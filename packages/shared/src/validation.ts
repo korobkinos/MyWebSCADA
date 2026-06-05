@@ -1570,6 +1570,7 @@ const opcuaDriverSchema = z.object({
   securityPolicy: z.enum(["None", "Basic256Sha256"]).optional(),
   securityMode: z.enum(["None", "Sign", "SignAndEncrypt"]).optional(),
   readMode: z.enum(["polling", "subscription"]).optional(),
+  subscriptionScope: z.enum(["all", "active"]).optional(),
   publishingIntervalMs: z.number().int().positive().optional(),
   samplingIntervalMs: z.number().int().positive().optional(),
   queueSize: z.number().int().positive().optional(),

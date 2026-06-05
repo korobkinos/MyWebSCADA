@@ -27,6 +27,20 @@ export function collectAlwaysActiveEventTags(project: Pick<ScadaProject, "events
   return [...refs];
 }
 
+export function shouldSubscribeOpcUaTagAtStartup(
+  tag: TagDefinition,
+  driver: OpcUaDriverConfig | undefined,
+  isPersistentActive: boolean,
+): boolean {
+  if (tag.sourceType !== "opcua" || !tag.driverId || !driver) {
+    return false;
+  }
+  if ((driver.readMode ?? "subscription") !== "subscription") {
+    return false;
+  }
+  return (driver.subscriptionScope ?? "all") === "all" || isPersistentActive;
+}
+
 export class RuntimeService {
   private readonly rateTimers = new Map<number, NodeJS.Timeout>();
   private readonly pollGroups = new Map<number, TagDefinition[]>();
@@ -208,6 +222,7 @@ export class RuntimeService {
       void this.pollTagsNow(newlyActivated);
       for (const name of newlyActivated) {
         this.activateTagForPolling(name);
+        this.activateTagForSubscription(name);
       }
     }
   }
@@ -245,6 +260,28 @@ export class RuntimeService {
     }
   }
 
+  private activateTagForSubscription(tagName: string): void {
+    const definition = this.tagDefinitionsByName.get(tagName);
+    if (!definition || definition.sourceType !== "opcua" || !definition.driverId) {
+      return;
+    }
+    const group = this.subscriptionGroups.get(definition.driverId);
+    if (!group || group.some((item) => item.name === tagName)) {
+      return;
+    }
+    group.push(definition);
+    if (this.state.running) {
+      void this.driverManager.subscribeTags(definition.driverId, group, (values) => {
+        this.handleSubscriptionValues(values);
+      }).catch((error) => {
+        if (this.runtimeDebug) {
+          const text = error instanceof Error ? error.message : String(error);
+          console.warn(`[RuntimeService] subscribeTags failed driverId=${definition.driverId} error=${text}`);
+        }
+      });
+    }
+  }
+
   private configurePersistentActiveTags(project: ScadaProject): void {
     this.persistentActiveTagNames.clear();
     for (const tag of collectAlwaysActiveMacroTags(project.macros)) {
@@ -279,12 +316,18 @@ export class RuntimeService {
       if (tag.sourceType === "opcua" && tag.driverId) {
         const driver = opcById.get(tag.driverId);
         const readMode = driver?.readMode ?? "subscription";
-        if (readMode === "subscription") {
+        if (shouldSubscribeOpcUaTagAtStartup(tag, driver, this.persistentActiveTagNames.has(tag.name))) {
           const group = this.subscriptionGroups.get(tag.driverId);
           if (group) {
             group.push(tag);
           } else {
             this.subscriptionGroups.set(tag.driverId, [tag]);
+          }
+          continue;
+        }
+        if (readMode === "subscription" && driver?.subscriptionScope === "active") {
+          if (!this.subscriptionGroups.has(tag.driverId)) {
+            this.subscriptionGroups.set(tag.driverId, []);
           }
           continue;
         }

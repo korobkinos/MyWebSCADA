@@ -145,10 +145,6 @@ export function App() {
     }
     const tagBatcher = createTagValueBatcher(
       (values) => startTransition(() => setTagValues(values)),
-      {
-        schedule: (callback) => setTimeout(callback, 200),
-        cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-      },
     );
     const socket = createRuntimeSocket({
       onTagValues: (values) => tagBatcher.push(values),

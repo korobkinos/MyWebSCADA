@@ -28,6 +28,8 @@ import { api, isAbortError } from "../services/api";
 import { recordSetTagValuesCall } from "../services/runtime-diagnostics";
 
 type TagMap = Record<string, TagValue>;
+const TAG_MAP_MAX_OVERLAY_KEYS = 512;
+const tagMapOverlayMeta = new WeakMap<object, { base: TagMap; overrides: TagMap }>();
 
 type ScadaState = {
   project: ScadaProject | null;
@@ -116,6 +118,55 @@ function toTagMap(items: TagSnapshot[]): TagMap {
     acc[item.definition.name] = item.value;
     return acc;
   }, {});
+}
+
+function createPatchedTagMap(base: TagMap, updates: TagMap): TagMap {
+  const meta = tagMapOverlayMeta.get(base);
+  const rootBase = meta?.base ?? base;
+  const overrides: TagMap = {};
+  if (meta) {
+    for (const key of Object.keys(meta.overrides)) {
+      const value = meta.overrides[key];
+      if (value) {
+        overrides[key] = value;
+      }
+    }
+  }
+  for (const key of Object.keys(updates)) {
+    const value = updates[key];
+    if (value) {
+      overrides[key] = value;
+    }
+  }
+
+  if (Object.keys(overrides).length > TAG_MAP_MAX_OVERLAY_KEYS) {
+    const compact: TagMap = {};
+    for (const key of Object.keys(rootBase)) {
+      const value = rootBase[key];
+      if (value) {
+        compact[key] = value;
+      }
+    }
+    for (const key of Object.keys(overrides)) {
+      const value = overrides[key];
+      if (value) {
+        compact[key] = value;
+      }
+    }
+    return compact;
+  }
+
+  const overlay = Object.create(rootBase) as TagMap;
+  for (const key of Object.keys(overrides)) {
+    Object.defineProperty(overlay, key, {
+      configurable: true,
+      enumerable: true,
+      value: overrides[key],
+      writable: false,
+    });
+  }
+  tagMapOverlayMeta.set(overlay, { base: rootBase, overrides });
+  return overlay;
 }
 
 function areDriverStatusListsEqual(left: DriverStatus[], right: DriverStatus[]): boolean {
@@ -443,7 +494,7 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
     }
     recordSetTagValuesCall(values.length);
     set((state) => {
-      let nextTags: TagMap | undefined;
+      const changedTags: TagMap = {};
       let tagsChanged = false;
 
       for (const value of values) {
@@ -456,12 +507,8 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
         ) {
           continue;
         }
-        if (!nextTags) {
-          // Object.assign is faster than spread for large objects (6000+ tags)
-          nextTags = Object.assign({}, state.tags);
-        }
         tagsChanged = true;
-        nextTags[value.name] = value;
+        changedTags[value.name] = value;
       }
 
       if (!tagsChanged) {
@@ -469,7 +516,7 @@ export const useScadaStore = create<ScadaState>((set, get) => ({
       }
 
       return {
-        tags: nextTags ?? state.tags,
+        tags: createPatchedTagMap(state.tags, changedTags),
         tagSnapshots: state.tagSnapshots,
       };
     });

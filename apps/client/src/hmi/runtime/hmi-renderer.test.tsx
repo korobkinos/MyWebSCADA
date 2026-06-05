@@ -350,18 +350,99 @@ describe("areObjectNodePropsEqual", () => {
     expect(areObjectNodePropsEqual(createNodeProps(1, 10) as never, createNodeProps(1, 10, "Bad") as never)).toBe(false);
   });
 
-  it("rerenders indexed objects when runtime tags map changes", () => {
+  it("rerenders indexed objects when index dependency tags change", () => {
     const indexedObject = {
       ...object,
       tagIndexing: {
         enabled: true,
-        template: "ns=1;s=PV[1]",
-        bindings: [],
+        template: "PV[0]",
+        bindings: [{
+          key: "INDEX_1",
+          slotIndex: 0,
+          baseValue: 0,
+          source: "tag",
+          sourceName: "Counter",
+          constantValue: 0,
+          offset: 0,
+        }],
       },
     } as HmiObject;
-    const prev = createNodeProps(1, 10);
-    const next = createNodeProps(1, 11);
+    const indexedProject = {
+      ...project,
+      tags: [
+        { name: "PV[0]", dataType: "REAL", sourceType: "simulated" },
+        { name: "PV[1]", dataType: "REAL", sourceType: "simulated" },
+        { name: "Counter", dataType: "INT", sourceType: "simulated" },
+      ] as TagDefinition[],
+    };
+    const prev = {
+      ...createNodeProps(1, 10),
+      project: indexedProject,
+      tags: {
+        Counter: { name: "Counter", value: 0, quality: "Good", timestamp: 1, source: "test" },
+        "PV[0]": { name: "PV[0]", value: 10, quality: "Good", timestamp: 1, source: "test" },
+        "PV[1]": { name: "PV[1]", value: 11, quality: "Good", timestamp: 1, source: "test" },
+      },
+    };
+    const next = {
+      ...prev,
+      tags: {
+        ...prev.tags,
+        Counter: { name: "Counter", value: 1, quality: "Good", timestamp: 2, source: "test" },
+      },
+    };
 
     expect(areObjectNodePropsEqual({ ...prev, object: indexedObject } as never, { ...next, object: indexedObject } as never)).toBe(false);
+  });
+
+  it("ignores unrelated tag changes for frame containers", () => {
+    const frameObject = {
+      id: "frame",
+      type: "frame",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      screenId: "child",
+    } as HmiObject;
+    const childScreen: HmiScreen = {
+      id: "child",
+      name: "Child",
+      kind: "screen",
+      width: 100,
+      height: 100,
+      background: "transparent",
+      objects: [{
+        id: "child-value",
+        type: "value-display",
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 20,
+        tag: "PV",
+      } as HmiObject],
+    };
+    const frameProject = {
+      ...project,
+      screens: [childScreen],
+    };
+    const prev = {
+      ...createNodeProps(1, 10),
+      object: frameObject,
+      project: frameProject,
+      tags: {
+        PV: { name: "PV", value: 10, quality: "Good", timestamp: 1, source: "test" },
+        Other: { name: "Other", value: 1, quality: "Good", timestamp: 1, source: "test" },
+      },
+    };
+    const next = {
+      ...prev,
+      tags: {
+        PV: { name: "PV", value: 10, quality: "Good", timestamp: 2, source: "test" },
+        Other: { name: "Other", value: 2, quality: "Good", timestamp: 2, source: "test" },
+      },
+    };
+
+    expect(areObjectNodePropsEqual(prev as never, next as never)).toBe(true);
   });
 });

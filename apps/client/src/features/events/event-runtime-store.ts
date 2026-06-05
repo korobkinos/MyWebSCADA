@@ -65,6 +65,7 @@ let pendingOnlineSnapshotFlush = false;
 let lastDebugLogAt = 0;
 let archiveStatusLoadedAt: number | null = null;
 let archiveStatusInFlight: Promise<void> | null = null;
+let onlineArchiveSnapshotUnavailable = false;
 let state: EventRuntimeState = {
   activeEvents: [],
   recentEvents: [],
@@ -91,6 +92,16 @@ function formatError(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function isArchiveUnavailableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as { status?: unknown; message?: unknown };
+  return candidate.status === 503
+    && typeof candidate.message === "string"
+    && candidate.message.toLowerCase().includes("archive database is not configured");
 }
 
 function emit(): void {
@@ -406,6 +417,7 @@ export const eventRuntimeStore = {
         limit: DEFAULT_ONLINE_LIMIT,
         includeClearedUnacknowledged: true,
       });
+      onlineArchiveSnapshotUnavailable = false;
 
       onlineMap.clear();
       for (const item of active) {
@@ -421,6 +433,16 @@ export const eventRuntimeStore = {
         onlineError: null,
       });
     } catch (error) {
+      if (isArchiveUnavailableError(error)) {
+        onlineArchiveSnapshotUnavailable = true;
+        onlineMap.clear();
+        flushOnlineSnapshotNow("initialize-online-archive-unavailable");
+        patchState({
+          onlineLoading: false,
+          onlineError: null,
+        });
+        return;
+      }
       patchState({
         onlineLoading: false,
         onlineError: formatError(error),
@@ -429,6 +451,9 @@ export const eventRuntimeStore = {
   },
 
   async reloadOnline(limit?: number): Promise<void> {
+    if (onlineArchiveSnapshotUnavailable) {
+      return;
+    }
     patchState({ onlineLoading: true, onlineError: null });
     try {
       const active = await api.getActiveEvents({

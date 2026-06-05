@@ -1511,29 +1511,29 @@ export function areObjectNodePropsEqual(prev: BaseNodeProps, next: BaseNodeProps
 
   const watchedTags = collectWatchedTags(next.object, next.renderContext);
   if (!watchedTags) {
-    // For containers and indexed objects, compare dependency tags.
-    // Container types (frame, libraryElementInstance) must re-render
-    // so children can see new tags — use full tags comparison for them.
-    if (next.object.type === "libraryElementInstance" || next.object.type === "frame") {
-      return prev.tags === next.tags;
-    }
-    // Indexed objects: compare only their dependency tags, not the entire tags object.
-    if (hasObjectTagIndexing(next.object)) {
-      const deps = collectContainerDependencyTags(next.object, next.renderContext);
-      if (!deps) {
-        // No concrete dependency tags — fall back to full comparison
-        return prev.tags === next.tags;
-      }
-      for (const tagName of deps) {
-        const left = prev.tags[tagName];
-        const right = next.tags[tagName];
-        if (!left && !right) continue;
-        if (!left || !right) return false;
-        if (left.value !== right.value || left.quality !== right.quality) return false;
-      }
+    const resolvedWatchedTags = collectRuntimeObjectResolvedTags({
+      project: next.project,
+      libraries: next.libraries,
+      object: next.object,
+      renderContext: next.renderContext,
+      tags: next.tags,
+    });
+    if (resolvedWatchedTags.length === 0) {
       return true;
     }
-    // Objects with no direct tag bindings: skip tag-driven re-render.
+    for (const tagName of resolvedWatchedTags) {
+      const left = prev.tags[tagName];
+      const right = next.tags[tagName];
+      if (!left && !right) {
+        continue;
+      }
+      if (!left || !right) {
+        return false;
+      }
+      if (left.value !== right.value || left.quality !== right.quality) {
+        return false;
+      }
+    }
     return true;
   }
   for (const tagName of watchedTags) {
@@ -1589,67 +1589,6 @@ function buildIndexedTagCacheKey(input: {
     stableJsonForCache(config),
     dependencySignature,
   ].join("\u001f");
-}
-
-function hasObjectTagIndexing(object: HmiObject): boolean {
-  return object.tagIndexing?.enabled === true
-    || Object.values(object.tagIndexingByField ?? {}).some((config) => config?.enabled === true);
-}
-
-/**
- * Collects dependency tags for container/indexed objects.
- * These are the tags whose values determine whether the object must re-render.
- * Returns null if the object has children (frame/libraryInstance) — those always
- * need to re-render on any tag change to propagate tags to children.
- */
-function collectContainerDependencyTags(object: HmiObject, context: RenderContext): string[] | null {
-  // Frames and libraryInstances: always re-render (children need tag propagation)
-  if (object.type === "libraryElementInstance" || object.type === "frame") {
-    return null;
-  }
-
-  const tags = new Set<string>();
-
-  // Object-level tag indexing
-  if (object.tagIndexing?.enabled) {
-    const config = getObjectIndexedConfigForField(object, "tag");
-    if (config) {
-      for (const dep of collectBindingTagDependencies(config, context)) {
-        tags.add(dep);
-      }
-    }
-  }
-
-  // Per-field tag indexing
-  if (object.tagIndexingByField) {
-    for (const fieldName of Object.keys(object.tagIndexingByField)) {
-      const config = getObjectIndexedConfigForField(object, fieldName);
-      if (config) {
-        for (const dep of collectBindingTagDependencies(config, context)) {
-          tags.add(dep);
-        }
-      }
-    }
-  }
-
-  // Own tag bindings that all objects share
-  const obj = object as Record<string, unknown>;
-  for (const fieldName of ["visibleTag", "disabledTag", "rotationTag"]) {
-    const ownTag = obj[fieldName];
-    if (typeof ownTag === "string") {
-      const resolved = resolveTagName(ownTag, context);
-      if (resolved) {
-        tags.add(resolved);
-      }
-    }
-  }
-
-  // If no concrete dependency tags found, fall back to full comparison
-  if (tags.size === 0) {
-    return null;
-  }
-
-  return [...tags];
 }
 
 function serializeTagValueForCache(value: TagValue | undefined): string {

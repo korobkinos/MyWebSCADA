@@ -60,4 +60,33 @@ describe("eventRuntimeStore initializeOnline", () => {
     expect(snapshot.unacknowledgedCount).toBe(2);
     expect(snapshot.clearedUnacknowledgedCount).toBe(1);
   });
+
+  it("treats missing event archive as empty online snapshot and stops reload requests", async () => {
+    const error = Object.assign(new Error("Event archive database is not configured"), { status: 503 });
+    const getActiveEvents = vi.fn().mockRejectedValue(error);
+    const createRuntimeSocket = vi.fn(() => ({
+      close: vi.fn(),
+      writeTag: vi.fn(),
+      subscribeTags: vi.fn(),
+    }));
+
+    vi.doMock("../../services/api", () => ({
+      api: {
+        getActiveEvents,
+      },
+    }));
+    vi.doMock("../../services/ws", () => ({
+      createRuntimeSocket,
+    }));
+
+    const { eventRuntimeStore } = await import("./event-runtime-store");
+    await eventRuntimeStore.initializeOnline();
+    await eventRuntimeStore.reloadOnline(500);
+
+    const snapshot = eventRuntimeStore.getSnapshot();
+    expect(snapshot.onlineLoading).toBe(false);
+    expect(snapshot.onlineError).toBeNull();
+    expect(snapshot.activeEvents).toEqual([]);
+    expect(getActiveEvents).toHaveBeenCalledTimes(1);
+  });
 });

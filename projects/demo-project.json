@@ -88657,8 +88657,8 @@
             "type": "pulse",
             "tag": "Application.GVL_BURNER_VALVE.open[0]",
             "value": true,
-            "durationMs": 1,
-            "requireAuth": true
+            "durationMs": 500,
+            "requireAuth": false
           }
         },
         {
