@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Group, Layer, Rect, Stage, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
@@ -14,6 +15,7 @@ import type {
 } from "@web-scada/shared";
 import { HmiRenderer, type NumericInputOpenPayload, type ObjectSelectPayload, type RuntimeOverlayState, type RuntimeWidgetOverlayState } from "./hmi-renderer";
 import { sortObjectsByZIndex } from "../editor/z-order";
+import { resolveRuntimeOverlayViewportRect } from "./hmi-overlay-position";
 
 type TagMap = Record<string, TagValue>;
 
@@ -122,14 +124,32 @@ export function HmiStage({
   } | null>(null);
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [runtimeOverlay, setRuntimeOverlay] = useState<RuntimeOverlayState | null>(null);
+  const [runtimeOverlayViewportRect, setRuntimeOverlayViewportRect] = useState<{
+    left: number;
+    top: number;
+    width?: number;
+    height?: number;
+  } | null>(null);
   const [runtimeWidgetOverlays, setRuntimeWidgetOverlays] = useState<Record<string, RuntimeWidgetOverlayState>>({});
 
   const handleShowOverlay = useCallback((overlay: RuntimeOverlayState) => {
+    const wrapElement = wrapRef.current;
+    if (wrapElement) {
+      setRuntimeOverlayViewportRect(resolveRuntimeOverlayViewportRect({
+        wrapRect: wrapElement.getBoundingClientRect(),
+        scrollLeft: wrapElement.scrollLeft,
+        scrollTop: wrapElement.scrollTop,
+        overlay,
+      }));
+    } else {
+      setRuntimeOverlayViewportRect(null);
+    }
     setRuntimeOverlay(overlay);
   }, []);
 
   const handleHideOverlay = useCallback(() => {
     setRuntimeOverlay(null);
+    setRuntimeOverlayViewportRect(null);
   }, []);
 
   const handleUpsertWidgetOverlay = useCallback((overlay: RuntimeWidgetOverlayState) => {
@@ -166,10 +186,14 @@ export function HmiStage({
       if (!wrapElement || !target) {
         return;
       }
-      if (wrapElement.contains(target)) {
+      if (
+        wrapElement.contains(target)
+        || (target instanceof Element && Boolean(target.closest(".hmi-runtime-overlay")))
+      ) {
         return;
       }
       setRuntimeOverlay(null);
+      setRuntimeOverlayViewportRect(null);
     };
     window.addEventListener("mousedown", onWindowMouseDown);
     return () => window.removeEventListener("mousedown", onWindowMouseDown);
@@ -676,20 +700,21 @@ export function HmiStage({
           )}
         </Layer>
       </Stage>
-      {runtimeOverlay ? (
+      {runtimeOverlay && runtimeOverlayViewportRect ? createPortal(
         <div
           className="hmi-runtime-overlay"
           style={{
-            position: "absolute",
-            left: runtimeOverlay.x,
-            top: runtimeOverlay.y,
-            width: runtimeOverlay.width,
-            height: runtimeOverlay.height,
-            zIndex: 1000,
+            position: "fixed",
+            left: runtimeOverlayViewportRect.left,
+            top: runtimeOverlayViewportRect.top,
+            width: runtimeOverlayViewportRect.width,
+            height: runtimeOverlayViewportRect.height,
+            zIndex: 3000,
           }}
         >
           {runtimeOverlay.content}
-        </div>
+        </div>,
+        document.body,
       ) : null}
       {mode === "runtime"
         ? Object.values(runtimeWidgetOverlays).map((overlay) => (

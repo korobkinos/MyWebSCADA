@@ -53,7 +53,7 @@ import { TrendRuntimeWidget } from "../../features/trends/TrendRuntimeWidget";
 import { EventTableRuntimeWidget } from "../../features/events/EventTableRuntimeWidget";
 import { collectRuntimeObjectResolvedTags } from "./runtime-tag-subscriptions";
 import { diagnoseOpcUaCommunication } from "./runtime-opcua-communication";
-import { intersectsScreenBounds } from "./offscreen-filter";
+import { shouldRenderObjectForScreenBounds } from "./screen-bounds-culling";
 import { shouldRunRuntimeAnimationTick, shouldUpdateRuntimeFlowFrame } from "./runtime-animation-policy";
 import { executeButtonActionQueue } from "./button-action-queue";
 
@@ -1240,6 +1240,7 @@ type HmiRendererProps = {
   nodeIdPrefix?: string;
   renderFlowMode?: "all" | "none" | "only";
   disableOffscreenCulling?: boolean;
+  forceScreenBoundsCulling?: boolean;
 };
 
 type BaseNodeProps = {
@@ -1310,6 +1311,7 @@ export function HmiRenderer({
   nodeIdPrefix,
   renderFlowMode = "all",
   disableOffscreenCulling = false,
+  forceScreenBoundsCulling = false,
 }: HmiRendererProps) {
   const selectedSet = useMemo(() => new Set(selectedObjectIds), [selectedObjectIds]);
   const sortedObjects = useMemo(() => sortObjectsByZIndex(screen.objects), [screen.objects]);
@@ -1331,7 +1333,11 @@ export function HmiRenderer({
   return (
     <>
       {sortedObjects
-        .filter((object) => mode !== "runtime" || disableOffscreenCulling || intersectsScreenBounds(object, screen))
+        .filter((object) => shouldRenderObjectForScreenBounds(object, screen, {
+          mode,
+          disableOffscreenCulling,
+          forceScreenBoundsCulling,
+        }))
         .map((object) => (
         <Fragment key={object.id}>
           <MemoObjectNode
@@ -5561,40 +5567,43 @@ function FrameNode({
       ) : null}
 
       <Group
-        // Clip defaults to true so child screen is contained within frame area for combined screen composition.
         clip={object.clipContent ?? true ? { x: 0, y: 0, width: object.width, height: object.height } : undefined}
-        x={childScale.offsetX}
-        y={childScale.offsetY}
-        scaleX={childScale.scaleX}
-        scaleY={childScale.scaleY}
       >
-        <Rect x={0} y={0} width={screen.width} height={screen.height} fill={frameBackgroundColor} />
-        <HmiRenderer
-          project={project}
-          screen={screen}
-          mode={mode}
-          tags={tags}
-          drivers={drivers}
-          libraries={libraries}
-          renderContext={context}
-          frameStack={[...frameStack, screen.id]}
-          instanceStack={instanceStack}
-          interactive={false}
-          inheritedDisabled={inheritedDisabled}
-          onSelectObject={onSelectObject}
-          onMoveObject={onMoveObject}
-          onCommitObjectMove={onCommitObjectMove}
-          onResizeObject={onResizeObject}
-          onAction={onAction}
-          onRequestNumericInput={onRequestNumericInput}
-          scopedAssets={scopedAssets}
-          onUpsertWidgetOverlay={onUpsertWidgetOverlay}
-          onRemoveWidgetOverlay={onRemoveWidgetOverlay}
-          shadowDisabled={shadowDisabled}
-          nodeIdPrefix={`${nodeIdPrefix ?? ""}frame-${object.id}-`}
-          renderFlowMode={renderFlowMode}
-          disableOffscreenCulling={true}
-        />
+        <Group
+          x={childScale.offsetX}
+          y={childScale.offsetY}
+          scaleX={childScale.scaleX}
+          scaleY={childScale.scaleY}
+          clip={object.clipContent ?? true ? { x: 0, y: 0, width: screen.width, height: screen.height } : undefined}
+        >
+          <Rect x={0} y={0} width={screen.width} height={screen.height} fill={frameBackgroundColor} />
+          <HmiRenderer
+            project={project}
+            screen={screen}
+            mode={mode}
+            tags={tags}
+            drivers={drivers}
+            libraries={libraries}
+            renderContext={context}
+            frameStack={[...frameStack, screen.id]}
+            instanceStack={instanceStack}
+            interactive={false}
+            inheritedDisabled={inheritedDisabled}
+            onSelectObject={onSelectObject}
+            onMoveObject={onMoveObject}
+            onCommitObjectMove={onCommitObjectMove}
+            onResizeObject={onResizeObject}
+            onAction={onAction}
+            onRequestNumericInput={onRequestNumericInput}
+            scopedAssets={scopedAssets}
+            onUpsertWidgetOverlay={onUpsertWidgetOverlay}
+            onRemoveWidgetOverlay={onRemoveWidgetOverlay}
+            shadowDisabled={shadowDisabled}
+            nodeIdPrefix={`${nodeIdPrefix ?? ""}frame-${object.id}-`}
+            renderFlowMode={renderFlowMode}
+            forceScreenBoundsCulling
+          />
+        </Group>
       </Group>
       <SelectionOutline object={object} selected={selected} />
     </Group>
