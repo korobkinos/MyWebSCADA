@@ -1845,32 +1845,22 @@ function ObjectNode({
     };
   }, []);
 
-  // Clear indexed tag cache only when indexing configuration changes,
-  // not on every re-render. tagValue() handles invalidation via cache key.
-  // renderContext.parameters / resolvedObject removed from deps — they're
-  // recreated on every frame re-render, causing excessive cache clears.
-  const indexedCacheClearsRef = useRef(0);
+  // Invalidate indexed tag cache ONLY when indexing configuration changes.
+  // We compare a compact signature against the previous value — clears
+  // are only triggered on actual config changes, not on re-renders.
+  const indexedCacheConfigSignature = `${getFrameTagIndexRulesSignature(renderContext.inheritedIndexRules)}|${stableJsonForCache(renderContext.bindings)}|${renderContext.tagPrefix ?? ""}`;
+  const indexedCacheConfigRef = useRef<string>("");
   useEffect(() => {
-    const changedIdx = indexedCacheClearsRef.current + 1;
-    indexedCacheClearsRef.current = changedIdx;
-    if (debugRuntimePerf && changedIdx > 1) {
-      // Only report from second clear onward (first is mount)
-      // eslint-disable-next-line no-console
-      console.debug("[runtime-perf] indexed-cache-clear", {
-        objectId: object.id,
-        clearCount: changedIdx,
-      });
+    if (indexedCacheConfigRef.current === indexedCacheConfigSignature) {
+      // Config hasn't changed — keep cache alive across re-renders
+      return;
     }
+    indexedCacheConfigRef.current = indexedCacheConfigSignature;
     if (debugRuntimePerf && indexedTagCacheRef.current.size > 0) {
       runtimeAnimationIndexedCacheClears += 1;
     }
     indexedTagCacheRef.current.clear();
-  }, [
-    project,
-    renderContext.bindings,
-    renderContext.tagPrefix,
-    inheritedIndexRulesSignature,
-  ]);
+  }, [indexedCacheConfigSignature]);
 
   const tagValue = (name: string | undefined, options?: { useObjectIndexing?: boolean; fieldName?: string }): ResolvedTagValue => {
     const resolved = resolveTagName(name, renderContext);
